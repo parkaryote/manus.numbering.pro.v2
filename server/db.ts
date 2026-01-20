@@ -1,6 +1,19 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import {
+  InsertUser,
+  users,
+  subjects,
+  questions,
+  practiceSessions,
+  testSessions,
+  reviewSchedules,
+  InsertSubject,
+  InsertQuestion,
+  InsertPracticeSession,
+  InsertTestSession,
+  InsertReviewSchedule,
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +102,149 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ========== Subject Queries ==========
+export async function getSubjectsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(subjects).where(eq(subjects.userId, userId));
+}
+
+export async function getSubjectById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(subjects).where(eq(subjects.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createSubject(subject: InsertSubject) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(subjects).values(subject);
+  const insertId = Number(result[0].insertId);
+  const created = await db.select().from(subjects).where(eq(subjects.id, insertId)).limit(1);
+  return created[0];
+}
+
+export async function updateSubject(id: number, data: Partial<InsertSubject>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.update(subjects).set(data).where(eq(subjects.id, id));
+}
+
+export async function deleteSubject(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.delete(subjects).where(eq(subjects.id, id));
+}
+
+// ========== Question Queries ==========
+export async function getQuestionsBySubjectId(subjectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(questions).where(eq(questions.subjectId, subjectId));
+}
+
+export async function getQuestionsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(questions).where(eq(questions.userId, userId));
+}
+
+export async function getQuestionById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(questions).where(eq(questions.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createQuestion(question: InsertQuestion) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(questions).values(question);
+  const insertId = Number(result[0].insertId);
+  const created = await db.select().from(questions).where(eq(questions.id, insertId)).limit(1);
+  return created[0];
+}
+
+export async function updateQuestion(id: number, data: Partial<InsertQuestion>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.update(questions).set(data).where(eq(questions.id, id));
+}
+
+export async function deleteQuestion(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.delete(questions).where(eq(questions.id, id));
+}
+
+// ========== Practice Session Queries ==========
+export async function getPracticeSessionsByQuestionId(questionId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(practiceSessions).where(eq(practiceSessions.questionId, questionId));
+}
+
+export async function getPracticeSessionsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(practiceSessions).where(eq(practiceSessions.userId, userId));
+}
+
+export async function createPracticeSession(session: InsertPracticeSession) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(practiceSessions).values(session);
+  const insertId = Number(result[0].insertId);
+  const created = await db.select().from(practiceSessions).where(eq(practiceSessions.id, insertId)).limit(1);
+  return created[0];
+}
+
+// ========== Test Session Queries ==========
+export async function getTestSessionsByQuestionId(questionId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(testSessions).where(eq(testSessions.questionId, questionId));
+}
+
+export async function getTestSessionsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(testSessions).where(eq(testSessions.userId, userId));
+}
+
+export async function createTestSession(session: InsertTestSession) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.insert(testSessions).values(session);
+}
+
+// ========== Review Schedule Queries ==========
+export async function getReviewSchedulesByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(reviewSchedules).where(eq(reviewSchedules.userId, userId));
+}
+
+export async function getReviewScheduleByQuestionId(questionId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(reviewSchedules)
+    .where(and(eq(reviewSchedules.questionId, questionId), eq(reviewSchedules.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function createReviewSchedule(schedule: InsertReviewSchedule) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.insert(reviewSchedules).values(schedule);
+}
+
+export async function updateReviewSchedule(id: number, data: Partial<InsertReviewSchedule>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.update(reviewSchedules).set(data).where(eq(reviewSchedules.id, id));
+}
