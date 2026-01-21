@@ -386,12 +386,12 @@ ${input.userAnswer}
         } catch (error) {
           console.error("LLM evaluation error:", error);
           
-          // Fallback to simple comparison
-          const correctAnswer = question.answer.trim().toLowerCase();
+          // Fallback to simple comparison (use correctAnswer from above)
+          const correctAnswerNormalized = correctAnswer.trim().toLowerCase();
           const userAnswerNormalized = input.userAnswer.trim().toLowerCase();
-          const isCorrect = correctAnswer === userAnswerNormalized ? 1 : 0;
+          const isCorrect = correctAnswerNormalized === userAnswerNormalized ? 1 : 0;
           const similarityScore = Math.round(
-            (1 - (Math.abs(correctAnswer.length - userAnswerNormalized.length) / Math.max(correctAnswer.length, userAnswerNormalized.length))) * 100
+            (1 - (Math.abs(correctAnswerNormalized.length - userAnswerNormalized.length) / Math.max(correctAnswerNormalized.length, userAnswerNormalized.length))) * 100
           );
 
           await db.createTestSession({

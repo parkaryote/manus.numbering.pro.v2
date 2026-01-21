@@ -285,3 +285,9 @@
   - [x] Tab 키 입력 시 다음 라벨 답안 입력 필드로 포커스 이동
   - [x] Shift+Tab으로 이전 필드 이동
   - [x] data-label-id 속성으로 필드 식별 및 포커스 이동
+
+# 버그 수정 (v1.4.5)
+- [x] 이미지 문제 채점 로직 오류 수정
+  - [x] 정답 여부, 유사도, 정확도가 0%로 표시되는 문제 해결
+  - [x] fallback 로직에서 question.answer 대신 correctAnswer 변수 사용
+  - [x] imageLabels에서 추출한 correctAnswer가 fallback에서도 유지되도록 수정
