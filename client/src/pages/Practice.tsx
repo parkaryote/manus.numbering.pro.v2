@@ -17,6 +17,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isActive, setIsActive] = useState(true); // 측정 중 여부
   const [lastInputTime, setLastInputTime] = useState<number>(Date.now());
+  const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -91,6 +92,27 @@ export default function Practice({ questionId }: PracticeProps) {
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Ctrl+Enter: Complete
+    if (e.ctrlKey && e.key === "Enter") {
+      e.preventDefault();
+      handleComplete();
+    }
+    // Esc: Go back
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setLocation("/practice");
+    }
+  };
+
+  const handleCompositionStart = () => {
+    setIsComposing(true);
+  };
+
+  const handleCompositionEnd = () => {
+    setIsComposing(false);
+  };
+
   const handleComplete = async () => {
     if (!question || elapsedTime === 0) return;
 
@@ -137,13 +159,16 @@ export default function Practice({ questionId }: PracticeProps) {
 
       inputIndex++;
 
-      let className = "border-b border-gray-300 text-gray-400"; // Default: not typed yet
+      let className = "text-gray-400"; // Default: not typed yet
       if (isNext) {
         className = "border-b-4 border-gray-600 text-gray-400"; // Next: thick underline
+      } else if (isComposing) {
+        // During composition, don't show colors
+        className = "text-gray-400";
       } else if (isCorrect) {
-        className = "border-b border-transparent text-foreground"; // Correct: black text, no underline
+        className = "text-foreground"; // Correct: black text
       } else if (isError) {
-        className = "border-b border-transparent text-red-500"; // Error: red text, no underline
+        className = "text-red-500"; // Error: red text
       }
 
       return (
@@ -221,6 +246,9 @@ export default function Practice({ questionId }: PracticeProps) {
             ref={textareaRef}
             value={userInput}
             onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
             className="w-full min-h-[200px] p-4 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary opacity-0 h-0 absolute"
             placeholder="여기에 입력하세요..."
             autoFocus
