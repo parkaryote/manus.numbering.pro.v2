@@ -165,3 +165,9 @@
   - [x] 이미지 탭 선택 시 텍스트 탭으로 돌아가는 문제 (activeTab 상태 추가)
   - [x] 이미지 업로드 후 탭 상태 유지 (value/onValueChange 적용)
   - [x] 이미지 문제 질문 입력 필드 독립적으로 작동 (동일 formData.question 사용)
+
+# 버그 수정 (v1.2.3)
+- [x] 이미지 업로드 시 무한 루프 오류 수정
+  - [x] ImageLabelEditor useEffect에 onChange dependency 추가
+  - [x] Questions 페이지 onChange를 useCallback으로 감싸기
+  - [x] setState 무한 호출 방지

@@ -30,7 +30,7 @@ export function ImageLabelEditor({ imageUrl, initialLabels = [], onChange }: Ima
 
   useEffect(() => {
     onChange(labels);
-  }, [labels]);
+  }, [labels, onChange]);
 
   const getRelativePosition = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!imageRef.current) return { x: 0, y: 0 };
@@ -79,7 +79,8 @@ export function ImageLabelEditor({ imageUrl, initialLabels = [], onChange }: Ima
       answer: "",
     };
 
-    setLabels([...labels, newLabel]);
+    const updatedLabels = [...labels, newLabel];
+    setLabels(updatedLabels);
     setSelectedLabelId(newLabel.id);
     setIsDragging(false);
     setDragStart(null);
@@ -88,11 +89,13 @@ export function ImageLabelEditor({ imageUrl, initialLabels = [], onChange }: Ima
   };
 
   const handleLabelUpdate = (id: string, answer: string) => {
-    setLabels(labels.map((l) => (l.id === id ? { ...l, answer } : l)));
+    const updatedLabels = labels.map((l) => (l.id === id ? { ...l, answer } : l));
+    setLabels(updatedLabels);
   };
 
   const handleLabelDelete = (id: string) => {
-    setLabels(labels.filter((l) => l.id !== id));
+    const updatedLabels = labels.filter((l) => l.id !== id);
+    setLabels(updatedLabels);
     if (selectedLabelId === id) {
       setSelectedLabelId(null);
     }
