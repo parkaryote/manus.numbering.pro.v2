@@ -255,21 +255,72 @@ export const appRouter = router({
             correctAnswer = imageLabels.map((label: any, index: number) => 
               `${index + 1}. ${label.answer}`
             ).join("\n");
+            console.log("[DEBUG] Image question detected");
+            console.log("[DEBUG] correctAnswer:", correctAnswer);
+            console.log("[DEBUG] userAnswer:", input.userAnswer);
           } catch (e) {
             console.error("Failed to parse imageLabels:", e);
           }
         }
+        
+        console.log("[DEBUG] useAIGrading:", question.useAIGrading);
 
         // Check if AI grading is enabled for this question
         if (!question.useAIGrading) {
-          // Fallback to simple string comparison
+          // 이미지 문제인 경우 라벨별로 채점
+          if (isImageQuestion) {
+            try {
+              const imageLabels = JSON.parse(question.imageLabels || "[]");
+              const userAnswerLines = input.userAnswer.split("\n");
+              
+              let correctCount = 0;
+              const totalCount = imageLabels.length;
+              
+              for (let i = 0; i < totalCount; i++) {
+                const correctAnswer = imageLabels[i]?.answer?.trim().toLowerCase() || "";
+                // "사용자 입력: 1. 답안" 형식에서 "답안" 부분만 추출
+                const userAnswerLine = userAnswerLines[i] || "";
+                const userAnswer = userAnswerLine.replace(/^\d+\.\s*/, "").trim().toLowerCase();
+                
+                console.log(`[DEBUG] Label ${i + 1}: correct="${correctAnswer}", user="${userAnswer}"`);
+                
+                if (userAnswer === correctAnswer) {
+                  correctCount++;
+                }
+              }
+              
+              const accuracyRate = Math.round((correctCount / totalCount) * 100);
+              const isCorrect = accuracyRate === 100;
+              
+              console.log(`[DEBUG] Image question grading: ${correctCount}/${totalCount} correct, accuracy: ${accuracyRate}%`);
+              
+              return {
+                isCorrect,
+                similarityScore: accuracyRate,
+                accuracyRate,
+                mistakes: [],
+                feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctCount}/${totalCount} 정답`,
+                missingKeywords: [],
+              };
+            } catch (e) {
+              console.error("Failed to grade image question:", e);
+            }
+          }
+          
+          // Fallback to simple string comparison for text questions
           const normalizedUser = input.userAnswer.trim().toLowerCase().replace(/\s+/g, "");
           const normalizedCorrect = correctAnswer.trim().toLowerCase().replace(/\s+/g, "");
           const isCorrect = normalizedUser === normalizedCorrect;
           
+          console.log("[DEBUG] Simple comparison mode");
+          console.log("[DEBUG] normalizedUser:", normalizedUser);
+          console.log("[DEBUG] normalizedCorrect:", normalizedCorrect);
+          console.log("[DEBUG] isCorrect:", isCorrect);
+          
           return {
             isCorrect,
             similarityScore: isCorrect ? 100 : 0,
+            accuracyRate: isCorrect ? 100 : 0,
             mistakes: [],
             feedback: isCorrect ? "정확하게 작성하셨습니다!" : "답안을 다시 확인해보세요.",
             missingKeywords: [],

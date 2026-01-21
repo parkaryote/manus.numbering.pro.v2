@@ -1,0 +1,16 @@
+{
+  "query": "SELECT id, question, imageUrl, imageLabels FROM questions WHERE question LIKE '%adrenal%' OR question LIKE '%해부%' LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT id, question, imageUrl, imageLabels FROM questions WHERE question LIKE '%adrenal%' OR question LIKE '%해부%' LIMIT 5;",
+  "rows": [
+    {
+      "id": "90001",
+      "question": "adrenal gland",
+      "imageUrl": "https://d2xsxph8kpxj0f.cloudfront.net/310519663305612880/Zt6E6wVVzDENrVcXUKGBHG/questions/-ycsDMTu7FY3g27kZpLm1.blob",
+      "imageLabels": "[{\"id\":\"label-1768981628421\",\"x\":9.451795568576644,\"y\":39.68990469708802,\"width\":18.43100135872446,\"height\":7.517227074298425,\"answer\":\"1번\"},{\"id\":\"label-1768981631309\",\"x\":13.232513796007304,\"y\":63.076833372683105,\"width\":15.12287290972263,\"height\":4.176237263499111,\"answer\":\"2번\"},{\"id\":\"label-1768981633453\",\"x\":43.00566983702374,\"y\":36.348914886288725,\"width\":14.650283131293797,\"height\":7.517227074298418,\"answer\":\"3번\"},{\"id\":\"label-1768981635045\",\"x\":51.512285848742714,\"y\":61.40633846728345,\"width\":8.979205790147816,\"height\":5.011484716198964,\"answer\":\"4번\"},{\"id\":\"label-1768981639350\",\"x\":74.19659521332666,\"y\":53.889111392985036,\"width\":25.047258256728114,\"height\":6.6819796215986,\"answer\":\"5번\"}]"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tquestion\timageUrl\timageLabels\n90001\tadrenal gland\thttps://d2xsxph8kpxj0f.cloudfront.net/310519663305612880/Zt6E6wVVzDENrVcXUKGBHG/questions/-ycsDMTu7FY3g27kZpLm1.blob\t[{\"id\":\"label-1768981628421\",\"x\":9.451795568576644,\"y\":39.68990469708802,\"width\":18.43100135872446,\"height\":7.517227074298425,\"answer\":\"1번\"},{\"id\":\"label-1768981631309\",\"x\":13.232513796007304,\"y\":63.076833372683105,\"width\":15.12287290972263,\"height\":4.176237263499111,\"answer\":\"2번\"},{\"id\":\"label-1768981633453\",\"x\":43.00566983702374,\"y\":36.348914886288725,\"width\":14.650283131293797,\"height\":7.517227074298418,\"answer\":\"3번\"},{\"id\":\"label-1768981635045\",\"x\":51.512285848742714,\"y\":61.40633846728345,\"width\":8.979205790147816,\"height\":5.011484716198964,\"answer\":\"4번\"},{\"id\":\"label-1768981639350\",\"x\":74.19659521332666,\"y\":53.889111392985036,\"width\":25.047258256728114,\"height\":6.6819796215986,\"answer\":\"5번\"}]\n",
+  "stderr": "",
+  "execution_time_ms": 1498
+}

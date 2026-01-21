@@ -291,3 +291,14 @@
   - [x] 정답 여부, 유사도, 정확도가 0%로 표시되는 문제 해결
   - [x] fallback 로직에서 question.answer 대신 correctAnswer 변수 사용
   - [x] imageLabels에서 추출한 correctAnswer가 fallback에서도 유지되도록 수정
+
+# 버그 수정 (v1.4.6)
+- [x] 이미지 문제 채점 로직 디버깅
+  - [x] 서버 로그에서 correctAnswer 값 확인
+  - [x] useAIGrading 플래그 확인
+  - [x] 문자열 비교 로직 검증
+- [x] 이미지 문제 라벨별 채점 로직 구현
+  - [x] 각 라벨별로 개별 비교 (imageLabels[i].answer vs userAnswerLines[i])
+  - [x] 라벨별 정답 여부 계산
+  - [x] 전체 정확도 = (맞은 라벨 수 / 전체 라벨 수) * 100
+  - [x] 피드백 메시지에 "맞은 개수/전체 개수" 표시
