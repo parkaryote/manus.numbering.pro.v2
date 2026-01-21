@@ -12,6 +12,7 @@ import { useLocation } from "wouter";
 import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { ImageLabelEditor, ImageLabel } from "@/components/ImageLabelEditor";
+import imageCompression from "browser-image-compression";
 
 interface QuestionsProps {
   subjectId: number;
@@ -89,23 +90,34 @@ export default function Questions({ subjectId }: QuestionsProps) {
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      toast.error("이미지 파일만 업로드 가능합니다");
+      toast.error("이미지 파일만 업로드할 수 있습니다");
       return;
     }
 
+    // 파일 크기 체크 (16MB 제한)
     if (file.size > 16 * 1024 * 1024) {
       toast.error("파일 크기는 16MB 이하여야 합니다");
       return;
     }
 
     setIsUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
+    
     try {
+      // 이미지 압축 (2MB 이하로)
+      const options = {
+        maxSizeMB: 2,
+        maxWidthOrHeight: 1920,
+        useWebWorker: true,
+      };
+      
+      const compressedFile = await imageCompression(file, options);
+      
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", compressedFile);
+
       const response = await fetch("/api/upload/image", {
         method: "POST",
-        body: formData,
+        body: uploadFormData,
       });
 
       if (!response.ok) {

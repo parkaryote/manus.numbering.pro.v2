@@ -177,3 +177,14 @@
   - [x] ImageLabelEditor useEffect 제거
   - [x] onChange를 labels 변경 시점에만 직접 호출
   - [x] useCallback 제거 (일반 함수로 변경)
+
+# 성능 개선 (v1.2.5)
+- [x] 이미지 업로드 속도 개선
+  - [x] 클라이언트 측 이미지 압축 추가 (browser-image-compression)
+  - [x] 파일 크기 제한 (16MB → 2MB 압축)
+  - [x] 이미지 해상도 제한 (1920px)
+  - [x] Web Worker 사용으로 메인 스레드 차단 방지
+- [x] 질문 입력 필드 끊김 현상 해결
+  - [x] ImageLabelEditor를 React.memo로 최적화
+  - [x] 불필요한 리렌더링 방지
+  - [x] formData 상태 업데이트 최적화

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +20,7 @@ interface ImageLabelEditorProps {
   onChange: (labels: ImageLabel[]) => void;
 }
 
-export function ImageLabelEditor({ imageUrl, initialLabels = [], onChange }: ImageLabelEditorProps) {
+function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: ImageLabelEditorProps) {
   const [labels, setLabels] = useState<ImageLabel[]>(initialLabels);
   const [selectedLabelId, setSelectedLabelId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -233,3 +233,5 @@ export function ImageLabelEditor({ imageUrl, initialLabels = [], onChange }: Ima
     </div>
   );
 }
+
+export const ImageLabelEditor = memo(ImageLabelEditorComponent);
