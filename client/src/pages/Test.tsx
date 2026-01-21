@@ -338,7 +338,7 @@ export default function Test({ questionId }: TestProps) {
 
               {isImageQuestion ? (
                 <div className="space-y-4">
-                  {/* 이미지 표시 (라벨 영역 없이) */}
+                  {/* 이미지 표시 (불투명 박스로 라벨 영역 표시) */}
                   <div className="relative inline-block">
                     <img
                       src={question.imageUrl || ""}
@@ -346,6 +346,21 @@ export default function Test({ questionId }: TestProps) {
                       className="max-w-full h-auto rounded-lg border-2 border-border"
                       loading="lazy"
                     />
+                    {/* 불투명 박스로 라벨 영역 표시 */}
+                    {imageLabels.map((label: any, index: number) => (
+                      <div
+                        key={index}
+                        className="absolute bg-black border-2 border-primary flex items-center justify-center"
+                        style={{
+                          left: `${label.x}%`,
+                          top: `${label.y}%`,
+                          width: `${label.width}%`,
+                          height: `${label.height}%`,
+                        }}
+                      >
+                        <span className="text-white font-bold text-2xl">{index + 1}</span>
+                      </div>
+                    ))}
                   </div>
                   {/* 라벨별 입력 필드 */}
                   <div className="space-y-3">
@@ -375,10 +390,12 @@ export default function Test({ questionId }: TestProps) {
                 />
               )}
 
-              <Separator />
+              {!isImageQuestion && (
+                <>
+                  <Separator />
 
-              <div className="space-y-3">
-                <p className="text-sm font-medium">음성 입력</p>
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium">음성 입력</p>
                 <div className="flex gap-2">
                   {!isRecording ? (
                     <Button
@@ -408,10 +425,14 @@ export default function Test({ questionId }: TestProps) {
                       {transcribeMutation.isPending ? "변환 중..." : "텍스트 변환"}
                     </Button>
                   )}
+                  </div>
                 </div>
-              </div>
 
-              <Separator />
+                <Separator />
+              </>
+              )}
+
+              {isImageQuestion && <Separator />}
 
               <div className="flex gap-2">
                 <Button
