@@ -18,6 +18,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const [isActive, setIsActive] = useState(true); // 측정 중 여부
   const [lastInputTime, setLastInputTime] = useState<number>(Date.now());
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
+  const [lastCompletedLength, setLastCompletedLength] = useState(0); // 마지막으로 완성된 글자 길이
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -111,6 +112,9 @@ export default function Practice({ questionId }: PracticeProps) {
 
   const handleCompositionEnd = () => {
     setIsComposing(false);
+    // 조합 종료 시 현재 길이 저장
+    const normalized = normalizeText(userInput);
+    setLastCompletedLength(normalized.length);
   };
 
   const handleComplete = async () => {
@@ -162,8 +166,8 @@ export default function Practice({ questionId }: PracticeProps) {
       let className = "text-gray-400"; // Default: not typed yet
       if (isNext) {
         className = "border-b-4 border-gray-600 text-gray-400"; // Next: thick underline
-      } else if (isComposing) {
-        // During composition, don't show colors
+      } else if (isComposing && inputIndex > lastCompletedLength) {
+        // 조합 중이고 아직 완성되지 않은 부분만 회색
         className = "text-gray-400";
       } else if (isCorrect) {
         className = "text-foreground"; // Correct: black text
