@@ -97,16 +97,38 @@ export default function Test({ questionId }: TestProps) {
   };
 
   const handleSubmit = async () => {
-    if (!question || !userAnswer.trim()) {
-      toast.error("답안을 입력하세요");
-      return;
-    }
+    if (!question) return;
 
-    await evaluateMutation.mutateAsync({
-      questionId: question.id,
-      userAnswer: userAnswer.trim(),
-      recallTime,
-    });
+    // 이미지 문제인 경우 라벨 답안 확인
+    if (isImageQuestion) {
+      const hasAllAnswers = imageLabels.every((_: any, index: number) => 
+        imageLabelAnswers[index]?.trim()
+      );
+      if (!hasAllAnswers) {
+        toast.error("모든 영역의 답안을 입력하세요");
+        return;
+      }
+      // 라벨 답안을 합쳐서 전송
+      const combinedAnswer = imageLabels.map((_: any, index: number) => 
+        `${index + 1}. ${imageLabelAnswers[index]}`
+      ).join("\n");
+      await evaluateMutation.mutateAsync({
+        questionId: question.id,
+        userAnswer: combinedAnswer,
+        recallTime,
+      });
+    } else {
+      // 텍스트 문제인 경우
+      if (!userAnswer.trim()) {
+        toast.error("답안을 입력하세요");
+        return;
+      }
+      await evaluateMutation.mutateAsync({
+        questionId: question.id,
+        userAnswer: userAnswer.trim(),
+        recallTime,
+      });
+    }
   };
 
   const handleStartRecording = async () => {
@@ -256,11 +278,11 @@ export default function Test({ questionId }: TestProps) {
                 onLoad={() => setImageLoaded(true)}
                 loading="lazy"
               />
-              {/* 암기 시간에만 라벨 영역 표시 */}
+              {/* 암기 시간에만 라벨 영역 표시 (불투명 박스로 가리기) */}
               {!isStarted && imageLoaded && imageLabels.map((label: any, index: number) => (
                 <div
                   key={index}
-                  className="absolute border-2 border-primary bg-primary/10"
+                  className="absolute bg-black/80 border-2 border-primary flex items-center justify-center"
                   style={{
                     left: `${label.x}%`,
                     top: `${label.y}%`,
@@ -268,9 +290,7 @@ export default function Test({ questionId }: TestProps) {
                     height: `${label.height}%`,
                   }}
                 >
-                  <div className="absolute -top-6 left-0 text-xs font-semibold text-primary">
-                    {index + 1}
-                  </div>
+                  <span className="text-white font-bold text-2xl">{index + 1}</span>
                 </div>
               ))}
             </div>
@@ -388,7 +408,9 @@ export default function Test({ questionId }: TestProps) {
               <div className="flex gap-2">
                 <Button
                   onClick={handleSubmit}
-                  disabled={evaluateMutation.isPending || !userAnswer.trim()}
+                  disabled={evaluateMutation.isPending || (isImageQuestion ? 
+                    !imageLabels.every((_: any, index: number) => imageLabelAnswers[index]?.trim()) : 
+                    !userAnswer.trim())}
                   className="gap-2"
                 >
                   <Send className="h-4 w-4" />
