@@ -257,46 +257,48 @@ export default function Test({ questionId }: TestProps) {
         </div>
       </div>
 
-      {/* Question */}
-      <Card className="shadow-elegant">
-        <CardHeader>
-          <CardTitle>문제</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-lg whitespace-pre-wrap">{question.question}</p>
-          {isImageQuestion && (
-            <div className="relative inline-block">
-              {!imageLoaded && (
-                <div className="w-full h-64 bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
-                  <p className="text-muted-foreground">이미지 로딩 중...</p>
-                </div>
-              )}
-              <img
-                src={question.imageUrl || ""}
-                alt="Question image"
-                className={`max-w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
-                onLoad={() => setImageLoaded(true)}
-                loading="lazy"
-              />
-              {/* 암기 시간에만 라벨 영역 표시 (완전 불투명 박스로 가리기) */}
-              {!isStarted && imageLoaded && imageLabels.map((label: any, index: number) => (
-                <div
-                  key={index}
-                  className="absolute bg-black border-2 border-primary flex items-center justify-center"
-                  style={{
-                    left: `${label.x}%`,
-                    top: `${label.y}%`,
-                    width: `${label.width}%`,
-                    height: `${label.height}%`,
-                  }}
-                >
-                  <span className="text-white font-bold text-2xl">{index + 1}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Question - 시험 시작 전에만 표시 */}
+      {!isStarted && (
+        <Card className="shadow-elegant">
+          <CardHeader>
+            <CardTitle>문제</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-lg whitespace-pre-wrap">{question.question}</p>
+            {isImageQuestion && (
+              <div className="relative inline-block">
+                {!imageLoaded && (
+                  <div className="w-full h-64 bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
+                    <p className="text-muted-foreground">이미지 로딩 중...</p>
+                  </div>
+                )}
+                <img
+                  src={question.imageUrl || ""}
+                  alt="Question image"
+                  className={`max-w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
+                  onLoad={() => setImageLoaded(true)}
+                  loading="lazy"
+                />
+                {/* 암기 시간에 라벨 영역 표시 (완전 불투명 박스로 가리기) */}
+                {imageLoaded && imageLabels.map((label: any, index: number) => (
+                  <div
+                    key={index}
+                    className="absolute bg-black border-2 border-primary flex items-center justify-center"
+                    style={{
+                      left: `${label.x}%`,
+                      top: `${label.y}%`,
+                      width: `${label.width}%`,
+                      height: `${label.height}%`,
+                    }}
+                  >
+                    <span className="text-white font-bold text-2xl">{index + 1}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Controls */}
       {!isStarted ? (
@@ -328,6 +330,12 @@ export default function Test({ questionId }: TestProps) {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* 문제 텍스트 표시 */}
+              <div className="p-4 bg-muted/30 rounded-lg border">
+                <p className="text-sm font-semibold text-muted-foreground mb-2">문제</p>
+                <p className="text-base whitespace-pre-wrap">{question.question}</p>
+              </div>
+
               {isImageQuestion ? (
                 <div className="space-y-4">
                   {/* 이미지 표시 (라벨 영역 없이) */}

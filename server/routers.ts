@@ -244,11 +244,27 @@ export const appRouter = router({
           throw new Error("문제를 찾을 수 없습니다");
         }
 
+        // 이미지 문제인 경우 imageLabels에서 정답 추출
+        const isImageQuestion = question.imageUrl && question.imageLabels;
+        let correctAnswer = question.answer || "";
+        
+        if (isImageQuestion) {
+          try {
+            const imageLabels = JSON.parse(question.imageLabels || "[]");
+            // 각 라벨의 정답을 합쳐서 정답 문자열 생성
+            correctAnswer = imageLabels.map((label: any, index: number) => 
+              `${index + 1}. ${label.answer}`
+            ).join("\n");
+          } catch (e) {
+            console.error("Failed to parse imageLabels:", e);
+          }
+        }
+
         // Check if AI grading is enabled for this question
         if (!question.useAIGrading) {
           // Fallback to simple string comparison
           const normalizedUser = input.userAnswer.trim().toLowerCase().replace(/\s+/g, "");
-          const normalizedCorrect = question.answer.trim().toLowerCase().replace(/\s+/g, "");
+          const normalizedCorrect = correctAnswer.trim().toLowerCase().replace(/\s+/g, "");
           const isCorrect = normalizedUser === normalizedCorrect;
           
           return {
@@ -277,7 +293,7 @@ export const appRouter = router({
 ${question.question}
 
 **모범 답안:**
-${question.answer}
+${correctAnswer}
 
 **학생 답안:**
 ${input.userAnswer}
