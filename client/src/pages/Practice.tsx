@@ -115,7 +115,13 @@ export default function Practice({ questionId }: PracticeProps) {
     // 조합 종료 시 현재 길이 저장
     const target = e.target as HTMLTextAreaElement;
     const normalized = normalizeText(target.value);
-    setLastCompletedLength(normalized.length);
+    const normalizedTarget = normalizeText(targetText);
+    
+    // 정답 글자가 완성되면 즉시 다음으로 이동
+    if (normalized.length > lastCompletedLength && 
+        normalized[normalized.length - 1] === normalizedTarget[normalized.length - 1]) {
+      setLastCompletedLength(normalized.length);
+    }
   };
 
   const handleComplete = async () => {
