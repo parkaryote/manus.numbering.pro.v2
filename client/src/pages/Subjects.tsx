@@ -73,7 +73,7 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: any) {
           className="w-4 h-4 rounded-full flex-shrink-0"
           style={{ backgroundColor: subject.color }}
         />
-        <div className="flex-1 min-w-0" onClick={() => setLocation(`/questions?subject=${subject.id}`)}>
+        <div className="flex-1 min-w-0" onClick={() => setLocation(`/questions/${subject.id}`)}>
           <CardTitle className="text-lg">{subject.name}</CardTitle>
           {subject.description && (
             <CardDescription className="line-clamp-1">{subject.description}</CardDescription>
