@@ -158,7 +158,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
     createMutation.mutate({
       subjectId,
       question: formData.question,
-      answer: formData.answer,
+      answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : formData.answer,
       difficulty: formData.difficulty,
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
@@ -197,7 +197,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
     updateMutation.mutate({
       id: editingQuestion.id,
       question: formData.question,
-      answer: formData.answer,
+      answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : formData.answer,
       difficulty: formData.difficulty,
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,

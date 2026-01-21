@@ -188,3 +188,10 @@
   - [x] ImageLabelEditor를 React.memo로 최적화
   - [x] 불필요한 리렌더링 방지
   - [x] formData 상태 업데이트 최적화
+
+# 버그 수정 (v1.2.6)
+- [x] 이미지 문제 생성 시 answer 필드 오류 해결
+  - [x] 서버 스키마에서 answer 필드를 optional로 변경
+  - [x] 이미지 문제 생성 시 answer 기본값 처리
+  - [x] 클라이언트에서 이미지 문제 생성 시 answer 필드 처리
+  - [x] imageUrl, imageLabels 필드 스키마에 추가

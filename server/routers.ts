@@ -102,16 +102,20 @@ export const appRouter = router({
       .input(z.object({
         subjectId: z.number(),
         question: z.string().min(1),
-        answer: z.string().min(1),
+        answer: z.string().optional(),
         difficulty: z.enum(["easy", "medium", "hard"]).optional(),
+        imageUrl: z.string().optional(),
+        imageLabels: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         return db.createQuestion({
           userId: ctx.user.id,
           subjectId: input.subjectId,
           question: input.question,
-          answer: input.answer,
+          answer: input.answer || "",
           difficulty: input.difficulty,
+          imageUrl: input.imageUrl,
+          imageLabels: input.imageLabels,
         });
       }),
     
@@ -119,8 +123,10 @@ export const appRouter = router({
       .input(z.object({
         id: z.number(),
         question: z.string().min(1).optional(),
-        answer: z.string().min(1).optional(),
+        answer: z.string().optional(),
         difficulty: z.enum(["easy", "medium", "hard"]).optional(),
+        imageUrl: z.string().optional(),
+        imageLabels: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
