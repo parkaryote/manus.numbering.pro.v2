@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -26,6 +26,9 @@ export default function Questions({ subjectId }: QuestionsProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<"text" | "image">("text");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const questionInputRef = useRef<HTMLTextAreaElement>(null);
+  const answerInputRef = useRef<HTMLTextAreaElement>(null);
+  const questionImageInputRef = useRef<HTMLTextAreaElement>(null);
   
   const [formData, setFormData] = useState({
     question: "",
@@ -83,6 +86,11 @@ export default function Questions({ subjectId }: QuestionsProps) {
       imageLabels: [],
     });
     setActiveTab("text");
+    
+    // Reset input refs
+    if (questionInputRef.current) questionInputRef.current.value = "";
+    if (answerInputRef.current) answerInputRef.current.value = "";
+    if (questionImageInputRef.current) questionImageInputRef.current.value = "";
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -135,8 +143,13 @@ export default function Questions({ subjectId }: QuestionsProps) {
     }
   };
 
-  const handleCreate = () => {
-    if (!formData.question.trim()) {
+  const handleCreate = useCallback(() => {
+    const question = activeTab === "text" 
+      ? questionInputRef.current?.value || ""
+      : questionImageInputRef.current?.value || "";
+    const answer = answerInputRef.current?.value || "";
+
+    if (!question.trim()) {
       toast.error("질문을 입력하세요");
       return;
     }
@@ -149,7 +162,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
         toast.error("모든 영역의 정답을 입력하세요");
         return;
       }
-    } else if (!formData.answer.trim()) {
+    } else if (!answer.trim()) {
       // Text-based question
       toast.error("답안을 입력하세요");
       return;
@@ -157,13 +170,13 @@ export default function Questions({ subjectId }: QuestionsProps) {
 
     createMutation.mutate({
       subjectId,
-      question: formData.question,
-      answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : formData.answer,
+      question,
+      answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : answer,
       difficulty: formData.difficulty,
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
     } as any);
-  };
+  }, [activeTab, formData.imageUrl, formData.imageLabels, formData.difficulty, subjectId, createMutation]);
 
   const handleEdit = (question: any) => {
     setEditingQuestion(question);
@@ -233,9 +246,9 @@ export default function Questions({ subjectId }: QuestionsProps) {
         <div className="space-y-2">
           <Label htmlFor="question">질문 *</Label>
           <Textarea
+            ref={questionInputRef}
             id="question"
-            value={formData.question}
-            onChange={(e) => setFormData({ ...formData, question: e.target.value })}
+            defaultValue={formData.question}
             placeholder="예: 조선시대의 주요 사건을 시대순으로 나열하시오"
             rows={3}
           />
@@ -243,9 +256,9 @@ export default function Questions({ subjectId }: QuestionsProps) {
         <div className="space-y-2">
           <Label htmlFor="answer">답안 *</Label>
           <Textarea
+            ref={answerInputRef}
             id="answer"
-            value={formData.answer}
-            onChange={(e) => setFormData({ ...formData, answer: e.target.value })}
+            defaultValue={formData.answer}
             placeholder="모범 답안을 입력하세요"
             rows={6}
           />
@@ -274,9 +287,9 @@ export default function Questions({ subjectId }: QuestionsProps) {
         <div className="space-y-2">
           <Label htmlFor="question-image">질문 *</Label>
           <Textarea
+            ref={questionImageInputRef}
             id="question-image"
-            value={formData.question}
-            onChange={(e) => setFormData({ ...formData, question: e.target.value })}
+            defaultValue={formData.question}
             placeholder="예: 다음 해부도에서 표시된 부위의 명칭을 쓰시오"
             rows={2}
           />

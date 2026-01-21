@@ -195,3 +195,10 @@
   - [x] 이미지 문제 생성 시 answer 기본값 처리
   - [x] 클라이언트에서 이미지 문제 생성 시 answer 필드 처리
   - [x] imageUrl, imageLabels 필드 스키마에 추가
+
+# 버그 수정 (v1.2.7)
+- [x] 입력 필드 끊김 현상 완전 해결
+  - [x] textarea를 controlled input에서 uncontrolled로 변경 (useRef 사용)
+  - [x] useCallback으로 handleCreate 메모이제이션
+  - [x] 불필요한 리렌더링 방지
+  - [x] resetForm에서 ref 초기화 추가
