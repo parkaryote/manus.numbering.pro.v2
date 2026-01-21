@@ -110,10 +110,11 @@ export default function Practice({ questionId }: PracticeProps) {
     setIsComposing(true);
   };
 
-  const handleCompositionEnd = () => {
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
     setIsComposing(false);
     // 조합 종료 시 현재 길이 저장
-    const normalized = normalizeText(userInput);
+    const target = e.target as HTMLTextAreaElement;
+    const normalized = normalizeText(target.value);
     setLastCompletedLength(normalized.length);
   };
 
@@ -159,20 +160,21 @@ export default function Practice({ questionId }: PracticeProps) {
       const isTyped = inputIndex < normalizedInput.length;
       const isCorrect = isTyped && currentChar === normalizedTarget[inputIndex];
       const isError = isTyped && currentChar !== normalizedTarget[inputIndex];
-      const isNext = inputIndex === normalizedInput.length; // Next character to type
+      // 언더바는 조합이 완료된 다음 글자에만 표시
+      const isNext = inputIndex === lastCompletedLength;
 
       inputIndex++;
 
-      let className = "text-gray-400"; // Default: not typed yet
+      let className = "text-gray-400 relative"; // Default: not typed yet
       if (isNext) {
-        className = "border-b-4 border-gray-600 text-gray-400"; // Next: thick underline
+        className = "border-b-4 border-gray-600 text-gray-400 relative animate-pulse"; // Next: thick underline with cursor
       } else if (isComposing && inputIndex > lastCompletedLength) {
         // 조합 중이고 아직 완성되지 않은 부분만 회색
-        className = "text-gray-400";
+        className = "text-gray-400 relative";
       } else if (isCorrect) {
-        className = "text-foreground"; // Correct: black text
+        className = "text-foreground relative"; // Correct: black text
       } else if (isError) {
-        className = "text-red-500"; // Error: red text
+        className = "text-red-500 relative"; // Error: red text
       }
 
       return (

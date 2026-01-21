@@ -140,3 +140,7 @@
   - [x] 이미 완성된 글자는 색상 유지 (lastCompletedLength 추적)
   - [x] 현재 입력 중인 글자만 회색 표시
   - [x] 색상이 깜박이지 않도록 안정화
+
+# UI 추가 수정 (v1.1.5)
+- [x] 입력 칸 커서 표시 (animate-pulse 적용)
+- [x] 언더바가 글자 완성 후에만 다음으로 이동 (lastCompletedLength 기반)
