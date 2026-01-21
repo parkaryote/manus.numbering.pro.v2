@@ -280,7 +280,7 @@ export default function Test({ questionId }: TestProps) {
                   loading="lazy"
                 />
                 {/* 암기 시간에 라벨 영역 표시 (완전 불투명 박스로 가리기) */}
-                {imageLoaded && imageLabels.map((label: any, index: number) => (
+                {imageLoaded && !isStarted && imageLabels.map((label: any, index: number) => (
                   <div
                     key={index}
                     className="absolute bg-black border-2 border-primary flex items-center justify-center"
