@@ -92,6 +92,10 @@ export const appRouter = router({
       return db.getQuestionsByUserId(ctx.user.id);
     }),
     
+    count: protectedProcedure.query(async ({ ctx }) => {
+      return db.countQuestionsByUserId(ctx.user.id);
+    }),
+    
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {

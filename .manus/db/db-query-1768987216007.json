@@ -1,0 +1,142 @@
+{
+  "query": "SELECT id, subjectId, question, userId FROM questions ORDER BY subjectId, id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT id, subjectId, question, userId FROM questions ORDER BY subjectId, id;",
+  "rows": [
+    {
+      "id": "9",
+      "subjectId": "1",
+      "question": "애국가 1절",
+      "userId": "1"
+    },
+    {
+      "id": "10",
+      "subjectId": "1",
+      "question": "애국가 2절",
+      "userId": "1"
+    },
+    {
+      "id": "11",
+      "subjectId": "1",
+      "question": "애국가 3절",
+      "userId": "1"
+    },
+    {
+      "id": "60002",
+      "subjectId": "1",
+      "question": "이것은 입력 끊김 현상 테스트입니다. 빠르게 타이핑해도 끊기지 않아야 합니다. 매우 빠르게 입력해봅시다.",
+      "userId": "1"
+    },
+    {
+      "id": "60001",
+      "subjectId": "5",
+      "question": "ㅎㅗ",
+      "userId": "1"
+    },
+    {
+      "id": "90001",
+      "subjectId": "5",
+      "question": "adrenal gland",
+      "userId": "1"
+    },
+    {
+      "id": "1",
+      "subjectId": "7",
+      "question": "피타고라스 정리를 설명하시오",
+      "userId": "1"
+    },
+    {
+      "id": "2",
+      "subjectId": "8",
+      "question": "What is the capital of France?",
+      "userId": "1"
+    },
+    {
+      "id": "3",
+      "subjectId": "9",
+      "question": "광합성의 과정을 설명하시오",
+      "userId": "1"
+    },
+    {
+      "id": "4",
+      "subjectId": "10",
+      "question": "임진왜란의 원인을 설명하시오",
+      "userId": "1"
+    },
+    {
+      "id": "5",
+      "subjectId": "12",
+      "question": "피타고라스 정리를 설명하시오",
+      "userId": "1"
+    },
+    {
+      "id": "6",
+      "subjectId": "13",
+      "question": "What is the capital of France?",
+      "userId": "1"
+    },
+    {
+      "id": "7",
+      "subjectId": "14",
+      "question": "광합성의 과정을 설명하시오",
+      "userId": "1"
+    },
+    {
+      "id": "8",
+      "subjectId": "15",
+      "question": "임진왜란의 원인을 설명하시오",
+      "userId": "1"
+    },
+    {
+      "id": "30001",
+      "subjectId": "30002",
+      "question": "피타고라스 정리를 설명하시오",
+      "userId": "1"
+    },
+    {
+      "id": "30002",
+      "subjectId": "30003",
+      "question": "What is the capital of France?",
+      "userId": "1"
+    },
+    {
+      "id": "30003",
+      "subjectId": "30004",
+      "question": "광합성의 과정을 설명하시오",
+      "userId": "1"
+    },
+    {
+      "id": "30004",
+      "subjectId": "30005",
+      "question": "임진왜란의 원인을 설명하시오",
+      "userId": "1"
+    },
+    {
+      "id": "30005",
+      "subjectId": "30007",
+      "question": "피타고라스 정리를 설명하시오",
+      "userId": "1"
+    },
+    {
+      "id": "30006",
+      "subjectId": "30008",
+      "question": "What is the capital of France?",
+      "userId": "1"
+    },
+    {
+      "id": "30007",
+      "subjectId": "30009",
+      "question": "광합성의 과정을 설명하시오",
+      "userId": "1"
+    },
+    {
+      "id": "30008",
+      "subjectId": "30010",
+      "question": "임진왜란의 원인을 설명하시오",
+      "userId": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tsubjectId\tquestion\tuserId\n9\t1\t애국가 1절\t1\n10\t1\t애국가 2절\t1\n11\t1\t애국가 3절\t1\n60002\t1\t이것은 입력 끊김 현상 테스트입니다. 빠르게 타이핑해도 끊기지 않아야 합니다. 매우 빠르게 입력해봅시다.\t1\n60001\t5\tㅎㅗ\t1\n90001\t5\tadrenal gland\t1\n1\t7\t피타고라스 정리를 설명하시오\t1\n2\t8\tWhat is the capital of France?\t1\n3\t9\t광합성의 과정을 설명하시오\t1\n4\t10\t임진왜란의 원인을 설명하시오\t1\n5\t12\t피타고라스 정리를 설명하시오\t1\n6\t13\tWhat is the capital of France?\t1\n7\t14\t광합성의 과정을 설명하시오\t1\n8\t15\t임진왜란의 원인을 설명하시오\t1\n30001\t30002\t피타고라스 정리를 설명하시오\t1\n30002\t30003\tWhat is the capital of France?\t1\n30003\t30004\t광합성의 과정을 설명하시오\t1\n30004\t30005\t임진왜란의 원인을 설명하시오\t1\n30005\t30007\t피타고라스 정리를 설명하시오\t1\n30006\t30008\tWhat is the capital of France?\t1\n30007\t30009\t광합성의 과정을 설명하시오\t1\n30008\t30010\t임진왜란의 원인을 설명하시오\t1\n",
+  "stderr": "",
+  "execution_time_ms": 1601
+}

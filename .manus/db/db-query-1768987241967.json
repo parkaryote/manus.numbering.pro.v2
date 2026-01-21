@@ -1,0 +1,70 @@
+{
+  "query": "SELECT s.id as subject_id, s.name as subject_name, q.id as question_id, SUBSTR(q.question, 1, 30) as question_preview\nFROM subjects s\nLEFT JOIN questions q ON s.id = q.subjectId\nORDER BY s.id, q.id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT s.id as subject_id, s.name as subject_name, q.id as question_id, SUBSTR(q.question, 1, 30) as question_preview\nFROM subjects s\nLEFT JOIN questions q ON s.id = q.subjectId\nORDER BY s.id, q.id;",
+  "rows": [
+    {
+      "subject_id": "1",
+      "subject_name": "총의치",
+      "question_id": "9",
+      "question_preview": "애국가 1절"
+    },
+    {
+      "subject_id": "1",
+      "subject_name": "총의치",
+      "question_id": "10",
+      "question_preview": "애국가 2절"
+    },
+    {
+      "subject_id": "1",
+      "subject_name": "총의치",
+      "question_id": "11",
+      "question_preview": "애국가 3절"
+    },
+    {
+      "subject_id": "1",
+      "subject_name": "총의치",
+      "question_id": "60002",
+      "question_preview": "이것은 입력 끊김 현상 테스트입니다. 빠르게 타이핑해도"
+    },
+    {
+      "subject_id": "2",
+      "subject_name": "금관",
+      "question_id": "NULL",
+      "question_preview": "NULL"
+    },
+    {
+      "subject_id": "3",
+      "subject_name": "국소",
+      "question_id": "NULL",
+      "question_preview": "NULL"
+    },
+    {
+      "subject_id": "4",
+      "subject_name": "치주",
+      "question_id": "NULL",
+      "question_preview": "NULL"
+    },
+    {
+      "subject_id": "5",
+      "subject_name": "해부",
+      "question_id": "60001",
+      "question_preview": "ㅎㅗ"
+    },
+    {
+      "subject_id": "5",
+      "subject_name": "해부",
+      "question_id": "90001",
+      "question_preview": "adrenal gland"
+    },
+    {
+      "subject_id": "16",
+      "subject_name": "소아",
+      "question_id": "NULL",
+      "question_preview": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "subject_id\tsubject_name\tquestion_id\tquestion_preview\n1\t총의치\t9\t애국가 1절\n1\t총의치\t10\t애국가 2절\n1\t총의치\t11\t애국가 3절\n1\t총의치\t60002\t이것은 입력 끊김 현상 테스트입니다. 빠르게 타이핑해도\n2\t금관\tNULL\tNULL\n3\t국소\tNULL\tNULL\n4\t치주\tNULL\tNULL\n5\t해부\t60001\tㅎㅗ\n5\t해부\t90001\tadrenal gland\n16\t소아\tNULL\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 1539
+}

@@ -7,14 +7,15 @@ import { BookOpen, FileQuestion, Dumbbell, ClipboardCheck, TrendingUp } from "lu
 export default function Home() {
   const [, setLocation] = useLocation();
   const { data: subjects, isLoading: subjectsLoading } = trpc.subjects.list.useQuery();
-  const { data: allQuestions, isLoading: questionsLoading } = trpc.questions.listAll.useQuery();
+  const { data: questionCount } = trpc.questions.count.useQuery();
   const { data: practiceSessions } = trpc.practice.getByUser.useQuery();
   const { data: testSessions } = trpc.test.getByUser.useQuery();
   const { data: dueReviews } = trpc.review.getDue.useQuery();
+  const { data: allQuestions } = trpc.questions.listAll.useQuery();
 
   const stats = {
     totalSubjects: subjects?.length || 0,
-    totalQuestions: allQuestions?.length || 0,
+    totalQuestions: questionCount || 0,
     totalPractice: practiceSessions?.length || 0,
     totalTests: testSessions?.length || 0,
   };
@@ -132,7 +133,7 @@ export default function Home() {
       </Card>
 
       {/* Recent Activity */}
-      {(subjectsLoading || questionsLoading) ? (
+      {subjectsLoading ? (
         <Card className="shadow-elegant">
           <CardHeader>
             <CardTitle>최근 활동</CardTitle>

@@ -1,0 +1,142 @@
+{
+  "query": "SELECT q.id, q.subjectId, s.name as subject_name, SUBSTR(q.question, 1, 30) as question_preview\nFROM questions q\nLEFT JOIN subjects s ON q.subjectId = s.id\nORDER BY q.subjectId, q.id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT q.id, q.subjectId, s.name as subject_name, SUBSTR(q.question, 1, 30) as question_preview\nFROM questions q\nLEFT JOIN subjects s ON q.subjectId = s.id\nORDER BY q.subjectId, q.id;",
+  "rows": [
+    {
+      "id": "9",
+      "subjectId": "1",
+      "subject_name": "총의치",
+      "question_preview": "애국가 1절"
+    },
+    {
+      "id": "10",
+      "subjectId": "1",
+      "subject_name": "총의치",
+      "question_preview": "애국가 2절"
+    },
+    {
+      "id": "11",
+      "subjectId": "1",
+      "subject_name": "총의치",
+      "question_preview": "애국가 3절"
+    },
+    {
+      "id": "60002",
+      "subjectId": "1",
+      "subject_name": "총의치",
+      "question_preview": "이것은 입력 끊김 현상 테스트입니다. 빠르게 타이핑해도"
+    },
+    {
+      "id": "60001",
+      "subjectId": "5",
+      "subject_name": "해부",
+      "question_preview": "ㅎㅗ"
+    },
+    {
+      "id": "90001",
+      "subjectId": "5",
+      "subject_name": "해부",
+      "question_preview": "adrenal gland"
+    },
+    {
+      "id": "1",
+      "subjectId": "7",
+      "subject_name": "NULL",
+      "question_preview": "피타고라스 정리를 설명하시오"
+    },
+    {
+      "id": "2",
+      "subjectId": "8",
+      "subject_name": "NULL",
+      "question_preview": "What is the capital of France?"
+    },
+    {
+      "id": "3",
+      "subjectId": "9",
+      "subject_name": "NULL",
+      "question_preview": "광합성의 과정을 설명하시오"
+    },
+    {
+      "id": "4",
+      "subjectId": "10",
+      "subject_name": "NULL",
+      "question_preview": "임진왜란의 원인을 설명하시오"
+    },
+    {
+      "id": "5",
+      "subjectId": "12",
+      "subject_name": "NULL",
+      "question_preview": "피타고라스 정리를 설명하시오"
+    },
+    {
+      "id": "6",
+      "subjectId": "13",
+      "subject_name": "NULL",
+      "question_preview": "What is the capital of France?"
+    },
+    {
+      "id": "7",
+      "subjectId": "14",
+      "subject_name": "NULL",
+      "question_preview": "광합성의 과정을 설명하시오"
+    },
+    {
+      "id": "8",
+      "subjectId": "15",
+      "subject_name": "NULL",
+      "question_preview": "임진왜란의 원인을 설명하시오"
+    },
+    {
+      "id": "30001",
+      "subjectId": "30002",
+      "subject_name": "NULL",
+      "question_preview": "피타고라스 정리를 설명하시오"
+    },
+    {
+      "id": "30002",
+      "subjectId": "30003",
+      "subject_name": "NULL",
+      "question_preview": "What is the capital of France?"
+    },
+    {
+      "id": "30003",
+      "subjectId": "30004",
+      "subject_name": "NULL",
+      "question_preview": "광합성의 과정을 설명하시오"
+    },
+    {
+      "id": "30004",
+      "subjectId": "30005",
+      "subject_name": "NULL",
+      "question_preview": "임진왜란의 원인을 설명하시오"
+    },
+    {
+      "id": "30005",
+      "subjectId": "30007",
+      "subject_name": "NULL",
+      "question_preview": "피타고라스 정리를 설명하시오"
+    },
+    {
+      "id": "30006",
+      "subjectId": "30008",
+      "subject_name": "NULL",
+      "question_preview": "What is the capital of France?"
+    },
+    {
+      "id": "30007",
+      "subjectId": "30009",
+      "subject_name": "NULL",
+      "question_preview": "광합성의 과정을 설명하시오"
+    },
+    {
+      "id": "30008",
+      "subjectId": "30010",
+      "subject_name": "NULL",
+      "question_preview": "임진왜란의 원인을 설명하시오"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tsubjectId\tsubject_name\tquestion_preview\n9\t1\t총의치\t애국가 1절\n10\t1\t총의치\t애국가 2절\n11\t1\t총의치\t애국가 3절\n60002\t1\t총의치\t이것은 입력 끊김 현상 테스트입니다. 빠르게 타이핑해도\n60001\t5\t해부\tㅎㅗ\n90001\t5\t해부\tadrenal gland\n1\t7\tNULL\t피타고라스 정리를 설명하시오\n2\t8\tNULL\tWhat is the capital of France?\n3\t9\tNULL\t광합성의 과정을 설명하시오\n4\t10\tNULL\t임진왜란의 원인을 설명하시오\n5\t12\tNULL\t피타고라스 정리를 설명하시오\n6\t13\tNULL\tWhat is the capital of France?\n7\t14\tNULL\t광합성의 과정을 설명하시오\n8\t15\tNULL\t임진왜란의 원인을 설명하시오\n30001\t30002\tNULL\t피타고라스 정리를 설명하시오\n30002\t30003\tNULL\tWhat is the capital of France?\n30003\t30004\tNULL\t광합성의 과정을 설명하시오\n30004\t30005\tNULL\t임진왜란의 원인을 설명하시오\n30005\t30007\tNULL\t피타고라스 정리를 설명하시오\n30006\t30008\tNULL\tWhat is the capital of France?\n30007\t30009\tNULL\t광합성의 과정을 설명하시오\n30008\t30010\tNULL\t임진왜란의 원인을 설명하시오\n",
+  "stderr": "",
+  "execution_time_ms": 1593
+}

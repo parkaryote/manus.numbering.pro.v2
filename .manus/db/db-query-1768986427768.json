@@ -1,0 +1,37 @@
+{
+  "query": "SELECT s.name as subject_name, COUNT(q.id) as question_count\nFROM subjects s\nLEFT JOIN questions q ON s.id = q.subjectId\nGROUP BY s.id, s.name\nORDER BY s.name;\n\nSELECT COUNT(*) as total_questions FROM questions;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT s.name as subject_name, COUNT(q.id) as question_count\nFROM subjects s\nLEFT JOIN questions q ON s.id = q.subjectId\nGROUP BY s.id, s.name\nORDER BY s.name;\n\nSELECT COUNT(*) as total_questions FROM questions;",
+  "rows": [
+    {
+      "subject_name": "국소",
+      "question_count": "0"
+    },
+    {
+      "subject_name": "금관",
+      "question_count": "0"
+    },
+    {
+      "subject_name": "소아",
+      "question_count": "0"
+    },
+    {
+      "subject_name": "총의치",
+      "question_count": "4"
+    },
+    {
+      "subject_name": "치주",
+      "question_count": "0"
+    },
+    {
+      "subject_name": "해부",
+      "question_count": "2"
+    }
+  ],
+  "messages": [
+    "total_questions",
+    "22"
+  ],
+  "stdout": "subject_name\tquestion_count\n국소\t0\n금관\t0\n소아\t0\n총의치\t4\n치주\t0\n해부\t2\ntotal_questions\n22\n",
+  "stderr": "",
+  "execution_time_ms": 1785
+}

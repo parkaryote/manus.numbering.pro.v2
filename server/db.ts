@@ -178,6 +178,13 @@ export async function getQuestionsByUserId(userId: number) {
   return db.select().from(questions).where(eq(questions.userId, userId));
 }
 
+export async function countQuestionsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  const allQuestions = await db.select().from(questions).where(eq(questions.userId, userId));
+  return allQuestions.length;
+}
+
 export async function getQuestionById(id: number) {
   const db = await getDb();
   if (!db) return undefined;

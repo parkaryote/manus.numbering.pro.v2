@@ -1,0 +1,40 @@
+{
+  "query": "SELECT id, subjectId, SUBSTR(question, 1, 20) as q_preview FROM questions WHERE subjectId IN (1, 5) ORDER BY subjectId, id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT id, subjectId, SUBSTR(question, 1, 20) as q_preview FROM questions WHERE subjectId IN (1, 5) ORDER BY subjectId, id;",
+  "rows": [
+    {
+      "id": "9",
+      "subjectId": "1",
+      "q_preview": "애국가 1절"
+    },
+    {
+      "id": "10",
+      "subjectId": "1",
+      "q_preview": "애국가 2절"
+    },
+    {
+      "id": "11",
+      "subjectId": "1",
+      "q_preview": "애국가 3절"
+    },
+    {
+      "id": "60002",
+      "subjectId": "1",
+      "q_preview": "이것은 입력 끊김 현상 테스트입니다."
+    },
+    {
+      "id": "60001",
+      "subjectId": "5",
+      "q_preview": "ㅎㅗ"
+    },
+    {
+      "id": "90001",
+      "subjectId": "5",
+      "q_preview": "adrenal gland"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tsubjectId\tq_preview\n9\t1\t애국가 1절\n10\t1\t애국가 2절\n11\t1\t애국가 3절\n60002\t1\t이것은 입력 끊김 현상 테스트입니다.\n60001\t5\tㅎㅗ\n90001\t5\tadrenal gland\n",
+  "stderr": "",
+  "execution_time_ms": 1639
+}
