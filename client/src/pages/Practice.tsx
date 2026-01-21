@@ -331,7 +331,6 @@ export default function Practice({ questionId }: PracticeProps) {
                   );
                 })}
               </div>
-              {/* 플래시카드 모드 only - 위에 이미 표시됨 */}
             </div>
           ) : (
             /* Text question with visual feedback */

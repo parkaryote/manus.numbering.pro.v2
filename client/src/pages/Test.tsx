@@ -482,14 +482,36 @@ export default function Test({ questionId }: TestProps) {
               <div className="space-y-2">
                 <h3 className="font-semibold">내 답안</h3>
                 <div className="p-4 bg-muted/30 rounded-lg whitespace-pre-wrap">
-                  {userAnswer}
+                  {isImageQuestion ? (
+                    <div className="space-y-2">
+                      {imageLabels.map((label: any, index: number) => (
+                        <div key={index} className="flex items-start gap-3">
+                          <span className="text-sm font-semibold text-primary min-w-[24px]">{index + 1}.</span>
+                          <span className="text-sm flex-1">{imageLabelAnswers[index] || "(입력 없음)"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    userAnswer
+                  )}
                 </div>
               </div>
 
               <div className="space-y-2">
                 <h3 className="font-semibold">모범 답안</h3>
-                <div className="p-4 bg-green-50 rounded-lg whitespace-pre-wrap">
-                  {question.answer}
+                <div className="p-4 bg-muted/50 rounded-lg border-2 border-green-500/30 whitespace-pre-wrap">
+                  {isImageQuestion ? (
+                    <div className="space-y-2">
+                      {imageLabels.map((label: any, index: number) => (
+                        <div key={index} className="flex items-start gap-3">
+                          <span className="text-sm font-semibold text-primary min-w-[24px]">{index + 1}.</span>
+                          <span className="text-sm flex-1 font-medium">{label.answer}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    question.answer
+                  )}
                 </div>
               </div>
 

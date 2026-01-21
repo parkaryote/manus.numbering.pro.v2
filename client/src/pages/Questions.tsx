@@ -391,7 +391,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
               새 문제 추가
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>새 문제 추가</DialogTitle>
               <DialogDescription>텍스트 또는 이미지 문제를 생성하세요</DialogDescription>
@@ -515,7 +515,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
 
       {/* Edit Dialog */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>문제 수정</DialogTitle>
             <DialogDescription>문제 내용을 수정하세요</DialogDescription>

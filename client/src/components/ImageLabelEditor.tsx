@@ -216,6 +216,23 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
                     <Input
                       defaultValue={label.answer}
                       onBlur={(e) => handleLabelUpdate(label.id, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Tab') {
+                          e.preventDefault();
+                          const currentIndex = labels.findIndex(l => l.id === label.id);
+                          const nextIndex = e.shiftKey ? currentIndex - 1 : currentIndex + 1;
+                          if (nextIndex >= 0 && nextIndex < labels.length) {
+                            const nextLabel = labels[nextIndex];
+                            setSelectedLabelId(nextLabel.id);
+                            // Focus next input after state update
+                            setTimeout(() => {
+                              const nextInput = document.querySelector(`input[data-label-id="${nextLabel.id}"]`) as HTMLInputElement;
+                              nextInput?.focus();
+                            }, 0);
+                          }
+                        }
+                      }}
+                      data-label-id={label.id}
                       placeholder="예: Cerebral cortex"
                       className="mt-1"
                       onClick={(e) => e.stopPropagation()}
