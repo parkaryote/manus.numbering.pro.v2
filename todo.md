@@ -150,3 +150,9 @@
 
 # 버그 수정 (v1.1.7)
 - [x] compositionEnd 로직 수정 - 정답 글자 완성 시 언더바 즉시 이동 (for loop로 모든 정답 글자 확인)
+
+# 전체 재구현 (v1.2.0)
+- [x] 언더바 이동 로직 완전 수정 (normalizedInput.length 기반)
+- [x] 조합 중 색상 변화 완전 차단 (!isComposing 조건)
+- [x] 커서 표시 수정 (textarea에 caret-foreground 클래스)
+- [x] 입력/삭제 모두 정상 작동하도록 전체 로직 단순화

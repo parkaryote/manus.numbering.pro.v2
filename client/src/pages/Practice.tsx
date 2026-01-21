@@ -18,7 +18,6 @@ export default function Practice({ questionId }: PracticeProps) {
   const [isActive, setIsActive] = useState(true); // 측정 중 여부
   const [lastInputTime, setLastInputTime] = useState<number>(Date.now());
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
-  const [lastCompletedLength, setLastCompletedLength] = useState(0); // 마지막으로 완성된 글자 길이
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -110,26 +109,8 @@ export default function Practice({ questionId }: PracticeProps) {
     setIsComposing(true);
   };
 
-  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+  const handleCompositionEnd = () => {
     setIsComposing(false);
-    // 조합 종료 시 현재 길이 저장
-    const target = e.target as HTMLTextAreaElement;
-    const normalized = normalizeText(target.value);
-    const normalizedTarget = normalizeText(targetText);
-    
-    // 정답 글자가 완성되면 즉시 다음으로 이동
-    // 현재 입력된 글자가 정답과 일치하는지 확인
-    let newCompletedLength = lastCompletedLength;
-    for (let i = lastCompletedLength; i < normalized.length; i++) {
-      if (normalized[i] === normalizedTarget[i]) {
-        newCompletedLength = i + 1;
-      } else {
-        break; // 틀린 글자가 나오면 중단
-      }
-    }
-    if (newCompletedLength > lastCompletedLength) {
-      setLastCompletedLength(newCompletedLength);
-    }
   };
 
   const handleComplete = async () => {
@@ -172,27 +153,34 @@ export default function Practice({ questionId }: PracticeProps) {
 
       const currentChar = normalizedInput[inputIndex];
       const isTyped = inputIndex < normalizedInput.length;
-      const isCorrect = isTyped && currentChar === normalizedTarget[inputIndex];
-      const isError = isTyped && currentChar !== normalizedTarget[inputIndex];
-      // 언더바는 조합이 완료된 다음 글자에만 표시
-      const isNext = inputIndex === lastCompletedLength;
+      
+      // 조합 중이 아닐 때만 채점
+      const isCorrect = !isComposing && isTyped && currentChar === normalizedTarget[inputIndex];
+      const isError = !isComposing && isTyped && currentChar !== normalizedTarget[inputIndex];
+      
+      // 언더바는 다음 입력할 글자에 표시
+      const isNext = inputIndex === normalizedInput.length;
 
       inputIndex++;
 
-      let className = "text-gray-400 relative"; // Default: not typed yet
-      if (isNext) {
-        className = "border-b-4 border-gray-600 text-gray-400 relative animate-pulse"; // Next: thick underline with cursor
-      } else if (isComposing && inputIndex > lastCompletedLength) {
-        // 조합 중이고 아직 완성되지 않은 부분만 회색
-        className = "text-gray-400 relative";
+      let className = "text-gray-400 relative font-semibold text-xl"; // Default: not typed yet
+      
+      if (isNext && !isComposing) {
+        // 다음 입력 위치: 두꺼운 언더바 + 깜빡이는 커서
+        className = "border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse";
       } else if (isCorrect) {
-        className = "text-foreground relative"; // Correct: black text
+        // 정답: 검은색
+        className = "text-foreground relative font-semibold text-xl";
       } else if (isError) {
-        className = "text-red-500 relative"; // Error: red text
+        // 오답: 빨간색
+        className = "text-red-500 relative font-semibold text-xl";
+      } else if (isTyped) {
+        // 조합 중이거나 아직 채점 전: 회색
+        className = "text-gray-400 relative font-semibold text-xl";
       }
 
       return (
-        <span key={targetIndex} className={`${className}`}>
+        <span key={targetIndex} className={className}>
           {char}
         </span>
       );
@@ -251,12 +239,12 @@ export default function Practice({ questionId }: PracticeProps) {
       <Card className="shadow-elegant">
         <CardHeader>
           <CardTitle>{question.question}</CardTitle>
-          <CardDescription>아래 답안을 보고 따라 입력하세요 (띄어쓰기는 자유롭게)</CardDescription>
+          <CardDescription>정답을 따라 입력하세요 (띄어쓰기 무시)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Target text with visual feedback */}
-          <div className="p-6 bg-muted/30 rounded-lg">
-            <div className="text-xl leading-relaxed font-semibold whitespace-pre-wrap">
+          <div className="p-6 bg-muted/30 rounded-lg border-2 border-border">
+            <div className="leading-relaxed whitespace-pre-wrap">
               {renderTextWithFeedback()}
             </div>
           </div>
@@ -269,19 +257,16 @@ export default function Practice({ questionId }: PracticeProps) {
             onKeyDown={handleKeyDown}
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
-            className="w-full min-h-[200px] p-4 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary opacity-0 h-0 absolute"
+            className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground"
             placeholder="여기에 입력하세요..."
             autoFocus
           />
 
-          {/* Visible input area (for cursor) */}
-          <div
-            className="w-full min-h-[200px] p-4 border rounded-lg cursor-text bg-background"
-            onClick={() => textareaRef.current?.focus()}
-          >
-            <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-              {userInput || "입력을 시작하세요..."}
-            </p>
+          <div className="flex justify-between items-center text-sm text-muted-foreground">
+            <div>Ctrl+Enter: 완료 | Esc: 나가기</div>
+            <Button onClick={handleComplete} disabled={createSession.isPending}>
+              {createSession.isPending ? "저장 중..." : "완료"}
+            </Button>
           </div>
         </CardContent>
       </Card>
