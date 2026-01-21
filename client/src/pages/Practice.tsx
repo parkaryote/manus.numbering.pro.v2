@@ -18,6 +18,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const [isActive, setIsActive] = useState(true); // 측정 중 여부
   const [lastInputTime, setLastInputTime] = useState<number>(Date.now());
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
+  const [completedLength, setCompletedLength] = useState(0); // 조합이 완료된 글자 길이
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -78,6 +79,12 @@ export default function Practice({ questionId }: PracticeProps) {
     setUserInput(newInput);
     setLastInputTime(Date.now());
 
+    // 삭제 시 completedLength도 업데이트
+    const normalized = normalizeText(newInput);
+    if (normalized.length < completedLength) {
+      setCompletedLength(normalized.length);
+    }
+
     // Resume if was inactive
     if (!isActive) {
       setIsActive(true);
@@ -87,7 +94,7 @@ export default function Practice({ questionId }: PracticeProps) {
     }
 
     // Auto-complete when normalized text matches
-    if (normalizeText(newInput) === normalizeText(targetText)) {
+    if (normalized === normalizeText(targetText)) {
       handleComplete();
     }
   };
@@ -111,6 +118,9 @@ export default function Practice({ questionId }: PracticeProps) {
 
   const handleCompositionEnd = () => {
     setIsComposing(false);
+    // 조합 종료 시 현재 입력 길이를 완료된 길이로 저장
+    const normalized = normalizeText(userInput);
+    setCompletedLength(normalized.length);
   };
 
   const handleComplete = async () => {
@@ -154,9 +164,10 @@ export default function Practice({ questionId }: PracticeProps) {
       const currentChar = normalizedInput[inputIndex];
       const isTyped = inputIndex < normalizedInput.length;
       
-      // 조합 중이 아닐 때만 채점
-      const isCorrect = !isComposing && isTyped && currentChar === normalizedTarget[inputIndex];
-      const isError = !isComposing && isTyped && currentChar !== normalizedTarget[inputIndex];
+      // 조합이 완료된 글자만 채점
+      const isCompleted = inputIndex < completedLength;
+      const isCorrect = isCompleted && isTyped && currentChar === normalizedTarget[inputIndex];
+      const isError = isCompleted && isTyped && currentChar !== normalizedTarget[inputIndex];
       
       // 언더바는 다음 입력할 글자에 표시
       const isNext = inputIndex === normalizedInput.length;

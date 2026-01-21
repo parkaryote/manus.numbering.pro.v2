@@ -156,3 +156,6 @@
 - [x] 조합 중 색상 변화 완전 차단 (!isComposing 조건)
 - [x] 커서 표시 수정 (textarea에 caret-foreground 클래스)
 - [x] 입력/삭제 모두 정상 작동하도록 전체 로직 단순화
+
+# 버그 수정 (v1.2.1)
+- [x] 글자 단위 즉시 채점 구현 - completedLength 상태로 조합 완료된 글자만 채점
