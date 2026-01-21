@@ -14,6 +14,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const [, setLocation] = useLocation();
   const [userInput, setUserInput] = useState("");
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isActive, setIsActive] = useState(true); // 측정 중 여부
@@ -27,7 +28,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const createSession = trpc.practice.create.useMutation({
     onSuccess: () => {
       toast.success("연습 기록이 저장되었습니다");
-      setLocation("/practice");
+      setLocation(`/questions/${question?.subjectId || 1}`);
     },
   });
 
@@ -111,7 +112,7 @@ export default function Practice({ questionId }: PracticeProps) {
     // Esc: Go back
     if (e.key === "Escape") {
       e.preventDefault();
-      setLocation("/practice");
+      setLocation(`/questions/${question?.subjectId || 1}`);
     }
   };
 
@@ -204,7 +205,7 @@ export default function Practice({ questionId }: PracticeProps) {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => setLocation("/practice")} className="gap-2">
+        <Button variant="ghost" onClick={() => setLocation(`/subjects`)} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           돌아가기
         </Button>
@@ -220,7 +221,7 @@ export default function Practice({ questionId }: PracticeProps) {
   if (!question) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => setLocation("/practice")} className="gap-2">
+        <Button variant="ghost" onClick={() => setLocation(`/subjects`)} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           돌아가기
         </Button>
@@ -236,7 +237,7 @@ export default function Practice({ questionId }: PracticeProps) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" onClick={() => setLocation("/practice")} className="gap-2">
+        <Button variant="ghost" onClick={() => setLocation(`/questions/${question?.subjectId || 1}`)} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           돌아가기
         </Button>
@@ -262,10 +263,17 @@ export default function Practice({ questionId }: PracticeProps) {
             /* Image question with label inputs */
             <div className="space-y-4">
               <div className="relative inline-block">
+                {!imageLoaded && (
+                  <div className="w-full h-64 bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
+                    <p className="text-muted-foreground">이미지 로딩 중...</p>
+                  </div>
+                )}
                 <img
                   src={question.imageUrl || ""}
                   alt="Question image"
-                  className="max-w-full h-auto rounded-lg border-2 border-border"
+                  className={`max-w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
+                  onLoad={() => setImageLoaded(true)}
+                  loading="lazy"
                 />
                 {imageLabels.map((label: any, index: number) => (
                   <div

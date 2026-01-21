@@ -18,6 +18,7 @@ export default function Test({ questionId }: TestProps) {
   const [, setLocation] = useLocation();
   const [userAnswer, setUserAnswer] = useState("");
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [isStarted, setIsStarted] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -243,12 +244,20 @@ export default function Test({ questionId }: TestProps) {
           <p className="text-lg whitespace-pre-wrap">{question.question}</p>
           {isImageQuestion && (
             <div className="relative inline-block">
+              {!imageLoaded && (
+                <div className="w-full h-64 bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
+                  <p className="text-muted-foreground">이미지 로딩 중...</p>
+                </div>
+              )}
               <img
                 src={question.imageUrl || ""}
                 alt="Question image"
-                className="max-w-full h-auto rounded-lg border-2 border-border"
+                className={`max-w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
+                onLoad={() => setImageLoaded(true)}
+                loading="lazy"
               />
-              {imageLabels.map((label: any, index: number) => (
+              {/* 암기 시간에만 라벨 영역 표시 */}
+              {!isStarted && imageLabels.map((label: any, index: number) => (
                 <div
                   key={index}
                   className="absolute border-2 border-primary bg-primary/10"
@@ -300,20 +309,32 @@ export default function Test({ questionId }: TestProps) {
             </CardHeader>
             <CardContent className="space-y-4">
               {isImageQuestion ? (
-                <div className="space-y-3">
-                  {imageLabels.map((label: any, index: number) => (
-                    <div key={index} className="flex items-center gap-3">
-                      <span className="text-sm font-semibold text-primary min-w-[24px]">{index + 1}.</span>
-                      <input
-                        type="text"
-                        value={imageLabelAnswers[index] || ""}
-                        onChange={(e) => setImageLabelAnswers({ ...imageLabelAnswers, [index]: e.target.value })}
-                        className="flex-1 px-3 py-2 rounded-lg border-2 border-border bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                        placeholder="정답 입력"
-                        autoFocus={index === 0}
-                      />
-                    </div>
-                  ))}
+                <div className="space-y-4">
+                  {/* 이미지 표시 (라벨 영역 없이) */}
+                  <div className="relative inline-block">
+                    <img
+                      src={question.imageUrl || ""}
+                      alt="Question image"
+                      className="max-w-full h-auto rounded-lg border-2 border-border"
+                      loading="lazy"
+                    />
+                  </div>
+                  {/* 라벨별 입력 필드 */}
+                  <div className="space-y-3">
+                    {imageLabels.map((label: any, index: number) => (
+                      <div key={index} className="flex items-center gap-3">
+                        <span className="text-sm font-semibold text-primary min-w-[24px]">{index + 1}.</span>
+                        <input
+                          type="text"
+                          value={imageLabelAnswers[index] || ""}
+                          onChange={(e) => setImageLabelAnswers({ ...imageLabelAnswers, [index]: e.target.value })}
+                          className="flex-1 px-3 py-2 rounded-lg border-2 border-border bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                          placeholder="정답 입력"
+                          autoFocus={index === 0}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 <Textarea
