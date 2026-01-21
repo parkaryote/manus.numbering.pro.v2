@@ -118,9 +118,17 @@ export default function Practice({ questionId }: PracticeProps) {
     const normalizedTarget = normalizeText(targetText);
     
     // 정답 글자가 완성되면 즉시 다음으로 이동
-    if (normalized.length > lastCompletedLength && 
-        normalized[normalized.length - 1] === normalizedTarget[normalized.length - 1]) {
-      setLastCompletedLength(normalized.length);
+    // 현재 입력된 글자가 정답과 일치하는지 확인
+    let newCompletedLength = lastCompletedLength;
+    for (let i = lastCompletedLength; i < normalized.length; i++) {
+      if (normalized[i] === normalizedTarget[i]) {
+        newCompletedLength = i + 1;
+      } else {
+        break; // 틀린 글자가 나오면 중단
+      }
+    }
+    if (newCompletedLength > lastCompletedLength) {
+      setLastCompletedLength(newCompletedLength);
     }
   };
 
