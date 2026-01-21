@@ -102,11 +102,28 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function getUserAICredits(userId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db.select({ credits: users.aiCreditBalance }).from(users).where(eq(users.id, userId)).limit(1);
+  return result.length > 0 ? result[0].credits : 0;
+}
+
+export async function deductAICredits(userId: number, amount: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const currentCredits = await getUserAICredits(userId);
+  if (currentCredits < amount) {
+    throw new Error("Insufficient AI credits");
+  }
+  await db.update(users).set({ aiCreditBalance: currentCredits - amount }).where(eq(users.id, userId));
+}
+
 // ========== Subject Queries ==========
 export async function getSubjectsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(subjects).where(eq(subjects.userId, userId));
+  return db.select().from(subjects).where(eq(subjects.userId, userId)).orderBy(subjects.displayOrder);
 }
 
 export async function getSubjectById(id: number) {
@@ -135,6 +152,17 @@ export async function deleteSubject(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db.delete(subjects).where(eq(subjects.id, id));
+}
+
+export async function updateSubjectOrder(userId: number, subjectOrders: { id: number; displayOrder: number }[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  for (const { id, displayOrder } of subjectOrders) {
+    await db.update(subjects)
+      .set({ displayOrder })
+      .where(eq(subjects.id, id));
+  }
 }
 
 // ========== Question Queries ==========

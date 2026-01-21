@@ -2,6 +2,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
 import { invokeLLM } from "./_core/llm";
@@ -65,6 +66,17 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         return db.deleteSubject(input.id);
+      }),
+    
+    updateOrder: protectedProcedure
+      .input(z.object({
+        subjectOrders: z.array(z.object({
+          id: z.number(),
+          displayOrder: z.number(),
+        })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return db.updateSubjectOrder(ctx.user.id, input.subjectOrders);
       }),
   }),
 
@@ -224,6 +236,32 @@ export const appRouter = router({
         const question = await db.getQuestionById(input.questionId);
         if (!question) {
           throw new Error("문제를 찾을 수 없습니다");
+        }
+
+        // Check if AI grading is enabled for this question
+        if (!question.useAIGrading) {
+          // Fallback to simple string comparison
+          const normalizedUser = input.userAnswer.trim().toLowerCase().replace(/\s+/g, "");
+          const normalizedCorrect = question.answer.trim().toLowerCase().replace(/\s+/g, "");
+          const isCorrect = normalizedUser === normalizedCorrect;
+          
+          return {
+            isCorrect,
+            similarityScore: isCorrect ? 100 : 0,
+            mistakes: [],
+            feedback: isCorrect ? "정확하게 작성하셨습니다!" : "답안을 다시 확인해보세요.",
+            missingKeywords: [],
+          };
+        }
+
+        // Deduct AI credit
+        try {
+          await db.deductAICredits(ctx.user.id, 1);
+        } catch (error: any) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: error.message || "AI 크레딧이 부족합니다. 설정에서 충전하세요.",
+          });
         }
 
         // LLM-based evaluation

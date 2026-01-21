@@ -17,6 +17,7 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  aiCreditBalance: int("aiCreditBalance").default(100).notNull(), // AI grading credits
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -34,6 +35,7 @@ export const subjects = mysqlTable("subjects", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   color: varchar("color", { length: 7 }).default("#3B82F6"),
+  displayOrder: int("displayOrder").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -50,6 +52,9 @@ export const questions = mysqlTable("questions", {
   userId: int("userId").notNull(),
   question: text("question").notNull(),
   answer: text("answer").notNull(),
+  imageUrl: text("imageUrl"), // Optional image attachment
+  imageLabels: text("imageLabels"), // JSON array of {x, y, width, height, answer}
+  useAIGrading: int("useAIGrading").default(0).notNull(), // 0: disabled, 1: enabled
   difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default("medium"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

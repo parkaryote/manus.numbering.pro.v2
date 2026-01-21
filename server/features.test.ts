@@ -153,7 +153,7 @@ describe("Test Session and Evaluation", () => {
 
     expect(evaluation).toBeDefined();
     expect(typeof evaluation.similarityScore).toBe("number");
-    expect(typeof evaluation.isCorrect).toBe("number");
+    expect(typeof evaluation.isCorrect).toBe("boolean");
   });
 
   it("should list test sessions by user", async () => {

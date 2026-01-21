@@ -7,8 +7,25 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Plus, BookOpen, Trash2, Edit } from "lucide-react";
+import { Plus, BookOpen, Trash2, Edit, GripVertical } from "lucide-react";
 import { toast } from "sonner";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const colorOptions = [
   "#3B82F6", // Blue
@@ -20,6 +37,74 @@ const colorOptions = [
   "#6366F1", // Indigo
   "#14B8A6", // Teal
 ];
+
+function SortableSubjectCard({ subject, onEdit, onDelete }: any) {
+  const [, setLocation] = useLocation();
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: subject.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <Card
+      ref={setNodeRef}
+      style={style}
+      className="shadow-elegant hover:shadow-lg transition-all cursor-pointer"
+    >
+      <CardHeader className="flex flex-row items-center gap-3">
+        <div
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing touch-none"
+        >
+          <GripVertical className="h-5 w-5 text-muted-foreground" />
+        </div>
+        <div
+          className="w-4 h-4 rounded-full flex-shrink-0"
+          style={{ backgroundColor: subject.color }}
+        />
+        <div className="flex-1 min-w-0" onClick={() => setLocation(`/questions?subject=${subject.id}`)}>
+          <CardTitle className="text-lg">{subject.name}</CardTitle>
+          {subject.description && (
+            <CardDescription className="line-clamp-1">{subject.description}</CardDescription>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(subject);
+            }}
+          >
+            <Edit className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(subject.id, subject.name);
+            }}
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
+      </CardHeader>
+    </Card>
+  );
+}
 
 export default function Subjects() {
   const [, setLocation] = useLocation();
@@ -35,6 +120,13 @@ export default function Subjects() {
 
   const { data: subjects, isLoading } = trpc.subjects.list.useQuery();
   const utils = trpc.useUtils();
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const createMutation = trpc.subjects.create.useMutation({
     onSuccess: () => {
@@ -70,12 +162,20 @@ export default function Subjects() {
     },
   });
 
+  const updateOrderMutation = trpc.subjects.updateOrder.useMutation({
+    onError: (error) => {
+      toast.error("순서 변경 실패: " + error.message);
+      utils.subjects.list.invalidate();
+    },
+  });
+
   const handleCreate = () => {
     if (!formData.name.trim()) {
       toast.error("과목명을 입력하세요");
       return;
     }
-    createMutation.mutate(formData);
+    const maxOrder = subjects?.reduce((max, s) => Math.max(max, s.displayOrder || 0), 0) || 0;
+    createMutation.mutate({ ...formData, displayOrder: maxOrder + 1 } as any);
   };
 
   const handleEdit = (subject: any) => {
@@ -103,6 +203,31 @@ export default function Subjects() {
     if (confirm(`"${name}" 과목을 삭제하시겠습니까?`)) {
       deleteMutation.mutate({ id });
     }
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id || !subjects) {
+      return;
+    }
+
+    const oldIndex = subjects.findIndex((s) => s.id === active.id);
+    const newIndex = subjects.findIndex((s) => s.id === over.id);
+
+    const reorderedSubjects = arrayMove(subjects, oldIndex, newIndex);
+    const subjectOrders = reorderedSubjects.map((subject, index) => ({
+      id: subject.id,
+      displayOrder: index,
+    }));
+
+    // Optimistic update
+    utils.subjects.list.setData(undefined, reorderedSubjects.map((s, idx) => ({
+      ...s,
+      displayOrder: idx,
+    })));
+
+    updateOrderMutation.mutate({ subjectOrders });
   };
 
   return (
@@ -150,6 +275,7 @@ export default function Subjects() {
                   {colorOptions.map((color) => (
                     <button
                       key={color}
+                      type="button"
                       className={`w-8 h-8 rounded-full border-2 transition-all ${
                         formData.color === color ? "border-primary scale-110" : "border-transparent"
                       }`}
@@ -176,13 +302,11 @@ export default function Subjects() {
         <div className="text-center py-12">
           <p className="text-muted-foreground">로딩 중...</p>
         </div>
-      ) : subjects && subjects.length === 0 ? (
+      ) : !subjects || subjects.length === 0 ? (
         <Card className="shadow-elegant">
-          <CardHeader>
-            <CardTitle>과목이 없습니다</CardTitle>
-            <CardDescription>첫 과목을 생성하여 시작하세요</CardDescription>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
+            <p className="text-muted-foreground mb-4">아직 등록된 과목이 없습니다</p>
             <Button onClick={() => setIsCreateOpen(true)} className="gap-2">
               <Plus className="h-4 w-4" />
               첫 과목 만들기
@@ -190,52 +314,27 @@ export default function Subjects() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {subjects?.map((subject) => (
-            <Card key={subject.id} className="shadow-elegant hover:shadow-elegant-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-4 h-4 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: subject.color || "#3B82F6" }}
-                    />
-                    <CardTitle className="text-lg">{subject.name}</CardTitle>
-                  </div>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleEdit(subject)}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDelete(subject.id, subject.name)}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-                {subject.description && (
-                  <CardDescription className="mt-2">{subject.description}</CardDescription>
-                )}
-              </CardHeader>
-              <CardContent>
-                <Button
-                  variant="outline"
-                  className="w-full gap-2"
-                  onClick={() => setLocation(`/questions/${subject.id}`)}
-                >
-                  <BookOpen className="h-4 w-4" />
-                  문제 보기
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={subjects.map((s) => s.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="grid gap-4">
+              {subjects.map((subject) => (
+                <SortableSubjectCard
+                  key={subject.id}
+                  subject={subject}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
 
       {/* Edit Dialog */}
@@ -252,6 +351,7 @@ export default function Subjects() {
                 id="edit-name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="예: 한국사"
               />
             </div>
             <div className="space-y-2">
@@ -260,6 +360,7 @@ export default function Subjects() {
                 id="edit-description"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="과목에 대한 간단한 설명"
                 rows={3}
               />
             </div>
@@ -269,6 +370,7 @@ export default function Subjects() {
                 {colorOptions.map((color) => (
                   <button
                     key={color}
+                    type="button"
                     className={`w-8 h-8 rounded-full border-2 transition-all ${
                       formData.color === color ? "border-primary scale-110" : "border-transparent"
                     }`}
