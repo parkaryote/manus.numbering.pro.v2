@@ -23,6 +23,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"text" | "image">("text");
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [formData, setFormData] = useState({
@@ -80,6 +81,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
       imageUrl: "",
       imageLabels: [],
     });
+    setActiveTab("text");
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -209,7 +211,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
   };
 
   const QuestionForm = ({ isEdit = false }: { isEdit?: boolean }) => (
-    <Tabs defaultValue="text" className="w-full">
+    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "image")} className="w-full">
       <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="text">텍스트 문제</TabsTrigger>
         <TabsTrigger value="image">이미지 문제</TabsTrigger>
