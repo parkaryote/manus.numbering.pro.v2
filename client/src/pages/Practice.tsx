@@ -133,18 +133,21 @@ export default function Practice({ questionId }: PracticeProps) {
       const isTyped = inputIndex < normalizedInput.length;
       const isCorrect = isTyped && currentChar === normalizedTarget[inputIndex];
       const isError = isTyped && currentChar !== normalizedTarget[inputIndex];
+      const isNext = inputIndex === normalizedInput.length; // Next character to type
 
       inputIndex++;
 
-      let className = "border-b-2 border-gray-300 text-gray-400"; // Default: not typed yet
-      if (isCorrect) {
-        className = "border-b-2 border-transparent text-foreground"; // Correct: black text
+      let className = "border-b border-gray-300 text-gray-400"; // Default: not typed yet
+      if (isNext) {
+        className = "border-b-4 border-gray-600 text-gray-400"; // Next: thick underline
+      } else if (isCorrect) {
+        className = "border-b border-transparent text-foreground"; // Correct: black text, no underline
       } else if (isError) {
-        className = "border-b-2 border-red-500 text-red-500"; // Error: red
+        className = "border-b border-transparent text-red-500"; // Error: red text, no underline
       }
 
       return (
-        <span key={targetIndex} className={`${className} transition-colors`}>
+        <span key={targetIndex} className={`${className}`}>
           {char}
         </span>
       );
@@ -208,7 +211,7 @@ export default function Practice({ questionId }: PracticeProps) {
         <CardContent className="space-y-6">
           {/* Target text with visual feedback */}
           <div className="p-6 bg-muted/30 rounded-lg">
-            <div className="text-lg leading-relaxed font-mono whitespace-pre-wrap">
+            <div className="text-xl leading-relaxed font-semibold whitespace-pre-wrap">
               {renderTextWithFeedback()}
             </div>
           </div>
