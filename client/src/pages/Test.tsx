@@ -17,6 +17,7 @@ interface TestProps {
 export default function Test({ questionId }: TestProps) {
   const [, setLocation] = useLocation();
   const [userAnswer, setUserAnswer] = useState("");
+  const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
   const [isStarted, setIsStarted] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -29,6 +30,8 @@ export default function Test({ questionId }: TestProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
+  const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
+  const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
   const updateReviewMutation = trpc.review.updateAfterReview.useMutation();
   
   const evaluateMutation = trpc.test.evaluate.useMutation({
@@ -236,8 +239,33 @@ export default function Test({ questionId }: TestProps) {
         <CardHeader>
           <CardTitle>문제</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <p className="text-lg whitespace-pre-wrap">{question.question}</p>
+          {isImageQuestion && (
+            <div className="relative inline-block">
+              <img
+                src={question.imageUrl || ""}
+                alt="Question image"
+                className="max-w-full h-auto rounded-lg border-2 border-border"
+              />
+              {imageLabels.map((label: any, index: number) => (
+                <div
+                  key={index}
+                  className="absolute border-2 border-primary bg-primary/10"
+                  style={{
+                    left: `${label.x}%`,
+                    top: `${label.y}%`,
+                    width: `${label.width}%`,
+                    height: `${label.height}%`,
+                  }}
+                >
+                  <div className="absolute -top-6 left-0 text-xs font-semibold text-primary">
+                    {index + 1}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -271,14 +299,32 @@ export default function Test({ questionId }: TestProps) {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Textarea
-                ref={textareaRef}
-                value={userAnswer}
-                onChange={(e) => setUserAnswer(e.target.value)}
-                placeholder="답안을 입력하세요..."
-                rows={12}
-                className="text-base"
-              />
+              {isImageQuestion ? (
+                <div className="space-y-3">
+                  {imageLabels.map((label: any, index: number) => (
+                    <div key={index} className="flex items-center gap-3">
+                      <span className="text-sm font-semibold text-primary min-w-[24px]">{index + 1}.</span>
+                      <input
+                        type="text"
+                        value={imageLabelAnswers[index] || ""}
+                        onChange={(e) => setImageLabelAnswers({ ...imageLabelAnswers, [index]: e.target.value })}
+                        className="flex-1 px-3 py-2 rounded-lg border-2 border-border bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                        placeholder="정답 입력"
+                        autoFocus={index === 0}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <Textarea
+                  ref={textareaRef}
+                  value={userAnswer}
+                  onChange={(e) => setUserAnswer(e.target.value)}
+                  placeholder="답안을 입력하세요..."
+                  rows={12}
+                  className="text-base"
+                />
+              )}
 
               <Separator />
 

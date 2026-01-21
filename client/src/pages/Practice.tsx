@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { ArrowLeft, Circle } from "lucide-react";
+import { ArrowLeft, Circle, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 
 interface PracticeProps {
@@ -13,6 +13,7 @@ interface PracticeProps {
 export default function Practice({ questionId }: PracticeProps) {
   const [, setLocation] = useLocation();
   const [userInput, setUserInput] = useState("");
+  const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isActive, setIsActive] = useState(true); // 측정 중 여부
@@ -31,6 +32,8 @@ export default function Practice({ questionId }: PracticeProps) {
   });
 
   const targetText = question?.answer || "";
+  const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
+  const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
 
   // Normalize text: remove all spaces for comparison
   const normalizeText = (text: string) => text.replace(/\s+/g, "");
@@ -250,28 +253,75 @@ export default function Practice({ questionId }: PracticeProps) {
       <Card className="shadow-elegant">
         <CardHeader>
           <CardTitle>{question.question}</CardTitle>
-          <CardDescription>정답을 따라 입력하세요 (띄어쓰기 무시)</CardDescription>
+          <CardDescription>
+            {isImageQuestion ? "이미지의 표시된 영역에 정답을 입력하세요" : "정답을 따라 입력하세요 (띄어쓰기 무시)"}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Target text with visual feedback */}
-          <div className="p-6 bg-muted/30 rounded-lg border-2 border-border">
-            <div className="leading-relaxed whitespace-pre-wrap">
-              {renderTextWithFeedback()}
+          {isImageQuestion ? (
+            /* Image question with label inputs */
+            <div className="space-y-4">
+              <div className="relative inline-block">
+                <img
+                  src={question.imageUrl || ""}
+                  alt="Question image"
+                  className="max-w-full h-auto rounded-lg border-2 border-border"
+                />
+                {imageLabels.map((label: any, index: number) => (
+                  <div
+                    key={index}
+                    className="absolute border-2 border-primary bg-primary/10"
+                    style={{
+                      left: `${label.x}%`,
+                      top: `${label.y}%`,
+                      width: `${label.width}%`,
+                      height: `${label.height}%`,
+                    }}
+                  >
+                    <div className="absolute -top-6 left-0 text-xs font-semibold text-primary">
+                      {index + 1}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-3">
+                {imageLabels.map((label: any, index: number) => (
+                  <div key={index} className="flex items-center gap-3">
+                    <span className="text-sm font-semibold text-primary min-w-[24px]">{index + 1}.</span>
+                    <input
+                      type="text"
+                      value={imageLabelAnswers[index] || ""}
+                      onChange={(e) => setImageLabelAnswers({ ...imageLabelAnswers, [index]: e.target.value })}
+                      className="flex-1 px-3 py-2 rounded-lg border-2 border-border bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder="정답 입력"
+                      autoFocus={index === 0}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Text question with visual feedback */
+            <>
+              <div className="p-6 bg-muted/30 rounded-lg border-2 border-border">
+                <div className="leading-relaxed whitespace-pre-wrap">
+                  {renderTextWithFeedback()}
+                </div>
+              </div>
 
-          {/* Hidden textarea for input */}
-          <textarea
-            ref={textareaRef}
-            value={userInput}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            onCompositionStart={handleCompositionStart}
-            onCompositionEnd={handleCompositionEnd}
-            className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground"
-            placeholder="여기에 입력하세요..."
-            autoFocus
-          />
+              <textarea
+                ref={textareaRef}
+                value={userInput}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                onCompositionStart={handleCompositionStart}
+                onCompositionEnd={handleCompositionEnd}
+                className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground"
+                placeholder="여기에 입력하세요..."
+                autoFocus
+              />
+            </>
+          )}
 
           <div className="flex justify-between items-center text-sm text-muted-foreground">
             <div>Ctrl+Enter: 완료 | Esc: 나가기</div>
