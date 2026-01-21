@@ -171,3 +171,9 @@
   - [x] ImageLabelEditor useEffect에 onChange dependency 추가
   - [x] Questions 페이지 onChange를 useCallback으로 감싸기
   - [x] setState 무한 호출 방지
+
+# 버그 수정 (v1.2.4)
+- [x] 이미지 업로드 무한 루프 오류 재수정
+  - [x] ImageLabelEditor useEffect 제거
+  - [x] onChange를 labels 변경 시점에만 직접 호출
+  - [x] useCallback 제거 (일반 함수로 변경)

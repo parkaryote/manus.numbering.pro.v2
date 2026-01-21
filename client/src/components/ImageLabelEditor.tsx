@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,9 +28,8 @@ export function ImageLabelEditor({ imageUrl, initialLabels = [], onChange }: Ima
   const [dragCurrent, setDragCurrent] = useState<{ x: number; y: number } | null>(null);
   const imageRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    onChange(labels);
-  }, [labels, onChange]);
+  // useEffect removed to prevent infinite loop
+  // onChange is called directly when labels change
 
   const getRelativePosition = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!imageRef.current) return { x: 0, y: 0 };
@@ -81,6 +80,7 @@ export function ImageLabelEditor({ imageUrl, initialLabels = [], onChange }: Ima
 
     const updatedLabels = [...labels, newLabel];
     setLabels(updatedLabels);
+    onChange(updatedLabels);
     setSelectedLabelId(newLabel.id);
     setIsDragging(false);
     setDragStart(null);
@@ -91,11 +91,13 @@ export function ImageLabelEditor({ imageUrl, initialLabels = [], onChange }: Ima
   const handleLabelUpdate = (id: string, answer: string) => {
     const updatedLabels = labels.map((l) => (l.id === id ? { ...l, answer } : l));
     setLabels(updatedLabels);
+    onChange(updatedLabels);
   };
 
   const handleLabelDelete = (id: string) => {
     const updatedLabels = labels.filter((l) => l.id !== id);
     setLabels(updatedLabels);
+    onChange(updatedLabels);
     if (selectedLabelId === id) {
       setSelectedLabelId(null);
     }

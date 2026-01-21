@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -312,9 +312,9 @@ export default function Questions({ subjectId }: QuestionsProps) {
             <ImageLabelEditor
               imageUrl={formData.imageUrl}
               initialLabels={formData.imageLabels}
-              onChange={useCallback((labels: ImageLabel[]) => {
+              onChange={(labels: ImageLabel[]) => {
                 setFormData(prev => ({ ...prev, imageLabels: labels }));
-              }, [])}
+              }}
             />
           </div>
         )}
