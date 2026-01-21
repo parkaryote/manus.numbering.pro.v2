@@ -15,7 +15,6 @@ export default function Practice({ questionId }: PracticeProps) {
   const [userInput, setUserInput] = useState("");
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [isFlashcardMode, setIsFlashcardMode] = useState(false); // 플래시카드 모드 여부
   const [revealedLabels, setRevealedLabels] = useState<Set<number>>(new Set()); // 클릭하여 공개된 라벨
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -262,34 +261,8 @@ export default function Practice({ questionId }: PracticeProps) {
         </CardHeader>
         <CardContent className="space-y-6">
           {isImageQuestion ? (
-            /* Image question with label inputs or flashcard mode */
+            /* Image question - flashcard mode only */
             <div className="space-y-4">
-              {/* 모드 선택 버튼 */}
-              <div className="flex gap-2 p-2 bg-muted rounded-lg">
-                <Button
-                  variant={!isFlashcardMode ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => {
-                    setIsFlashcardMode(false);
-                    setRevealedLabels(new Set());
-                  }}
-                  className="flex-1"
-                >
-                  타이핑 모드
-                </Button>
-                <Button
-                  variant={isFlashcardMode ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => {
-                    setIsFlashcardMode(true);
-                    setRevealedLabels(new Set());
-                  }}
-                  className="flex-1"
-                >
-                  플래시카드 모드
-                </Button>
-              </div>
-
               <div className="relative inline-block">
                 {!imageLoaded && (
                   <div className="w-full h-64 bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
@@ -309,11 +282,9 @@ export default function Practice({ questionId }: PracticeProps) {
                     <div
                       key={index}
                       className={`absolute border-2 transition-all cursor-pointer ${
-                        isFlashcardMode
-                          ? isRevealed
-                            ? "border-green-500 bg-green-500/20"
-                            : "border-primary bg-black/80 hover:bg-black/70"
-                          : "border-primary bg-primary/10"
+                        isRevealed
+                          ? "border-transparent bg-transparent"
+                          : "border-primary bg-black hover:bg-black/90"
                       }`}
                       style={{
                         left: `${label.x}%`,
@@ -322,26 +293,18 @@ export default function Practice({ questionId }: PracticeProps) {
                         height: `${label.height}%`,
                       }}
                       onClick={() => {
-                        if (isFlashcardMode && !isRevealed) {
-                          const newRevealed = new Set(revealedLabels);
+                        const newRevealed = new Set(revealedLabels);
+                        if (isRevealed) {
+                          newRevealed.delete(index);
+                        } else {
                           newRevealed.add(index);
-                          setRevealedLabels(newRevealed);
                         }
+                        setRevealedLabels(newRevealed);
                       }}
                     >
-                      {isFlashcardMode && !isRevealed ? (
+                      {!isRevealed && (
                         <div className="w-full h-full flex items-center justify-center">
                           <span className="text-white font-bold text-2xl">{index + 1}</span>
-                        </div>
-                      ) : isFlashcardMode && isRevealed ? (
-                        <div className="w-full h-full flex items-center justify-center p-2">
-                          <span className="text-sm font-semibold text-green-700 text-center break-words">
-                            {label.answer}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="absolute -top-6 left-0 text-xs font-semibold text-primary">
-                          {index + 1}
                         </div>
                       )}
                     </div>
@@ -349,31 +312,26 @@ export default function Practice({ questionId }: PracticeProps) {
                 })}
               </div>
 
-              {!isFlashcardMode && (
-                <div className="space-y-3">
-                  {imageLabels.map((label: any, index: number) => (
-                    <div key={index} className="flex items-center gap-3">
-                      <span className="text-sm font-semibold text-primary min-w-[24px]">{index + 1}.</span>
-                      <input
-                        type="text"
-                        value={imageLabelAnswers[index] || ""}
-                        onChange={(e) => setImageLabelAnswers({ ...imageLabelAnswers, [index]: e.target.value })}
-                        className="flex-1 px-3 py-2 rounded-lg border-2 border-border bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                        placeholder="정답 입력"
-                        autoFocus={index === 0}
-                      />
+              {/* 정답 목록 (이미지 외부에 표시) */}
+              <div className="p-4 bg-muted/50 rounded-lg border space-y-2">
+                <p className="text-sm font-semibold text-muted-foreground mb-3">
+                  박스를 클릭하여 정답을 확인하세요 ({revealedLabels.size}/{imageLabels.length})
+                </p>
+                {imageLabels.map((label: any, index: number) => {
+                  const isRevealed = revealedLabels.has(index);
+                  return (
+                    <div key={index} className="flex items-start gap-3 p-2 rounded bg-background/50">
+                      <span className="text-sm font-semibold text-primary min-w-[24px] mt-0.5">{index + 1}.</span>
+                      <span className={`text-sm flex-1 ${
+                        isRevealed ? "text-foreground font-medium" : "text-muted-foreground"
+                      }`}>
+                        {isRevealed ? label.answer : "●●●●●"}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              )}
-
-              {isFlashcardMode && (
-                <div className="p-4 bg-muted/50 rounded-lg border">
-                  <p className="text-sm text-muted-foreground text-center">
-                    박스를 클릭하면 정답이 표시됩니다 ({revealedLabels.size}/{imageLabels.length})
-                  </p>
-                </div>
-              )}
+                  );
+                })}
+              </div>
+              {/* 플래시카드 모드 only - 위에 이미 표시됨 */}
             </div>
           ) : (
             /* Text question with visual feedback */

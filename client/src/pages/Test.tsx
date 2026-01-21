@@ -278,11 +278,11 @@ export default function Test({ questionId }: TestProps) {
                 onLoad={() => setImageLoaded(true)}
                 loading="lazy"
               />
-              {/* 암기 시간에만 라벨 영역 표시 (불투명 박스로 가리기) */}
+              {/* 암기 시간에만 라벨 영역 표시 (완전 불투명 박스로 가리기) */}
               {!isStarted && imageLoaded && imageLabels.map((label: any, index: number) => (
                 <div
                   key={index}
-                  className="absolute bg-black/80 border-2 border-primary flex items-center justify-center"
+                  className="absolute bg-black border-2 border-primary flex items-center justify-center"
                   style={{
                     left: `${label.x}%`,
                     top: `${label.y}%`,
