@@ -222,3 +222,12 @@
   - [x] 시험 모드에서 이미지 라벨 영역 표시 숨김
   - [x] 암기 시간에만 라벨 영역 표시
   - [x] 답안 작성 시에는 이미지만 표시
+
+# 버그 수정 (v1.3.2)
+- [x] 이미지 라벨 편집기 정답 입력 끊김 현상 해결
+  - [x] ImageLabelEditor의 input을 uncontrolled로 변경 (defaultValue + onBlur)
+  - [x] onChange를 onBlur로 변경하여 입력 완료 시점에만 상태 업데이트
+- [x] 시험 모드 라벨 영역 표시 문제 해결
+  - [x] 암기 시간(!isStarted)에는 라벨 영역 표시
+  - [x] 답안 작성 시(isStarted)에는 라벨 영역 숨김
+  - [x] imageLoaded 상태와 함께 체크하여 이미지 로드 후 라벨 표시

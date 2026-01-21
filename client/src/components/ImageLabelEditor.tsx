@@ -214,8 +214,8 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
                   <div>
                     <Label className="text-xs">정답 (이 영역에 가려진 텍스트)</Label>
                     <Input
-                      value={label.answer}
-                      onChange={(e) => handleLabelUpdate(label.id, e.target.value)}
+                      defaultValue={label.answer}
+                      onBlur={(e) => handleLabelUpdate(label.id, e.target.value)}
                       placeholder="예: Cerebral cortex"
                       className="mt-1"
                       onClick={(e) => e.stopPropagation()}

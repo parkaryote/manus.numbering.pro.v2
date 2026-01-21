@@ -257,7 +257,7 @@ export default function Test({ questionId }: TestProps) {
                 loading="lazy"
               />
               {/* 암기 시간에만 라벨 영역 표시 */}
-              {!isStarted && imageLabels.map((label: any, index: number) => (
+              {!isStarted && imageLoaded && imageLabels.map((label: any, index: number) => (
                 <div
                   key={index}
                   className="absolute border-2 border-primary bg-primary/10"
