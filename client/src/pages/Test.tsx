@@ -500,40 +500,35 @@ export default function Test({ questionId }: TestProps) {
 
               <Separator />
 
-              <div className="space-y-2">
-                <h3 className="font-semibold">내 답안</h3>
-                <div className="p-4 bg-muted/30 rounded-lg whitespace-pre-wrap">
-                  {isImageQuestion ? (
-                    <div className="space-y-2">
-                      {imageLabels.map((label: any, index: number) => (
-                        <div key={index} className="flex items-start gap-3">
-                          <span className="text-sm font-semibold text-primary min-w-[24px]">{index + 1}.</span>
-                          <span className="text-sm flex-1">{imageLabelAnswers[index] || "(입력 없음)"}</span>
+              <div className="space-y-3">
+                <h3 className="font-semibold">정답 비교</h3>
+                {isImageQuestion ? (
+                  <div className="space-y-2">
+                    {result?.mistakes && result.mistakes.map((mistake: any) => (
+                      <div key={mistake.labelIndex} className={`p-3 rounded-lg border ${mistake.isCorrect ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-semibold">라벨 {mistake.labelIndex}</span>
+                          <span className={`text-lg ${mistake.isCorrect ? 'text-green-600' : 'text-red-600'}`}>{mistake.isCorrect ? '✓' : '✗'}</span>
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    userAnswer
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="font-semibold">모범 답안</h3>
-                <div className="p-4 bg-muted/50 rounded-lg border-2 border-green-500/30 whitespace-pre-wrap">
-                  {isImageQuestion ? (
-                    <div className="space-y-2">
-                      {imageLabels.map((label: any, index: number) => (
-                        <div key={index} className="flex items-start gap-3">
-                          <span className="text-sm font-semibold text-primary min-w-[24px]">{index + 1}.</span>
-                          <span className="text-sm flex-1 font-medium">{label.answer}</span>
+                        <div className="text-xs space-y-1">
+                          <div><span className="font-semibold">정답:</span> {mistake.correctAnswer}</div>
+                          <div className={mistake.isCorrect ? 'text-green-700' : 'text-red-700'}><span className="font-semibold">내 답:</span> {mistake.userAnswer || '(입력 없음)'}</div>
                         </div>
-                      ))}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="p-3 bg-green-50 rounded-lg border border-green-300">
+                      <p className="text-xs font-semibold text-muted-foreground mb-1">정답</p>
+                      <p className="text-sm font-medium whitespace-pre-wrap">{question?.answer}</p>
                     </div>
-                  ) : (
-                    question.answer
-                  )}
-                </div>
+                    <div className={`p-3 rounded-lg border ${result?.isCorrect ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+                      <p className="text-xs font-semibold text-muted-foreground mb-1">내 답</p>
+                      <p className={`text-sm font-medium whitespace-pre-wrap ${result?.isCorrect ? 'text-green-700' : 'text-red-700'}`}>{userAnswer}</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2">

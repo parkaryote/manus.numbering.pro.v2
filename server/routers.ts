@@ -290,18 +290,26 @@ export const appRouter = router({
               
               let correctCount = 0;
               const totalCount = imageLabels.length;
+              const labelComparisons: any[] = [];
               
               for (let i = 0; i < totalCount; i++) {
                 const correctAnswer = imageLabels[i]?.answer?.trim().toLowerCase() || "";
-                // "사용자 입력: 1. 답안" 형식에서 "답안" 부분만 추출
                 const userAnswerLine = userAnswerLines[i] || "";
                 const userAnswer = userAnswerLine.replace(/^\d+\.\s*/, "").trim().toLowerCase();
                 
                 console.log(`[DEBUG] Label ${i + 1}: correct="${correctAnswer}", user="${userAnswer}"`);
                 
-                if (userAnswer === correctAnswer) {
+                const isLabelCorrect = userAnswer === correctAnswer;
+                if (isLabelCorrect) {
                   correctCount++;
                 }
+                
+                labelComparisons.push({
+                  labelIndex: i + 1,
+                  correctAnswer,
+                  userAnswer,
+                  isCorrect: isLabelCorrect
+                });
               }
               
               const accuracyRate = Math.round((correctCount / totalCount) * 100);
@@ -317,7 +325,7 @@ export const appRouter = router({
                 isCorrect: isCorrect ? 1 : 0,
                 recallTime: input.recallTime,
                 similarityScore: accuracyRate,
-                mistakeHighlights: null,
+                mistakeHighlights: JSON.stringify(labelComparisons),
                 llmFeedback: null,
               });
               
@@ -325,7 +333,7 @@ export const appRouter = router({
                 isCorrect,
                 similarityScore: accuracyRate,
                 accuracyRate,
-                mistakes: [],
+                mistakes: labelComparisons,
                 feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctCount}/${totalCount} 정답`,
                 missingKeywords: [],
               };
