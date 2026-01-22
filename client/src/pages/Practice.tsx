@@ -106,15 +106,10 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Ctrl+Enter: Complete
-    if (e.ctrlKey && e.key === "Enter") {
+    // Ctrl+Enter or Esc: Complete and save
+    if ((e.ctrlKey && e.key === "Enter") || e.key === "Escape") {
       e.preventDefault();
       handleComplete();
-    }
-    // Esc: Go back
-    if (e.key === "Escape") {
-      e.preventDefault();
-      setLocation(`/questions/${question?.subjectId || 1}`);
     }
   };
 
@@ -262,78 +257,61 @@ export default function Practice({ questionId }: PracticeProps) {
         </CardHeader>
         <CardContent className="space-y-6">
           {isImageQuestion ? (
-            /* Image question - flashcard mode only */
-            <div className="space-y-4">
-              <div className="relative inline-block">
-                {!imageLoaded && (
-                  <div className="w-full h-64 bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
-                    <p className="text-muted-foreground">이미지 로딩 중...</p>
-                  </div>
-                )}
-                <img
-                  src={question.imageUrl || ""}
-                  alt="Question image"
-                  className={`max-w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
-                  onLoad={() => setImageLoaded(true)}
-                  loading="lazy"
-                />
-                {imageLabels.map((label: any, index: number) => {
-                  const isRevealed = revealedLabels.has(index);
-                  return (
-                    <div
-                      key={index}
-                      className={`absolute border-2 transition-all cursor-pointer ${
-                        isRevealed
-                          ? "border-transparent bg-transparent"
-                          : "border-primary bg-black hover:bg-black/90"
-                      }`}
-                      style={{
-                        left: `${label.x}%`,
-                        top: `${label.y}%`,
-                        width: `${label.width}%`,
-                        height: `${label.height}%`,
-                      }}
-                      onClick={() => {
-                        const newRevealed = new Set(revealedLabels);
-                        if (isRevealed) {
-                          newRevealed.delete(index);
-                        } else {
-                          newRevealed.add(index);
-                        }
-                        setRevealedLabels(newRevealed);
-                      }}
-                    >
-                      {!isRevealed && (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <span className="text-white font-bold text-2xl">{index + 1}</span>
-                        </div>
-                      )}
+            /* Image question with label boxes - 2 column layout */
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left: Image with labels */}
+              <div className="space-y-4">
+                <div className="relative inline-block max-w-full">
+                  {!imageLoaded && (
+                    <div className="flex items-center justify-center min-h-[200px] bg-muted/30 rounded-lg border-2 border-border">
+                      <p className="text-muted-foreground">이미지 로딩 중...</p>
                     </div>
-                  );
-                })}
+                  )}
+                  <img
+                    src={question.imageUrl || ""}
+                    alt="Question image"
+                    className={`max-w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
+                    onLoad={() => setImageLoaded(true)}
+                    loading="lazy"
+                  />
+                  {imageLabels.map((label: any, index: number) => {
+                    const isRevealed = revealedLabels.has(index);
+                    return (
+                      <div
+                        key={index}
+                        className={`absolute border-2 transition-all cursor-pointer ${
+                          isRevealed
+                            ? "border-transparent bg-transparent"
+                            : "border-primary bg-black hover:bg-black/90"
+                        }`}
+                        style={{
+                          left: `${label.x}%`,
+                          top: `${label.y}%`,
+                          width: `${label.width}%`,
+                          height: `${label.height}%`,
+                        }}
+                        onClick={() => {
+                          const newRevealed = new Set(revealedLabels);
+                          if (isRevealed) {
+                            newRevealed.delete(index);
+                          } else {
+                            newRevealed.add(index);
+                          }
+                          setRevealedLabels(newRevealed);
+                        }}
+                      >
+                        {!isRevealed && (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <span className="text-white font-bold text-2xl">{index + 1}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
-              {/* 정답 목록 (이미지 외부에 표시) */}
-              <div className="p-4 bg-muted/50 rounded-lg border space-y-2">
-                <p className="text-sm font-semibold text-muted-foreground mb-3">
-                  박스를 클릭하여 정답을 확인하세요 ({revealedLabels.size}/{imageLabels.length})
-                </p>
-                {imageLabels.map((label: any, index: number) => {
-                  const isRevealed = revealedLabels.has(index);
-                  return (
-                    <div key={index} className="flex items-start gap-3 p-2 rounded bg-background/50">
-                      <span className="text-sm font-semibold text-primary min-w-[24px] mt-0.5">{index + 1}.</span>
-                      <span className={`text-sm flex-1 ${
-                        isRevealed ? "text-foreground font-medium" : "text-muted-foreground"
-                      }`}>
-                        {isRevealed ? label.answer : "●●●●●"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              
-              {/* 타이핑 연습용 메모장 */}
+              {/* Right: Practice note */}
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-muted-foreground">
                   타이핑 연습용 메모장
@@ -341,7 +319,7 @@ export default function Practice({ questionId }: PracticeProps) {
                 <textarea
                   value={practiceNote}
                   onChange={(e) => setPracticeNote(e.target.value)}
-                  className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full h-[400px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="여기에 답안을 연습해보세요... (저장되지 않습니다)"
                 />
               </div>
@@ -370,7 +348,7 @@ export default function Practice({ questionId }: PracticeProps) {
           )}
 
           <div className="flex justify-between items-center text-sm text-muted-foreground">
-            <div>Ctrl+Enter: 완료 | Esc: 나가기</div>
+            <div>Ctrl+Enter 또는 Esc: 연습 완료</div>
             <Button onClick={handleComplete} disabled={createSession.isPending}>
               {createSession.isPending ? "저장 중..." : "완료"}
             </Button>
