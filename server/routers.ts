@@ -309,6 +309,18 @@ export const appRouter = router({
               
               console.log(`[DEBUG] Image question grading: ${correctCount}/${totalCount} correct, accuracy: ${accuracyRate}%`);
               
+              // Save test session
+              await db.createTestSession({
+                userId: ctx.user.id,
+                questionId: input.questionId,
+                userAnswer: input.userAnswer,
+                isCorrect: isCorrect ? 1 : 0,
+                recallTime: input.recallTime,
+                similarityScore: accuracyRate,
+                mistakeHighlights: null,
+                llmFeedback: null,
+              });
+              
               return {
                 isCorrect,
                 similarityScore: accuracyRate,
@@ -331,6 +343,18 @@ export const appRouter = router({
           console.log("[DEBUG] normalizedUser:", normalizedUser);
           console.log("[DEBUG] normalizedCorrect:", normalizedCorrect);
           console.log("[DEBUG] isCorrect:", isCorrect);
+          
+          // Save test session
+          await db.createTestSession({
+            userId: ctx.user.id,
+            questionId: input.questionId,
+            userAnswer: input.userAnswer,
+            isCorrect: isCorrect ? 1 : 0,
+            recallTime: input.recallTime,
+            similarityScore: isCorrect ? 100 : 0,
+            mistakeHighlights: null,
+            llmFeedback: null,
+          });
           
           return {
             isCorrect,
