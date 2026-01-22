@@ -135,9 +135,20 @@ export default function Practice({ questionId }: PracticeProps) {
 
   const handleCompositionEnd = () => {
     setIsComposing(false);
-    // 조합 종료 시 현재 입력 길이를 완료된 길이로 저장
+    // 조합 종료 시 정답 글자만 completedLength에 포함
     const normalized = normalizeText(userInput);
-    setCompletedLength(normalized.length);
+    const normalizedTarget = normalizeText(targetText);
+    
+    // 입력한 글자 중 정답인 글자 수를 계산
+    let correctCount = 0;
+    for (let i = 0; i < normalized.length; i++) {
+      if (normalized[i] === normalizedTarget[i]) {
+        correctCount++;
+      } else {
+        break; // 틀린 글자가 나오면 중단
+      }
+    }
+    setCompletedLength(correctCount);
   };
 
   const handleComplete = async () => {
@@ -186,8 +197,8 @@ export default function Practice({ questionId }: PracticeProps) {
       const isCorrect = isCompleted && isTyped && currentChar === normalizedTarget[inputIndex];
       const isError = isCompleted && isTyped && currentChar !== normalizedTarget[inputIndex];
       
-      // 언더바는 다음 입력할 글자에 표시
-      const isNext = inputIndex === normalizedInput.length;
+      // 언더바는 completedLength 위치에 표시 (정답 글자 다음)
+      const isNext = inputIndex === completedLength;
 
       inputIndex++;
 
