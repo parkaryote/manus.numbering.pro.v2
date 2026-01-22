@@ -193,7 +193,7 @@ export default function Practice({ questionId }: PracticeProps) {
 
       let className = "text-gray-400 relative font-semibold text-xl"; // Default: not typed yet
       
-      if (isNext && !isComposing) {
+      if (isNext) {
         // 다음 입력 위치: 두꺼운 언더바 + 깜빡이는 커서
         className = "border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse";
       } else if (isCorrect) {
