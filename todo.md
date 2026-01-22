@@ -366,3 +366,10 @@
   - [x] 이미지 문제에서도 ESC 키 감지되도록 수정
   - [x] useEffect로 window keydown 이벤트 등록
   - [x] handleGlobalKeyDown 함수 추가
+
+# 기능 개선 (v1.6.0)
+- [x] 앱 이름 및 브랜딩 변경
+  - [x] 홈페이지 타이틀을 "타이핑 퀴즈"에서 "numbering.pro"로 변경
+  - [x] 설명 문구를 "넘버링 달인, 그림빵 장인 되기"로 변경
+  - [x] index.html title 태그 업데이트
+  - [x] Home.tsx 타이틀 및 설명 업데이트

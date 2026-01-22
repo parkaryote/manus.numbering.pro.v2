@@ -23,8 +23,8 @@ export default function Home() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-4xl font-semibold tracking-tight">타이핑 퀴즈</h1>
-        <p className="text-muted-foreground mt-2">서술형 문제 암기를 위한 학습 도우미입니다</p>
+        <h1 className="text-4xl font-semibold tracking-tight">numbering.pro</h1>
+        <p className="text-muted-foreground mt-2">넘버링 달인, 그림빵 장인 되기</p>
       </div>
 
       {/* Stats Cards */}
