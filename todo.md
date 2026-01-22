@@ -359,3 +359,10 @@
   - [x] Ctrl+Enter도 완료 버튼과 동일하게 작동
   - [x] 기존 "나가기" 동작 제거
   - [x] 단축키 안내 텍스트 업데이트
+
+# 버그 수정 (v1.5.3)
+- [x] Practice 페이지 ESC 키 작동하지 않는 문제 수정
+  - [x] 전역 키보드 이벤트 리스너 추가
+  - [x] 이미지 문제에서도 ESC 키 감지되도록 수정
+  - [x] useEffect로 window keydown 이벤트 등록
+  - [x] handleGlobalKeyDown 함수 추가

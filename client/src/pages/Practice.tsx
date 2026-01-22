@@ -80,6 +80,22 @@ export default function Practice({ questionId }: PracticeProps) {
     };
   }, [lastInputTime, isActive]);
 
+  // Global keyboard event listener for ESC and Ctrl+Enter
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // ESC or Ctrl+Enter: Complete and save
+      if (e.key === "Escape" || (e.ctrlKey && e.key === "Enter")) {
+        e.preventDefault();
+        handleComplete();
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+    };
+  }, [question, userInput, imageLabelAnswers, revealedLabels, elapsedTime, createSession]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newInput = e.target.value;
     setUserInput(newInput);
