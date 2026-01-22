@@ -8,6 +8,30 @@ export default function Statistics() {
   const { data: practiceSessions, isLoading: practiceLoading } = trpc.practice.getByUser.useQuery();
   const { data: testSessions, isLoading: testLoading } = trpc.test.getByUser.useQuery();
   const { data: questions } = trpc.questions.listAll.useQuery();
+  const { data: subjects } = trpc.subjects.list.useQuery();
+  
+  const utils = trpc.useUtils();
+  const deleteAllPractice = trpc.practice.deleteAll.useMutation({
+    onSuccess: () => {
+      utils.practice.getByUser.invalidate();
+    },
+  });
+  const deleteAllTest = trpc.test.deleteAll.useMutation({
+    onSuccess: () => {
+      utils.test.getByUser.invalidate();
+    },
+  });
+  
+  const handleResetStats = async () => {
+    if (!confirm("모든 학습 통계를 초기화하시겠습니까? 이 작업은 취소할 수 없습니다.")) {
+      return;
+    }
+    await Promise.all([
+      deleteAllPractice.mutateAsync(),
+      deleteAllTest.mutateAsync(),
+    ]);
+    alert("통계가 초기화되었습니다.");
+  };
 
   // Calculate statistics
   const stats = {
@@ -95,9 +119,18 @@ export default function Statistics() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">학습 통계</h1>
-        <p className="text-muted-foreground mt-1">학습 진행 상황과 성과를 확인하세요</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">학습 통계</h1>
+          <p className="text-muted-foreground mt-1">학습 진행 상황과 성과를 확인하세요</p>
+        </div>
+        <button
+          onClick={handleResetStats}
+          className="px-4 py-2 text-sm font-medium text-destructive border border-destructive rounded-md hover:bg-destructive hover:text-destructive-foreground transition-colors"
+          disabled={deleteAllPractice.isPending || deleteAllTest.isPending}
+        >
+          {deleteAllPractice.isPending || deleteAllTest.isPending ? "초기화 중..." : "통계 초기화"}
+        </button>
       </div>
 
       {/* Overview Stats */}
@@ -215,6 +248,55 @@ export default function Statistics() {
               </CardContent>
             </Card>
           </div>
+          
+          {/* 과목별 연습 시간 */}
+          <Card className="shadow-elegant">
+            <CardHeader>
+              <CardTitle>과목별 연습 시간</CardTitle>
+              <CardDescription>각 과목에 투자한 시간</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {subjects && subjects.length > 0 ? (
+                  subjects.map((subject) => {
+                    // 해당 과목의 문제 ID들 찾기
+                    const subjectQuestions = questions?.filter(q => q.subjectId === subject.id) || [];
+                    const subjectQuestionIds = subjectQuestions.map(q => q.id);
+                    
+                    // 해당 문제들의 연습 세션 찾기
+                    const subjectPracticeSessions = practiceSessions?.filter(s => 
+                      subjectQuestionIds.includes(s.questionId)
+                    ) || [];
+                    
+                    const totalDuration = subjectPracticeSessions.reduce((sum, s) => sum + s.duration, 0);
+                    const sessionCount = subjectPracticeSessions.length;
+                    
+                    return (
+                      <div key={subject.id} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: subject.color || "#3B82F6" }}
+                          />
+                          <div>
+                            <p className="font-medium">{subject.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {sessionCount}회 연습
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold">{formatTime(totalDuration)}</p>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-center text-muted-foreground py-4">과목이 없습니다</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="test" className="space-y-4">

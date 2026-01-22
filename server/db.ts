@@ -226,6 +226,29 @@ export async function getPracticeSessionsByUserId(userId: number) {
   return db.select().from(practiceSessions).where(eq(practiceSessions.userId, userId));
 }
 
+export async function getPracticeSessionsBySubjectId(userId: number, subjectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  // Get all questions for this subject
+  const subjectQuestions = await db.select().from(questions).where(eq(questions.subjectId, subjectId));
+  const questionIds = subjectQuestions.map(q => q.id);
+  
+  if (questionIds.length === 0) return [];
+  
+  // Get practice sessions for these questions
+  const sessions = await db.select().from(practiceSessions)
+    .where(eq(practiceSessions.userId, userId));
+  
+  return sessions.filter(s => questionIds.includes(s.questionId));
+}
+
+export async function deleteAllPracticeSessions(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.delete(practiceSessions).where(eq(practiceSessions.userId, userId));
+}
+
 export async function createPracticeSession(session: InsertPracticeSession) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -252,6 +275,12 @@ export async function createTestSession(session: InsertTestSession) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db.insert(testSessions).values(session);
+}
+
+export async function deleteAllTestSessions(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.delete(testSessions).where(eq(testSessions.userId, userId));
 }
 
 // ========== Review Schedule Queries ==========

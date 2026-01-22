@@ -156,6 +156,12 @@ export const appRouter = router({
       return db.getPracticeSessionsByUserId(ctx.user.id);
     }),
     
+    getBySubject: protectedProcedure
+      .input(z.object({ subjectId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        return db.getPracticeSessionsBySubjectId(ctx.user.id, input.subjectId);
+      }),
+    
     create: protectedProcedure
       .input(z.object({
         questionId: z.number(),
@@ -173,6 +179,11 @@ export const appRouter = router({
           accuracy: input.accuracy,
           errorCount: input.errorCount,
         });
+      }),
+    
+    deleteAll: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        return db.deleteAllPracticeSessions(ctx.user.id);
       }),
   }),
 
@@ -468,6 +479,11 @@ ${input.userAnswer}
             llmFeedback: "LLM 평가를 사용할 수 없어 기본 평가를 사용했습니다.",
           };
         }
+      }),
+    
+    deleteAll: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        return db.deleteAllTestSessions(ctx.user.id);
       }),
   }),
 

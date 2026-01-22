@@ -325,3 +325,17 @@
   - [x] 데이터베이스에서 불필요한 문제 삭제
   - [x] countQuestionsByUserId 함수 추가
   - [x] questions.count 프로시저 추가
+
+# 기능 추가 (v1.5.0)
+- [x] 학습 통계 페이지 개선
+  - [x] 총 연습 시간 표시
+  - [x] 과목별 연습 시간 표시
+  - [x] 통계 초기화 버튼 추가
+  - [x] 연습 세션에 시간 기록 추가 (시작 시간, 종료 시간)
+  - [x] 통계 초기화 API 구현
+  - [x] 통계 페이지 UI 업데이트
+  - [x] practice.deleteAll 프로시저 추가
+  - [x] test.deleteAll 프로시저 추가
+  - [x] deleteAllPracticeSessions 함수 추가
+  - [x] deleteAllTestSessions 함수 추가
+  - [x] 통계 초기화 테스트 작성 및 통과
