@@ -339,3 +339,11 @@
   - [x] deleteAllPracticeSessions 함수 추가
   - [x] deleteAllTestSessions 함수 추가
   - [x] 통계 초기화 테스트 작성 및 통과
+
+# 기능 추가 (v1.5.1)
+- [x] 이미지 문제에 타이핑 연습용 메모장 추가
+  - [x] Practice 페이지에서 이미지 문제 감지
+  - [x] 이미지 하단에 메모장 textarea 추가
+  - [x] 메모장 내용은 저장하지 않고 연습용으로만 사용
+  - [x] practiceNote state 추가
+  - [x] 정답 목록 아래에 메모장 UI 배치

@@ -22,6 +22,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const [lastInputTime, setLastInputTime] = useState<number>(Date.now());
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
   const [completedLength, setCompletedLength] = useState(0); // 조합이 완료된 글자 길이
+  const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -330,6 +331,19 @@ export default function Practice({ questionId }: PracticeProps) {
                     </div>
                   );
                 })}
+              </div>
+              
+              {/* 타이핑 연습용 메모장 */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-muted-foreground">
+                  타이핑 연습용 메모장
+                </label>
+                <textarea
+                  value={practiceNote}
+                  onChange={(e) => setPracticeNote(e.target.value)}
+                  className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="여기에 답안을 연습해보세요... (저장되지 않습니다)"
+                />
               </div>
             </div>
           ) : (
