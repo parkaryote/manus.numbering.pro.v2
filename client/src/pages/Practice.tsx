@@ -117,6 +117,13 @@ export default function Practice({ questionId }: PracticeProps) {
     }
   };
 
+
+
+  // 띄어쓰기 입력 시 강제 리렌더링을 위한 트리거
+  const renderTrigger = useMemo(() => {
+    return userInput[userInput.length - 1] === ' ' ? Date.now() : null;
+  }, [userInput]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Ctrl+Enter or Esc: Complete and save
     if ((e.ctrlKey && e.key === "Enter") || e.key === "Escape") {
@@ -157,13 +164,17 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   // 채점된 글자 수 계산 - 모바일 호환성을 위해 input 이벤트 기반으로 변경
-  // 항상 마지막 글자는 회색으로 유지하고, 다음 글자로 넘어간 후에만 채점
+  // 마지막 글자는 회색으로 유지하되, 띄어쓰기 후에는 즉시 채점 반영
   const getCompletedLength = useMemo(() => {
     const normalized = normalizeText(userInput);
+    const lastChar = userInput[userInput.length - 1];
     
-    // 항상 마지막 글자를 제외한 길이를 반환
+    // 마지막 입력이 띄어쓰기인 경우, 정규화된 길이 전체를 반환
+    if (lastChar === ' ') {
+      return normalized.length;
+    }
+    
     // 마지막 글자는 조합 중일 수 있으므로 회색으로 표시
-    // 다음 글자를 입력하면 이전 글자가 채점됨
     return Math.max(0, normalized.length - 1);
   }, [userInput, targetText]);
 
@@ -220,7 +231,7 @@ export default function Practice({ questionId }: PracticeProps) {
         </span>
       );
     });
-  }, [userInput, targetText, getCompletedLength]);
+  }, [userInput, targetText, getCompletedLength, renderTrigger]);
 
   if (isLoading) {
     return (

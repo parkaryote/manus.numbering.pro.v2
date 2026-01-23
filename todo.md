@@ -458,3 +458,9 @@
   - [x] Test.tsx 이미지 크기 확대 (w-full)
   - [x] 모바일에서 이미지 로딩 안되는 문제 해결 (loading="eager", fetchPriority="high")
   - [x] lazy loading 제거하고 eager loading으로 변경
+
+# 버그 수정 (v1.7.2)
+- [x] 연습 모드에서 띄어쓰기 후 즉시 채점 반영
+  - [x] normalizeText에서 띄어쓰기 제거 로직 확인
+  - [x] getCompletedLength 계산 로직 수정 - 띄어쓰기 시 전체 길이 반환
+  - [x] 띄어쓰기 입력 시 이전 글자 채점 반영
