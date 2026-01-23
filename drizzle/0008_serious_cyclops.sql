@@ -1,0 +1,1 @@
+ALTER TABLE `testSessions` DROP COLUMN `tabSwitchCount`;

@@ -497,3 +497,12 @@
   - [x] 데이터베이스 스키마에 tabSwitchCount 필드 추가
   - [x] 서버 채점 로직에 이탈 횟수 저장 (test.evaluate input)
   - [x] 시험 결과 화면에 이탈 횟수 표시 (4칸럼 그리드)
+
+# 기능 제거 (v1.9.1)
+- [x] 화면 이탈 감지 기능 완전 제거
+  - [x] Test.tsx에서 tabSwitchCount 상태 변수 제거
+  - [x] Test.tsx에서 visibilitychange 이벤트 리스너 제거
+  - [x] Test.tsx에서 결과 화면 이탈 횟수 표시 제거 (3칸럼 그리드로 복구)
+  - [x] 데이터베이스 스키마에서 tabSwitchCount 필드 제거
+  - [x] 서버 routers.ts에서 tabSwitchCount 파라미터 제거
+  - [x] 서버 createTestSession 호출에서 tabSwitchCount 제거 (4곳)

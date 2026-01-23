@@ -57,6 +57,13 @@
       "when": 1769189532783,
       "tag": "0007_fair_william_stryker",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1769190957035,
+      "tag": "0008_serious_cyclops",
+      "breakpoints": true
     }
   ]
 }
