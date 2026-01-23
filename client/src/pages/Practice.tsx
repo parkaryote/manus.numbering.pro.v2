@@ -157,20 +157,15 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   // 채점된 글자 수 계산 - 모바일 호환성을 위해 input 이벤트 기반으로 변경
-  // compositionend에 의존하지 않고 입력값 자체로 판단
+  // 항상 마지막 글자는 회색으로 유지하고, 다음 글자로 넘어간 후에만 채점
   const getCompletedLength = useMemo(() => {
     const normalized = normalizeText(userInput);
-    const normalizedTarget = normalizeText(targetText);
     
-    // 조합 중이 아니면 전체 입력 길이를 채점 대상으로
-    if (!isComposing) {
-      return normalized.length;
-    }
-    
-    // 조합 중이면 마지막 글자를 제외한 길이
-    // (한글 조합 중인 글자는 아직 확정되지 않음)
+    // 항상 마지막 글자를 제외한 길이를 반환
+    // 마지막 글자는 조합 중일 수 있으므로 회색으로 표시
+    // 다음 글자를 입력하면 이전 글자가 채점됨
     return Math.max(0, normalized.length - 1);
-  }, [userInput, targetText, isComposing]);
+  }, [userInput, targetText]);
 
   // Render each character with visual feedback
   const renderTextWithFeedback = useMemo(() => {

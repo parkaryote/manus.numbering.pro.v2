@@ -445,3 +445,9 @@
   - [x] input 이벤트 기반으로 채점 로직 수정
   - [x] completedLength 상태 변수 제거, getCompletedLength useMemo로 대체
   - [x] compositionend 이벤트에 의존하지 않고 입력값 자체로 판단
+
+# 버그 수정 (v1.7.0)
+- [x] 연습 모드에서 글자 조합 중에는 회색으로 표시되도록 수정
+  - [x] 현재 입력 중인 마지막 글자는 회색으로 유지
+  - [x] 다음 글자로 넘어간 후에만 검정(정답)/빨강(오답) 표시
+  - [x] getCompletedLength 로직 수정 - 항상 마지막 글자 제외
