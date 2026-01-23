@@ -464,3 +464,11 @@
   - [x] normalizeText에서 띄어쓰기 제거 로직 확인
   - [x] getCompletedLength 계산 로직 수정 - 띄어쓰기 시 전체 길이 반환
   - [x] 띄어쓰기 입력 시 이전 글자 채점 반영
+
+# 기능 개선 (v1.8.0)
+- [x] 연습 모드 정답 일치 시 동작 개선
+  - [x] handleCorrectAnswer 함수 구현 - fade out 애니메이션 및 입력 초기화
+  - [x] 정답 글자 fade out 애니메이션 (1.5초)
+  - [x] 애니메이션 완료 후 입력 초기화
+  - [x] 연습 횟수 증가 로직 추가
+  - [x] CSS transition-colors duration-1500 적용

@@ -22,6 +22,8 @@ export default function Practice({ questionId }: PracticeProps) {
   const [lastInputTime, setLastInputTime] = useState<number>(Date.now());
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
+  const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
+  const [practiceCount, setPracticeCount] = useState(0); // 연습 횟수
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastInputRef = useRef<string>(""); // 마지막 입력값 추적 (모바일용)
@@ -37,6 +39,8 @@ export default function Practice({ questionId }: PracticeProps) {
   const targetText = question?.answer || "";
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+  
+
 
   // Normalize text: remove all spaces for comparison
   const normalizeText = (text: string) => text.replace(/\s+/g, "");
@@ -112,8 +116,9 @@ export default function Practice({ questionId }: PracticeProps) {
 
     // Auto-complete when normalized text matches
     const normalized = normalizeText(newInput);
-    if (normalized === normalizeText(targetText)) {
-      handleComplete();
+    const normalizedTarget = normalizeText(targetText);
+    if (normalized === normalizedTarget) {
+      handleCorrectAnswer();
     }
   };
 
@@ -123,6 +128,10 @@ export default function Practice({ questionId }: PracticeProps) {
   const renderTrigger = useMemo(() => {
     return userInput[userInput.length - 1] === ' ' ? Date.now() : null;
   }, [userInput]);
+
+  const practiceCountDisplay = useMemo(() => {
+    return practiceCount;
+  }, [practiceCount]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Ctrl+Enter or Esc: Complete and save
@@ -155,6 +164,19 @@ export default function Practice({ questionId }: PracticeProps) {
       accuracy: 100, // Not tracking accuracy anymore
       errorCount: 0, // Not tracking errors anymore
     });
+  };
+
+  // 정답 일치 시 fade out 애니메이션 후 입력 초기화
+  const handleCorrectAnswer = () => {
+    setIsFadingOut(true);
+    setPracticeCount(prev => prev + 1);
+    
+    // 1.5초 후 입력 초기화 및 fade out 상태 해제
+    setTimeout(() => {
+      setUserInput("");
+      setIsFadingOut(false);
+      textareaRef.current?.focus();
+    }, 1500);
   };
 
   const formatTime = (seconds: number) => {
@@ -215,8 +237,8 @@ export default function Practice({ questionId }: PracticeProps) {
         // 다음 입력 위치: 두꺼운 언더바 + 깜빡이는 커서
         className = "border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse";
       } else if (isCorrect) {
-        // 정답: 검은색
-        className = "text-foreground relative font-semibold text-xl";
+        // 정답: 검은색 또는 fade out 중이면 회색
+        className = isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl";
       } else if (isError) {
         // 오답: 빨간색
         className = "text-red-500 relative font-semibold text-xl";
@@ -231,7 +253,7 @@ export default function Practice({ questionId }: PracticeProps) {
         </span>
       );
     });
-  }, [userInput, targetText, getCompletedLength, renderTrigger]);
+  }, [userInput, targetText, getCompletedLength, renderTrigger, isFadingOut]);
 
   if (isLoading) {
     return (
@@ -272,13 +294,19 @@ export default function Practice({ questionId }: PracticeProps) {
           <ArrowLeft className="h-4 w-4" />
           돌아가기
         </Button>
-        <div className="flex items-center gap-2">
-          <Circle
-            className={`h-3 w-3 ${isActive ? "fill-green-500 text-green-500" : "fill-red-500 text-red-500"}`}
-          />
-          <span className="text-sm text-muted-foreground">
-            {isActive ? "측정 중" : "중단됨"}
-          </span>
+        <div className="flex items-center gap-4">
+          <div className="text-center">
+            <p className="text-2xl font-bold">{practiceCountDisplay}</p>
+            <p className="text-xs text-muted-foreground">연습 횟수</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Circle
+              className={`h-3 w-3 ${isActive ? "fill-green-500 text-green-500" : "fill-red-500 text-red-500"}`}
+            />
+            <span className="text-sm text-muted-foreground">
+              {isActive ? "측정 중" : "중단됨"}
+            </span>
+          </div>
         </div>
       </div>
 
