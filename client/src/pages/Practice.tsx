@@ -172,11 +172,11 @@ export default function Practice({ questionId }: PracticeProps) {
     let inputIndex = 0;
 
     return targetChars.map((char, targetIndex) => {
-      // Skip spaces in target for comparison
-      if (char === " ") {
+      // Skip spaces and newlines in target for comparison
+      if (char === " " || char === "\n") {
         return (
           <span key={targetIndex} className="text-muted-foreground">
-            {" "}
+            {char === "\n" ? "\n" : " "}
           </span>
         );
       }

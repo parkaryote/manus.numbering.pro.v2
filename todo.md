@@ -423,3 +423,11 @@
   - [x] completedLength 업데이트 로직 개선
   - [x] break 문 제거
   - [x] 단순 입력 길이로 completedLength 설정
+
+# 버그 수정 (v1.6.7)
+- [x] 줄바꾸기 이후 글자 채점 인덱스 밀림 문제 수정
+  - [x] renderTextWithFeedback에서 줄바꾸기 처리 로직 확인
+  - [x] normalizeText와 실제 targetText 인덱스 맞추기
+  - [x] 줔바꾸기를 건너뛤지 않고 카운트하도록 수정
+  - [x] char === "\\n" 조건 추가
+  - [x] 줄바꾸기도 렌더링 시 유지
