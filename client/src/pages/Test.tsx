@@ -26,6 +26,7 @@ export default function Test({ questionId }: TestProps) {
   const [result, setResult] = useState<any>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -76,6 +77,26 @@ export default function Test({ questionId }: TestProps) {
     return () => clearInterval(interval);
   }, [isStarted, startTime, isSubmitted]);
 
+  // Tab switch detection
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && isStarted && !isSubmitted) {
+        setTabSwitchCount(prev => prev + 1);
+        toast.warning("⚠️ 화면 이탈이 감지되었습니다!", {
+          description: "시험 중에는 화면을 이탈하지 마세요.",
+        });
+      }
+    };
+
+    if (isStarted && !isSubmitted) {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isStarted, isSubmitted]);
+
   const handleStart = () => {
     setIsStarted(true);
     setStartTime(Date.now());
@@ -94,6 +115,7 @@ export default function Test({ questionId }: TestProps) {
     setIsSubmitted(false);
     setResult(null);
     setAudioBlob(null);
+    setTabSwitchCount(0);
   };
 
   const handleSubmit = async () => {
@@ -116,6 +138,7 @@ export default function Test({ questionId }: TestProps) {
         questionId: question.id,
         userAnswer: combinedAnswer,
         recallTime,
+        tabSwitchCount,
       });
     } else {
       // 텍스트 문제인 경우
@@ -127,6 +150,7 @@ export default function Test({ questionId }: TestProps) {
         questionId: question.id,
         userAnswer: userAnswer.trim(),
         recallTime,
+        tabSwitchCount,
       });
     }
   };
@@ -464,7 +488,7 @@ export default function Test({ questionId }: TestProps) {
               <CardTitle>평가 결과</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-3xl font-bold">
                     {result?.isCorrect ? "✓" : "✗"}
@@ -478,6 +502,10 @@ export default function Test({ questionId }: TestProps) {
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-3xl font-bold">{formatTime(recallTime)}</p>
                   <p className="text-sm text-muted-foreground mt-1">회상 시간</p>
+                </div>
+                <div className="text-center p-4 bg-muted/30 rounded-lg">
+                  <p className="text-3xl font-bold">{tabSwitchCount}</p>
+                  <p className="text-sm text-muted-foreground mt-1">화면 이탈</p>
                 </div>
               </div>
 

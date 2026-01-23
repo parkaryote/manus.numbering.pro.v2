@@ -91,6 +91,7 @@ export const testSessions = mysqlTable("testSessions", {
   isCorrect: int("isCorrect").notNull(), // 0 or 1 (boolean)
   similarityScore: int("similarityScore"), // LLM 평가 점수 (0-100)
   recallTime: int("recallTime").notNull(), // 회상 소요 시간 (초)
+  tabSwitchCount: int("tabSwitchCount").default(0).notNull(), // 화면 이탈 횟수
   mistakeHighlights: text("mistakeHighlights"), // JSON 형태로 틀린 부분 저장
   llmFeedback: text("llmFeedback"), // LLM 피드백
   completedAt: timestamp("completedAt").defaultNow().notNull(),

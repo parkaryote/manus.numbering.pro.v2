@@ -488,3 +488,12 @@
   - [x] Test.tsx 입력창에서 Ctrl+V 차단
   - [x] Practice.tsx 입력창에서 Ctrl+V 차단 (텍스트 문제 및 메모장)
   - [x] onPaste 이벤트 preventDefault 적용
+
+# 기능 추가 (v1.9.0)
+- [x] 시험 모드 화면 이탈 감지 및 경고
+  - [x] Test.tsx에 visibilitychange 이벤트 리스너 추가
+  - [x] 화면 이탈 시 경고 메시지 표시 (toast.warning)
+  - [x] 이탈 횟수 상태 변수 추가 (tabSwitchCount)
+  - [x] 데이터베이스 스키마에 tabSwitchCount 필드 추가
+  - [x] 서버 채점 로직에 이탈 횟수 저장 (test.evaluate input)
+  - [x] 시험 결과 화면에 이탈 횟수 표시 (4칸럼 그리드)

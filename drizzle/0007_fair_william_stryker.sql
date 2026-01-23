@@ -1,0 +1,1 @@
+ALTER TABLE `testSessions` ADD `tabSwitchCount` int DEFAULT 0 NOT NULL;

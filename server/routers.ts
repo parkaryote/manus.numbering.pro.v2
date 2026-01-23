@@ -252,6 +252,7 @@ export const appRouter = router({
         questionId: z.number(),
         userAnswer: z.string(),
         recallTime: z.number(),
+        tabSwitchCount: z.number().optional().default(0),
       }))
       .mutation(async ({ ctx, input }) => {
         const question = await db.getQuestionById(input.questionId);
@@ -324,6 +325,7 @@ export const appRouter = router({
                 userAnswer: input.userAnswer,
                 isCorrect: isCorrect ? 1 : 0,
                 recallTime: input.recallTime,
+                tabSwitchCount: input.tabSwitchCount || 0,
                 similarityScore: accuracyRate,
                 mistakeHighlights: JSON.stringify(labelComparisons),
                 llmFeedback: null,
@@ -370,6 +372,7 @@ export const appRouter = router({
             userAnswer: input.userAnswer,
             isCorrect: isCorrect ? 1 : 0,
             recallTime: input.recallTime,
+            tabSwitchCount: input.tabSwitchCount || 0,
             similarityScore: accuracyRate,
             mistakeHighlights: null,
             llmFeedback: null,
@@ -479,6 +482,7 @@ ${input.userAnswer}
             userAnswer: input.userAnswer,
             isCorrect,
             recallTime: input.recallTime,
+            tabSwitchCount: input.tabSwitchCount || 0,
             similarityScore,
             mistakeHighlights,
             llmFeedback,
@@ -509,6 +513,7 @@ ${input.userAnswer}
             userAnswer: input.userAnswer,
             isCorrect,
             recallTime: input.recallTime,
+            tabSwitchCount: input.tabSwitchCount || 0,
             similarityScore,
             mistakeHighlights: null,
             llmFeedback: null,
