@@ -266,18 +266,19 @@ export default function Test({ questionId }: TestProps) {
           <CardContent className="space-y-4">
             <p className="text-lg whitespace-pre-wrap">{question.question}</p>
             {isImageQuestion && (
-              <div className="relative inline-block">
+              <div className="relative w-full">
                 {!imageLoaded && (
-                  <div className="w-full h-64 bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
+                  <div className="w-full min-h-[300px] md:min-h-[400px] bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
                     <p className="text-muted-foreground">이미지 로딩 중...</p>
                   </div>
                 )}
                 <img
                   src={question.imageUrl || ""}
                   alt="Question image"
-                  className={`max-w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
+                  className={`w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
                   onLoad={() => setImageLoaded(true)}
-                  loading="lazy"
+                  loading="eager"
+                  fetchPriority="high"
                 />
                 {/* 암기 시간에 라벨 영역 표시 (완전 불투명 박스로 가리기) */}
                 {imageLoaded && !isStarted && imageLabels.map((label: any, index: number) => (
@@ -339,12 +340,13 @@ export default function Test({ questionId }: TestProps) {
               {isImageQuestion ? (
                 <div className="space-y-4">
                   {/* 이미지 표시 (불투명 박스로 라벨 영역 표시) */}
-                  <div className="relative inline-block">
+                  <div className="relative w-full">
                     <img
                       src={question.imageUrl || ""}
                       alt="Question image"
-                      className="max-w-full h-auto rounded-lg border-2 border-border"
-                      loading="lazy"
+                      className="w-full h-auto rounded-lg border-2 border-border"
+                      loading="eager"
+                      fetchPriority="high"
                     />
                     {/* 불투명 박스로 라벨 영역 표시 */}
                     {imageLabels.map((label: any, index: number) => (

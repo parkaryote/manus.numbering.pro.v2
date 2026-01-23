@@ -451,3 +451,10 @@
   - [x] 현재 입력 중인 마지막 글자는 회색으로 유지
   - [x] 다음 글자로 넘어간 후에만 검정(정답)/빨강(오답) 표시
   - [x] getCompletedLength 로직 수정 - 항상 마지막 글자 제외
+
+# 버그 수정 (v1.7.1)
+- [x] 모바일에서 이미지 로딩 및 크기 문제 수정
+  - [x] Practice.tsx 이미지 크기 확대 (w-full, min-h-[300px] md:min-h-[400px])
+  - [x] Test.tsx 이미지 크기 확대 (w-full)
+  - [x] 모바일에서 이미지 로딩 안되는 문제 해결 (loading="eager", fetchPriority="high")
+  - [x] lazy loading 제거하고 eager loading으로 변경

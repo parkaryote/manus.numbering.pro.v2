@@ -284,18 +284,19 @@ export default function Practice({ questionId }: PracticeProps) {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Left: Image with labels */}
               <div className="space-y-4">
-                <div className="relative inline-block max-w-full">
+                <div className="relative w-full">
                   {!imageLoaded && (
-                    <div className="flex items-center justify-center min-h-[200px] bg-muted/30 rounded-lg border-2 border-border">
+                    <div className="flex items-center justify-center min-h-[300px] md:min-h-[400px] bg-muted/30 rounded-lg border-2 border-border">
                       <p className="text-muted-foreground">이미지 로딩 중...</p>
                     </div>
                   )}
                   <img
                     src={question.imageUrl || ""}
                     alt="Question image"
-                    className={`max-w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
+                    className={`w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
                     onLoad={() => setImageLoaded(true)}
-                    loading="lazy"
+                    loading="eager"
+                    fetchPriority="high"
                   />
                   {imageLabels.map((label: any, index: number) => {
                     const isRevealed = revealedLabels.has(index);
