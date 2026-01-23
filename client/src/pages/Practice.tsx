@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Circle, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -173,7 +173,7 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   // Render each character with visual feedback
-  const renderTextWithFeedback = () => {
+  const renderTextWithFeedback = useMemo(() => {
     const normalizedInput = normalizeText(userInput);
     const normalizedTarget = normalizeText(targetText);
     const targetChars = targetText.split("");
@@ -224,7 +224,7 @@ export default function Practice({ questionId }: PracticeProps) {
         </span>
       );
     });
-  };
+  }, [userInput, targetText, completedLength]);
 
   if (isLoading) {
     return (
@@ -356,7 +356,7 @@ export default function Practice({ questionId }: PracticeProps) {
             <>
               <div className="p-6 bg-muted/30 rounded-lg border-2 border-border">
                 <div className="leading-relaxed whitespace-pre-wrap">
-                  {renderTextWithFeedback()}
+                  {renderTextWithFeedback}
                 </div>
               </div>
 

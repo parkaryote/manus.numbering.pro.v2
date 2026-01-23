@@ -409,3 +409,10 @@
   - [x] completedLength를 정답 일치 기준으로 업데이트
   - [x] handleCompositionEnd에서 정답 글자 수만 계산
   - [x] 언더바 위치를 completedLength 기준으로 변경
+
+# 버그 수정 (v1.6.5)
+- [x] 정답에 줄바꾸기가 있을 때 채점 지연 문제 수정
+  - [x] renderTextWithFeedback 함수의 성능 최적화
+  - [x] 줄바꾸기 처리 로직 확인
+  - [x] useMemo로 renderTextWithFeedback 메모이제이션
+  - [x] 실시간 채점 반영 지연 원인 파악 및 수정
