@@ -382,6 +382,7 @@ export default function Practice({ questionId }: PracticeProps) {
                 <textarea
                   value={practiceNote}
                   onChange={(e) => setPracticeNote(e.target.value)}
+                  onPaste={(e) => e.preventDefault()}
                   className="w-full h-[400px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="여기에 답안을 연습해보세요... (저장되지 않습니다)"
                 />
@@ -400,6 +401,7 @@ export default function Practice({ questionId }: PracticeProps) {
                 ref={textareaRef}
                 value={userInput}
                 onChange={handleInputChange}
+                onPaste={(e) => e.preventDefault()}
                 onKeyDown={handleKeyDown}
                 onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}

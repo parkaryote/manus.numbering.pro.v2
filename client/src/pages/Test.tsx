@@ -386,6 +386,7 @@ export default function Test({ questionId }: TestProps) {
                   ref={textareaRef}
                   value={userAnswer}
                   onChange={(e) => setUserAnswer(e.target.value)}
+                  onPaste={(e) => e.preventDefault()}
                   placeholder="답안을 입력하세요..."
                   rows={12}
                   className="text-base"

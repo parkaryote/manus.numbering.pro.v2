@@ -482,3 +482,9 @@
 - [x] 유사도 항목 UI에서 제거
   - [x] Test.tsx 결과 화면에서 유사도 표시 제거
   - [x] 그리드 레이아웃 4칸럼에서 3칸럼으로 변경
+
+# 기능 추가 (v1.8.2)
+- [x] 부정행위 방지를 위한 붙여넣기 차단
+  - [x] Test.tsx 입력창에서 Ctrl+V 차단
+  - [x] Practice.tsx 입력창에서 Ctrl+V 차단 (텍스트 문제 및 메모장)
+  - [x] onPaste 이벤트 preventDefault 적용
