@@ -347,10 +347,21 @@ export const appRouter = router({
           const normalizedCorrect = correctAnswer.trim().toLowerCase().replace(/\s+/g, "");
           const isCorrect = normalizedUser === normalizedCorrect;
           
+          // Calculate character-level accuracy
+          let matchCount = 0;
+          const maxLength = Math.max(normalizedUser.length, normalizedCorrect.length);
+          for (let i = 0; i < Math.min(normalizedUser.length, normalizedCorrect.length); i++) {
+            if (normalizedUser[i] === normalizedCorrect[i]) {
+              matchCount++;
+            }
+          }
+          const accuracyRate = maxLength > 0 ? Math.round((matchCount / maxLength) * 100) : 0;
+          
           console.log("[DEBUG] Simple comparison mode");
           console.log("[DEBUG] normalizedUser:", normalizedUser);
           console.log("[DEBUG] normalizedCorrect:", normalizedCorrect);
           console.log("[DEBUG] isCorrect:", isCorrect);
+          console.log("[DEBUG] accuracyRate:", accuracyRate);
           
           // Save test session
           await db.createTestSession({
@@ -359,17 +370,17 @@ export const appRouter = router({
             userAnswer: input.userAnswer,
             isCorrect: isCorrect ? 1 : 0,
             recallTime: input.recallTime,
-            similarityScore: isCorrect ? 100 : 0,
+            similarityScore: accuracyRate,
             mistakeHighlights: null,
             llmFeedback: null,
           });
           
           return {
             isCorrect,
-            similarityScore: isCorrect ? 100 : 0,
-            accuracyRate: isCorrect ? 100 : 0,
+            similarityScore: accuracyRate,
+            accuracyRate,
             mistakes: [],
-            feedback: isCorrect ? "정확하게 작성하셨습니다!" : "답안을 다시 확인해보세요.",
+            feedback: isCorrect ? "정확하게 작성하셨습니다!" : `정확도: ${accuracyRate}% - 답안을 다시 확인해보세요.`,
             missingKeywords: [],
           };
         }

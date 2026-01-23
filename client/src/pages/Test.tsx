@@ -463,7 +463,7 @@ export default function Test({ questionId }: TestProps) {
               <CardTitle>평가 결과</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-3xl font-bold">
                     {result?.isCorrect ? "✓" : "✗"}
@@ -471,16 +471,12 @@ export default function Test({ questionId }: TestProps) {
                   <p className="text-sm text-muted-foreground mt-1">정답 여부</p>
                 </div>
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
-                  <p className="text-3xl font-bold">{result?.similarityScore || 0}%</p>
-                  <p className="text-sm text-muted-foreground mt-1">유사도</p>
+                  <p className="text-3xl font-bold">{result?.accuracyRate || 0}%</p>
+                  <p className="text-sm text-muted-foreground mt-1">정확도</p>
                 </div>
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-3xl font-bold">{formatTime(recallTime)}</p>
                   <p className="text-sm text-muted-foreground mt-1">회상 시간</p>
-                </div>
-                <div className="text-center p-4 bg-muted/30 rounded-lg">
-                  <p className="text-3xl font-bold">{result?.accuracyRate || 0}%</p>
-                  <p className="text-sm text-muted-foreground mt-1">정확도</p>
                 </div>
               </div>
 
