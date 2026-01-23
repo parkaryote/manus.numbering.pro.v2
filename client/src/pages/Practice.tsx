@@ -139,16 +139,8 @@ export default function Practice({ questionId }: PracticeProps) {
     const normalized = normalizeText(userInput);
     const normalizedTarget = normalizeText(targetText);
     
-    // 입력한 글자 중 정답인 글자 수를 계산
-    let correctCount = 0;
-    for (let i = 0; i < normalized.length; i++) {
-      if (normalized[i] === normalizedTarget[i]) {
-        correctCount++;
-      } else {
-        break; // 틀린 글자가 나오면 중단
-      }
-    }
-    setCompletedLength(correctCount);
+    // 입력한 모든 글자를 채점 대상으로 설정
+    setCompletedLength(normalized.length);
   };
 
   const handleComplete = async () => {

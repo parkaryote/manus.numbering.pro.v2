@@ -416,3 +416,10 @@
   - [x] 줄바꾸기 처리 로직 확인
   - [x] useMemo로 renderTextWithFeedback 메모이제이션
   - [x] 실시간 채점 반영 지연 원인 파악 및 수정
+
+# 버그 수정 (v1.6.6)
+- [x] 한 글자 틀렸을 때 이후 글자들도 채점되도록 수정
+  - [x] handleCompositionEnd에서 틀린 글자 이후도 계속 채점
+  - [x] completedLength 업데이트 로직 개선
+  - [x] break 문 제거
+  - [x] 단순 입력 길이로 completedLength 설정
