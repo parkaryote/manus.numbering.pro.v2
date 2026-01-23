@@ -70,7 +70,7 @@ export function ManusDialog({
             </DialogTitle>
           ) : null}
           <DialogDescription className="text-sm text-[#858481] leading-5 tracking-[-0.154px]">
-            Please login with Manus to continue
+            numbering.pro - 넘버링 달인, 그림빵 장인 되기
           </DialogDescription>
         </div>
 
