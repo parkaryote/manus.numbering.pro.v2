@@ -432,7 +432,16 @@
   - [x] char === "\\n" 조건 추가
   - [x] 줄바꾸기도 렌더링 시 유지
 # 기능 개선 (v1.6.8)
-- [x] 로그인 창 문구 변경
+- [ ] OAuth 로그인 페이지 앱 이름 변경
   - [ ] "타이핑 퀴즈 - 서술형 문제 암기 도우미로 계속하기" → "numbering.pro - 넘버링 달인, 그림빵 장인 되기"로 변경
-  - [ ] 로그인 창 문구 위치 찾기
-  - [ ] 문구 변경 적용
+  - [ ] VITE_APP_TITLE 환경 변수 확인
+  - [ ] VITE_APP_TITLE 값 변경
+
+# 버그 수정 (v1.6.9)
+- [x] 모바일에서 연습 모드 채점이 작동하지 않는 문제 수정
+  - [x] Practice.tsx 코드 분석
+  - [x] 모바일 키보드 이벤트 처리 확인
+  - [x] compositionstart/compositionend 이벤트 모바일 호환성 확인
+  - [x] input 이벤트 기반으로 채점 로직 수정
+  - [x] completedLength 상태 변수 제거, getCompletedLength useMemo로 대체
+  - [x] compositionend 이벤트에 의존하지 않고 입력값 자체로 판단

@@ -21,10 +21,10 @@ export default function Practice({ questionId }: PracticeProps) {
   const [isActive, setIsActive] = useState(true); // 측정 중 여부
   const [lastInputTime, setLastInputTime] = useState<number>(Date.now());
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
-  const [completedLength, setCompletedLength] = useState(0); // 조합이 완료된 글자 길이
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastInputRef = useRef<string>(""); // 마지막 입력값 추적 (모바일용)
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const createSession = trpc.practice.create.useMutation({
@@ -100,12 +100,7 @@ export default function Practice({ questionId }: PracticeProps) {
     const newInput = e.target.value;
     setUserInput(newInput);
     setLastInputTime(Date.now());
-
-    // 삭제 시 completedLength도 업데이트
-    const normalized = normalizeText(newInput);
-    if (normalized.length < completedLength) {
-      setCompletedLength(normalized.length);
-    }
+    lastInputRef.current = newInput;
 
     // Resume if was inactive
     if (!isActive) {
@@ -116,6 +111,7 @@ export default function Practice({ questionId }: PracticeProps) {
     }
 
     // Auto-complete when normalized text matches
+    const normalized = normalizeText(newInput);
     if (normalized === normalizeText(targetText)) {
       handleComplete();
     }
@@ -133,14 +129,10 @@ export default function Practice({ questionId }: PracticeProps) {
     setIsComposing(true);
   };
 
-  const handleCompositionEnd = () => {
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
     setIsComposing(false);
-    // 조합 종료 시 정답 글자만 completedLength에 포함
-    const normalized = normalizeText(userInput);
-    const normalizedTarget = normalizeText(targetText);
-    
-    // 입력한 모든 글자를 채점 대상으로 설정
-    setCompletedLength(normalized.length);
+    // 모바일에서 compositionEnd 이벤트가 발생하지 않을 수 있으므로
+    // input 이벤트에서 이미 처리됨
   };
 
   const handleComplete = async () => {
@@ -164,12 +156,29 @@ export default function Practice({ questionId }: PracticeProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  // 채점된 글자 수 계산 - 모바일 호환성을 위해 input 이벤트 기반으로 변경
+  // compositionend에 의존하지 않고 입력값 자체로 판단
+  const getCompletedLength = useMemo(() => {
+    const normalized = normalizeText(userInput);
+    const normalizedTarget = normalizeText(targetText);
+    
+    // 조합 중이 아니면 전체 입력 길이를 채점 대상으로
+    if (!isComposing) {
+      return normalized.length;
+    }
+    
+    // 조합 중이면 마지막 글자를 제외한 길이
+    // (한글 조합 중인 글자는 아직 확정되지 않음)
+    return Math.max(0, normalized.length - 1);
+  }, [userInput, targetText, isComposing]);
+
   // Render each character with visual feedback
   const renderTextWithFeedback = useMemo(() => {
     const normalizedInput = normalizeText(userInput);
     const normalizedTarget = normalizeText(targetText);
     const targetChars = targetText.split("");
     let inputIndex = 0;
+    const completedLength = getCompletedLength;
 
     return targetChars.map((char, targetIndex) => {
       // Skip spaces and newlines in target for comparison
@@ -184,7 +193,7 @@ export default function Practice({ questionId }: PracticeProps) {
       const currentChar = normalizedInput[inputIndex];
       const isTyped = inputIndex < normalizedInput.length;
       
-      // 조합이 완료된 글자만 채점
+      // 채점 완료된 글자만 색상 표시
       const isCompleted = inputIndex < completedLength;
       const isCorrect = isCompleted && isTyped && currentChar === normalizedTarget[inputIndex];
       const isError = isCompleted && isTyped && currentChar !== normalizedTarget[inputIndex];
@@ -216,7 +225,7 @@ export default function Practice({ questionId }: PracticeProps) {
         </span>
       );
     });
-  }, [userInput, targetText, completedLength]);
+  }, [userInput, targetText, getCompletedLength]);
 
   if (isLoading) {
     return (
