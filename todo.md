@@ -560,3 +560,11 @@
   - [x] getCompletedLength에서 setFailedReservationIndex 호출
   - [x] renderTextWithFeedback에서 isFailedReservation 조건 추가
   - [x] handleInputChange에서 failedReservationIndex 초기화
+
+# 버그 수정 (v1.10.7)
+- [x] 종성 예약 시 언더바가 다음 글자로 이동하도록 수정
+  - [x] "동햨" 입력 시 언더바가 "물"에 위치해야 함 (현재 "해"에 멈춤)
+  - [x] compareJamo 'partial' 반환 시에도 completedCount 증가
+  - [x] 예약 실패 시 이전 글자만 빨간색 표시, 언더바는 현재 위치 유지
+  - [x] completionInfo useMemo로 변경하여 completedLength와 failedIndex를 함께 반환
+  - [x] renderTextWithFeedback에서 completionInfo를 직접 사용하여 동기화 문제 해결

@@ -25,7 +25,6 @@ export default function Practice({ questionId }: PracticeProps) {
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
   const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
   const [practiceCount, setPracticeCount] = useState(0); // 연습 횟수
-  const [failedReservationIndex, setFailedReservationIndex] = useState<number | null>(null); // 종성 예약 실패한 글자 인덱스
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastInputRef = useRef<string>(""); // 마지막 입력값 추적 (모바일용)
@@ -105,7 +104,6 @@ export default function Practice({ questionId }: PracticeProps) {
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
     setUserInput(newValue);
-    setFailedReservationIndex(null); // 입력 변경 시 예약 실패 상태 초기화
     setLastInputTime(Date.now());
     lastInputRef.current = newValue;
 
@@ -189,73 +187,97 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   // 자모 단위 비교로 정확한 일치 길이 계산
-  // 연속으로 일치하는 마지막 위치를 찾음
-  const getCompletedLength = useMemo(() => {
+  // 핵심: 종성이 다음 글자 초성과 일치하면 "예약" 상태로 간주하고 언더바를 다음으로 이동
+  // 예약 실패 시 이전 글자만 빨간색으로 표시하고 언더바는 현재 위치 유지
+  const completionInfo = useMemo(() => {
     const userChars = splitGraphemes(normalizeText(userInput));
     const targetChars = splitGraphemes(normalizeText(targetText));
     
-    let completedCount = 0;
+    // 마지막 입력 글자는 조합 중일 수 있으므로 제외
+    // 단, 띄어쓰기 직후에는 전체 길이 반환
+    const isLastSpace = userInput.length > 0 && userInput[userInput.length - 1] === ' ';
+    const effectiveUserLength = isLastSpace ? userChars.length : Math.max(0, userChars.length - 1);
     
-    for (let i = 0; i < Math.min(userChars.length, targetChars.length); i++) {
+    let completedCount = 0;
+    let localFailedReservationIndex: number | null = null;
+    
+    for (let i = 0; i < Math.min(effectiveUserLength, targetChars.length); i++) {
+      const userChar = userChars[i];
+      const targetChar = targetChars[i];
       const nextTargetChar = targetChars[i + 1];
-      const isCurrentMatch = compareJamo(userChars[i], targetChars[i], nextTargetChar);
+      
+      const userJamo = decomposeHangul(userChar);
+      const targetJamo = decomposeHangul(targetChar);
+      const nextTargetJamo = nextTargetChar ? decomposeHangul(nextTargetChar) : null;
+      
+      // 이전 글자가 종성으로 현재 글자를 "예약"했는지 확인
+      let prevReservedCurrentChar = false;
+      if (i > 0) {
+        const prevUserChar = userChars[i - 1];
+        const prevTargetChar = targetChars[i - 1];
+        const prevUserJamo = decomposeHangul(prevUserChar);
+        const prevTargetJamo = decomposeHangul(prevTargetChar);
+        
+        if (prevUserJamo && prevTargetJamo && targetJamo &&
+            prevUserJamo.jong && !prevTargetJamo.jong &&
+            prevUserJamo.jong === targetJamo.cho) {
+          prevReservedCurrentChar = true;
+        }
+      }
+      
+      // 현재 글자 비교 (종성 예약 고려)
+      const isCurrentMatch = compareJamo(userChar, targetChar, nextTargetChar);
       
       if (isCurrentMatch) {
-        // 현재 글자가 일치하면 연속 일치 위치 업데이트
+        // 현재 글자가 일치하면 completedCount 증가
         completedCount = i + 1;
         
-        // 단, 이전 글자가 종성으로 "예약"했다면 검증 필요
-        if (i > 0) {
-          const prevUserChar = userChars[i - 1];
-          const prevTargetChar = targetChars[i - 1];
-          const prevUserJamo = decomposeHangul(prevUserChar);
-          const prevTargetJamo = decomposeHangul(prevTargetChar);
-          const currentTargetJamo = decomposeHangul(targetChars[i]);
-          
-          // 이전 글자가 종성으로 현재 글자를 "예약"했는지 확인
-          if (prevUserJamo && prevTargetJamo && currentTargetJamo &&
-              prevUserJamo.jong && !prevTargetJamo.jong &&
-              prevUserJamo.jong === currentTargetJamo.cho) {
-            // 예약되었는데, 현재 입력이 정답과 일치하지 않으면 이전 글자까지 오답 처리
-            if (!compareJamo(userChars[i], targetChars[i])) {
-              completedCount = i - 1;
-              break;
-            }
-          }
-        }
+        // 이전 글자가 예약했는데 현재 글자가 정답과 완전히 일치하면 예약 성공
+        // (이미 compareJamo에서 처리됨)
       } else {
-        // 일치하지 않으면 이전 글자의 "종성 예약" 검증
-        if (i > 0) {
-          const prevUserChar = userChars[i - 1];
-          const prevTargetChar = targetChars[i - 1];
-          const prevUserJamo = decomposeHangul(prevUserChar);
-          const prevTargetJamo = decomposeHangul(prevTargetChar);
-          const currentTargetJamo = decomposeHangul(targetChars[i]);
-          const currentUserJamo = decomposeHangul(userChars[i]);
-          
-          // 이전 글자가 종성으로 현재 글자를 "예약"했는지 확인
-          if (prevUserJamo && prevTargetJamo && currentTargetJamo && currentUserJamo &&
-              prevUserJamo.jong && !prevTargetJamo.jong &&
-              prevUserJamo.jong === currentTargetJamo.cho) {
-            // 예약되었는데, 현재 입력의 초성이 다르면 이전 글자 오답 표시 (언더바는 유지)
-            if (currentUserJamo.cho !== currentTargetJamo.cho) {
-              setFailedReservationIndex(i - 1); // 이전 글자 인덱스 저장
-              // completedCount는 그대로 유지 (언더바 위치 변경 안 함)
-            }
-          }
+        // 현재 글자가 일치하지 않음
+        if (prevReservedCurrentChar) {
+          // 이전 글자가 종성으로 예약했는데 현재 글자가 틀림 → 이전 글자 오답 표시
+          localFailedReservationIndex = i - 1;
+          // 언더바는 현재 위치(i)에 유지 (completedCount는 i로 설정)
+          completedCount = i;
         }
-        // 일치하지 않아도 계속 순회 (오답 표시를 위해)
+        // 일치하지 않아도 계속 순회 (이후 글자 채점을 위해)
       }
     }
     
-    return completedCount;
+    // 마지막 입력 글자 처리 (조합 중일 수 있음)
+    // 마지막 글자가 종성으로 다음 글자를 예약하면 completedCount 증가
+    if (!isLastSpace && userChars.length > 0 && userChars.length <= targetChars.length) {
+      const lastUserIndex = userChars.length - 1;
+      const lastUserChar = userChars[lastUserIndex];
+      const lastTargetChar = targetChars[lastUserIndex];
+      const nextTargetChar = targetChars[lastUserIndex + 1];
+      
+      const lastUserJamo = decomposeHangul(lastUserChar);
+      const lastTargetJamo = decomposeHangul(lastTargetChar);
+      const nextTargetJamo = nextTargetChar ? decomposeHangul(nextTargetChar) : null;
+      
+      if (lastUserJamo && lastTargetJamo && nextTargetJamo) {
+        // 초성, 중성이 일치하고 종성이 다음 글자 초성과 일치하면 예약 상태
+        if (lastUserJamo.cho === lastTargetJamo.cho &&
+            lastUserJamo.jung === lastTargetJamo.jung &&
+            lastUserJamo.jong && !lastTargetJamo.jong &&
+            lastUserJamo.jong === nextTargetJamo.cho) {
+          // 예약 상태: 언더바를 다음 글자로 이동
+          completedCount = lastUserIndex + 1;
+        }
+      }
+    }
+    
+    return { completedLength: completedCount, failedIndex: localFailedReservationIndex };
   }, [userInput, targetText, renderTrigger]); // Render each character with visual feedback
   const renderTextWithFeedback = useMemo(() => {
     const userChars = splitGraphemes(normalizeText(userInput));
     const targetCharsNormalized = splitGraphemes(normalizeText(targetText));
     const targetChars = targetText.split("");
     let inputIndex = 0;
-    const completedLength = getCompletedLength;
+    const { completedLength, failedIndex } = completionInfo;
 
     return targetChars.map((char, targetIndex) => {
       // Skip spaces and newlines in target for comparison
@@ -278,11 +300,11 @@ export default function Practice({ questionId }: PracticeProps) {
       const isError = isCompleted && isTyped && !compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
       
       // 종성 예약 실패한 글자는 빨간색으로 표시
-      const isFailedReservation = failedReservationIndex === inputIndex;
+      const isFailedReservation = failedIndex === inputIndex;
       
       // 언더바는 completedLength 위치에 표시 (정답 글자 다음)
       const isNext = inputIndex === completedLength;
-
+      
       inputIndex++;
 
       let className = "text-gray-400 relative font-semibold text-xl"; // Default: not typed yet
@@ -310,7 +332,7 @@ export default function Practice({ questionId }: PracticeProps) {
         </span>
       );
     });
-  }, [userInput, targetText, getCompletedLength, renderTrigger, isFadingOut]);
+  }, [userInput, targetText, completionInfo, renderTrigger, isFadingOut]);
 
   if (isLoading) {
     return (
