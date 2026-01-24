@@ -25,6 +25,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
   const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
   const [practiceCount, setPracticeCount] = useState(0); // 연습 횟수
+  const [maxCompletedCount, setMaxCompletedCount] = useState(0); // 최대 완료 글자 수 (정답 확정 후 수정되어도 유지)
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastInputRef = useRef<string>(""); // 마지막 입력값 추적 (모바일용)
@@ -175,6 +176,7 @@ export default function Practice({ questionId }: PracticeProps) {
     // 1.5초 후 입력 초기화 및 fade out 상태 해제
     setTimeout(() => {
       setUserInput("");
+      setMaxCompletedCount(0); // 최대 완료 글자 수 초기화
       setIsFadingOut(false);
       textareaRef.current?.focus();
     }, 1500);
@@ -187,21 +189,16 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   // 자모 단위 비교로 정확한 일치 길이 계산
-  // 핵심: 종성이 다음 글자 초성과 일치하면 "예약" 상태로 간주하고 언더바를 다음으로 이동
-  // 예약 실패 시 이전 글자만 빨간색으로 표시하고 언더바는 현재 위치 유지
+  // 핵심: 글자 완성 즉시 채점, 조합 중에는 isComposing으로 판단
   const completionInfo = useMemo(() => {
     const userChars = splitGraphemes(normalizeText(userInput));
     const targetChars = splitGraphemes(normalizeText(targetText));
     
-    // 마지막 입력 글자는 조합 중일 수 있으므로 제외
-    // 단, 띄어쓰기 직후에는 전체 길이 반환
-    const isLastSpace = userInput.length > 0 && userInput[userInput.length - 1] === ' ';
-    const effectiveUserLength = isLastSpace ? userChars.length : Math.max(0, userChars.length - 1);
-    
     let completedCount = 0;
     let localFailedReservationIndex: number | null = null;
     
-    for (let i = 0; i < Math.min(effectiveUserLength, targetChars.length); i++) {
+    // 모든 입력 글자를 즉시 채점 (effectiveUserLength 제거)
+    for (let i = 0; i < Math.min(userChars.length, targetChars.length); i++) {
       const userChar = userChars[i];
       const targetChar = targetChars[i];
       const nextTargetChar = targetChars[i + 1];
@@ -241,37 +238,22 @@ export default function Practice({ questionId }: PracticeProps) {
           localFailedReservationIndex = i - 1;
           // 언더바는 현재 위치(i)에 유지 (completedCount는 i로 설정)
           completedCount = i;
-        }
-        // 일치하지 않아도 계속 순회 (이후 글자 채점을 위해)
-      }
-    }
-    
-    // 마지막 입력 글자 처리 (조합 중일 수 있음)
-    // 마지막 글자가 종성으로 다음 글자를 예약하면 completedCount 증가
-    if (!isLastSpace && userChars.length > 0 && userChars.length <= targetChars.length) {
-      const lastUserIndex = userChars.length - 1;
-      const lastUserChar = userChars[lastUserIndex];
-      const lastTargetChar = targetChars[lastUserIndex];
-      const nextTargetChar = targetChars[lastUserIndex + 1];
-      
-      const lastUserJamo = decomposeHangul(lastUserChar);
-      const lastTargetJamo = decomposeHangul(lastTargetChar);
-      const nextTargetJamo = nextTargetChar ? decomposeHangul(nextTargetChar) : null;
-      
-      if (lastUserJamo && lastTargetJamo && nextTargetJamo) {
-        // 초성, 중성이 일치하고 종성이 다음 글자 초성과 일치하면 예약 상태
-        if (lastUserJamo.cho === lastTargetJamo.cho &&
-            lastUserJamo.jung === lastTargetJamo.jung &&
-            lastUserJamo.jong && !lastTargetJamo.jong &&
-            lastUserJamo.jong === nextTargetJamo.cho) {
-          // 예약 상태: 언더바를 다음 글자로 이동
-          completedCount = lastUserIndex + 1;
+          // 예약 실패 후에는 순회 중단 (이후 글자는 채점하지 않음)
+          break;
+        } else {
+          // 예약 없이 틀린 경우: completedCount 유지, 순회 중단
+          break;
         }
       }
     }
     
+    // maxCompletedCount 업데이트: 한 번 정답으로 확정된 글자는 이후 수정되어도 정답 상태 유지
+    if (completedCount > maxCompletedCount) {
+      setMaxCompletedCount(completedCount);
+    }
+
     return { completedLength: completedCount, failedIndex: localFailedReservationIndex };
-  }, [userInput, targetText, renderTrigger]); // Render each character with visual feedback
+  }, [userInput, targetText, renderTrigger, maxCompletedCount]); // Render each character with visual feedback
   const renderTextWithFeedback = useMemo(() => {
     const userChars = splitGraphemes(normalizeText(userInput));
     const targetCharsNormalized = splitGraphemes(normalizeText(targetText));
@@ -291,8 +273,8 @@ export default function Practice({ questionId }: PracticeProps) {
 
       const isTyped = inputIndex < userChars.length;
       
-      // 채점 완료된 글자만 색상 표시
-      const isCompleted = inputIndex < completedLength;
+      // 채점 완료된 글자만 색상 표시 (maxCompletedCount 사용: 한 번 정답으로 확정된 글자는 이후 수정되어도 정답 상태 유지)
+      const isCompleted = inputIndex < maxCompletedCount;
       
       // 자모 단위 비교로 정확한 일치 판정
       const nextTargetChar = targetCharsNormalized[inputIndex + 1];
@@ -302,8 +284,9 @@ export default function Practice({ questionId }: PracticeProps) {
       // 종성 예약 실패한 글자는 빨간색으로 표시
       const isFailedReservation = failedIndex === inputIndex;
       
-      // 언더바는 completedLength 위치에 표시 (정답 글자 다음)
-      const isNext = inputIndex === completedLength;
+      // 언더바는 maxCompletedCount 위치에 표시 (정답 글자 다음)
+      const isNext = inputIndex === maxCompletedCount;
+      
       
       inputIndex++;
 
@@ -332,7 +315,7 @@ export default function Practice({ questionId }: PracticeProps) {
         </span>
       );
     });
-  }, [userInput, targetText, completionInfo, renderTrigger, isFadingOut]);
+  }, [userInput, targetText, completionInfo, renderTrigger, isFadingOut, maxCompletedCount]);
 
   if (isLoading) {
     return (
