@@ -222,6 +222,26 @@ export default function Practice({ questionId }: PracticeProps) {
           }
         }
       } else {
+        // 일치하지 않으면 이전 글자의 "종성 예약" 검증
+        if (i > 0) {
+          const prevUserChar = userChars[i - 1];
+          const prevTargetChar = targetChars[i - 1];
+          const prevUserJamo = decomposeHangul(prevUserChar);
+          const prevTargetJamo = decomposeHangul(prevTargetChar);
+          const currentTargetJamo = decomposeHangul(targetChars[i]);
+          const currentUserJamo = decomposeHangul(userChars[i]);
+          
+          // 이전 글자가 종성으로 현재 글자를 "예약"했는지 확인
+          if (prevUserJamo && prevTargetJamo && currentTargetJamo && currentUserJamo &&
+              prevUserJamo.jong && !prevTargetJamo.jong &&
+              prevUserJamo.jong === currentTargetJamo.cho) {
+            // 예약되었는데, 현재 입력의 초성이 다르면 이전 글자 오답 처리
+            if (currentUserJamo.cho !== currentTargetJamo.cho) {
+              completedCount = i - 1;
+              break;
+            }
+          }
+        }
         // 일치하지 않아도 계속 순회 (오답 표시를 위해)
       }
     }
