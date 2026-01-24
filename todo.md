@@ -506,3 +506,11 @@
   - [x] 데이터베이스 스키마에서 tabSwitchCount 필드 제거
   - [x] 서버 routers.ts에서 tabSwitchCount 파라미터 제거
   - [x] 서버 createTestSession 호출에서 tabSwitchCount 제거 (4곳)
+
+# 기능 개선 (v1.10.0)
+- [x] 연습 모드 실시간 채점 로직 개선
+  - [x] 한글 자모 분해 유틸리티 함수 구현 (client/src/lib/hangul.ts)
+  - [x] 자모 단위 비교로 정확한 일치 판정 (compareJamo)
+  - [x] 다음 글자 초성과 현재 글자 종성 비교
+  - [x] 실시간 언더바 위치 업데이트 (getCompletedLength)
+  - [x] "동해물" 예시: "햄" 입력 시 "해" 검은색 유지

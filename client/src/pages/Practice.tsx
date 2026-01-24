@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Circle, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
+import { compareJamo, splitGraphemes } from "@/lib/hangul";
 
 interface PracticeProps {
   questionId: number;
@@ -185,25 +186,29 @@ export default function Practice({ questionId }: PracticeProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // 채점된 글자 수 계산 - 모바일 호환성을 위해 input 이벤트 기반으로 변경
-  // 마지막 글자는 회색으로 유지하되, 띄어쓰기 후에는 즉시 채점 반영
+  // 자모 단위 비교로 정확한 일치 길이 계산
   const getCompletedLength = useMemo(() => {
-    const normalized = normalizeText(userInput);
-    const lastChar = userInput[userInput.length - 1];
+    const userChars = splitGraphemes(normalizeText(userInput));
+    const targetChars = splitGraphemes(normalizeText(targetText));
     
-    // 마지막 입력이 띄어쓰기인 경우, 정규화된 길이 전체를 반환
-    if (lastChar === ' ') {
-      return normalized.length;
+    let completedCount = 0;
+    
+    for (let i = 0; i < userChars.length; i++) {
+      if (i >= targetChars.length) break;
+      
+      const nextTargetChar = targetChars[i + 1];
+      if (compareJamo(userChars[i], targetChars[i], nextTargetChar)) {
+        completedCount++;
+      } else {
+        break; // 일치하지 않으면 중단
+      }
     }
     
-    // 마지막 글자는 조합 중일 수 있으므로 회색으로 표시
-    return Math.max(0, normalized.length - 1);
-  }, [userInput, targetText]);
-
-  // Render each character with visual feedback
+    return completedCount;
+  }, [userInput, targetText, renderTrigger]); // Render each character with visual feedback
   const renderTextWithFeedback = useMemo(() => {
-    const normalizedInput = normalizeText(userInput);
-    const normalizedTarget = normalizeText(targetText);
+    const userChars = splitGraphemes(normalizeText(userInput));
+    const targetCharsNormalized = splitGraphemes(normalizeText(targetText));
     const targetChars = targetText.split("");
     let inputIndex = 0;
     const completedLength = getCompletedLength;
@@ -218,13 +223,15 @@ export default function Practice({ questionId }: PracticeProps) {
         );
       }
 
-      const currentChar = normalizedInput[inputIndex];
-      const isTyped = inputIndex < normalizedInput.length;
+      const isTyped = inputIndex < userChars.length;
       
       // 채점 완료된 글자만 색상 표시
       const isCompleted = inputIndex < completedLength;
-      const isCorrect = isCompleted && isTyped && currentChar === normalizedTarget[inputIndex];
-      const isError = isCompleted && isTyped && currentChar !== normalizedTarget[inputIndex];
+      
+      // 자모 단위 비교로 정확한 일치 판정
+      const nextTargetChar = targetCharsNormalized[inputIndex + 1];
+      const isCorrect = isCompleted && isTyped && compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
+      const isError = isCompleted && isTyped && !compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
       
       // 언더바는 completedLength 위치에 표시 (정답 글자 다음)
       const isNext = inputIndex === completedLength;
@@ -234,7 +241,7 @@ export default function Practice({ questionId }: PracticeProps) {
       let className = "text-gray-400 relative font-semibold text-xl"; // Default: not typed yet
       
       if (isNext) {
-        // 다음 입력 위치: 두꺼운 언더바 + 깜빡이는 커서
+        // 다음 입력 위치: 두꺼운 언더바 + 깜박이는 커서
         className = "border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse";
       } else if (isCorrect) {
         // 정답: 검은색 또는 fade out 중이면 회색
