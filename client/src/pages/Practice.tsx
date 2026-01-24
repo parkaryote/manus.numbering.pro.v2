@@ -25,6 +25,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
   const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
   const [practiceCount, setPracticeCount] = useState(0); // 연습 횟수
+  const [failedReservationIndex, setFailedReservationIndex] = useState<number | null>(null); // 종성 예약 실패한 글자 인덱스
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastInputRef = useRef<string>(""); // 마지막 입력값 추적 (모바일용)
@@ -102,10 +103,11 @@ export default function Practice({ questionId }: PracticeProps) {
   }, [question, userInput, imageLabelAnswers, revealedLabels, elapsedTime, createSession]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newInput = e.target.value;
-    setUserInput(newInput);
+    const newValue = e.target.value;
+    setUserInput(newValue);
+    setFailedReservationIndex(null); // 입력 변경 시 예약 실패 상태 초기화
     setLastInputTime(Date.now());
-    lastInputRef.current = newInput;
+    lastInputRef.current = newValue;
 
     // Resume if was inactive
     if (!isActive) {
@@ -116,7 +118,7 @@ export default function Practice({ questionId }: PracticeProps) {
     }
 
     // Auto-complete when normalized text matches
-    const normalized = normalizeText(newInput);
+    const normalized = normalizeText(newValue);
     const normalizedTarget = normalizeText(targetText);
     if (normalized === normalizedTarget) {
       handleCorrectAnswer();
@@ -235,10 +237,10 @@ export default function Practice({ questionId }: PracticeProps) {
           if (prevUserJamo && prevTargetJamo && currentTargetJamo && currentUserJamo &&
               prevUserJamo.jong && !prevTargetJamo.jong &&
               prevUserJamo.jong === currentTargetJamo.cho) {
-            // 예약되었는데, 현재 입력의 초성이 다르면 이전 글자 오답 처리
+            // 예약되었는데, 현재 입력의 초성이 다르면 이전 글자 오답 표시 (언더바는 유지)
             if (currentUserJamo.cho !== currentTargetJamo.cho) {
-              completedCount = i - 1;
-              break;
+              setFailedReservationIndex(i - 1); // 이전 글자 인덱스 저장
+              // completedCount는 그대로 유지 (언더바 위치 변경 안 함)
             }
           }
         }
@@ -275,6 +277,9 @@ export default function Practice({ questionId }: PracticeProps) {
       const isCorrect = isCompleted && isTyped && compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
       const isError = isCompleted && isTyped && !compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
       
+      // 종성 예약 실패한 글자는 빨간색으로 표시
+      const isFailedReservation = failedReservationIndex === inputIndex;
+      
       // 언더바는 completedLength 위치에 표시 (정답 글자 다음)
       const isNext = inputIndex === completedLength;
 
@@ -282,8 +287,11 @@ export default function Practice({ questionId }: PracticeProps) {
 
       let className = "text-gray-400 relative font-semibold text-xl"; // Default: not typed yet
       
-      if (isNext) {
-        // 다음 입력 위치: 두꺼운 언더바 + 깜박이는 커서
+      if (isFailedReservation) {
+        // 종성 예약 실패: 빨간색
+        className = "text-red-500 relative font-semibold text-xl";
+      } else if (isNext) {
+        // 다음 입력 위치: 두껏운 언더바 + 깜박이는 커서
         className = "border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse";
       } else if (isCorrect) {
         // 정답: 검은색 또는 fade out 중이면 회색

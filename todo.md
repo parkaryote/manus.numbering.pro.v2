@@ -550,3 +550,13 @@
   - [x] 글자가 완성되기 전 초성만 입력되어도 검증
   - [x] 이전 글자의 종성이 다음 정답 글자 초성과 일치했는데, 실제 입력 초성이 다르면 즉시 오답 처리
   - [x] else 블록에 초성 검증 로직 추가
+
+# 버그 수정 (v1.10.6)
+- [x] 종성 예약 실패 시 이전 글자만 빨간색 표시, 언더바는 현재 위치 유지
+  - [x] "동햄" 다음 "ㅇ" 입력 시 "해" 빨간색, 언더바는 "물"에 유지
+  - [x] completedCount는 그대로 유지 (언더바 위치 변경 안 함)
+  - [x] renderTextWithFeedback에서 "종성 예약 실패" 상태를 별도로 표시
+  - [x] failedReservationIndex 상태 변수 추가로 "예약 실패" 글자 추적
+  - [x] getCompletedLength에서 setFailedReservationIndex 호출
+  - [x] renderTextWithFeedback에서 isFailedReservation 조건 추가
+  - [x] handleInputChange에서 failedReservationIndex 초기화
