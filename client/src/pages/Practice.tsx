@@ -277,9 +277,10 @@ export default function Practice({ questionId }: PracticeProps) {
       const isCompleted = inputIndex < maxCompletedCount;
       
       // 자모 단위 비교로 정확한 일치 판정
+      // maxCompletedCount 이하의 글자는 항상 정답으로 표시 (이후 수정되어도 검은색 유지)
       const nextTargetChar = targetCharsNormalized[inputIndex + 1];
-      const isCorrect = isCompleted && isTyped && compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
-      const isError = isCompleted && isTyped && !compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
+      const isCorrect = isCompleted && isTyped; // maxCompletedCount 이하는 무조건 정답
+      const isError = false; // maxCompletedCount 이하는 오답 체크 안 함
       
       // 종성 예약 실패한 글자는 빨간색으로 표시
       const isFailedReservation = failedIndex === inputIndex;
