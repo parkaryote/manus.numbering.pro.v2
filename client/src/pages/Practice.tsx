@@ -197,8 +197,7 @@ export default function Practice({ questionId }: PracticeProps) {
       if (i >= targetChars.length) break;
       
       const nextTargetChar = targetChars[i + 1];
-      const nextUserChar = userChars[i + 1];
-      if (compareJamo(userChars[i], targetChars[i], nextTargetChar, nextUserChar)) {
+      if (compareJamo(userChars[i], targetChars[i], nextTargetChar)) {
         completedCount++;
       } else {
         break; // 일치하지 않으면 중단
@@ -231,9 +230,8 @@ export default function Practice({ questionId }: PracticeProps) {
       
       // 자모 단위 비교로 정확한 일치 판정
       const nextTargetChar = targetCharsNormalized[inputIndex + 1];
-      const nextUserChar = userChars[inputIndex + 1];
-      const isCorrect = isCompleted && isTyped && compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar, nextUserChar);
-      const isError = isCompleted && isTyped && !compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar, nextUserChar);
+      const isCorrect = isCompleted && isTyped && compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
+      const isError = isCompleted && isTyped && !compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
       
       // 언더바는 completedLength 위치에 표시 (정답 글자 다음)
       const isNext = inputIndex === completedLength;
