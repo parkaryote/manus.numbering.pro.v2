@@ -45,12 +45,14 @@ export function decomposeHangul(char: string): { cho: string; jung: string; jong
 
 /**
  * 두 글자의 자모를 비교하여 일치 여부 확인
- * nextCharCho: 다음 글자의 초성 (현재 글자 종성과 비교용)
+ * nextTargetChar: 다음 정답 글자
+ * nextUserChar: 다음 사용자 입력 글자
  */
 export function compareJamo(
   userChar: string,
   targetChar: string,
-  nextTargetChar?: string
+  nextTargetChar?: string,
+  nextUserChar?: string
 ): boolean {
   // 한글이 아닌 경우 단순 비교
   if (!isHangul(userChar) || !isHangul(targetChar)) {
@@ -76,10 +78,19 @@ export function compareJamo(
   }
   
   // 2. 사용자가 종성을 입력했고, 다음 글자의 초성과 일치하는 경우
-  if (userJamo.jong && nextTargetChar) {
-    const nextJamo = decomposeHangul(nextTargetChar);
-    if (nextJamo && userJamo.jong === nextJamo.cho && targetJamo.jong === '') {
-      return true;
+  // 단, 다음 사용자 입력 글자가 존재하고, 그 글자의 초성과 중성이 다음 정답 글자와 일치해야 함
+  if (userJamo.jong && nextTargetChar && nextUserChar && targetJamo.jong === '') {
+    const nextTargetJamo = decomposeHangul(nextTargetChar);
+    const nextUserJamo = decomposeHangul(nextUserChar);
+    
+    if (nextTargetJamo && nextUserJamo) {
+      // 현재 글자의 종성이 다음 글자의 초성과 일치하고,
+      // 다음 사용자 입력 글자의 초성과 중성이 다음 정답 글자와 일치하는지 확인
+      if (userJamo.jong === nextTargetJamo.cho &&
+          nextUserJamo.cho === nextTargetJamo.cho &&
+          nextUserJamo.jung === nextTargetJamo.jung) {
+        return true;
+      }
     }
   }
   
