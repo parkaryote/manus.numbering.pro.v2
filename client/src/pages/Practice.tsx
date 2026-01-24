@@ -187,20 +187,19 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   // 자모 단위 비교로 정확한 일치 길이 계산
+  // 연속으로 일치하는 마지막 위치를 찾음
   const getCompletedLength = useMemo(() => {
     const userChars = splitGraphemes(normalizeText(userInput));
     const targetChars = splitGraphemes(normalizeText(targetText));
     
     let completedCount = 0;
     
-    for (let i = 0; i < userChars.length; i++) {
-      if (i >= targetChars.length) break;
-      
+    for (let i = 0; i < Math.min(userChars.length, targetChars.length); i++) {
       const nextTargetChar = targetChars[i + 1];
       if (compareJamo(userChars[i], targetChars[i], nextTargetChar)) {
-        completedCount++;
+        completedCount = i + 1; // 연속 일치 위치 업데이트
       } else {
-        break; // 일치하지 않으면 중단
+        // 일치하지 않아도 계속 순회 (오답 표시를 위해)
       }
     }
     
