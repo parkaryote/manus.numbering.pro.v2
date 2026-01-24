@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Circle, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
-import { compareJamo, splitGraphemes } from "@/lib/hangul";
+import { compareJamo, splitGraphemes, decomposeHangul } from "@/lib/hangul";
 
 interface PracticeProps {
   questionId: number;
@@ -196,8 +196,31 @@ export default function Practice({ questionId }: PracticeProps) {
     
     for (let i = 0; i < Math.min(userChars.length, targetChars.length); i++) {
       const nextTargetChar = targetChars[i + 1];
-      if (compareJamo(userChars[i], targetChars[i], nextTargetChar)) {
-        completedCount = i + 1; // 연속 일치 위치 업데이트
+      const isCurrentMatch = compareJamo(userChars[i], targetChars[i], nextTargetChar);
+      
+      if (isCurrentMatch) {
+        // 현재 글자가 일치하면 연속 일치 위치 업데이트
+        completedCount = i + 1;
+        
+        // 단, 이전 글자가 종성으로 "예약"했다면 검증 필요
+        if (i > 0) {
+          const prevUserChar = userChars[i - 1];
+          const prevTargetChar = targetChars[i - 1];
+          const prevUserJamo = decomposeHangul(prevUserChar);
+          const prevTargetJamo = decomposeHangul(prevTargetChar);
+          const currentTargetJamo = decomposeHangul(targetChars[i]);
+          
+          // 이전 글자가 종성으로 현재 글자를 "예약"했는지 확인
+          if (prevUserJamo && prevTargetJamo && currentTargetJamo &&
+              prevUserJamo.jong && !prevTargetJamo.jong &&
+              prevUserJamo.jong === currentTargetJamo.cho) {
+            // 예약되었는데, 현재 입력이 정답과 일치하지 않으면 이전 글자까지 오답 처리
+            if (!compareJamo(userChars[i], targetChars[i])) {
+              completedCount = i - 1;
+              break;
+            }
+          }
+        }
       } else {
         // 일치하지 않아도 계속 순회 (오답 표시를 위해)
       }
