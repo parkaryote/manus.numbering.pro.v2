@@ -112,12 +112,20 @@ export function isHangul(char: string): boolean {
 /**
  * 조합 중인 글자가 정답의 일부인지 확인
  * 예: "ㄷ", "도"가 "동"의 일부인지 확인
+ * 예: "고"가 "과"의 일부인지 확인 (초성 일치, 중성 조합 중)
+ * 예: "달"이 "닳"의 일부인지 확인 (겹받침 조합 중)
+ * 
+ * 반환값:
+ * - 'complete': 완전 일치 (글자가 완성됨)
+ * - 'partial': 조합 중 (정답의 일부)
+ * - 'partial_complete': 조합 중이지만 현재 글자는 완성됨 (겹받침 조합 중)
+ * - 'wrong': 오답
  */
 export function isPartialMatch(
   userChar: string,
   targetChar: string,
   nextTargetChar?: string
-): 'complete' | 'partial' | 'wrong' {
+): 'complete' | 'partial' | 'partial_complete' | 'wrong' {
   // 비어있으면 아직 입력 안 함
   if (!userChar) return 'wrong';
   
@@ -149,41 +157,70 @@ export function isPartialMatch(
     // 초성이 다르면 오답
     if (userJamo.cho !== targetJamo.cho) return 'wrong';
     
-    // 초성만 일치 (중성 없음) - 일반적으로 발생하지 않음
-    // 초성 + 중성 일치 (종성 없음)
-    if (userJamo.jung === targetJamo.jung) {
-      // 종성이 없는 경우
-      if (!userJamo.jong) {
-        // 정답도 종성이 없으면 완전 일치
-        if (!targetJamo.jong) return 'complete';
-        // 정답에 종성이 있으면 조합 중
-        return 'partial';
-      }
+    // 중성이 다른 경우: 복합 모음 조합 중인지 확인
+    // 예: "고"(ㅗ) 입력 중 "과"(ㅘ) 정답 -> 조합 중
+    if (userJamo.jung !== targetJamo.jung) {
+      // 복합 모음 조합 중인지 확인
+      // ㅗ -> ㅘ, ㅙ, ㅚ
+      // ㅜ -> ㅝ, ㅞ, ㅟ
+      // ㅡ -> ㅢ
+      const compositeVowels: { [key: string]: string[] } = {
+        'ㅗ': ['ㅘ', 'ㅙ', 'ㅚ'],
+        'ㅜ': ['ㅝ', 'ㅞ', 'ㅟ'],
+        'ㅡ': ['ㅢ'],
+      };
       
-      // 종성이 있는 경우
-      if (userJamo.jong === targetJamo.jong) return 'complete';
-      
-      // 종성 예약: 사용자가 입력한 종성이 다음 글자의 초성과 일치하는 경우
-      if (nextTargetChar && !targetJamo.jong) {
-        const nextTargetJamo = decomposeHangul(nextTargetChar);
-        if (nextTargetJamo && userJamo.jong === nextTargetJamo.cho) {
-          return 'complete'; // 종성 예약 성공
+      // 사용자 중성이 정답 중성의 시작 부분인지 확인
+      const possibleComposites = compositeVowels[userJamo.jung];
+      if (possibleComposites && possibleComposites.includes(targetJamo.jung)) {
+        // 종성이 없어야 조합 중으로 인정
+        if (!userJamo.jong) {
+          return 'partial';
         }
       }
       
-      // 겹받침 조합 중: 사용자 종성이 겹받침이고, 첫 번째 자음이 정답 종성과 일치하는 경우
-      if (userJamo.jong && targetJamo.jong) {
-        const doubleJong = DOUBLE_JONG[userJamo.jong];
-        if (doubleJong && doubleJong[0] === targetJamo.jong) {
-          return 'partial'; // 겹받침 조합 중
-        }
-      }
-      
-      // 종성이 다르면 오답
       return 'wrong';
     }
     
-    // 중성이 다르면 오답
+    // 초성 + 중성 일치
+    // 종성이 없는 경우
+    if (!userJamo.jong) {
+      // 정답도 종성이 없으면 완전 일치
+      if (!targetJamo.jong) return 'complete';
+      // 정답에 종성이 있으면 조합 중
+      return 'partial';
+    }
+    
+    // 종성이 있는 경우
+    if (userJamo.jong === targetJamo.jong) return 'complete';
+    
+    // 종성 예약: 사용자가 입력한 종성이 다음 글자의 초성과 일치하는 경우
+    if (nextTargetChar && !targetJamo.jong) {
+      const nextTargetJamo = decomposeHangul(nextTargetChar);
+      if (nextTargetJamo && userJamo.jong === nextTargetJamo.cho) {
+        return 'complete'; // 종성 예약 성공
+      }
+    }
+    
+    // 겹받침 조합 중: 사용자 종성이 겹받침이고, 첫 번째 자음이 정답 종성과 일치하는 경우
+    // 예: "묽"(ㄺ) 입력 중 "물"(ㄹ) 정답 -> 조합 중
+    if (userJamo.jong && targetJamo.jong) {
+      const doubleJong = DOUBLE_JONG[userJamo.jong];
+      if (doubleJong && doubleJong[0] === targetJamo.jong) {
+        return 'partial_complete'; // 겹받침 조합 중이지만 현재 글자는 완성됨
+      }
+    }
+    
+    // 정답이 겹받침인 경우: 사용자 종성이 겹받침의 첫 번째 자음과 일치하면 조합 중
+    // 예: "달"(ㄹ) 입력 중 "닳"(ㅀ) 정답 -> 조합 중
+    if (targetJamo.jong) {
+      const targetDoubleJong = DOUBLE_JONG[targetJamo.jong];
+      if (targetDoubleJong && userJamo.jong === targetDoubleJong[0]) {
+        return 'partial'; // 겹받침 조합 중
+      }
+    }
+    
+    // 종성이 다르면 오답
     return 'wrong';
   }
   

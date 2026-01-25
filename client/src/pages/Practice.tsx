@@ -190,6 +190,7 @@ export default function Practice({ questionId }: PracticeProps) {
   // 1. 조합 중인 글자도 정답의 일부이면 검은색
   // 2. 종성 예약: 다음 글자의 초성과 일치하면 정답
   // 3. 언더바는 글자가 완성된 후에만 이동
+  // 4. partial_complete: 겹받침 조합 중이지만 현재 글자는 완성됨 (언더바 다음 글자로)
   const completionInfo = useMemo(() => {
     const userChars = splitGraphemes(normalizeText(userInput));
     const targetChars = splitGraphemes(normalizeText(targetText));
@@ -204,7 +205,9 @@ export default function Practice({ questionId }: PracticeProps) {
       
       const matchResult = isPartialMatch(userChar, targetChar, nextTargetChar);
       
-      if (matchResult === 'complete') {
+      if (matchResult === 'complete' || matchResult === 'partial_complete') {
+        // complete: 완전 일치
+        // partial_complete: 겹받침 조합 중이지만 현재 글자는 완성됨 ("묽" -> "물")
         completedCount = i + 1;
       } else if (matchResult === 'partial') {
         // 조합 중: 언더바는 현재 위치에 유지
@@ -224,7 +227,7 @@ export default function Practice({ questionId }: PracticeProps) {
     const lastMatchResult = lastUserChar && lastTargetChar 
       ? isPartialMatch(lastUserChar, lastTargetChar, nextTargetChar)
       : null;
-    const isLastCharPartial = lastMatchResult === 'partial';
+    const isLastCharPartial = lastMatchResult === 'partial' || lastMatchResult === 'partial_complete';
     
     return { completedCount, userChars, targetChars, isLastCharPartial };
   }, [userInput, targetText, renderTrigger]);
@@ -281,8 +284,18 @@ export default function Practice({ questionId }: PracticeProps) {
             {char}
           </span>
         );
-      } else if (matchResult === 'partial') {
-        // 조합 중 (부분 일치): 검은색 + 언더바
+      } else if (matchResult === 'partial' || matchResult === 'partial_complete') {
+        // 조합 중 (부분 일치): 검은색 + 언더바 (partial) 또는 검은색만 (partial_complete)
+        // partial_complete: 겹받침 조합 중이지만 현재 글자는 완성됨 ("묽" -> "물")
+        if (matchResult === 'partial_complete') {
+          // 겹받침 조합 중: 검은색만 (언더바는 다음 글자에)
+          return (
+            <span key={targetIndex} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"}>
+              {char}
+            </span>
+          );
+        }
+        // partial: 조합 중 (검은색 + 언더바)
         return (
           <span key={targetIndex} className="border-b-4 border-gray-600 text-foreground relative font-semibold text-xl">
             {char}
