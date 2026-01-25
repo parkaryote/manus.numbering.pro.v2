@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Circle, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
-import { splitGraphemes } from "@/lib/hangul";
+import { splitGraphemes, isPartialMatch, isHangul, decomposeHangul } from "@/lib/hangul";
 
 interface PracticeProps {
   questionId: number;
@@ -186,24 +186,57 @@ export default function Practice({ questionId }: PracticeProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // 한컴타자연습 스타일 채점 로직: 단순 글자 비교
-  // 입력한 글자와 정답 글자를 1:1로 비교하여 즉시 채점
+  // 한컴타자연습 스타일 채점 로직:
+  // 1. 조합 중인 글자도 정답의 일부이면 검은색
+  // 2. 종성 예약: 다음 글자의 초성과 일치하면 정답
+  // 3. 언더바는 글자가 완성된 후에만 이동
   const completionInfo = useMemo(() => {
     const userChars = splitGraphemes(normalizeText(userInput));
     const targetChars = splitGraphemes(normalizeText(targetText));
     
-    // 현재 입력 위치 = 입력한 글자 수
-    const currentPosition = userChars.length;
+    // 완성된 글자 수 계산 (언더바 위치 결정용)
+    let completedCount = 0;
     
-    return { currentPosition, userChars, targetChars };
-  }, [userInput, targetText, renderTrigger]);  // 한컴타자연습 스타일 렌더링: 단순 글자 비교로 즉시 채점
+    for (let i = 0; i < userChars.length && i < targetChars.length; i++) {
+      const userChar = userChars[i];
+      const targetChar = targetChars[i];
+      const nextTargetChar = targetChars[i + 1];
+      
+      const matchResult = isPartialMatch(userChar, targetChar, nextTargetChar);
+      
+      if (matchResult === 'complete') {
+        completedCount = i + 1;
+      } else if (matchResult === 'partial') {
+        // 조합 중: 언더바는 현재 위치에 유지
+        completedCount = i;
+        break;
+      } else {
+        // 오답: 언더바는 현재 위치에 유지
+        completedCount = i;
+        break;
+      }
+    }
+    
+    // 마지막 글자가 조합 중인지 확인
+    const lastUserChar = userChars[userChars.length - 1];
+    const lastTargetChar = targetChars[userChars.length - 1];
+    const nextTargetChar = targetChars[userChars.length];
+    const lastMatchResult = lastUserChar && lastTargetChar 
+      ? isPartialMatch(lastUserChar, lastTargetChar, nextTargetChar)
+      : null;
+    const isLastCharPartial = lastMatchResult === 'partial';
+    
+    return { completedCount, userChars, targetChars, isLastCharPartial };
+  }, [userInput, targetText, renderTrigger]);
+
+  // 한컴타자연습 스타일 렌더링
   const renderTextWithFeedback = useMemo(() => {
-    const { currentPosition, userChars, targetChars: targetCharsNormalized } = completionInfo;
+    const { completedCount, userChars, targetChars: targetCharsNormalized, isLastCharPartial } = completionInfo;
     const targetChars = targetText.split("");
     let inputIndex = 0;
 
     return targetChars.map((char, targetIndex) => {
-      // 띄어쓰기와 줄바꿈은 그대로 표시 (채점 제외)
+      // 띠어쓰기와 줄바꿈은 그대로 표시 (채점 제외)
       if (char === " " || char === "\n") {
         return (
           <span key={targetIndex} className="text-muted-foreground">
@@ -217,8 +250,9 @@ export default function Practice({ questionId }: PracticeProps) {
 
       // 아직 입력하지 않은 글자
       if (currentInputIndex >= userChars.length) {
-        // 현재 입력 위치 (다음에 입력할 글자)
-        if (currentInputIndex === currentPosition) {
+        // 현재 입력 위치 (다음에 입력할 글자) - 언더바 표시
+        // 언더바는 완성된 글자 다음 위치에 표시
+        if (currentInputIndex === completedCount) {
           return (
             <span key={targetIndex} className="border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse">
               {char}
@@ -233,15 +267,24 @@ export default function Practice({ questionId }: PracticeProps) {
         );
       }
 
-      // 입력한 글자 채점: 단순 글자 비교
+      // 입력한 글자 채점
       const userChar = userChars[currentInputIndex];
       const targetChar = targetCharsNormalized[currentInputIndex];
-      const isCorrect = userChar === targetChar;
+      const nextTargetChar = targetCharsNormalized[currentInputIndex + 1];
+      
+      const matchResult = isPartialMatch(userChar, targetChar, nextTargetChar);
 
-      if (isCorrect) {
-        // 정답: 검은색 (fade out 중이면 회색)
+      if (matchResult === 'complete') {
+        // 정답 (완전 일치): 검은색
         return (
           <span key={targetIndex} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"}>
+            {char}
+          </span>
+        );
+      } else if (matchResult === 'partial') {
+        // 조합 중 (부분 일치): 검은색 + 언더바
+        return (
+          <span key={targetIndex} className="border-b-4 border-gray-600 text-foreground relative font-semibold text-xl">
             {char}
           </span>
         );

@@ -95,6 +95,88 @@ export function isHangul(char: string): boolean {
 }
 
 /**
+ * 조합 중인 글자가 정답의 일부인지 확인
+ * 예: "ㄷ", "도"가 "동"의 일부인지 확인
+ */
+export function isPartialMatch(
+  userChar: string,
+  targetChar: string,
+  nextTargetChar?: string
+): 'complete' | 'partial' | 'wrong' {
+  // 비어있으면 아직 입력 안 함
+  if (!userChar) return 'wrong';
+  
+  // 완전 일치
+  if (userChar === targetChar) return 'complete';
+  
+  // 한글이 아닌 경우 단순 비교
+  if (!isHangul(targetChar)) {
+    return userChar === targetChar ? 'complete' : 'wrong';
+  }
+  
+  const targetJamo = decomposeHangul(targetChar);
+  if (!targetJamo) return userChar === targetChar ? 'complete' : 'wrong';
+  
+  // 사용자 입력이 자음/모음인 경우 (조합 중)
+  if (isJamo(userChar)) {
+    // 초성만 입력한 경우
+    if (userChar === targetJamo.cho) return 'partial';
+    // 중성만 입력한 경우 (일반적으로 발생하지 않음)
+    if (userChar === targetJamo.jung) return 'partial';
+    return 'wrong';
+  }
+  
+  // 사용자 입력이 한글 음절인 경우
+  if (isHangul(userChar)) {
+    const userJamo = decomposeHangul(userChar);
+    if (!userJamo) return 'wrong';
+    
+    // 초성이 다르면 오답
+    if (userJamo.cho !== targetJamo.cho) return 'wrong';
+    
+    // 초성만 일치 (중성 없음) - 일반적으로 발생하지 않음
+    // 초성 + 중성 일치 (종성 없음)
+    if (userJamo.jung === targetJamo.jung) {
+      // 종성이 없는 경우
+      if (!userJamo.jong) {
+        // 정답도 종성이 없으면 완전 일치
+        if (!targetJamo.jong) return 'complete';
+        // 정답에 종성이 있으면 조합 중
+        return 'partial';
+      }
+      
+      // 종성이 있는 경우
+      if (userJamo.jong === targetJamo.jong) return 'complete';
+      
+      // 종성 예약: 사용자가 입력한 종성이 다음 글자의 초성과 일치하는 경우
+      if (nextTargetChar && !targetJamo.jong) {
+        const nextTargetJamo = decomposeHangul(nextTargetChar);
+        if (nextTargetJamo && userJamo.jong === nextTargetJamo.cho) {
+          return 'complete'; // 종성 예약 성공
+        }
+      }
+      
+      // 종성이 다르면 오답
+      return 'wrong';
+    }
+    
+    // 중성이 다르면 오답
+    return 'wrong';
+  }
+  
+  return 'wrong';
+}
+
+/**
+ * 자음/모음(자모) 여부 확인
+ */
+export function isJamo(char: string): boolean {
+  const code = char.charCodeAt(0);
+  // 한글 자모 영역: 0x3131 ~ 0x3163
+  return code >= 0x3131 && code <= 0x3163;
+}
+
+/**
  * 문자열을 글자 배열로 분해 (이모지 등 고려)
  */
 export function splitGraphemes(text: string): string[] {
