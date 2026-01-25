@@ -789,3 +789,10 @@
   - [x] Practice.tsx handleKeyDown에 Ctrl+Backspace 로직 추가
   - [x] Test.tsx handleKeyDown에 Ctrl+Backspace 로직 추가
   - [x] 띄어쓰기 없으면 전체 삭제, 있으면 마지막 단어만 삭제
+
+
+# 한글 조합 중 Ctrl+Backspace 수정 (v1.10.28)
+- [x] 한글 조합 중에도 Ctrl+Backspace가 단어 단위로 삭제되도록 수정
+  - [x] Practice.tsx: textarea.value로 현재 값 직접 가져와서 삭제
+  - [x] Test.tsx: 동일하게 적용
+  - [x] textarea blur/focus로 조합 강제 종료 후 삭제 처리
