@@ -201,6 +201,40 @@ export default function Test({ questionId }: TestProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  // 단축키 안내 표시 설정 (localStorage)
+  const [showShortcutHelp, setShowShortcutHelp] = useState(() => {
+    const saved = localStorage.getItem("showShortcutHelp");
+    return saved !== null ? saved === "true" : true;
+  });
+
+  const toggleShortcutHelp = () => {
+    const newValue = !showShortcutHelp;
+    setShowShortcutHelp(newValue);
+    localStorage.setItem("showShortcutHelp", String(newValue));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Ctrl+Shift+Backspace: 전체 삭제
+    if (e.ctrlKey && e.shiftKey && e.key === "Backspace") {
+      e.preventDefault();
+      setUserAnswer("");
+      return;
+    }
+    
+    // Shift+Backspace: 문장 삭제 (마지막 줄 삭제)
+    if (e.shiftKey && !e.ctrlKey && e.key === "Backspace") {
+      e.preventDefault();
+      const lines = userAnswer.split("\n");
+      if (lines.length > 1) {
+        lines.pop();
+        setUserAnswer(lines.join("\n"));
+      } else {
+        setUserAnswer("");
+      }
+      return;
+    }
+  };
+
   // Render mistake highlights
   const renderMistakes = () => {
     if (!result?.mistakeHighlights) return null;
@@ -382,15 +416,29 @@ export default function Test({ questionId }: TestProps) {
                   </div>
                 </div>
               ) : (
-                <Textarea
-                  ref={textareaRef}
-                  value={userAnswer}
-                  onChange={(e) => setUserAnswer(e.target.value)}
-                  onPaste={(e) => e.preventDefault()}
-                  placeholder="답안을 입력하세요..."
-                  rows={12}
-                  className="text-base"
-                />
+                <>
+                  <Textarea
+                    ref={textareaRef}
+                    value={userAnswer}
+                    onChange={(e) => setUserAnswer(e.target.value)}
+                    onPaste={(e) => e.preventDefault()}
+                    onKeyDown={handleKeyDown}
+                    placeholder="답안을 입력하세요..."
+                    rows={12}
+                    className="text-base"
+                  />
+                  {showShortcutHelp && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
+                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 단어 삭제</span>
+                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 문장 삭제</span>
+                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 전체 삭제</span>
+                      <button onClick={toggleShortcutHelp} className="text-muted-foreground/50 hover:text-muted-foreground underline">숨기기</button>
+                    </div>
+                  )}
+                  {!showShortcutHelp && (
+                    <button onClick={toggleShortcutHelp} className="text-xs text-muted-foreground/50 hover:text-muted-foreground underline mt-2">단축키 안내 보기</button>
+                  )}
+                </>
               )}
 
               {!isImageQuestion && (

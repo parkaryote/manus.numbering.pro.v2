@@ -770,3 +770,15 @@
   - [x] Ctrl+Shift+Backspace: 전체 삭제
 - [x] 단축키 설명 UI 추가
   - [x] 화면 하단에 kbd 태그로 단축키 안내 표시
+
+
+# 시험 모드 단축키 및 토글 옵션 (v1.10.26)
+- [x] 시험 모드(Test.tsx)에 삭제 단축키 기능 추가
+  - [x] Ctrl+Backspace: 단어 삭제 (브라우저 기본)
+  - [x] Shift+Backspace: 문장 삭제
+  - [x] Ctrl+Shift+Backspace: 전체 삭제
+  - [x] 단축키 안내 UI 추가
+- [x] 단축키 토글 옵션 구현
+  - [x] localStorage에 showShortcutHelp 설정 저장
+  - [x] Practice.tsx, Test.tsx에 토글 버튼 추가
+  - [x] 숨기기/보기 버튼으로 단축키 안내 표시/숨김
