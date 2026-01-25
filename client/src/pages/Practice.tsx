@@ -278,8 +278,8 @@ export default function Practice({ questionId }: PracticeProps) {
       
       // 자모 단위 비교로 정확한 일치 판정
       const nextTargetChar = targetCharsNormalized[inputIndex + 1];
-      const isCorrect = isCompleted && isTyped && compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
-      const isError = isCompleted && isTyped && !compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
+      const isCorrect = isTyped && compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
+      const isError = isTyped && !compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
       
       // 종성 예약 실패한 글자는 빨간색으로 표시
       const isFailedReservation = failedIndex === inputIndex;
@@ -298,12 +298,12 @@ export default function Practice({ questionId }: PracticeProps) {
       } else if (isNext) {
         // 다음 입력 위치: 두껏운 언더바 + 깜박이는 커서
         className = "border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse";
+      } else if (isError) {
+        // 오답: 빨간색 (maxCompletedCount 이하라도 오답이면 빨간색)
+        className = "text-red-500 relative font-semibold text-xl";
       } else if (isCorrect) {
         // 정답: 검은색 또는 fade out 중이면 회색
         className = isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl";
-      } else if (isError) {
-        // 오답: 빨간색
-        className = "text-red-500 relative font-semibold text-xl";
       } else if (isTyped) {
         // 조합 중이거나 아직 채점 전: 회색
         className = "text-gray-400 relative font-semibold text-xl";
