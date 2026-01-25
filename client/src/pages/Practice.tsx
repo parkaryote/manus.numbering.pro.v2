@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Circle, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
-import { compareJamo, splitGraphemes, decomposeHangul } from "@/lib/hangul";
+import { splitGraphemes } from "@/lib/hangul";
 
 interface PracticeProps {
   questionId: number;
@@ -25,7 +25,6 @@ export default function Practice({ questionId }: PracticeProps) {
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
   const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
   const [practiceCount, setPracticeCount] = useState(0); // 연습 횟수
-  const [maxCompletedCount, setMaxCompletedCount] = useState(0); // 최대 완료 글자 수 (정답 확정 후 수정되어도 유지)
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastInputRef = useRef<string>(""); // 마지막 입력값 추적 (모바일용)
@@ -176,7 +175,6 @@ export default function Practice({ questionId }: PracticeProps) {
     // 1.5초 후 입력 초기화 및 fade out 상태 해제
     setTimeout(() => {
       setUserInput("");
-      setMaxCompletedCount(0); // 최대 완료 글자 수 초기화
       setIsFadingOut(false);
       textareaRef.current?.focus();
     }, 1500);
@@ -188,81 +186,24 @@ export default function Practice({ questionId }: PracticeProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // 자모 단위 비교로 정확한 일치 길이 계산
-  // 핵심: 글자 완성 즉시 채점, 조합 중에는 isComposing으로 판단
+  // 한컴타자연습 스타일 채점 로직: 단순 글자 비교
+  // 입력한 글자와 정답 글자를 1:1로 비교하여 즉시 채점
   const completionInfo = useMemo(() => {
     const userChars = splitGraphemes(normalizeText(userInput));
     const targetChars = splitGraphemes(normalizeText(targetText));
     
-    let completedCount = 0;
-    let localFailedReservationIndex: number | null = null;
+    // 현재 입력 위치 = 입력한 글자 수
+    const currentPosition = userChars.length;
     
-    // 모든 입력 글자를 즉시 채점 (effectiveUserLength 제거)
-    for (let i = 0; i < Math.min(userChars.length, targetChars.length); i++) {
-      const userChar = userChars[i];
-      const targetChar = targetChars[i];
-      const nextTargetChar = targetChars[i + 1];
-      
-      const userJamo = decomposeHangul(userChar);
-      const targetJamo = decomposeHangul(targetChar);
-      const nextTargetJamo = nextTargetChar ? decomposeHangul(nextTargetChar) : null;
-      
-      // 이전 글자가 종성으로 현재 글자를 "예약"했는지 확인
-      let prevReservedCurrentChar = false;
-      if (i > 0) {
-        const prevUserChar = userChars[i - 1];
-        const prevTargetChar = targetChars[i - 1];
-        const prevUserJamo = decomposeHangul(prevUserChar);
-        const prevTargetJamo = decomposeHangul(prevTargetChar);
-        
-        if (prevUserJamo && prevTargetJamo && targetJamo &&
-            prevUserJamo.jong && !prevTargetJamo.jong &&
-            prevUserJamo.jong === targetJamo.cho) {
-          prevReservedCurrentChar = true;
-        }
-      }
-      
-      // 현재 글자 비교 (종성 예약 고려)
-      const isCurrentMatch = compareJamo(userChar, targetChar, nextTargetChar);
-      
-      if (isCurrentMatch) {
-        // 현재 글자가 일치하면 completedCount 증가
-        completedCount = i + 1;
-        
-        // 이전 글자가 예약했는데 현재 글자가 정답과 완전히 일치하면 예약 성공
-        // (이미 compareJamo에서 처리됨)
-      } else {
-        // 현재 글자가 일치하지 않음
-        if (prevReservedCurrentChar) {
-          // 이전 글자가 종성으로 예약했는데 현재 글자가 틀림 → 이전 글자 오답 표시
-          localFailedReservationIndex = i - 1;
-          // 언더바는 현재 위치(i)에 유지 (completedCount는 i로 설정)
-          completedCount = i;
-          // 예약 실패 후에는 순회 중단 (이후 글자는 채점하지 않음)
-          break;
-        } else {
-          // 예약 없이 틀린 경우: completedCount 유지, 순회 중단
-          break;
-        }
-      }
-    }
-    
-    // maxCompletedCount 업데이트: 한 번 정답으로 확정된 글자는 이후 수정되어도 정답 상태 유지
-    if (completedCount > maxCompletedCount) {
-      setMaxCompletedCount(completedCount);
-    }
-
-    return { completedLength: completedCount, failedIndex: localFailedReservationIndex };
-  }, [userInput, targetText, renderTrigger, maxCompletedCount]); // Render each character with visual feedback
+    return { currentPosition, userChars, targetChars };
+  }, [userInput, targetText, renderTrigger]);  // 한컴타자연습 스타일 렌더링: 단순 글자 비교로 즉시 채점
   const renderTextWithFeedback = useMemo(() => {
-    const userChars = splitGraphemes(normalizeText(userInput));
-    const targetCharsNormalized = splitGraphemes(normalizeText(targetText));
+    const { currentPosition, userChars, targetChars: targetCharsNormalized } = completionInfo;
     const targetChars = targetText.split("");
     let inputIndex = 0;
-    const { completedLength, failedIndex } = completionInfo;
 
     return targetChars.map((char, targetIndex) => {
-      // Skip spaces and newlines in target for comparison
+      // 띄어쓰기와 줄바꿈은 그대로 표시 (채점 제외)
       if (char === " " || char === "\n") {
         return (
           <span key={targetIndex} className="text-muted-foreground">
@@ -271,51 +212,49 @@ export default function Practice({ questionId }: PracticeProps) {
         );
       }
 
-      const isTyped = inputIndex < userChars.length;
-      
-      // 채점 완료된 글자만 색상 표시 (maxCompletedCount 사용: 한 번 정답으로 확정된 글자는 이후 수정되어도 정답 상태 유지)
-      const isCompleted = inputIndex < maxCompletedCount;
-      
-      // 자모 단위 비교로 정확한 일치 판정
-      const nextTargetChar = targetCharsNormalized[inputIndex + 1];
-      const isCorrect = isTyped && compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
-      const isError = isTyped && !compareJamo(userChars[inputIndex], targetCharsNormalized[inputIndex], nextTargetChar);
-      
-      // 종성 예약 실패한 글자는 빨간색으로 표시
-      const isFailedReservation = failedIndex === inputIndex;
-      
-      // 언더바는 maxCompletedCount 위치에 표시 (정답 글자 다음)
-      const isNext = inputIndex === maxCompletedCount;
-      
-      
+      const currentInputIndex = inputIndex;
       inputIndex++;
 
-      let className = "text-gray-400 relative font-semibold text-xl"; // Default: not typed yet
-      
-      if (isFailedReservation) {
-        // 종성 예약 실패: 빨간색
-        className = "text-red-500 relative font-semibold text-xl";
-      } else if (isNext) {
-        // 다음 입력 위치: 두껏운 언더바 + 깜박이는 커서
-        className = "border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse";
-      } else if (isError) {
-        // 오답: 빨간색 (maxCompletedCount 이하라도 오답이면 빨간색)
-        className = "text-red-500 relative font-semibold text-xl";
-      } else if (isCorrect) {
-        // 정답: 검은색 또는 fade out 중이면 회색
-        className = isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl";
-      } else if (isTyped) {
-        // 조합 중이거나 아직 채점 전: 회색
-        className = "text-gray-400 relative font-semibold text-xl";
+      // 아직 입력하지 않은 글자
+      if (currentInputIndex >= userChars.length) {
+        // 현재 입력 위치 (다음에 입력할 글자)
+        if (currentInputIndex === currentPosition) {
+          return (
+            <span key={targetIndex} className="border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse">
+              {char}
+            </span>
+          );
+        }
+        // 미입력 글자
+        return (
+          <span key={targetIndex} className="text-gray-400 relative font-semibold text-xl">
+            {char}
+          </span>
+        );
       }
 
-      return (
-        <span key={targetIndex} className={className}>
-          {char}
-        </span>
-      );
+      // 입력한 글자 채점: 단순 글자 비교
+      const userChar = userChars[currentInputIndex];
+      const targetChar = targetCharsNormalized[currentInputIndex];
+      const isCorrect = userChar === targetChar;
+
+      if (isCorrect) {
+        // 정답: 검은색 (fade out 중이면 회색)
+        return (
+          <span key={targetIndex} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"}>
+            {char}
+          </span>
+        );
+      } else {
+        // 오답: 빨간색
+        return (
+          <span key={targetIndex} className="text-red-500 relative font-semibold text-xl">
+            {char}
+          </span>
+        );
+      }
     });
-  }, [userInput, targetText, completionInfo, renderTrigger, isFadingOut, maxCompletedCount]);
+  }, [userInput, targetText, completionInfo, isFadingOut]);
 
   if (isLoading) {
     return (
