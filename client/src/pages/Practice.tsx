@@ -214,10 +214,14 @@ export default function Practice({ questionId }: PracticeProps) {
         completedCount = i;
         break;
       } else {
-        // 오답: 언더바는 현재 위치에 유지
-        completedCount = i;
-        break;
+        // 오답: 언더바는 다음 글자로 이동
+        completedCount = i + 1;
       }
+    }
+    
+    // 사용자 입력이 정답보다 길 경우: 언더바는 정답 끝에 유지
+    if (userChars.length > targetChars.length) {
+      completedCount = targetChars.length;
     }
     
     // 마지막 글자가 조합 중인지 확인
