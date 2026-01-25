@@ -142,6 +142,17 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         return db.deleteQuestion(input.id);
       }),
+    
+    updateOrder: protectedProcedure
+      .input(z.object({
+        questionOrders: z.array(z.object({
+          id: z.number(),
+          displayOrder: z.number(),
+        })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return db.updateQuestionOrder(ctx.user.id, input.questionOrders);
+      }),
   }),
 
   // Practice session management

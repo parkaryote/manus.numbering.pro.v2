@@ -64,6 +64,13 @@
       "when": 1769190957035,
       "tag": "0008_serious_cyclops",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1769320366156,
+      "tag": "0009_opposite_bishop",
+      "breakpoints": true
     }
   ]
 }

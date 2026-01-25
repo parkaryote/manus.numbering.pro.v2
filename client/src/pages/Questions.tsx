@@ -9,13 +9,155 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon } from "lucide-react";
+import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { toast } from "sonner";
 import { ImageLabelEditor, ImageLabel } from "@/components/ImageLabelEditor";
 import imageCompression from "browser-image-compression";
 
 interface QuestionsProps {
   subjectId: number;
+}
+
+interface SortableQuestionCardProps {
+  question: any;
+  difficultyLabel: Record<string, string>;
+  difficultyColor: Record<string, string>;
+  onEdit: (question: any) => void;
+  onDelete: (id: number) => void;
+  onPractice: (id: number) => void;
+  onTest: (id: number) => void;
+}
+
+function SortableQuestionCard({
+  question,
+  difficultyLabel,
+  difficultyColor,
+  onEdit,
+  onDelete,
+  onPractice,
+  onTest,
+}: SortableQuestionCardProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: question.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const hasImage = !!question.imageUrl;
+  const hasLabels = question.imageLabels && JSON.parse(question.imageLabels).length > 0;
+
+  return (
+    <Card
+      ref={setNodeRef}
+      style={style}
+      className="shadow-elegant hover:shadow-elegant-lg transition-shadow"
+    >
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4">
+          <div
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing touch-none mt-1"
+          >
+            <GripVertical className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-2">
+              {hasImage && (
+                <span className="text-xs font-medium text-blue-600 flex items-center gap-1">
+                  <ImageIcon className="h-3 w-3" />
+                  이미지
+                </span>
+              )}
+              <span className={`text-xs font-medium ${difficultyColor[question.difficulty || "medium"]}`}>
+                {difficultyLabel[question.difficulty || "medium"]}
+              </span>
+            </div>
+            <CardTitle className="text-lg mb-2">{question.question}</CardTitle>
+            {hasImage && question.imageUrl && (
+              <img
+                src={question.imageUrl!}
+                alt="Question"
+                className="max-w-xs rounded-lg border mt-2 mb-2"
+              />
+            )}
+            {!hasImage && (
+              <CardDescription className="whitespace-pre-wrap">
+                {question.answer.length > 150
+                  ? question.answer.substring(0, 150) + "..."
+                  : question.answer}
+              </CardDescription>
+            )}
+            {hasLabels && question.imageLabels && (
+              <p className="text-xs text-muted-foreground mt-2">
+                {JSON.parse(question.imageLabels).length}개의 정답 영역
+              </p>
+            )}
+          </div>
+          <div className="flex gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onEdit(question)}
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onDelete(question.id)}
+            >
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="flex gap-2">
+        <Button
+          variant="outline"
+          className="gap-2"
+          onClick={() => onPractice(question.id)}
+        >
+          <Dumbbell className="h-4 w-4" />
+          연습 모드
+        </Button>
+        <Button
+          variant="outline"
+          className="gap-2"
+          onClick={() => onTest(question.id)}
+        >
+          <ClipboardCheck className="h-4 w-4" />
+          시험 모드
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function Questions({ subjectId }: QuestionsProps) {
@@ -73,6 +215,45 @@ export default function Questions({ subjectId }: QuestionsProps) {
       toast.error("문제 삭제 실패: " + error.message);
     },
   });
+
+  const updateOrderMutation = trpc.questions.updateOrder.useMutation({
+    onError: (error) => {
+      toast.error("순서 변경 실패: " + error.message);
+      utils.questions.listBySubject.invalidate({ subjectId });
+    },
+  });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id || !questions) {
+      return;
+    }
+
+    const oldIndex = questions.findIndex((q) => q.id === active.id);
+    const newIndex = questions.findIndex((q) => q.id === over.id);
+
+    const reorderedQuestions = arrayMove(questions, oldIndex, newIndex);
+    const questionOrders = reorderedQuestions.map((question, index) => ({
+      id: question.id,
+      displayOrder: index,
+    }));
+
+    // Optimistic update
+    utils.questions.listBySubject.setData({ subjectId }, reorderedQuestions.map((q, idx) => ({
+      ...q,
+      displayOrder: idx,
+    })));
+
+    updateOrderMutation.mutate({ questionOrders });
+  };
 
   const resetForm = () => {
     setFormData({
@@ -428,88 +609,31 @@ export default function Questions({ subjectId }: QuestionsProps) {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {questions?.map((question) => {
-            const hasImage = !!question.imageUrl;
-            const hasLabels = question.imageLabels && JSON.parse(question.imageLabels).length > 0;
-
-            return (
-              <Card key={question.id} className="shadow-elegant hover:shadow-elegant-lg transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        {hasImage && (
-                          <span className="text-xs font-medium text-blue-600 flex items-center gap-1">
-                            <ImageIcon className="h-3 w-3" />
-                            이미지
-                          </span>
-                        )}
-                        <span className={`text-xs font-medium ${difficultyColor[question.difficulty || "medium"]}`}>
-                          {difficultyLabel[question.difficulty || "medium"]}
-                        </span>
-                      </div>
-                      <CardTitle className="text-lg mb-2">{question.question}</CardTitle>
-                      {hasImage && question.imageUrl && (
-                        <img
-                          src={question.imageUrl!}
-                          alt="Question"
-                          className="max-w-xs rounded-lg border mt-2 mb-2"
-                        />
-                      )}
-                      {!hasImage && (
-                        <CardDescription className="whitespace-pre-wrap">
-                          {question.answer.length > 150
-                            ? question.answer.substring(0, 150) + "..."
-                            : question.answer}
-                        </CardDescription>
-                      )}
-                      {hasLabels && question.imageLabels && (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          {JSON.parse(question.imageLabels).length}개의 정답 영역
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEdit(question)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(question.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    className="gap-2"
-                    onClick={() => setLocation(`/practice/${question.id}`)}
-                  >
-                    <Dumbbell className="h-4 w-4" />
-                    연습 모드
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="gap-2"
-                    onClick={() => setLocation(`/test/${question.id}`)}
-                  >
-                    <ClipboardCheck className="h-4 w-4" />
-                    시험 모드
-                  </Button>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={questions?.map(q => q.id) || []}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="space-y-4">
+              {questions?.map((question) => (
+                <SortableQuestionCard
+                  key={question.id}
+                  question={question}
+                  difficultyLabel={difficultyLabel}
+                  difficultyColor={difficultyColor}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  onPractice={(id) => setLocation(`/practice/${id}`)}
+                  onTest={(id) => setLocation(`/test/${id}`)}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
 
       {/* Edit Dialog */}

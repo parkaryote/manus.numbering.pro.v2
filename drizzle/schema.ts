@@ -56,6 +56,7 @@ export const questions = mysqlTable("questions", {
   imageLabels: text("imageLabels"), // JSON array of {x, y, width, height, answer}
   useAIGrading: int("useAIGrading").default(0).notNull(), // 0: disabled, 1: enabled
   difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default("medium"),
+  displayOrder: int("displayOrder").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

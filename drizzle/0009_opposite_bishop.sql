@@ -1,0 +1,1 @@
+ALTER TABLE `questions` ADD `displayOrder` int DEFAULT 0 NOT NULL;

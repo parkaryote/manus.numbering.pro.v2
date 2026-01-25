@@ -169,7 +169,9 @@ export async function updateSubjectOrder(userId: number, subjectOrders: { id: nu
 export async function getQuestionsBySubjectId(subjectId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(questions).where(eq(questions.subjectId, subjectId));
+  return db.select().from(questions)
+    .where(eq(questions.subjectId, subjectId))
+    .orderBy(questions.displayOrder);
 }
 
 export async function getQuestionsByUserId(userId: number) {
@@ -211,6 +213,17 @@ export async function deleteQuestion(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db.delete(questions).where(eq(questions.id, id));
+}
+
+export async function updateQuestionOrder(userId: number, questionOrders: { id: number; displayOrder: number }[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  for (const { id, displayOrder } of questionOrders) {
+    await db.update(questions)
+      .set({ displayOrder })
+      .where(eq(questions.id, id));
+  }
 }
 
 // ========== Practice Session Queries ==========

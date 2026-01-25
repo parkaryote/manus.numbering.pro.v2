@@ -722,3 +722,17 @@
   - [x] QuestionForm 함수를 questionFormContent 변수로 변경
   - [x] 컴포넌트 내부 함수 정의로 인한 리렌더링 문제 해결
   - [x] Textarea 포커스 유지 확인
+
+
+# 과목 내 문제 드래그 앤 드롭 순서 변경 (v1.10.22)
+- [x] 데이터베이스 스키마 수정
+  - [x] questions 테이블에 displayOrder 컴럼 추가
+- [x] API 수정
+  - [x] questions.listBySubject에서 displayOrder 기준 정렬
+  - [x] questions.updateOrder 프로시저 추가
+- [x] Questions.tsx UI 수정
+  - [x] @dnd-kit 라이브러리 적용
+  - [x] SortableQuestionCard 컴포넌트 추가
+  - [x] 드래그 핸들 (GripVertical) 추가
+  - [x] handleDragEnd 이벤트 처리
+  - [x] 순서 변경 시 updateOrderMutation 호출
