@@ -736,3 +736,20 @@
   - [x] 드래그 핸들 (GripVertical) 추가
   - [x] handleDragEnd 이벤트 처리
   - [x] 순서 변경 시 updateOrderMutation 호출
+
+
+# 문제 복사/이동 및 시험기간 후 자동 삭제 기능 (v1.10.23)
+- [x] 데이터베이스 스키마 수정
+  - [x] subjects 테이블에 examEndDate 컴럼 추가
+- [x] API 수정
+  - [x] questions.copy 프로시저 추가 (문제 복사)
+  - [x] questions.move 프로시저 추가 (문제 이동)
+  - [x] subjects.create/update에 examEndDate 필드 추가
+  - [x] expiring.getQuestions/cleanup API 추가
+- [x] UI 수정
+  - [x] Questions.tsx에 복사/이동 버튼 추가
+  - [x] 복사/이동 다이얼로그 추가
+  - [x] Subjects.tsx에 시험 종료일 입력 필드 추가
+- [x] 자동 삭제 로직
+  - [x] deleteExpiredQuestions 함수 구현
+  - [x] getExpiringQuestions 함수 구현 (만료 예정 문제 조회)

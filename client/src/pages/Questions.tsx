@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical } from "lucide-react";
+import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -43,6 +43,8 @@ interface SortableQuestionCardProps {
   onDelete: (id: number) => void;
   onPractice: (id: number) => void;
   onTest: (id: number) => void;
+  onCopy: (question: any) => void;
+  onMove: (question: any) => void;
 }
 
 function SortableQuestionCard({
@@ -53,6 +55,8 @@ function SortableQuestionCard({
   onDelete,
   onPractice,
   onTest,
+  onCopy,
+  onMove,
 }: SortableQuestionCardProps) {
   const {
     attributes,
@@ -124,7 +128,24 @@ function SortableQuestionCard({
             <Button
               variant="ghost"
               size="icon"
+              onClick={() => onCopy(question)}
+              title="복사"
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onMove(question)}
+              title="이동"
+            >
+              <MoveRight className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => onEdit(question)}
+              title="수정"
             >
               <Edit className="h-4 w-4" />
             </Button>
@@ -132,6 +153,7 @@ function SortableQuestionCard({
               variant="ghost"
               size="icon"
               onClick={() => onDelete(question.id)}
+              title="삭제"
             >
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
@@ -164,6 +186,9 @@ export default function Questions({ subjectId }: QuestionsProps) {
   const [, setLocation] = useLocation();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isCopyMoveOpen, setIsCopyMoveOpen] = useState(false);
+  const [copyMoveMode, setCopyMoveMode] = useState<"copy" | "move">("copy");
+  const [selectedQuestion, setSelectedQuestion] = useState<any>(null);
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<"text" | "image">("text");
@@ -222,6 +247,34 @@ export default function Questions({ subjectId }: QuestionsProps) {
       utils.questions.listBySubject.invalidate({ subjectId });
     },
   });
+
+  const copyMutation = trpc.questions.copy.useMutation({
+    onSuccess: (_, variables) => {
+      utils.questions.listBySubject.invalidate({ subjectId });
+      utils.questions.listBySubject.invalidate({ subjectId: variables.targetSubjectId });
+      setIsCopyMoveOpen(false);
+      setSelectedQuestion(null);
+      toast.success("문제가 복사되었습니다");
+    },
+    onError: (error) => {
+      toast.error("문제 복사 실패: " + error.message);
+    },
+  });
+
+  const moveMutation = trpc.questions.move.useMutation({
+    onSuccess: (_, variables) => {
+      utils.questions.listBySubject.invalidate({ subjectId });
+      utils.questions.listBySubject.invalidate({ subjectId: variables.targetSubjectId });
+      setIsCopyMoveOpen(false);
+      setSelectedQuestion(null);
+      toast.success("문제가 이동되었습니다");
+    },
+    onError: (error) => {
+      toast.error("문제 이동 실패: " + error.message);
+    },
+  });
+
+  const { data: allSubjects } = trpc.subjects.list.useQuery();
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -403,6 +456,34 @@ export default function Questions({ subjectId }: QuestionsProps) {
   const handleDelete = (id: number) => {
     if (confirm("이 문제를 삭제하시겠습니까?")) {
       deleteMutation.mutate({ id });
+    }
+  };
+
+  const handleCopy = (question: any) => {
+    setSelectedQuestion(question);
+    setCopyMoveMode("copy");
+    setIsCopyMoveOpen(true);
+  };
+
+  const handleMove = (question: any) => {
+    setSelectedQuestion(question);
+    setCopyMoveMode("move");
+    setIsCopyMoveOpen(true);
+  };
+
+  const handleCopyMoveSubmit = (targetSubjectId: number) => {
+    if (!selectedQuestion) return;
+    
+    if (copyMoveMode === "copy") {
+      copyMutation.mutate({
+        questionId: selectedQuestion.id,
+        targetSubjectId,
+      });
+    } else {
+      moveMutation.mutate({
+        questionId: selectedQuestion.id,
+        targetSubjectId,
+      });
     }
   };
 
@@ -629,6 +710,8 @@ export default function Questions({ subjectId }: QuestionsProps) {
                   onDelete={handleDelete}
                   onPractice={(id) => setLocation(`/practice/${id}`)}
                   onTest={(id) => setLocation(`/test/${id}`)}
+                  onCopy={handleCopy}
+                  onMove={handleMove}
                 />
               ))}
             </div>
@@ -652,6 +735,47 @@ export default function Questions({ subjectId }: QuestionsProps) {
             </Button>
             <Button onClick={handleUpdate} disabled={updateMutation.isPending}>
               {updateMutation.isPending ? "수정 중..." : "수정"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Copy/Move Dialog */}
+      <Dialog open={isCopyMoveOpen} onOpenChange={setIsCopyMoveOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {copyMoveMode === "copy" ? "문제 복사" : "문제 이동"}
+            </DialogTitle>
+            <DialogDescription>
+              {copyMoveMode === "copy"
+                ? "복사할 대상 과목을 선택하세요"
+                : "이동할 대상 과목을 선택하세요"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="space-y-2">
+              {allSubjects?.filter(s => copyMoveMode === "copy" || s.id !== subjectId).map((subject) => (
+                <Button
+                  key={subject.id}
+                  variant={subject.id === subjectId ? "secondary" : "outline"}
+                  className="w-full justify-start gap-2"
+                  onClick={() => handleCopyMoveSubmit(subject.id)}
+                  disabled={copyMutation.isPending || moveMutation.isPending}
+                >
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: subject.color || "#3B82F6" }}
+                  />
+                  {subject.name}
+                  {subject.id === subjectId && " (현재 과목)"}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCopyMoveOpen(false)}>
+              취소
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -116,6 +116,7 @@ export default function Subjects() {
     name: "",
     description: "",
     color: colorOptions[0],
+    examEndDate: "", // YYYY-MM-DD format
   });
 
   const { data: subjects, isLoading } = trpc.subjects.list.useQuery();
@@ -132,7 +133,7 @@ export default function Subjects() {
     onSuccess: () => {
       utils.subjects.list.invalidate();
       setIsCreateOpen(false);
-      setFormData({ name: "", description: "", color: colorOptions[0] });
+      setFormData({ name: "", description: "", color: colorOptions[0], examEndDate: "" });
       toast.success("과목이 생성되었습니다");
     },
     onError: (error) => {
@@ -175,7 +176,13 @@ export default function Subjects() {
       return;
     }
     const maxOrder = subjects?.reduce((max, s) => Math.max(max, s.displayOrder || 0), 0) || 0;
-    createMutation.mutate({ ...formData, displayOrder: maxOrder + 1 } as any);
+    createMutation.mutate({
+      name: formData.name,
+      description: formData.description,
+      color: formData.color,
+      examEndDate: formData.examEndDate || undefined,
+      displayOrder: maxOrder + 1,
+    } as any);
   };
 
   const handleEdit = (subject: any) => {
@@ -184,6 +191,7 @@ export default function Subjects() {
       name: subject.name,
       description: subject.description || "",
       color: subject.color || colorOptions[0],
+      examEndDate: subject.examEndDate ? new Date(subject.examEndDate).toISOString().split('T')[0] : "",
     });
     setIsEditOpen(true);
   };
@@ -195,7 +203,10 @@ export default function Subjects() {
     }
     updateMutation.mutate({
       id: editingSubject.id,
-      ...formData,
+      name: formData.name,
+      description: formData.description,
+      color: formData.color,
+      examEndDate: formData.examEndDate || null, // null to clear the date
     });
   };
 
@@ -284,6 +295,18 @@ export default function Subjects() {
                     />
                   ))}
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="examEndDate">시험 종료일</Label>
+                <Input
+                  id="examEndDate"
+                  type="date"
+                  value={formData.examEndDate}
+                  onChange={(e) => setFormData({ ...formData, examEndDate: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  시험 종료일로부터 1달 후, 연습/시험 기록이 없는 문제는 자동 삭제됩니다.
+                </p>
               </div>
             </div>
             <DialogFooter>
@@ -379,6 +402,18 @@ export default function Subjects() {
                   />
                 ))}
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-examEndDate">시험 종료일</Label>
+              <Input
+                id="edit-examEndDate"
+                type="date"
+                value={formData.examEndDate}
+                onChange={(e) => setFormData({ ...formData, examEndDate: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                시험 종료일로부터 1달 후, 연습/시험 기록이 없는 문제는 자동 삭제됩니다.
+              </p>
             </div>
           </div>
           <DialogFooter>

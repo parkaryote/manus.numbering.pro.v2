@@ -36,6 +36,7 @@ export const subjects = mysqlTable("subjects", {
   description: text("description"),
   color: varchar("color", { length: 7 }).default("#3B82F6"),
   displayOrder: int("displayOrder").default(0).notNull(),
+  examEndDate: timestamp("examEndDate"), // 시험 종료일 - 이 날짜 + 1달 후 미사용 문제 자동 삭제
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

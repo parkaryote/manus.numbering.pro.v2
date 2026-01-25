@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc, sql, lte, gte, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -226,6 +226,53 @@ export async function updateQuestionOrder(userId: number, questionOrders: { id: 
   }
 }
 
+export async function copyQuestion(userId: number, questionId: number, targetSubjectId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Get the original question
+  const original = await db.select().from(questions).where(eq(questions.id, questionId)).limit(1);
+  if (!original[0]) throw new Error("Question not found");
+  
+  // Get max displayOrder in target subject
+  const targetQuestions = await db.select().from(questions).where(eq(questions.subjectId, targetSubjectId));
+  const maxOrder = targetQuestions.reduce((max, q) => Math.max(max, q.displayOrder || 0), 0);
+  
+  // Create a copy
+  const result = await db.insert(questions).values({
+    userId,
+    subjectId: targetSubjectId,
+    question: original[0].question,
+    answer: original[0].answer,
+    imageUrl: original[0].imageUrl,
+    imageLabels: original[0].imageLabels,
+    useAIGrading: original[0].useAIGrading,
+    difficulty: original[0].difficulty,
+    displayOrder: maxOrder + 1,
+  });
+  
+  const insertId = Number(result[0].insertId);
+  const created = await db.select().from(questions).where(eq(questions.id, insertId)).limit(1);
+  return created[0];
+}
+
+export async function moveQuestion(questionId: number, targetSubjectId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Get max displayOrder in target subject
+  const targetQuestions = await db.select().from(questions).where(eq(questions.subjectId, targetSubjectId));
+  const maxOrder = targetQuestions.reduce((max, q) => Math.max(max, q.displayOrder || 0), 0);
+  
+  // Update the question's subjectId and displayOrder
+  await db.update(questions)
+    .set({ subjectId: targetSubjectId, displayOrder: maxOrder + 1 })
+    .where(eq(questions.id, questionId));
+  
+  const updated = await db.select().from(questions).where(eq(questions.id, questionId)).limit(1);
+  return updated[0];
+}
+
 // ========== Practice Session Queries ==========
 export async function getPracticeSessionsByQuestionId(questionId: number) {
   const db = await getDb();
@@ -324,4 +371,115 @@ export async function updateReviewSchedule(id: number, data: Partial<InsertRevie
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db.update(reviewSchedules).set(data).where(eq(reviewSchedules.id, id));
+}
+
+
+// ========== Auto-delete expired questions ==========
+/**
+ * 시험 종료일 + 1달이 지난 과목의 문제 중
+ * 연습/시험 기록이 없는 문제를 자동 삭제합니다.
+ */
+export async function deleteExpiredQuestions() {
+  const db = await getDb();
+  if (!db) return { deletedCount: 0, checkedSubjects: 0 };
+  
+  const now = new Date();
+  const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  
+  // 시험 종료일이 1달 이상 지난 과목 조회
+  const expiredSubjects = await db.select()
+    .from(subjects)
+    .where(
+      and(
+        isNotNull(subjects.examEndDate),
+        lte(subjects.examEndDate, oneMonthAgo)
+      )
+    );
+  
+  let deletedCount = 0;
+  
+  for (const subject of expiredSubjects) {
+    // 해당 과목의 모든 문제 조회
+    const subjectQuestions = await db.select()
+      .from(questions)
+      .where(eq(questions.subjectId, subject.id));
+    
+    for (const question of subjectQuestions) {
+      // 연습 기록 확인
+      const practiceRecords = await db.select()
+        .from(practiceSessions)
+        .where(eq(practiceSessions.questionId, question.id))
+        .limit(1);
+      
+      // 시험 기록 확인
+      const testRecords = await db.select()
+        .from(testSessions)
+        .where(eq(testSessions.questionId, question.id))
+        .limit(1);
+      
+      // 연습/시험 기록이 모두 없으면 삭제
+      if (practiceRecords.length === 0 && testRecords.length === 0) {
+        await db.delete(questions).where(eq(questions.id, question.id));
+        deletedCount++;
+      }
+    }
+  }
+  
+  return { deletedCount, checkedSubjects: expiredSubjects.length };
+}
+
+/**
+ * 만료 예정인 문제 목록 조회 (대시보드 경고용)
+ * 시험 종료일이 지났지만 아직 1달이 안 된 과목의 미사용 문제
+ */
+export async function getExpiringQuestions(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const now = new Date();
+  const oneMonthLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  
+  // 시험 종료일이 지났지만 1달이 안 된 과목 조회
+  const expiringSubjects = await db.select()
+    .from(subjects)
+    .where(
+      and(
+        eq(subjects.userId, userId),
+        isNotNull(subjects.examEndDate),
+        lte(subjects.examEndDate, now),
+        gte(subjects.examEndDate, new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000))
+      )
+    );
+  
+  const expiringQuestions: any[] = [];
+  
+  for (const subject of expiringSubjects) {
+    const subjectQuestions = await db.select()
+      .from(questions)
+      .where(eq(questions.subjectId, subject.id));
+    
+    for (const question of subjectQuestions) {
+      const practiceRecords = await db.select()
+        .from(practiceSessions)
+        .where(eq(practiceSessions.questionId, question.id))
+        .limit(1);
+      
+      const testRecords = await db.select()
+        .from(testSessions)
+        .where(eq(testSessions.questionId, question.id))
+        .limit(1);
+      
+      if (practiceRecords.length === 0 && testRecords.length === 0) {
+        const expirationDate = new Date(subject.examEndDate!.getTime() + 30 * 24 * 60 * 60 * 1000);
+        expiringQuestions.push({
+          ...question,
+          subjectName: subject.name,
+          expirationDate,
+          daysUntilExpiration: Math.ceil((expirationDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)),
+        });
+      }
+    }
+  }
+  
+  return expiringQuestions;
 }

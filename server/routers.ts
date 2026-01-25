@@ -40,6 +40,7 @@ export const appRouter = router({
         name: z.string().min(1),
         description: z.string().optional(),
         color: z.string().optional(),
+        examEndDate: z.string().optional(), // ISO date string
       }))
       .mutation(async ({ ctx, input }) => {
         return db.createSubject({
@@ -47,6 +48,7 @@ export const appRouter = router({
           name: input.name,
           description: input.description,
           color: input.color,
+          examEndDate: input.examEndDate ? new Date(input.examEndDate) : undefined,
         });
       }),
     
@@ -56,10 +58,15 @@ export const appRouter = router({
         name: z.string().min(1).optional(),
         description: z.string().optional(),
         color: z.string().optional(),
+        examEndDate: z.string().nullable().optional(), // ISO date string or null to clear
       }))
       .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        return db.updateSubject(id, data);
+        const { id, examEndDate, ...data } = input;
+        const updateData: any = { ...data };
+        if (examEndDate !== undefined) {
+          updateData.examEndDate = examEndDate ? new Date(examEndDate) : null;
+        }
+        return db.updateSubject(id, updateData);
       }),
     
     delete: protectedProcedure
@@ -152,6 +159,24 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         return db.updateQuestionOrder(ctx.user.id, input.questionOrders);
+      }),
+    
+    copy: protectedProcedure
+      .input(z.object({
+        questionId: z.number(),
+        targetSubjectId: z.number(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return db.copyQuestion(ctx.user.id, input.questionId, input.targetSubjectId);
+      }),
+    
+    move: protectedProcedure
+      .input(z.object({
+        questionId: z.number(),
+        targetSubjectId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        return db.moveQuestion(input.questionId, input.targetSubjectId);
       }),
   }),
 
@@ -654,6 +679,19 @@ ${input.userAnswer}
         
         return { nextReviewDate, interval };
       }),
+  }),
+
+  // Expiring questions management
+  expiring: router({
+    // 만료 예정 문제 조회 (1달 이내 삭제 예정)
+    getQuestions: protectedProcedure.query(async ({ ctx }) => {
+      return db.getExpiringQuestions(ctx.user.id);
+    }),
+    
+    // 만료된 문제 자동 삭제
+    cleanup: protectedProcedure.mutation(async () => {
+      return db.deleteExpiredQuestions();
+    }),
   }),
 });
 

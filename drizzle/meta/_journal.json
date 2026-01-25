@@ -71,6 +71,13 @@
       "when": 1769320366156,
       "tag": "0009_opposite_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1769321228958,
+      "tag": "0010_dapper_payback",
+      "breakpoints": true
     }
   ]
 }
