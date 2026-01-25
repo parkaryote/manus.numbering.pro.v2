@@ -21,6 +21,21 @@ const JONG = [
 const HANGUL_START = 0xAC00;
 const HANGUL_END = 0xD7A3;
 
+// 겹받침 매핑: 겹받침 -> [첫 번째 자음, 두 번째 자음]
+const DOUBLE_JONG: { [key: string]: [string, string] } = {
+  'ㄳ': ['ㄱ', 'ㅅ'],
+  'ㄵ': ['ㄴ', 'ㅈ'],
+  'ㄶ': ['ㄴ', 'ㅎ'],
+  'ㄺ': ['ㄹ', 'ㄱ'],
+  'ㄻ': ['ㄹ', 'ㅁ'],
+  'ㄼ': ['ㄹ', 'ㅂ'],
+  'ㄽ': ['ㄹ', 'ㅅ'],
+  'ㄾ': ['ㄹ', 'ㅌ'],
+  'ㄿ': ['ㄹ', 'ㅍ'],
+  'ㅀ': ['ㄹ', 'ㅎ'],
+  'ㅄ': ['ㅂ', 'ㅅ'],
+};
+
 /**
  * 한글 음절을 초성, 중성, 종성으로 분해
  */
@@ -153,6 +168,14 @@ export function isPartialMatch(
         const nextTargetJamo = decomposeHangul(nextTargetChar);
         if (nextTargetJamo && userJamo.jong === nextTargetJamo.cho) {
           return 'complete'; // 종성 예약 성공
+        }
+      }
+      
+      // 겹받침 조합 중: 사용자 종성이 겹받침이고, 첫 번째 자음이 정답 종성과 일치하는 경우
+      if (userJamo.jong && targetJamo.jong) {
+        const doubleJong = DOUBLE_JONG[userJamo.jong];
+        if (doubleJong && doubleJong[0] === targetJamo.jong) {
+          return 'partial'; // 겹받침 조합 중
         }
       }
       
