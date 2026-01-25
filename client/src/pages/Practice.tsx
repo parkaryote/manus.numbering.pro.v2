@@ -275,7 +275,9 @@ export default function Practice({ questionId }: PracticeProps) {
       const targetChar = targetCharsNormalized[currentInputIndex];
       const nextTargetChar = targetCharsNormalized[currentInputIndex + 1];
       
-      const matchResult = isPartialMatch(userChar, targetChar, nextTargetChar);
+      // 마지막 글자는 lastCharMatchResult 사용
+      const isLastChar = currentInputIndex === userChars.length - 1;
+      const matchResult = isLastChar && lastCharMatchResult ? lastCharMatchResult : isPartialMatch(userChar, targetChar, nextTargetChar);
 
       if (matchResult === 'complete') {
         // 정답 (완전 일치): 검은색
