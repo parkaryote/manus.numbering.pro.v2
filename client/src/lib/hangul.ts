@@ -132,8 +132,14 @@ export function isPartialMatch(
   // 완전 일치
   if (userChar === targetChar) return 'complete';
   
-  // 한글이 아닌 경우 단순 비교
+  // 한글이 아닌 경우 단순 비교 (영어 대소문자 무시)
   if (!isHangul(targetChar)) {
+    // 영문자인 경우 대소문자 무시
+    const isUserCharEnglish = /^[a-zA-Z]$/.test(userChar);
+    const isTargetCharEnglish = /^[a-zA-Z]$/.test(targetChar);
+    if (isUserCharEnglish && isTargetCharEnglish) {
+      return userChar.toLowerCase() === targetChar.toLowerCase() ? 'complete' : 'wrong';
+    }
     return userChar === targetChar ? 'complete' : 'wrong';
   }
   

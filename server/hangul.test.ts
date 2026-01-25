@@ -212,3 +212,25 @@ describe('splitGraphemes', () => {
     expect(splitGraphemes('')).toEqual([]);
   });
 });
+
+
+describe('영어 대소문자 무시', () => {
+  it('대문자를 소문자로 동일하게 처리', () => {
+    expect(isPartialMatch('A', 'a')).toBe('complete');
+    expect(isPartialMatch('a', 'A')).toBe('complete');
+    expect(isPartialMatch('H', 'h')).toBe('complete');
+    expect(isPartialMatch('Z', 'z')).toBe('complete');
+  });
+
+  it('영문자 대소문자 불일치는 wrong', () => {
+    expect(isPartialMatch('A', 'b')).toBe('wrong');
+    expect(isPartialMatch('a', 'B')).toBe('wrong');
+  });
+
+  it('비영문자는 대소문자 무시 미적용', () => {
+    expect(isPartialMatch('1', '1')).toBe('complete');
+    expect(isPartialMatch('1', '2')).toBe('wrong');
+    expect(isPartialMatch('!', '!')).toBe('complete');
+    expect(isPartialMatch('!', '@')).toBe('wrong');
+  });
+});
