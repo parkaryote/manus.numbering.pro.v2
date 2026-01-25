@@ -796,3 +796,10 @@
   - [x] Practice.tsx: textarea.value로 현재 값 직접 가져와서 삭제
   - [x] Test.tsx: 동일하게 적용
   - [x] textarea blur/focus로 조합 강제 종료 후 삭제 처리
+
+
+# Alt+Backspace로 단어 삭제 변경 (v1.10.29)
+- [x] Ctrl+Backspace 대신 Alt+Backspace로 단어 삭제 기능 변경
+  - [x] Practice.tsx handleKeyDown 수정 (e.altKey로 변경)
+  - [x] Test.tsx handleKeyDown 수정 (e.altKey로 변경)
+  - [x] 단축키 안내 UI 업데이트 (Ctrl → Alt)

@@ -234,34 +234,51 @@ export default function Test({ questionId }: TestProps) {
       return;
     }
     
-    // Ctrl+Backspace: 띄어쓰기 단위 단어 삭제
-    if (e.ctrlKey && !e.shiftKey && e.key === "Backspace") {
+    // Alt+Backspace: 띄어쓰기 단위 단어 삭제
+    if (e.altKey && !e.shiftKey && !e.ctrlKey && e.key === "Backspace") {
       e.preventDefault();
+      e.stopPropagation();
       
-      // 한글 조합 중일 때 textarea의 현재 값을 직접 가져와서 삭제
       const textarea = e.currentTarget;
-      const currentValue = textarea.value;
       
-      // 뒤쪽 공백 제거 후 마지막 공백 위치 찾기
-      const trimmed = currentValue.trimEnd();
-      const lastSpaceIndex = trimmed.lastIndexOf(" ");
+      // 한글 조합 중인지 확인
+      const composing = e.nativeEvent.isComposing;
       
-      let newValue: string;
-      if (lastSpaceIndex === -1) {
-        // 공백이 없으면 전체 삭제 (하나의 단어)
-        newValue = "";
+      if (composing) {
+        // 조합 중일 때: blur로 조합 강제 종료 후 삭제
+        textarea.blur();
+        
+        // blur 후 약간의 지연 후 삭제 처리
+        setTimeout(() => {
+          const currentValue = textarea.value;
+          const trimmed = currentValue.trimEnd();
+          const lastSpaceIndex = trimmed.lastIndexOf(" ");
+          
+          let newValue: string;
+          if (lastSpaceIndex === -1) {
+            newValue = "";
+          } else {
+            newValue = currentValue.substring(0, lastSpaceIndex + 1);
+          }
+          
+          setUserAnswer(newValue);
+          textarea.focus();
+        }, 10);
       } else {
-        // 마지막 공백 이후 단어 삭제 (공백은 유지)
-        newValue = currentValue.substring(0, lastSpaceIndex + 1);
+        // 조합 중이 아닐 때: 즉시 삭제
+        const currentValue = textarea.value;
+        const trimmed = currentValue.trimEnd();
+        const lastSpaceIndex = trimmed.lastIndexOf(" ");
+        
+        let newValue: string;
+        if (lastSpaceIndex === -1) {
+          newValue = "";
+        } else {
+          newValue = currentValue.substring(0, lastSpaceIndex + 1);
+        }
+        
+        setUserAnswer(newValue);
       }
-      
-      // 조합 강제 종료: blur 후 값 설정 후 다시 focus
-      textarea.blur();
-      setUserAnswer(newValue);
-      // 다음 틱에 focus 복원
-      setTimeout(() => {
-        textarea.focus();
-      }, 0);
       return;
     }
   };
@@ -460,7 +477,7 @@ export default function Test({ questionId }: TestProps) {
                   />
                   {showShortcutHelp && (
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
-                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 단어 삭제</span>
+                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Alt</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 단어 삭제</span>
                       <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 문장 삭제</span>
                       <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 전체 삭제</span>
                       <button onClick={toggleShortcutHelp} className="text-muted-foreground/50 hover:text-muted-foreground underline">숨기기</button>
