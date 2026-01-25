@@ -192,6 +192,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<"text" | "image">("text");
+  const [difficultyFilter, setDifficultyFilter] = useState<"all" | "easy" | "medium" | "hard">("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [formData, setFormData] = useState({
@@ -672,6 +673,41 @@ export default function Questions({ subjectId }: QuestionsProps) {
         </Dialog>
       </div>
 
+      {/* 난이도 필터 버튼 */}
+      <div className="flex gap-2 flex-wrap">
+        <Button
+          variant={difficultyFilter === "all" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setDifficultyFilter("all")}
+        >
+          전체
+        </Button>
+        <Button
+          variant={difficultyFilter === "easy" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setDifficultyFilter("easy")}
+          className={difficultyFilter === "easy" ? "bg-green-500 hover:bg-green-600" : "text-green-600 border-green-300 hover:bg-green-50"}
+        >
+          쉬움
+        </Button>
+        <Button
+          variant={difficultyFilter === "medium" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setDifficultyFilter("medium")}
+          className={difficultyFilter === "medium" ? "bg-yellow-500 hover:bg-yellow-600" : "text-yellow-600 border-yellow-300 hover:bg-yellow-50"}
+        >
+          보통
+        </Button>
+        <Button
+          variant={difficultyFilter === "hard" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setDifficultyFilter("hard")}
+          className={difficultyFilter === "hard" ? "bg-red-500 hover:bg-red-600" : "text-red-600 border-red-300 hover:bg-red-50"}
+        >
+          어려움
+        </Button>
+      </div>
+
       {isLoading ? (
         <div className="text-center py-12">
           <p className="text-muted-foreground">로딩 중...</p>
@@ -690,33 +726,52 @@ export default function Questions({ subjectId }: QuestionsProps) {
           </CardContent>
         </Card>
       ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={questions?.map(q => q.id) || []}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="space-y-4">
-              {questions?.map((question) => (
-                <SortableQuestionCard
-                  key={question.id}
-                  question={question}
-                  difficultyLabel={difficultyLabel}
-                  difficultyColor={difficultyColor}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                  onPractice={(id) => setLocation(`/practice/${id}`)}
-                  onTest={(id) => setLocation(`/test/${id}`)}
-                  onCopy={handleCopy}
-                  onMove={handleMove}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
+        (() => {
+          const filteredQuestions = difficultyFilter === "all"
+            ? questions
+            : questions?.filter(q => q.difficulty === difficultyFilter);
+          
+          if (!filteredQuestions || filteredQuestions.length === 0) {
+            return (
+              <Card className="shadow-elegant">
+                <CardHeader>
+                  <CardTitle>해당 난이도의 문제가 없습니다</CardTitle>
+                  <CardDescription>다른 난이도를 선택하거나 새 문제를 추가하세요</CardDescription>
+                </CardHeader>
+              </Card>
+            );
+          }
+          
+          return (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={filteredQuestions?.map(q => q.id) || []}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-4">
+                  {filteredQuestions?.map((question) => (
+                    <SortableQuestionCard
+                      key={question.id}
+                      question={question}
+                      difficultyLabel={difficultyLabel}
+                      difficultyColor={difficultyColor}
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onPractice={(id) => setLocation(`/practice/${id}`)}
+                      onTest={(id) => setLocation(`/test/${id}`)}
+                      onCopy={handleCopy}
+                      onMove={handleMove}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          );
+        })()
       )}
 
       {/* Edit Dialog */}

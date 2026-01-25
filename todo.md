@@ -753,3 +753,11 @@
 - [x] 자동 삭제 로직
   - [x] deleteExpiredQuestions 함수 구현
   - [x] getExpiringQuestions 함수 구현 (만료 예정 문제 조회)
+
+
+# 과목 내 문제 난이도 필터 기능 (v1.10.24)
+- [x] Questions.tsx에 난이도 필터 버튼 추가
+  - [x] 전체/쉬움/보통/어려움 필터 버튼 UI
+  - [x] difficultyFilter 상태 관리 (useState)
+  - [x] 필터링된 문제 목록 표시
+  - [x] 필터 해제 기능 (전체 버튼)
