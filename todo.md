@@ -803,3 +803,9 @@
   - [x] Practice.tsx handleKeyDown 수정 (e.altKey로 변경)
   - [x] Test.tsx handleKeyDown 수정 (e.altKey로 변경)
   - [x] 단축키 안내 UI 업데이트 (Ctrl → Alt)
+
+
+# 단축키 수정 (v1.10.30)
+- [x] Shift+Backspace → Alt+Shift+Backspace로 문장 삭제 변경
+- [x] Ctrl+Shift+Backspace 기능 삭제
+- [x] 단축키 안내 텍스트 수정 (Ctrl+A+Backspace 전체 삭제)

@@ -152,24 +152,32 @@ export default function Practice({ questionId }: PracticeProps) {
       return;
     }
     
-    // Ctrl+Shift+Backspace: 전체 삭제
-    if (e.ctrlKey && e.shiftKey && e.key === "Backspace") {
+    // Alt+Shift+Backspace: 문장 삭제 (마지막 줄 삭제)
+    if (e.altKey && e.shiftKey && !e.ctrlKey && e.key === "Backspace") {
       e.preventDefault();
-      setUserInput("");
-      return;
-    }
-    
-    // Shift+Backspace: 문장 삭제 (마지막 줄 삭제)
-    if (e.shiftKey && !e.ctrlKey && e.key === "Backspace") {
-      e.preventDefault();
-      const lines = userInput.split("\n");
-      if (lines.length > 1) {
-        // 마지막 줄 제거
-        lines.pop();
-        setUserInput(lines.join("\n"));
+      e.stopPropagation();
+      
+      const textarea = e.currentTarget;
+      const composing = e.nativeEvent.isComposing || isComposing;
+      
+      const deleteLine = (value: string) => {
+        const lines = value.split("\n");
+        if (lines.length > 1) {
+          lines.pop();
+          return lines.join("\n");
+        } else {
+          return "";
+        }
+      };
+      
+      if (composing) {
+        textarea.blur();
+        setTimeout(() => {
+          setUserInput(deleteLine(textarea.value));
+          textarea.focus();
+        }, 10);
       } else {
-        // 한 줄만 있으면 전체 삭제
-        setUserInput("");
+        setUserInput(deleteLine(textarea.value));
       }
       return;
     }
@@ -560,8 +568,8 @@ export default function Practice({ questionId }: PracticeProps) {
             {showShortcutHelp && (
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Alt</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 단어 삭제</span>
-                <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 문장 삭제</span>
-                <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 전체 삭제</span>
+                <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Alt</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 문장 삭제</span>
+                <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">A</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 전체 삭제</span>
                 <button onClick={toggleShortcutHelp} className="text-muted-foreground/50 hover:text-muted-foreground underline">숨기기</button>
               </div>
             )}
