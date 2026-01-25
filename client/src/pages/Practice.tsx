@@ -174,8 +174,21 @@ export default function Practice({ questionId }: PracticeProps) {
       return;
     }
     
-    // Ctrl+Backspace: 단어 삭제 (브라우저 기본 동작 유지)
-    // 브라우저가 자동으로 처리하므로 별도 코드 불필요
+    // Ctrl+Backspace: 단어 삭제 (공백 기준)
+    if (e.ctrlKey && !e.shiftKey && e.key === "Backspace") {
+      e.preventDefault();
+      // 마지막 공백 위치 찾기
+      const trimmed = userInput.trimEnd();
+      const lastSpaceIndex = trimmed.lastIndexOf(" ");
+      if (lastSpaceIndex === -1) {
+        // 공백이 없으면 전체 삭제
+        setUserInput("");
+      } else {
+        // 마지막 공백까지 유지 (단어만 삭제)
+        setUserInput(trimmed.substring(0, lastSpaceIndex + 1));
+      }
+      return;
+    }
   };
 
   const handleCompositionStart = () => {

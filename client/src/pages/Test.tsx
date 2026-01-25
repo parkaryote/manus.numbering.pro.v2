@@ -233,6 +233,22 @@ export default function Test({ questionId }: TestProps) {
       }
       return;
     }
+    
+    // Ctrl+Backspace: 띄어쓰기 단위 단어 삭제
+    if (e.ctrlKey && !e.shiftKey && e.key === "Backspace") {
+      e.preventDefault();
+      // 뒤쪽 공백 제거 후 마지막 공백 위치 찾기
+      const trimmed = userAnswer.trimEnd();
+      const lastSpaceIndex = trimmed.lastIndexOf(" ");
+      if (lastSpaceIndex === -1) {
+        // 공백이 없으면 전체 삭제 (하나의 단어)
+        setUserAnswer("");
+      } else {
+        // 마지막 공백 이후 단어 삭제 (공백은 유지)
+        setUserAnswer(userAnswer.substring(0, lastSpaceIndex + 1));
+      }
+      return;
+    }
   };
 
   // Render mistake highlights

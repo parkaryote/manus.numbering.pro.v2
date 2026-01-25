@@ -782,3 +782,10 @@
   - [x] localStorage에 showShortcutHelp 설정 저장
   - [x] Practice.tsx, Test.tsx에 토글 버튼 추가
   - [x] 숨기기/보기 버튼으로 단축키 안내 표시/숨김
+
+
+# Ctrl+Backspace 단어 삭제 개선 (v1.10.27)
+- [x] 브라우저 기본 동작 대신 띄어쓰기 단위 단어 삭제로 변경
+  - [x] Practice.tsx handleKeyDown에 Ctrl+Backspace 로직 추가
+  - [x] Test.tsx handleKeyDown에 Ctrl+Backspace 로직 추가
+  - [x] 띄어쓰기 없으면 전체 삭제, 있으면 마지막 단어만 삭제
