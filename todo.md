@@ -761,3 +761,12 @@
   - [x] difficultyFilter 상태 관리 (useState)
   - [x] 필터링된 문제 목록 표시
   - [x] 필터 해제 기능 (전체 버튼)
+
+
+# 연습 모드 삭제 단축키 기능 (v1.10.25)
+- [x] 삭제 단축키 기능 추가
+  - [x] Ctrl+Backspace: 단어 삭제 (브라우저 기본 동작)
+  - [x] Shift+Backspace: 문장 삭제 (마지막 줄 삭제)
+  - [x] Ctrl+Shift+Backspace: 전체 삭제
+- [x] 단축키 설명 UI 추가
+  - [x] 화면 하단에 kbd 태그로 단축키 안내 표시

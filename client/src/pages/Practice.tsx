@@ -139,7 +139,33 @@ export default function Practice({ questionId }: PracticeProps) {
     if ((e.ctrlKey && e.key === "Enter") || e.key === "Escape") {
       e.preventDefault();
       handleComplete();
+      return;
     }
+    
+    // Ctrl+Shift+Backspace: 전체 삭제
+    if (e.ctrlKey && e.shiftKey && e.key === "Backspace") {
+      e.preventDefault();
+      setUserInput("");
+      return;
+    }
+    
+    // Shift+Backspace: 문장 삭제 (마지막 줄 삭제)
+    if (e.shiftKey && !e.ctrlKey && e.key === "Backspace") {
+      e.preventDefault();
+      const lines = userInput.split("\n");
+      if (lines.length > 1) {
+        // 마지막 줄 제거
+        lines.pop();
+        setUserInput(lines.join("\n"));
+      } else {
+        // 한 줄만 있으면 전체 삭제
+        setUserInput("");
+      }
+      return;
+    }
+    
+    // Ctrl+Backspace: 단어 삭제 (브라우저 기본 동작 유지)
+    // 브라우저가 자동으로 처리하므로 별도 코드 불필요
   };
 
   const handleCompositionStart = () => {
@@ -475,11 +501,18 @@ export default function Practice({ questionId }: PracticeProps) {
             </>
           )}
 
-          <div className="flex justify-between items-center text-sm text-muted-foreground">
-            <div>Ctrl+Enter 또는 Esc: 연습 완료</div>
-            <Button onClick={handleComplete} disabled={createSession.isPending}>
-              {createSession.isPending ? "저장 중..." : "완료"}
-            </Button>
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 단어 삭제</span>
+              <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 문장 삭제</span>
+              <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 전체 삭제</span>
+            </div>
+            <div className="flex justify-between items-center text-sm text-muted-foreground">
+              <div><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Enter</kbd> 또는 <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Esc</kbd> 연습 완료</div>
+              <Button onClick={handleComplete} disabled={createSession.isPending}>
+                {createSession.isPending ? "저장 중..." : "완료"}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
