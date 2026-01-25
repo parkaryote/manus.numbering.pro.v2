@@ -708,3 +708,10 @@
   - [x] "동행물" 입력 시 언더바가 "과"로 이동
   - [x] 오타 후 글자 조합 중일 때도 언더바 위치 정확히 표시
   - [x] completionInfo의 completedCount 계산 로직 수정 (break 제거)
+
+
+# Ctrl+V 기능 방지 임시 주석처리 (v1.10.20)
+- [x] Practice.tsx의 onPaste 주석처리
+  - [x] 연습 메모장 textarea의 onPaste 주석처리
+  - [x] 사용자 입력 textarea의 onPaste 주석처리
+  - [x] TODO 주석 추가: 테스트 완료 후 활성화
