@@ -229,12 +229,12 @@ export default function Practice({ questionId }: PracticeProps) {
       : null;
     const isLastCharPartial = lastMatchResult === 'partial' || lastMatchResult === 'partial_complete';
     
-    return { completedCount, userChars, targetChars, isLastCharPartial };
+    return { completedCount, userChars, targetChars, isLastCharPartial, lastCharMatchResult: lastMatchResult };
   }, [userInput, targetText, renderTrigger]);
 
   // 한컴타자연습 스타일 렌더링
   const renderTextWithFeedback = useMemo(() => {
-    const { completedCount, userChars, targetChars: targetCharsNormalized, isLastCharPartial } = completionInfo;
+    const { completedCount, userChars, targetChars: targetCharsNormalized, isLastCharPartial, lastCharMatchResult } = completionInfo;
     const targetChars = targetText.split("");
     let inputIndex = 0;
 

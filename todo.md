@@ -659,3 +659,32 @@
   - [x] 난이도 변경 시에도 질문과 답안 유지
   - [x] handleCreate 함수에서 formData 사용
   - [x] 더 이상 필요 없는 ref 제거 (fileInputRef만 유지)
+
+# 버그 수정 (v1.10.17)
+- [ ] 문제 추가 시 입력 끊김 현상 수정
+  - [ ] Questions.tsx Textarea의 onChange 이벤트 최적화
+  - [ ] 입력 후 포커스 유지 확인
+  - [ ] 타자 하나씩 입력 가능하도록 수정
+- [ ] 정답 마지막 글자 채색 오류 수정
+  - [ ] Practice.tsx의 getCompletedLength 로직 확인
+  - [ ] 마지막 글자도 정답 여부에 따라 검은색/빨간색 표시
+  - [ ] 마지막 글자 입력 후 자동 초기화 작동 확인
+- [ ] 영어 문제 자동 초기화 기능 추가
+  - [ ] Practice.tsx에서 영어 문제도 정답 일치 시 자동 초기화
+  - [ ] handleCorrectAnswer 함수가 영어에도 작동하도록 수정
+  - [ ] 테스트: 영어 정답 입력 시 fade out 및 초기화 확인
+
+
+# 버그 수정 (v1.10.17) - 완료
+- [x] 문제 추가 시 입력 끊김 현상 수정
+  - [x] Questions.tsx Textarea onChange를 useCallback으로 최적화
+  - [x] handleQuestionChange, handleAnswerChange, handleDifficultyChange 함수 추가
+  - [x] 타자 하나씩 입력 가능하도록 수정
+- [x] 정답 마지막 글자 채색 오류 수정
+  - [x] completionInfo에 lastCharMatchResult 추가
+  - [x] 마지막 글자도 정답 여부에 따라 검은색/빨간색 표시
+  - [x] 마지막 글자 입력 후 자동 초기화 작동
+- [x] 영어 문제 자동 초기화 기능 확인
+  - [x] Practice.tsx에서 영어 문제도 정답 일치 시 자동 초기화 (이미 구현됨)
+  - [x] handleCorrectAnswer 함수가 영어에도 작동
+  - [x] 정규화 로직이 영어에 제대로 작동 (공백 제거)

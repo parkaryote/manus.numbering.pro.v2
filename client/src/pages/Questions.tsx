@@ -135,6 +135,18 @@ export default function Questions({ subjectId }: QuestionsProps) {
     }
   };
 
+  const handleQuestionChange = useCallback((value: string) => {
+    setFormData((prev) => ({ ...prev, question: value }));
+  }, []);
+
+  const handleAnswerChange = useCallback((value: string) => {
+    setFormData((prev) => ({ ...prev, answer: value }));
+  }, []);
+
+  const handleDifficultyChange = useCallback((value: "easy" | "medium" | "hard") => {
+    setFormData((prev) => ({ ...prev, difficulty: value }));
+  }, []);
+
   const handleCreate = useCallback(() => {
     const question = formData.question;
     const answer = formData.answer;
@@ -238,7 +250,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
           <Textarea
             id="question"
             value={formData.question}
-            onChange={(e) => setFormData({ ...formData, question: e.target.value })}
+            onChange={(e) => handleQuestionChange(e.target.value)}
             placeholder="예: 조선시대의 주요 사건을 시대순으로 나열하시오"
             rows={3}
           />
@@ -248,7 +260,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
           <Textarea
             id="answer"
             value={formData.answer}
-            onChange={(e) => setFormData({ ...formData, answer: e.target.value })}
+            onChange={(e) => handleAnswerChange(e.target.value)}
             placeholder="모범 답안을 입력하세요"
             rows={6}
           />
@@ -257,9 +269,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
           <Label htmlFor="difficulty">난이도</Label>
           <Select
             value={formData.difficulty}
-            onValueChange={(value: "easy" | "medium" | "hard") =>
-              setFormData({ ...formData, difficulty: value })
-            }
+            onValueChange={handleDifficultyChange}
           >
             <SelectTrigger>
               <SelectValue />
@@ -279,7 +289,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
           <Textarea
             id="question-image"
             value={formData.question}
-            onChange={(e) => setFormData({ ...formData, question: e.target.value })}
+            onChange={(e) => handleQuestionChange(e.target.value)}
             placeholder="예: 다음 해부도에서 표시된 부위의 명칭을 쓰시오"
             rows={2}
           />
@@ -338,9 +348,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
           <Label htmlFor="difficulty-image">난이도</Label>
           <Select
             value={formData.difficulty}
-            onValueChange={(value: "easy" | "medium" | "hard") =>
-              setFormData({ ...formData, difficulty: value })
-            }
+            onValueChange={handleDifficultyChange}
           >
             <SelectTrigger>
               <SelectValue />
