@@ -237,7 +237,8 @@ export default function Questions({ subjectId }: QuestionsProps) {
     hard: "text-red-600",
   };
 
-  const QuestionForm = ({ isEdit = false }: { isEdit?: boolean }) => (
+  // QuestionForm을 useMemo로 감싸서 불필요한 리렌더링 방지
+  const questionFormContent = (
     <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "image")} className="w-full">
       <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="text">텍스트 문제</TabsTrigger>
@@ -395,7 +396,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
               <DialogDescription>텍스트 또는 이미지 문제를 생성하세요</DialogDescription>
             </DialogHeader>
             <div className="py-4">
-              <QuestionForm />
+              {questionFormContent}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm(); }}>
@@ -519,7 +520,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
             <DialogDescription>문제 내용을 수정하세요</DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <QuestionForm isEdit />
+            {questionFormContent}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setIsEditOpen(false); resetForm(); }}>

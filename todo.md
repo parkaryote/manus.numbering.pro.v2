@@ -715,3 +715,10 @@
   - [x] 연습 메모장 textarea의 onPaste 주석처리
   - [x] 사용자 입력 textarea의 onPaste 주석처리
   - [x] TODO 주석 추가: 테스트 완료 후 활성화
+
+
+# Questions.tsx 입력 끊김 현상 재수정 (v1.10.21)
+- [x] 문제 추가 시 타자 하나만 입력되고 끊기는 현상 수정
+  - [x] QuestionForm 함수를 questionFormContent 변수로 변경
+  - [x] 컴포넌트 내부 함수 정의로 인한 리렌더링 문제 해결
+  - [x] Textarea 포커스 유지 확인
