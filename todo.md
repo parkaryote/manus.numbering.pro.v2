@@ -809,3 +809,9 @@
 - [x] Shift+Backspace → Alt+Shift+Backspace로 문장 삭제 변경
 - [x] Ctrl+Shift+Backspace 기능 삭제
 - [x] 단축키 안내 텍스트 수정 (Ctrl+A+Backspace 전체 삭제)
+
+
+# Shift+Backspace 문장 삭제 복원 (v1.10.31)
+- [x] Alt+Shift+Backspace → Shift+Backspace로 문장 삭제 복원
+- [x] 한글 조합 중에도 Shift+Backspace가 작동하도록 blur/focus 처리
+- [x] 단축키 안내 UI 업데이트
