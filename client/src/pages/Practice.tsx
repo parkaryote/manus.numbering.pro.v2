@@ -389,6 +389,7 @@ export default function Practice({ questionId }: PracticeProps) {
     let charIndex = 0;
     let currentLineIndex = 0;
     const lineHasInput: boolean[] = [];
+    let underbarLineIndex = -1; // 언더바가 있는 줄
     
     for (let i = 0; i < targetChars.length; i++) {
       const char = targetChars[i];
@@ -405,14 +406,17 @@ export default function Practice({ questionId }: PracticeProps) {
       // 현재 글자에 입력이 있는지 확인
       if (charIndex < userChars.length) {
         lineHasInput[currentLineIndex] = true;
+      } else if (charIndex === userChars.length && underbarLineIndex === -1) {
+        // 언더바 위치 (다음 입력할 글자)
+        underbarLineIndex = currentLineIndex;
       }
       
       charIndex++;
     }
     
     return lines.map((_, lineIndex) => {
-      if (lineHasInput[lineIndex]) {
-        return 1; // 입력이 시작된 줄: opacity 1
+      if (lineHasInput[lineIndex] || lineIndex === underbarLineIndex) {
+        return 1; // 입력이 시작된 줄 또는 언더바가 있는 줄: opacity 1
       } else {
         return 0.4; // 아직 입력하지 않은 줄: opacity 0.4
       }
