@@ -29,11 +29,23 @@ export default function Practice({ questionId }: PracticeProps) {
     const saved = localStorage.getItem("showShortcutHelp");
     return saved !== null ? saved === "true" : true;
   });
+  const [inputHistory, setInputHistory] = useState<string[]>([""]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const [showInactiveAlert, setShowInactiveAlert] = useState(false); // 입력 시간 알림
+  const [viewportMode, setViewportMode] = useState(false); // 시야 제한 뷰포트 모드
+  const [viewportPosition, setViewportPosition] = useState(0); // 뷰포트 위치 (0-100%)
+  const [sentenceMode, setSentenceMode] = useState(false); // 문장 단위 답안 분할 모드
+  const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0); // 현재 문장 인덱스
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const inactiveAlertTimerRef = useRef<NodeJS.Timeout | null>(null); // 입력 시간 알림 타이머
   const lastInputRef = useRef<string>(""); // 마지막 입력값 추적 (모바일용)
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
+  const { data: practiceCountData } = trpc.practice.countByQuestion.useQuery(
+    { questionId },
+    { enabled: !!questionId }
+  );
   const createSession = trpc.practice.create.useMutation({
     onSuccess: () => {
       toast.success("연습 기록이 저장되었습니다");
@@ -69,25 +81,26 @@ export default function Practice({ questionId }: PracticeProps) {
     return () => clearInterval(interval);
   }, [isActive, startTime]);
 
-  // Inactivity detection (1 minute)
+   // Inactivity detection with alert
   useEffect(() => {
-    if (inactivityTimerRef.current) {
-      clearTimeout(inactivityTimerRef.current);
-    }
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    if (inactiveAlertTimerRef.current) clearTimeout(inactiveAlertTimerRef.current);
 
     if (isActive) {
+      inactiveAlertTimerRef.current = setTimeout(() => {
+        setShowInactiveAlert(true);
+      }, 60000);
+      
       inactivityTimerRef.current = setTimeout(() => {
         setIsActive(false);
-        toast.info("1분간 입력이 없어 측정이 중단되었습니다");
-      }, 60000); // 1 minute
+      }, 60000);
     }
 
     return () => {
-      if (inactivityTimerRef.current) {
-        clearTimeout(inactivityTimerRef.current);
-      }
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+      if (inactiveAlertTimerRef.current) clearTimeout(inactiveAlertTimerRef.current);
     };
-  }, [lastInputTime, isActive]);
+  }, [lastInputTime, isActive]);;
 
   // Global keyboard event listener for ESC and Ctrl+Enter
   useEffect(() => {
@@ -118,6 +131,11 @@ export default function Practice({ questionId }: PracticeProps) {
         setStartTime(Date.now());
       }
     }
+    
+    // Hide inactive alert
+    if (showInactiveAlert) {
+      setShowInactiveAlert(false);
+    }
 
     // Auto-complete when normalized text matches
     const normalized = normalizeText(newValue);
@@ -145,6 +163,52 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Shift+V: Toggle viewport mode
+    if (e.shiftKey && e.key === "V" && !isImageQuestion) {
+      e.preventDefault();
+      e.stopPropagation();
+      setViewportMode(!viewportMode);
+      return;
+    }
+    
+    // Ctrl+Z: Undo
+    if (e.ctrlKey && e.key === "z") {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (historyIndex > 0) {
+        const newIndex = historyIndex - 1;
+        setHistoryIndex(newIndex);
+        setUserInput(inputHistory[newIndex]);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(inputHistory[newIndex].length, inputHistory[newIndex].length);
+          }
+        }, 0);
+      }
+      return;
+    }
+    
+    // Ctrl+Shift+Z: Redo
+    if (e.ctrlKey && e.shiftKey && e.key === "z") {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (historyIndex < inputHistory.length - 1) {
+        const newIndex = historyIndex + 1;
+        setHistoryIndex(newIndex);
+        setUserInput(inputHistory[newIndex]);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(inputHistory[newIndex].length, inputHistory[newIndex].length);
+          }
+        }, 0);
+      }
+      return;
+    }
+    
     // Ctrl+Enter or Esc: Complete and save
     if ((e.ctrlKey && e.key === "Enter") || e.key === "Escape") {
       e.preventDefault();
@@ -275,6 +339,16 @@ export default function Practice({ questionId }: PracticeProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const sentences = useMemo(() => {
+    if (!sentenceMode) return [];
+    return targetText.split('\n').filter(s => s.trim().length > 0);
+  }, [targetText, sentenceMode]);
+
+  const currentSentence = useMemo(() => {
+    if (!sentenceMode || sentences.length === 0) return targetText;
+    return sentences[currentSentenceIndex] || '';
+  }, [sentenceMode, sentences, currentSentenceIndex, targetText]);
+
   // 한컴타자연습 스타일 채점 로직:
   // 1. 조합 중인 글자도 정답의 일부이면 검은색
   // 2. 종성 예약: 다음 글자의 초성과 일치하면 정답
@@ -282,7 +356,8 @@ export default function Practice({ questionId }: PracticeProps) {
   // 4. partial_complete: 겹받침 조합 중이지만 현재 글자는 완성됨 (언더바 다음 글자로)
   const completionInfo = useMemo(() => {
     const userChars = splitGraphemes(normalizeText(userInput));
-    const targetChars = splitGraphemes(normalizeText(targetText));
+    const targetText_to_use = sentenceMode ? currentSentence : targetText;
+    const targetChars = splitGraphemes(normalizeText(targetText_to_use));
     
     // 완성된 글자 수 계산 (언더바 위치 결정용)
     let completedCount = 0;
@@ -323,12 +398,13 @@ export default function Practice({ questionId }: PracticeProps) {
     const isLastCharPartial = lastMatchResult === 'partial' || lastMatchResult === 'partial_complete';
     
     return { completedCount, userChars, targetChars, isLastCharPartial, lastCharMatchResult: lastMatchResult };
-  }, [userInput, targetText, renderTrigger]);
+  }, [userInput, targetText, renderTrigger, sentenceMode, currentSentence]);
 
   // 한컴타자연습 스타일 렌더링
   const renderTextWithFeedback = useMemo(() => {
     const { completedCount, userChars, targetChars: targetCharsNormalized, isLastCharPartial, lastCharMatchResult } = completionInfo;
-    const targetChars = targetText.split("");
+    const targetText_to_use = sentenceMode ? currentSentence : targetText;
+    const targetChars = targetText_to_use.split("");
     let inputIndex = 0;
 
     return targetChars.map((char, targetIndex) => {
@@ -405,7 +481,7 @@ export default function Practice({ questionId }: PracticeProps) {
         );
       }
     });
-  }, [userInput, targetText, completionInfo, isFadingOut]);
+  }, [userInput, targetText, completionInfo, isFadingOut, sentenceMode, currentSentence]);
 
   if (isLoading) {
     return (
@@ -440,16 +516,20 @@ export default function Practice({ questionId }: PracticeProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
       <div className="flex items-center justify-between">
         <Button variant="ghost" onClick={() => setLocation(`/questions/${question?.subjectId || 1}`)} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           돌아가기
         </Button>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-6">
           <div className="text-center">
             <p className="text-2xl font-bold">{practiceCountDisplay}</p>
-            <p className="text-xs text-muted-foreground">연습 횟수</p>
+            <p className="text-xs text-muted-foreground">현재 연습</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold">{practiceCountData?.count || 0}</p>
+            <p className="text-xs text-muted-foreground">누적 연습</p>
           </div>
           <div className="flex items-center gap-2">
             <Circle
@@ -534,7 +614,6 @@ export default function Practice({ questionId }: PracticeProps) {
                 <textarea
                   value={practiceNote}
                   onChange={(e) => setPracticeNote(e.target.value)}
-                  // onPaste={(e) => e.preventDefault()} // TODO: 테스트 완료 후 활성화
                   className="w-full h-[400px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="여기에 답안을 연습해보세요... (저장되지 않습니다)"
                 />
@@ -543,20 +622,79 @@ export default function Practice({ questionId }: PracticeProps) {
           ) : (
             /* Text question with visual feedback */
             <>
-              <div className="p-6 bg-muted/30 rounded-lg border-2 border-border">
-                <div className="leading-relaxed whitespace-pre-wrap">
-                  {renderTextWithFeedback}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center justify-between flex-1">
+                    <label className="text-sm font-semibold text-muted-foreground">실시간 단어 뷰</label>
+                    <button
+                      onClick={() => setViewportMode(!viewportMode)}
+                      className={`px-3 py-1 rounded text-xs font-medium transition-colors ${viewportMode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                    >
+                      {viewportMode ? "ON" : "OFF"}
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between flex-1">
+                    <label className="text-sm font-semibold text-muted-foreground">문장 분할</label>
+                    <button
+                      onClick={() => {
+                        setSentenceMode(!sentenceMode);
+                        setCurrentSentenceIndex(0);
+                        setUserInput('');
+                      }}
+                      className={`px-3 py-1 rounded text-xs font-medium transition-colors ${sentenceMode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                    >
+                      {sentenceMode ? "ON" : "OFF"}
+                    </button>
+                  </div>
                 </div>
+                <div className="p-6 bg-muted/30 rounded-lg border-2 border-border relative overflow-hidden">
+                  <div
+                    className="leading-relaxed whitespace-pre-wrap transition-all duration-200"
+                    style={viewportMode ? {
+                      clipPath: `inset(${Math.max(0, viewportPosition - 15)}% 0 ${Math.max(0, 100 - viewportPosition - 15)}% 0)`,
+                      opacity: 1
+                    } : {}}
+                  >
+                    {renderTextWithFeedback}
+                  </div>
+                </div>
+                
+                {sentenceMode && sentences.length > 0 && (
+                  <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
+                    <button
+                      onClick={() => setCurrentSentenceIndex(Math.max(0, currentSentenceIndex - 1))}
+                      disabled={currentSentenceIndex === 0}
+                      className="px-2 py-1 rounded bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      이전
+                    </button>
+                    <span>문장 {currentSentenceIndex + 1} / {sentences.length}</span>
+                    <button
+                      onClick={() => setCurrentSentenceIndex(Math.min(sentences.length - 1, currentSentenceIndex + 1))}
+                      disabled={currentSentenceIndex === sentences.length - 1}
+                      className="px-2 py-1 rounded bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      다음
+                    </button>
+                  </div>
+                )}
               </div>
 
               <textarea
                 ref={textareaRef}
                 value={userInput}
                 onChange={handleInputChange}
-                // onPaste={(e) => e.preventDefault()} // TODO: 테스트 완료 후 활성화
                 onKeyDown={handleKeyDown}
                 onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}
+                onMouseMove={(e) => {
+                  if (viewportMode) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const y = e.clientY - rect.top;
+                    const percentage = (y / rect.height) * 100;
+                    setViewportPosition(Math.max(0, Math.min(100, percentage)));
+                  }
+                }}
                 className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground"
                 placeholder="여기에 입력하세요..."
                 autoFocus
@@ -567,6 +705,7 @@ export default function Practice({ questionId }: PracticeProps) {
           <div className="flex flex-col gap-2">
             {showShortcutHelp && (
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 실행 취소</span>
                 <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Alt</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 단어 삭제</span>
                 <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 문장 삭제</span>
                 <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">A</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 전체 삭제</span>
@@ -585,6 +724,16 @@ export default function Practice({ questionId }: PracticeProps) {
           </div>
         </CardContent>
       </Card>
+      
+      {showInactiveAlert && (
+        <div className="fixed bottom-6 right-6 bg-slate-100 border border-slate-300 rounded-lg p-4 shadow-lg max-w-sm animate-in fade-in duration-300">
+          <p className="text-sm text-slate-700 leading-relaxed">
+            입력이 없어 연습 시간 기록이 일시 정지되었습니다.
+            <br />
+            입력을 시작하면 자동으로 다시 기록됩니다.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

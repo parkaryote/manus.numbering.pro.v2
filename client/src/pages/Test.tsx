@@ -26,6 +26,8 @@ export default function Test({ questionId }: TestProps) {
   const [result, setResult] = useState<any>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [answerHistory, setAnswerHistory] = useState<string[]>([""]);
+  const [answerHistoryIndex, setAnswerHistoryIndex] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -214,6 +216,44 @@ export default function Test({ questionId }: TestProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Ctrl+Z: Undo
+    if (e.ctrlKey && e.key === "z") {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (answerHistoryIndex > 0) {
+        const newIndex = answerHistoryIndex - 1;
+        setAnswerHistoryIndex(newIndex);
+        setUserAnswer(answerHistory[newIndex]);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(answerHistory[newIndex].length, answerHistory[newIndex].length);
+          }
+        }, 0);
+      }
+      return;
+    }
+    
+    // Ctrl+Shift+Z: Redo
+    if (e.ctrlKey && e.shiftKey && e.key === "z") {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (answerHistoryIndex < answerHistory.length - 1) {
+        const newIndex = answerHistoryIndex + 1;
+        setAnswerHistoryIndex(newIndex);
+        setUserAnswer(answerHistory[newIndex]);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(answerHistory[newIndex].length, answerHistory[newIndex].length);
+          }
+        }, 0);
+      }
+      return;
+    }
+    
     // Shift+Backspace: 문장 삭제 (마지막 줄 삭제)
     if (e.shiftKey && !e.altKey && !e.ctrlKey && e.key === "Backspace") {
       e.preventDefault();
@@ -478,8 +518,19 @@ export default function Test({ questionId }: TestProps) {
                   <Textarea
                     ref={textareaRef}
                     value={userAnswer}
-                    onChange={(e) => setUserAnswer(e.target.value)}
-                    onPaste={(e) => e.preventDefault()}
+                    onChange={(e) => {
+                      const newValue = e.target.value;
+                      setUserAnswer(newValue);
+                      
+                      // 히스토리에 추가
+                      const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
+                      newHistory.push(newValue);
+                      if (newHistory.length > 50) {
+                        newHistory.shift();
+                      }
+                      setAnswerHistory(newHistory);
+                      setAnswerHistoryIndex(newHistory.length - 1);
+                    }}
                     onKeyDown={handleKeyDown}
                     placeholder="답안을 입력하세요..."
                     rows={12}
@@ -487,6 +538,7 @@ export default function Test({ questionId }: TestProps) {
                   />
                   {showShortcutHelp && (
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
+                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 실행 취소</span>
                       <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Alt</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 단어 삭제</span>
                       <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 문장 삭제</span>
                       <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">A</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 전체 삭제</span>

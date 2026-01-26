@@ -221,6 +221,13 @@ export const appRouter = router({
       .mutation(async ({ ctx }) => {
         return db.deleteAllPracticeSessions(ctx.user.id);
       }),
+    
+    countByQuestion: protectedProcedure
+      .input(z.object({ questionId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const sessions = await db.getPracticeSessionsByQuestionId(input.questionId);
+        return { count: sessions.length };
+      })
   }),
 
   // Voice transcription

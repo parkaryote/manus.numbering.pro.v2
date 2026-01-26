@@ -150,6 +150,15 @@ export function isPartialMatch(
   if (isJamo(userChar)) {
     // 초성만 입력한 경우
     if (userChar === targetJamo.cho) return 'partial';
+    
+    // 겹받침 방지: 사용자가 입력한 초성이 정답의 겹받침의 첫 번째 자음과 일치하는 경우
+    if (targetJamo.jong) {
+      const targetDoubleJong = DOUBLE_JONG[targetJamo.jong];
+      if (targetDoubleJong && userChar === targetDoubleJong[0]) {
+        return 'wrong';
+      }
+    }
+    
     // 중성만 입력한 경우 (일반적으로 발생하지 않음)
     if (userChar === targetJamo.jung) return 'partial';
     return 'wrong';
