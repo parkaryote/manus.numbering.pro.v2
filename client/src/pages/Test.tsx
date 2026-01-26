@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff } from "lucide-react";
 import { toast } from "sonner";
@@ -28,13 +28,26 @@ export default function Test({ questionId }: TestProps) {
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [answerHistory, setAnswerHistory] = useState<string[]>([""]);
   const [answerHistoryIndex, setAnswerHistoryIndex] = useState(0);
+  const [currentNumber, setCurrentNumber] = useState(0); // 현재 번호 (0-indexed)
+  const [numberInputs, setNumberInputs] = useState<Record<number, string>>({}); // 번호별 입력값
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const numberTextareaRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+  const isNumberingMode = question?.autoNumbering === 1 && !isImageQuestion;
+  
+  // 번호 모드: 엔터 기준으로 답안 분할
+  const numberLines = useMemo(() => {
+    if (!isNumberingMode) return [];
+    return (question?.answer || '').split('\n').filter((line: string) => line.trim() !== '');
+  }, [question?.answer, isNumberingMode]);
+  
+  // Normalize text: remove all spaces for comparison
+  const normalizeText = (text: string) => text.replace(/\s+/g, "");
   const updateReviewMutation = trpc.review.updateAfterReview.useMutation();
   
   const evaluateMutation = trpc.test.evaluate.useMutation({
@@ -96,6 +109,8 @@ export default function Test({ questionId }: TestProps) {
     setIsSubmitted(false);
     setResult(null);
     setAudioBlob(null);
+    setNumberInputs({});
+    setCurrentNumber(0);
   };
 
   const handleSubmit = async () => {
@@ -114,6 +129,24 @@ export default function Test({ questionId }: TestProps) {
       const combinedAnswer = imageLabels.map((_: any, index: number) => 
         `${index + 1}. ${imageLabelAnswers[index]}`
       ).join("\n");
+      await evaluateMutation.mutateAsync({
+        questionId: question.id,
+        userAnswer: combinedAnswer,
+        recallTime,
+      });
+    } else if (isNumberingMode) {
+      // 번호 모드인 경우: 각 번호별 답안을 합쳐서 전송
+      const combinedAnswer = numberLines.map((_: string, index: number) => 
+        numberInputs[index]?.trim() || ''
+      ).join("\n");
+      
+      // 최소 하나의 답안이 있는지 확인
+      const hasAnyAnswer = Object.values(numberInputs).some(v => v?.trim());
+      if (!hasAnyAnswer) {
+        toast.error("최소 하나의 답안을 입력하세요");
+        return;
+      }
+      
       await evaluateMutation.mutateAsync({
         questionId: question.id,
         userAnswer: combinedAnswer,
@@ -333,6 +366,47 @@ export default function Test({ questionId }: TestProps) {
     }
   };
 
+  // 번호 모드: 키보드 이벤트
+  const handleNumberKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, numberIndex: number) => {
+    // Enter: 다음 번호로 이동
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      if (numberIndex < numberLines.length - 1) {
+        setCurrentNumber(numberIndex + 1);
+        numberTextareaRefs.current[numberIndex + 1]?.focus();
+      }
+      return;
+    }
+    
+    // Shift+Enter: 이전 번호로 이동
+    if (e.shiftKey && e.key === 'Enter' && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      if (numberIndex > 0) {
+        setCurrentNumber(numberIndex - 1);
+        numberTextareaRefs.current[numberIndex - 1]?.focus();
+      }
+      return;
+    }
+    
+    // Shift+Backspace: 현재 번호 입력 전체 삭제
+    if (e.shiftKey && !e.altKey && !e.ctrlKey && e.key === 'Backspace') {
+      e.preventDefault();
+      setNumberInputs(prev => ({ ...prev, [numberIndex]: '' }));
+      return;
+    }
+    
+    // Alt+Backspace: 띄어쓰기 단위 단어 삭제
+    if (e.altKey && !e.shiftKey && !e.ctrlKey && e.key === 'Backspace') {
+      e.preventDefault();
+      const currentValue = numberInputs[numberIndex] || '';
+      const trimmed = currentValue.trimEnd();
+      const lastSpaceIndex = trimmed.lastIndexOf(' ');
+      const newValue = lastSpaceIndex === -1 ? '' : currentValue.substring(0, lastSpaceIndex + 1);
+      setNumberInputs(prev => ({ ...prev, [numberIndex]: newValue }));
+      return;
+    }
+  };
+
   // Render mistake highlights
   const renderMistakes = () => {
     if (!result?.mistakeHighlights) return null;
@@ -511,6 +585,65 @@ export default function Test({ questionId }: TestProps) {
                         />
                       </div>
                     ))}
+                  </div>
+                </div>
+              ) : isNumberingMode ? (
+                /* 번호 모드: 각 번호별 독립 입력 칸 */
+                <div className="space-y-4">
+                  {numberLines.map((line, index) => {
+                    const userValue = numberInputs[index] || '';
+                    const isCurrent = index === currentNumber;
+                    const hasInput = userValue.length > 0;
+                    
+                    return (
+                      <div
+                        key={index}
+                        className={`p-4 rounded-lg border-2 transition-all ${
+                          isCurrent
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border bg-muted/30'
+                        }`}
+                        style={{ opacity: isCurrent || hasInput ? 1 : 0.4 }}
+                      >
+                        <div className="flex items-start gap-4">
+                          <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
+                            isCurrent
+                              ? 'bg-primary text-primary-foreground'
+                              : hasInput
+                              ? 'bg-muted-foreground text-background'
+                              : 'bg-muted text-muted-foreground'
+                          }`}>
+                            {index + 1}
+                          </div>
+                          <div className="flex-1">
+                            <textarea
+                              ref={el => { numberTextareaRefs.current[index] = el; }}
+                              value={userValue}
+                              onChange={(e) => setNumberInputs(prev => ({ ...prev, [index]: e.target.value }))}
+                              onKeyDown={(e) => handleNumberKeyDown(e, index)}
+                              onFocus={() => setCurrentNumber(index)}
+                              className="w-full min-h-[60px] p-3 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                              placeholder={`${index + 1}번 답안을 입력하세요...`}
+                              autoFocus={index === 0}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  
+                  {/* 번호 네비게이션 */}
+                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <span>현재: {currentNumber + 1} / {numberLines.length}</span>
+                      <span className="text-xs">(입력: {Object.values(numberInputs).filter(v => v?.trim()).length}개)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Enter</kbd>
+                      <span>다음 번호</span>
+                      <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Enter</kbd>
+                      <span>이전 번호</span>
+                    </div>
                   </div>
                 </div>
               ) : (
