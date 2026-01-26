@@ -216,13 +216,22 @@ export default function Test({ questionId }: TestProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter: 다음 줄로 뷰포트 이동 (autoNumbering=1인 경우)
+    // Enter: 줄바꿈 추가 (autoNumbering=1인 경우, 답안 줄 수만큼 허용)
     if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey && question?.autoNumbering === 1) {
-      e.preventDefault();
+      const targetText = question?.answer || '';
+      const lines = targetText.split('\n');
+      const maxLines = lines.length;
+      const currentLines = userAnswer.split('\n').length;
       
-      // 현재 입력에 줄바꿈 추가
-      setUserAnswer(prev => prev + '\n');
-      return;
+      // 답안 줄 수만큼만 Enter 허용
+      if (currentLines < maxLines) {
+        // 기본 Enter 동작 허용 (줄바꿈 추가)
+        return;
+      } else {
+        // 최대 줄 수 도달 시 Enter 차단
+        e.preventDefault();
+        return;
+      }
     }
     
     // Ctrl+Z: Undo
