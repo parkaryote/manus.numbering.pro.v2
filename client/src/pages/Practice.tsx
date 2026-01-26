@@ -382,25 +382,37 @@ export default function Practice({ questionId }: PracticeProps) {
   // 실시간 단어 뷰: 줄 단위 opacity 계산
   const calculateLineOpacity = useMemo(() => {
     const lines = targetText.split('\n');
-    const userLines = normalizeText(userInput).split('\n');
+    const targetChars = targetText.split('');
+    const userChars = normalizeText(userInput).split('').filter(c => c !== ' ' && c !== '\n');
     
-    // 사용자가 완료한 줄의 개수
-    let completedLines = 0;
-    for (let i = 0; i < userLines.length && i < lines.length; i++) {
-      const userLineNormalized = normalizeText(userLines[i]);
-      const targetLineNormalized = normalizeText(lines[i]);
-      if (userLineNormalized === targetLineNormalized) {
-        completedLines++;
-      } else {
-        break; // 현재 줄이 완료되지 않으면 멈춤
+    // 각 줄에 입력이 시작되었는지 확인
+    let charIndex = 0;
+    let currentLineIndex = 0;
+    const lineHasInput: boolean[] = [];
+    
+    for (let i = 0; i < targetChars.length; i++) {
+      const char = targetChars[i];
+      
+      if (char === '\n') {
+        currentLineIndex++;
+        continue;
       }
+      
+      if (char === ' ') {
+        continue;
+      }
+      
+      // 현재 글자에 입력이 있는지 확인
+      if (charIndex < userChars.length) {
+        lineHasInput[currentLineIndex] = true;
+      }
+      
+      charIndex++;
     }
     
     return lines.map((_, lineIndex) => {
-      if (lineIndex < completedLines) {
-        return 1; // 완료된 줄: opacity 1
-      } else if (lineIndex === completedLines) {
-        return 1; // 현재 입력 중인 줄: opacity 1
+      if (lineHasInput[lineIndex]) {
+        return 1; // 입력이 시작된 줄: opacity 1
       } else {
         return 0.4; // 아직 입력하지 않은 줄: opacity 0.4
       }
