@@ -1,0 +1,1 @@
+ALTER TABLE `questions` ADD `autoNumbering` int DEFAULT 1 NOT NULL;

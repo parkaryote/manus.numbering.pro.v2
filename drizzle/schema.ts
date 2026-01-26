@@ -56,6 +56,7 @@ export const questions = mysqlTable("questions", {
   imageUrl: text("imageUrl"), // Optional image attachment
   imageLabels: text("imageLabels"), // JSON array of {x, y, width, height, answer}
   useAIGrading: int("useAIGrading").default(0).notNull(), // 0: disabled, 1: enabled
+  autoNumbering: int("autoNumbering").default(1).notNull(), // 0: disabled, 1: enabled (엔터 기준 자동 번호 생성)
   difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default("medium"),
   displayOrder: int("displayOrder").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

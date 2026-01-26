@@ -117,6 +117,7 @@ export const appRouter = router({
         difficulty: z.enum(["easy", "medium", "hard"]).optional(),
         imageUrl: z.string().optional(),
         imageLabels: z.string().optional(),
+        autoNumbering: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         return db.createQuestion({
@@ -127,6 +128,7 @@ export const appRouter = router({
           difficulty: input.difficulty,
           imageUrl: input.imageUrl,
           imageLabels: input.imageLabels,
+          autoNumbering: input.autoNumbering,
         });
       }),
     
@@ -138,6 +140,7 @@ export const appRouter = router({
         difficulty: z.enum(["easy", "medium", "hard"]).optional(),
         imageUrl: z.string().optional(),
         imageLabels: z.string().optional(),
+        autoNumbering: z.number().optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;

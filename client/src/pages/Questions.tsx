@@ -201,6 +201,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
     difficulty: "medium" as "easy" | "medium" | "hard",
     imageUrl: "",
     imageLabels: [] as ImageLabel[],
+    autoNumbering: true, // 엔터 기준 자동 번호 생성
   });
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
@@ -316,6 +317,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
       difficulty: "medium",
       imageUrl: "",
       imageLabels: [],
+      autoNumbering: true,
     });
     setActiveTab("text");
   };
@@ -412,6 +414,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
       difficulty: formData.difficulty,
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
+      autoNumbering: formData.autoNumbering ? 1 : 0,
     } as any);
   }, [activeTab, formData.imageUrl, formData.imageLabels, formData.difficulty, subjectId, createMutation]);
 
@@ -423,6 +426,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
       difficulty: question.difficulty || "medium",
       imageUrl: question.imageUrl || "",
       imageLabels: question.imageLabels ? JSON.parse(question.imageLabels) : [],
+      autoNumbering: question.autoNumbering !== 0,
     });
     setIsEditOpen(true);
   };
@@ -451,6 +455,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
       difficulty: formData.difficulty,
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
+      autoNumbering: formData.autoNumbering ? 1 : 0,
     } as any);
   };
 
@@ -545,6 +550,18 @@ export default function Questions({ subjectId }: QuestionsProps) {
             </SelectContent>
           </Select>
         </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="autoNumbering"
+            checked={formData.autoNumbering}
+            onChange={(e) => setFormData({ ...formData, autoNumbering: e.target.checked })}
+            className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+          />
+          <Label htmlFor="autoNumbering" className="cursor-pointer text-sm font-normal">
+            엔터 기준으로 답안 번호 자동 생성
+          </Label>
+        </div>
       </TabsContent>
 
       <TabsContent value="image" className="space-y-4 mt-4">
@@ -623,6 +640,18 @@ export default function Questions({ subjectId }: QuestionsProps) {
               <SelectItem value="hard">어려움</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="autoNumbering-image"
+            checked={formData.autoNumbering}
+            onChange={(e) => setFormData({ ...formData, autoNumbering: e.target.checked })}
+            className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+          />
+          <Label htmlFor="autoNumbering-image" className="cursor-pointer text-sm font-normal">
+            엔터 기준으로 답안 번호 자동 생성
+          </Label>
         </div>
       </TabsContent>
     </Tabs>

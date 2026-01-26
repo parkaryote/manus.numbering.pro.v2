@@ -32,10 +32,6 @@ export default function Practice({ questionId }: PracticeProps) {
   const [inputHistory, setInputHistory] = useState<string[]>([""]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [showInactiveAlert, setShowInactiveAlert] = useState(false); // 입력 시간 알림
-  const [viewportMode, setViewportMode] = useState(false); // 시야 제한 뷰포트 모드
-  const [viewportPosition, setViewportPosition] = useState(0); // 뷰포트 위치 (0-100%)
-  const [sentenceMode, setSentenceMode] = useState(false); // 문장 단위 답안 분할 모드
-  const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0); // 현재 문장 인덱스
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const inactiveAlertTimerRef = useRef<NodeJS.Timeout | null>(null); // 입력 시간 알림 타이머
@@ -163,14 +159,6 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Shift+V: Toggle viewport mode
-    if (e.shiftKey && e.key === "V" && !isImageQuestion) {
-      e.preventDefault();
-      e.stopPropagation();
-      setViewportMode(!viewportMode);
-      return;
-    }
-    
     // Ctrl+Z: Undo
     if (e.ctrlKey && e.key === "z") {
       e.preventDefault();
@@ -339,15 +327,7 @@ export default function Practice({ questionId }: PracticeProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const sentences = useMemo(() => {
-    if (!sentenceMode) return [];
-    return targetText.split('\n').filter(s => s.trim().length > 0);
-  }, [targetText, sentenceMode]);
 
-  const currentSentence = useMemo(() => {
-    if (!sentenceMode || sentences.length === 0) return targetText;
-    return sentences[currentSentenceIndex] || '';
-  }, [sentenceMode, sentences, currentSentenceIndex, targetText]);
 
   // 한컴타자연습 스타일 채점 로직:
   // 1. 조합 중인 글자도 정답의 일부이면 검은색
@@ -356,8 +336,7 @@ export default function Practice({ questionId }: PracticeProps) {
   // 4. partial_complete: 겹받침 조합 중이지만 현재 글자는 완성됨 (언더바 다음 글자로)
   const completionInfo = useMemo(() => {
     const userChars = splitGraphemes(normalizeText(userInput));
-    const targetText_to_use = sentenceMode ? currentSentence : targetText;
-    const targetChars = splitGraphemes(normalizeText(targetText_to_use));
+    const targetChars = splitGraphemes(normalizeText(targetText));
     
     // 완성된 글자 수 계산 (언더바 위치 결정용)
     let completedCount = 0;
@@ -398,21 +377,64 @@ export default function Practice({ questionId }: PracticeProps) {
     const isLastCharPartial = lastMatchResult === 'partial' || lastMatchResult === 'partial_complete';
     
     return { completedCount, userChars, targetChars, isLastCharPartial, lastCharMatchResult: lastMatchResult };
-  }, [userInput, targetText, renderTrigger, sentenceMode, currentSentence]);
+  }, [userInput, targetText, renderTrigger]);
 
-  // 한컴타자연습 스타일 렌더링
+  // 실시간 단어 뷰: 줄 단위 opacity 계산
+  const calculateLineOpacity = useMemo(() => {
+    const lines = targetText.split('\n');
+    const userLines = normalizeText(userInput).split('\n');
+    
+    // 사용자가 완료한 줄의 개수
+    let completedLines = 0;
+    for (let i = 0; i < userLines.length && i < lines.length; i++) {
+      const userLineNormalized = normalizeText(userLines[i]);
+      const targetLineNormalized = normalizeText(lines[i]);
+      if (userLineNormalized === targetLineNormalized) {
+        completedLines++;
+      } else {
+        break; // 현재 줄이 완료되지 않으면 멈춤
+      }
+    }
+    
+    return lines.map((_, lineIndex) => {
+      if (lineIndex < completedLines) {
+        return 1; // 완료된 줄: opacity 1
+      } else if (lineIndex === completedLines) {
+        return 1; // 현재 입력 중인 줄: opacity 1
+      } else {
+        return 0.4; // 아직 입력하지 않은 줄: opacity 0.4
+      }
+    });
+  }, [userInput, targetText]);
+
+  // 한컴타자연습 스타일 렌더링 (줄 단위 opacity 적용)
   const renderTextWithFeedback = useMemo(() => {
     const { completedCount, userChars, targetChars: targetCharsNormalized, isLastCharPartial, lastCharMatchResult } = completionInfo;
-    const targetText_to_use = sentenceMode ? currentSentence : targetText;
-    const targetChars = targetText_to_use.split("");
+    const targetChars = targetText.split("");
     let inputIndex = 0;
+    let currentLineIndex = 0;
+    let charIndexInLine = 0;
 
-    return targetChars.map((char, targetIndex) => {
-      // 띠어쓰기와 줄바꿈은 그대로 표시 (채점 제외)
-      if (char === " " || char === "\n") {
+    return targetChars.map((char: string, targetIndex: number) => {
+      // 줄바꿈 처리
+      if (char === "\n") {
+        currentLineIndex++;
+        charIndexInLine = 0;
         return (
-          <span key={targetIndex} className="text-muted-foreground">
-            {char === "\n" ? "\n" : " "}
+          <span key={targetIndex} className="text-muted-foreground" style={{ opacity: calculateLineOpacity[currentLineIndex] || 0.4 }}>
+            {"\n"}
+          </span>
+        );
+      }
+
+      const lineOpacity = calculateLineOpacity[currentLineIndex] || 1;
+      charIndexInLine++;
+
+      // 띠어쓰기는 그대로 표시 (채점 제외)
+      if (char === " ") {
+        return (
+          <span key={targetIndex} className="text-muted-foreground" style={{ opacity: lineOpacity }}>
+            {" "}
           </span>
         );
       }
@@ -426,14 +448,14 @@ export default function Practice({ questionId }: PracticeProps) {
         // 언더바는 완성된 글자 다음 위치에 표시
         if (currentInputIndex === completedCount) {
           return (
-            <span key={targetIndex} className="border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse">
+            <span key={targetIndex} className="border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse" style={{ opacity: lineOpacity }}>
               {char}
             </span>
           );
         }
         // 미입력 글자
         return (
-          <span key={targetIndex} className="text-gray-400 relative font-semibold text-xl">
+          <span key={targetIndex} className="text-gray-400 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
             {char}
           </span>
         );
@@ -451,7 +473,7 @@ export default function Practice({ questionId }: PracticeProps) {
       if (matchResult === 'complete') {
         // 정답 (완전 일치): 검은색
         return (
-          <span key={targetIndex} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"}>
+          <span key={targetIndex} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"} style={{ opacity: lineOpacity }}>
             {char}
           </span>
         );
@@ -461,27 +483,27 @@ export default function Practice({ questionId }: PracticeProps) {
         if (matchResult === 'partial_complete') {
           // 겹받침 조합 중: 검은색만 (언더바는 다음 글자에)
           return (
-            <span key={targetIndex} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"}>
+            <span key={targetIndex} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"} style={{ opacity: lineOpacity }}>
               {char}
             </span>
           );
         }
         // partial: 조합 중 (검은색 + 언더바)
         return (
-          <span key={targetIndex} className="border-b-4 border-gray-600 text-foreground relative font-semibold text-xl">
+          <span key={targetIndex} className="border-b-4 border-gray-600 text-foreground relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
             {char}
           </span>
         );
       } else {
         // 오답: 빨간색
         return (
-          <span key={targetIndex} className="text-red-500 relative font-semibold text-xl">
+          <span key={targetIndex} className="text-red-500 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
             {char}
           </span>
         );
       }
     });
-  }, [userInput, targetText, completionInfo, isFadingOut, sentenceMode, currentSentence]);
+  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity]);
 
   if (isLoading) {
     return (
@@ -622,62 +644,10 @@ export default function Practice({ questionId }: PracticeProps) {
           ) : (
             /* Text question with visual feedback */
             <>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center justify-between flex-1">
-                    <label className="text-sm font-semibold text-muted-foreground">실시간 단어 뷰</label>
-                    <button
-                      onClick={() => setViewportMode(!viewportMode)}
-                      className={`px-3 py-1 rounded text-xs font-medium transition-colors ${viewportMode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
-                    >
-                      {viewportMode ? "ON" : "OFF"}
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between flex-1">
-                    <label className="text-sm font-semibold text-muted-foreground">문장 분할</label>
-                    <button
-                      onClick={() => {
-                        setSentenceMode(!sentenceMode);
-                        setCurrentSentenceIndex(0);
-                        setUserInput('');
-                      }}
-                      className={`px-3 py-1 rounded text-xs font-medium transition-colors ${sentenceMode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
-                    >
-                      {sentenceMode ? "ON" : "OFF"}
-                    </button>
-                  </div>
+              <div className="p-6 bg-muted/30 rounded-lg border-2 border-border">
+                <div className="leading-relaxed whitespace-pre-wrap">
+                  {renderTextWithFeedback}
                 </div>
-                <div className="p-6 bg-muted/30 rounded-lg border-2 border-border relative overflow-hidden">
-                  <div
-                    className="leading-relaxed whitespace-pre-wrap transition-all duration-200"
-                    style={viewportMode ? {
-                      clipPath: `inset(${Math.max(0, viewportPosition - 15)}% 0 ${Math.max(0, 100 - viewportPosition - 15)}% 0)`,
-                      opacity: 1
-                    } : {}}
-                  >
-                    {renderTextWithFeedback}
-                  </div>
-                </div>
-                
-                {sentenceMode && sentences.length > 0 && (
-                  <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-                    <button
-                      onClick={() => setCurrentSentenceIndex(Math.max(0, currentSentenceIndex - 1))}
-                      disabled={currentSentenceIndex === 0}
-                      className="px-2 py-1 rounded bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      이전
-                    </button>
-                    <span>문장 {currentSentenceIndex + 1} / {sentences.length}</span>
-                    <button
-                      onClick={() => setCurrentSentenceIndex(Math.min(sentences.length - 1, currentSentenceIndex + 1))}
-                      disabled={currentSentenceIndex === sentences.length - 1}
-                      className="px-2 py-1 rounded bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      다음
-                    </button>
-                  </div>
-                )}
               </div>
 
               <textarea
@@ -687,14 +657,7 @@ export default function Practice({ questionId }: PracticeProps) {
                 onKeyDown={handleKeyDown}
                 onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}
-                onMouseMove={(e) => {
-                  if (viewportMode) {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const y = e.clientY - rect.top;
-                    const percentage = (y / rect.height) * 100;
-                    setViewportPosition(Math.max(0, Math.min(100, percentage)));
-                  }
-                }}
+
                 className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground"
                 placeholder="여기에 입력하세요..."
                 autoFocus
