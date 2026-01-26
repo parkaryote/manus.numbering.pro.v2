@@ -358,54 +358,77 @@ export default function Practice({ questionId }: PracticeProps) {
 
 
 
-  // 한컴타자연습 스타일 채점 로직:
-  // 1. 조합 중인 글자도 정답의 일부이면 검은색
-  // 2. 종성 예약: 다음 글자의 초성과 일치하면 정답
-  // 3. 언더바는 글자가 완성된 후에만 이동
-  // 4. partial_complete: 겹받침 조합 중이지만 현재 글자는 완성됨 (언더바 다음 글자로)
+  // 한컴타자연습 스타일 채점 로직 (줄 단위 비교):
+  // 1. 사용자 입력의 N번째 줄 → 정답의 N번째 줄과 비교
+  // 2. 조합 중인 글자도 정답의 일부이면 검은색
+  // 3. 종성 예약: 다음 글자의 초성과 일치하면 정답
+  // 4. 언더바는 글자가 완성된 후에만 이동
   const completionInfo = useMemo(() => {
-    const userChars = splitGraphemes(normalizeText(userInput));
-    const targetChars = splitGraphemes(normalizeText(targetText));
+    // 줄 단위로 분리
+    const userLines = userInput.split('\n');
+    const targetLines = targetText.split('\n');
     
-    // 완성된 글자 수 계산 (언더바 위치 결정용)
-    let completedCount = 0;
+    // 각 줄별 채점 정보
+    const lineResults: Array<{
+      userChars: string[];
+      targetChars: string[];
+      completedCount: number;
+      isLastCharPartial: boolean;
+      lastCharMatchResult: string | null;
+    }> = [];
     
-    for (let i = 0; i < userChars.length && i < targetChars.length; i++) {
-      const userChar = userChars[i];
-      const targetChar = targetChars[i];
-      const nextTargetChar = targetChars[i + 1];
+    for (let lineIdx = 0; lineIdx < targetLines.length; lineIdx++) {
+      const userLine = userLines[lineIdx] || '';
+      const targetLine = targetLines[lineIdx] || '';
       
-      const matchResult = isPartialMatch(userChar, targetChar, nextTargetChar);
+      // 각 줄의 글자를 분리 (띄어쓰기 제거)
+      const userChars = splitGraphemes(userLine.replace(/\s+/g, ''));
+      const targetChars = splitGraphemes(targetLine.replace(/\s+/g, ''));
       
-      if (matchResult === 'complete' || matchResult === 'partial_complete') {
-        // complete: 완전 일치
-        // partial_complete: 겹받침 조합 중이지만 현재 글자는 완성됨 ("묽" -> "물")
-        completedCount = i + 1;
-      } else if (matchResult === 'partial') {
-        // 조합 중: 언더바는 현재 위치에 유지
-        completedCount = i;
-        break;
-      } else {
-        // 오답: 언더바는 다음 글자로 이동
-        completedCount = i + 1;
+      let completedCount = 0;
+      
+      for (let i = 0; i < userChars.length && i < targetChars.length; i++) {
+        const userChar = userChars[i];
+        const targetChar = targetChars[i];
+        const nextTargetChar = targetChars[i + 1];
+        
+        const matchResult = isPartialMatch(userChar, targetChar, nextTargetChar);
+        
+        if (matchResult === 'complete' || matchResult === 'partial_complete') {
+          completedCount = i + 1;
+        } else if (matchResult === 'partial') {
+          completedCount = i;
+          break;
+        } else {
+          completedCount = i + 1;
+        }
       }
+      
+      if (userChars.length > targetChars.length) {
+        completedCount = targetChars.length;
+      }
+      
+      const lastUserChar = userChars[userChars.length - 1];
+      const lastTargetChar = targetChars[userChars.length - 1];
+      const nextTargetChar = targetChars[userChars.length];
+      const lastMatchResult = lastUserChar && lastTargetChar 
+        ? isPartialMatch(lastUserChar, lastTargetChar, nextTargetChar)
+        : null;
+      const isLastCharPartial = lastMatchResult === 'partial' || lastMatchResult === 'partial_complete';
+      
+      lineResults.push({
+        userChars,
+        targetChars,
+        completedCount,
+        isLastCharPartial,
+        lastCharMatchResult: lastMatchResult
+      });
     }
     
-    // 사용자 입력이 정답보다 길 경우: 언더바는 정답 끝에 유지
-    if (userChars.length > targetChars.length) {
-      completedCount = targetChars.length;
-    }
+    // 현재 입력 중인 줄 인덱스 (마지막 줄)
+    const currentLineIndex = userLines.length - 1;
     
-    // 마지막 글자가 조합 중인지 확인
-    const lastUserChar = userChars[userChars.length - 1];
-    const lastTargetChar = targetChars[userChars.length - 1];
-    const nextTargetChar = targetChars[userChars.length];
-    const lastMatchResult = lastUserChar && lastTargetChar 
-      ? isPartialMatch(lastUserChar, lastTargetChar, nextTargetChar)
-      : null;
-    const isLastCharPartial = lastMatchResult === 'partial' || lastMatchResult === 'partial_complete';
-    
-    return { completedCount, userChars, targetChars, isLastCharPartial, lastCharMatchResult: lastMatchResult };
+    return { lineResults, currentLineIndex, userLines, targetLines };
   }, [userInput, targetText, renderTrigger]);
 
   // 실시간 단어 뷰: 줄 단위 opacity 계산
@@ -452,101 +475,109 @@ export default function Practice({ questionId }: PracticeProps) {
     });
   }, [userInput, targetText]);
 
-  // 한컴타자연습 스타일 렌더링 (줄 단위 opacity 적용)
+  // 한컴타자연습 스타일 렌더링 (줄 단위 비교)
   const renderTextWithFeedback = useMemo(() => {
-    const { completedCount, userChars, targetChars: targetCharsNormalized, isLastCharPartial, lastCharMatchResult } = completionInfo;
-    const targetChars = targetText.split("");
-    let inputIndex = 0;
-    let currentLineIndex = 0;
-    let charIndexInLine = 0;
-
-    return targetChars.map((char: string, targetIndex: number) => {
-      // 줄바꿈 처리
-      if (char === "\n") {
-        currentLineIndex++;
-        charIndexInLine = 0;
-        return (
-          <span key={targetIndex} className="text-muted-foreground" style={{ opacity: calculateLineOpacity[currentLineIndex] || 0.4 }}>
-            {"\n"}
-          </span>
-        );
-      }
-
-      const lineOpacity = calculateLineOpacity[currentLineIndex] || 1;
-      charIndexInLine++;
-
-      // 띠어쓰기는 그대로 표시 (채점 제외)
-      if (char === " ") {
-        return (
-          <span key={targetIndex} className="text-muted-foreground" style={{ opacity: lineOpacity }}>
-            {" "}
-          </span>
-        );
-      }
-
-      const currentInputIndex = inputIndex;
-      inputIndex++;
-
-      // 아직 입력하지 않은 글자
-      if (currentInputIndex >= userChars.length) {
-        // 현재 입력 위치 (다음에 입력할 글자) - 언더바 표시
-        // 언더바는 완성된 글자 다음 위치에 표시
-        if (currentInputIndex === completedCount) {
-          return (
-            <span key={targetIndex} className="border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse" style={{ opacity: lineOpacity }}>
-              {char}
-            </span>
-          );
-        }
-        // 미입력 글자
-        return (
-          <span key={targetIndex} className="text-gray-400 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
-            {char}
-          </span>
-        );
-      }
-
-      // 입력한 글자 채점
-      const userChar = userChars[currentInputIndex];
-      const targetChar = targetCharsNormalized[currentInputIndex];
-      const nextTargetChar = targetCharsNormalized[currentInputIndex + 1];
+    const { lineResults, currentLineIndex: activeLineIdx } = completionInfo;
+    const targetLines = targetText.split('\n');
+    
+    return targetLines.map((line, lineIdx) => {
+      const lineResult = lineResults[lineIdx];
+      const lineOpacity = calculateLineOpacity[lineIdx] || 1;
+      const isActiveLine = lineIdx === activeLineIdx;
       
-      // 마지막 글자는 lastCharMatchResult 사용
-      const isLastChar = currentInputIndex === userChars.length - 1;
-      const matchResult = isLastChar && lastCharMatchResult ? lastCharMatchResult : isPartialMatch(userChar, targetChar, nextTargetChar);
-
-      if (matchResult === 'complete') {
-        // 정답 (완전 일치): 검은색
-        return (
-          <span key={targetIndex} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"} style={{ opacity: lineOpacity }}>
-            {char}
-          </span>
-        );
-      } else if (matchResult === 'partial' || matchResult === 'partial_complete') {
-        // 조합 중 (부분 일치): 검은색 + 언더바 (partial) 또는 검은색만 (partial_complete)
-        // partial_complete: 겹받침 조합 중이지만 현재 글자는 완성됨 ("묽" -> "물")
-        if (matchResult === 'partial_complete') {
-          // 겹받침 조합 중: 검은색만 (언더바는 다음 글자에)
+      const chars = line.split('');
+      let charIdx = 0; // 띄어쓰기 제외한 글자 인덱스
+      
+      const renderedChars = chars.map((char, charIndex) => {
+        // 띄어쓰기는 그대로 표시
+        if (char === ' ') {
           return (
-            <span key={targetIndex} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"} style={{ opacity: lineOpacity }}>
+            <span key={`${lineIdx}-${charIndex}`} className="text-muted-foreground" style={{ opacity: lineOpacity }}>
+              {' '}
+            </span>
+          );
+        }
+        
+        const currentCharIdx = charIdx;
+        charIdx++;
+        
+        if (!lineResult) {
+          // 이 줄에 대한 입력이 없음
+          return (
+            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
               {char}
             </span>
           );
         }
-        // partial: 조합 중 (검은색 + 언더바)
+        
+        const { userChars, targetChars, completedCount, lastCharMatchResult } = lineResult;
+        
+        // 아직 입력하지 않은 글자
+        if (currentCharIdx >= userChars.length) {
+          // 현재 입력 위치 (다음에 입력할 글자) - 언더바 표시
+          if (isActiveLine && currentCharIdx === completedCount) {
+            return (
+              <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-400 relative font-semibold text-xl animate-pulse" style={{ opacity: lineOpacity }}>
+                {char}
+              </span>
+            );
+          }
+          // 미입력 글자
+          return (
+            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
+              {char}
+            </span>
+          );
+        }
+        
+        // 입력한 글자 채점
+        const userChar = userChars[currentCharIdx];
+        const targetChar = targetChars[currentCharIdx];
+        const nextTargetChar = targetChars[currentCharIdx + 1];
+        
+        // 마지막 글자는 lastCharMatchResult 사용
+        const isLastChar = currentCharIdx === userChars.length - 1;
+        const matchResult = isLastChar && lastCharMatchResult ? lastCharMatchResult : isPartialMatch(userChar, targetChar, nextTargetChar);
+        
+        if (matchResult === 'complete') {
+          return (
+            <span key={`${lineIdx}-${charIndex}`} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"} style={{ opacity: lineOpacity }}>
+              {char}
+            </span>
+          );
+        } else if (matchResult === 'partial' || matchResult === 'partial_complete') {
+          if (matchResult === 'partial_complete') {
+            return (
+              <span key={`${lineIdx}-${charIndex}`} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"} style={{ opacity: lineOpacity }}>
+                {char}
+              </span>
+            );
+          }
+          return (
+            <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-foreground relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
+              {char}
+            </span>
+          );
+        } else {
+          return (
+            <span key={`${lineIdx}-${charIndex}`} className="text-red-500 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
+              {char}
+            </span>
+          );
+        }
+      });
+      
+      // 줄 끝에 줄바꿈 추가 (마지막 줄 제외)
+      if (lineIdx < targetLines.length - 1) {
         return (
-          <span key={targetIndex} className="border-b-4 border-gray-600 text-foreground relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
-            {char}
-          </span>
-        );
-      } else {
-        // 오답: 빨간색
-        return (
-          <span key={targetIndex} className="text-red-500 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
-            {char}
+          <span key={`line-${lineIdx}`}>
+            {renderedChars}
+            <span className="text-muted-foreground">{'\n'}</span>
           </span>
         );
       }
+      
+      return <span key={`line-${lineIdx}`}>{renderedChars}</span>;
     });
   }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity]);
 
