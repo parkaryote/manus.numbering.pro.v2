@@ -216,6 +216,15 @@ export default function Test({ questionId }: TestProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter: 다음 줄로 뷰포트 이동 (autoNumbering=1인 경우)
+    if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey && question?.autoNumbering === 1) {
+      e.preventDefault();
+      
+      // 현재 입력에 줄바꿈 추가
+      setUserAnswer(prev => prev + '\n');
+      return;
+    }
+    
     // Ctrl+Z: Undo
     if (e.ctrlKey && e.key === "z") {
       e.preventDefault();

@@ -33,6 +33,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const [historyIndex, setHistoryIndex] = useState(0);
   const [showInactiveAlert, setShowInactiveAlert] = useState(false); // 입력 시간 알림
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const answerDisplayRef = useRef<HTMLDivElement>(null); // 정답 표시 영역 ref
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const inactiveAlertTimerRef = useRef<NodeJS.Timeout | null>(null); // 입력 시간 알림 타이머
   const lastInputRef = useRef<string>(""); // 마지막 입력값 추적 (모바일용)
@@ -201,6 +202,61 @@ export default function Practice({ questionId }: PracticeProps) {
     if ((e.ctrlKey && e.key === "Enter") || e.key === "Escape") {
       e.preventDefault();
       handleComplete();
+      return;
+    }
+    
+    // Enter: 다음 줄로 뷰포트 이동 (autoNumbering=1인 경우)
+    if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey && question?.autoNumbering === 1) {
+      e.preventDefault();
+      
+      // 현재 입력 위치에서 다음 줄의 시작 위치로 이동
+      const lines = targetText.split('\n');
+      const currentInput = normalizeText(userInput);
+      
+      // 현재 입력이 어느 줄에 있는지 계산
+      let charCount = 0;
+      let currentLineIndex = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const lineLength = normalizeText(lines[i]).length;
+        if (charCount + lineLength >= currentInput.length) {
+          currentLineIndex = i;
+          break;
+        }
+        charCount += lineLength;
+      }
+      
+      // 다음 줄이 있으면 다음 줄의 시작 위치로 이동
+      const nextLineIndex = currentLineIndex + 1;
+      if (nextLineIndex < lines.length) {
+        // 다음 줄의 시작 위치까지의 글자 수 계산
+        let targetCharCount = 0;
+        for (let i = 0; i < nextLineIndex; i++) {
+          targetCharCount += normalizeText(lines[i]).length;
+        }
+        
+        // 입력값을 다음 줄 시작 위치까지 채우기 (띄어쓰기 포함)
+        let newInput = '';
+        let normalizedCount = 0;
+        for (let i = 0; i < targetText.length && normalizedCount < targetCharCount; i++) {
+          const char = targetText[i];
+          if (char !== ' ' && char !== '\n') {
+            normalizedCount++;
+          }
+          newInput += char;
+        }
+        
+        setUserInput(newInput);
+        
+        // 뷰포트 스크롤 (정답 표시 영역에서 해당 줄이 보이도록)
+        if (answerDisplayRef.current) {
+          const lineHeight = 28; // 대략적인 줄 높이 (px)
+          const scrollTarget = nextLineIndex * lineHeight;
+          answerDisplayRef.current.scrollTo({
+            top: scrollTarget,
+            behavior: 'smooth'
+          });
+        }
+      }
       return;
     }
     
@@ -660,7 +716,10 @@ export default function Practice({ questionId }: PracticeProps) {
           ) : (
             /* Text question with visual feedback */
             <>
-              <div className="p-6 bg-muted/30 rounded-lg border-2 border-border">
+              <div 
+                ref={answerDisplayRef}
+                className="p-6 bg-muted/30 rounded-lg border-2 border-border max-h-[400px] overflow-y-auto"
+              >
                 <div className="leading-relaxed whitespace-pre-wrap">
                   {renderTextWithFeedback}
                 </div>
