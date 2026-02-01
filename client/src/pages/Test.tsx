@@ -272,7 +272,7 @@ export default function Test({ questionId }: TestProps) {
       return;
     }
     
-    // Shift+Backspace: 문장 삭제 (마지막 줄 삭제)
+    // Shift+Backspace: 문장 삭제 (마지막 줄 삭제) - Alt+Backspace처럼 즉시 작동
     if (e.shiftKey && !e.altKey && !e.ctrlKey && e.key === "Backspace") {
       e.preventDefault();
       e.stopPropagation();
@@ -291,13 +291,42 @@ export default function Test({ questionId }: TestProps) {
       };
       
       if (composing) {
+        // 조합 중일 때: blur로 조합 강제 종료 후 삭제
         textarea.blur();
         setTimeout(() => {
-          setUserAnswer(deleteLine(textarea.value));
+          const currentValue = textarea.value;
+          const newValue = deleteLine(currentValue);
+          setUserAnswer(newValue);
+          
+          // 히스토리에 기록
+          const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
+          if (newHistory[newHistory.length - 1] !== newValue) {
+            newHistory.push(newValue);
+            if (newHistory.length > 50) {
+              newHistory.shift();
+            }
+          }
+          setAnswerHistory(newHistory);
+          setAnswerHistoryIndex(newHistory.length - 1);
+          
           textarea.focus();
         }, 10);
       } else {
-        setUserAnswer(deleteLine(textarea.value));
+        // 조합 중이 아닐 때: 즉시 삭제
+        const currentValue = textarea.value;
+        const newValue = deleteLine(currentValue);
+        setUserAnswer(newValue);
+        
+        // 히스토리에 기록
+        const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
+        if (newHistory[newHistory.length - 1] !== newValue) {
+          newHistory.push(newValue);
+          if (newHistory.length > 50) {
+            newHistory.shift();
+          }
+        }
+        setAnswerHistory(newHistory);
+        setAnswerHistoryIndex(newHistory.length - 1);
       }
       return;
     }
@@ -330,6 +359,18 @@ export default function Test({ questionId }: TestProps) {
           }
           
           setUserAnswer(newValue);
+          
+          // 히스토리에 기록
+          const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
+          if (newHistory[newHistory.length - 1] !== newValue) {
+            newHistory.push(newValue);
+            if (newHistory.length > 50) {
+              newHistory.shift();
+            }
+          }
+          setAnswerHistory(newHistory);
+          setAnswerHistoryIndex(newHistory.length - 1);
+          
           textarea.focus();
         }, 10);
       } else {
@@ -346,6 +387,17 @@ export default function Test({ questionId }: TestProps) {
         }
         
         setUserAnswer(newValue);
+        
+        // 히스토리에 기록
+        const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
+        if (newHistory[newHistory.length - 1] !== newValue) {
+          newHistory.push(newValue);
+          if (newHistory.length > 50) {
+            newHistory.shift();
+          }
+        }
+        setAnswerHistory(newHistory);
+        setAnswerHistoryIndex(newHistory.length - 1);
       }
       return;
     }
