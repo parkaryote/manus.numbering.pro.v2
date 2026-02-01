@@ -388,12 +388,26 @@ export const appRouter = router({
             }
           }
           
-          // Fallback to simple string comparison for text questions
+          // Line-by-line comparison for text questions
+          const userLines = input.userAnswer.split('\n').map(line => line.trim().toLowerCase().replace(/\s+/g, ""));
+          const correctLines = correctAnswer.split('\n').map(line => line.trim().toLowerCase().replace(/\s+/g, ""));
+          
+          // Check if all lines match (exact correctness)
+          let isCorrect = true;
+          if (userLines.length !== correctLines.length) {
+            isCorrect = false;
+          } else {
+            for (let i = 0; i < correctLines.length; i++) {
+              if (userLines[i] !== correctLines[i]) {
+                isCorrect = false;
+                break;
+              }
+            }
+          }
+          
+          // Calculate character-level similarity (유사도)
           const normalizedUser = input.userAnswer.trim().toLowerCase().replace(/\s+/g, "");
           const normalizedCorrect = correctAnswer.trim().toLowerCase().replace(/\s+/g, "");
-          const isCorrect = normalizedUser === normalizedCorrect;
-          
-          // Calculate character-level accuracy
           let matchCount = 0;
           const maxLength = Math.max(normalizedUser.length, normalizedCorrect.length);
           for (let i = 0; i < Math.min(normalizedUser.length, normalizedCorrect.length); i++) {
@@ -401,13 +415,13 @@ export const appRouter = router({
               matchCount++;
             }
           }
-          const accuracyRate = maxLength > 0 ? Math.round((matchCount / maxLength) * 100) : 0;
+          const similarityScore = maxLength > 0 ? Math.round((matchCount / maxLength) * 100) : 0;
           
-          console.log("[DEBUG] Simple comparison mode");
-          console.log("[DEBUG] normalizedUser:", normalizedUser);
-          console.log("[DEBUG] normalizedCorrect:", normalizedCorrect);
+          console.log("[DEBUG] Line-by-line comparison mode");
+          console.log("[DEBUG] userLines:", userLines);
+          console.log("[DEBUG] correctLines:", correctLines);
           console.log("[DEBUG] isCorrect:", isCorrect);
-          console.log("[DEBUG] accuracyRate:", accuracyRate);
+          console.log("[DEBUG] similarityScore:", similarityScore);
           
           // Save test session
           await db.createTestSession({
@@ -416,17 +430,16 @@ export const appRouter = router({
             userAnswer: input.userAnswer,
             isCorrect: isCorrect ? 1 : 0,
             recallTime: input.recallTime,
-            similarityScore: accuracyRate,
+            similarityScore: similarityScore,
             mistakeHighlights: null,
             llmFeedback: null,
           });
           
           return {
             isCorrect,
-            similarityScore: accuracyRate,
-            accuracyRate,
+            similarityScore: similarityScore,
             mistakes: [],
-            feedback: isCorrect ? "정확하게 작성하셨습니다!" : `정확도: ${accuracyRate}% - 답안을 다시 확인해보세요.`,
+            feedback: isCorrect ? "정확하게 작성하셨습니다!" : `유사도: ${similarityScore}% - 답안을 다시 확인해보세요.`,
             missingKeywords: [],
           };
         }

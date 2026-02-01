@@ -700,8 +700,8 @@ export default function Test({ questionId }: TestProps) {
                   <p className="text-sm text-muted-foreground mt-1">정답 여부</p>
                 </div>
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
-                  <p className="text-3xl font-bold">{result?.accuracyRate || 0}%</p>
-                  <p className="text-sm text-muted-foreground mt-1">정확도</p>
+                  <p className="text-3xl font-bold">{result?.similarityScore || 0}%</p>
+                  <p className="text-sm text-muted-foreground mt-1">유사도</p>
                 </div>
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-3xl font-bold">{formatTime(recallTime)}</p>
