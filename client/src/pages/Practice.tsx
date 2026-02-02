@@ -71,6 +71,7 @@ export default function Practice({ questionId }: PracticeProps) {
       });
       // 저장 완료 후 누적 연습 수 실시간 갱신
       await utils.practice.countByQuestion.invalidate({ questionId: question.id });
+      await utils.practice.countByQuestion.refetch({ questionId: question.id });
     } catch (error) {
       console.error("연습 기록 저장 실패:", error);
       hasBeenSaved.current = false; // 실패 시 다시 시도
@@ -470,6 +471,8 @@ export default function Practice({ questionId }: PracticeProps) {
     // 정답 일치 시 누적 연습 수 실시간 갱신
     if (question) {
       await utils.practice.countByQuestion.invalidate({ questionId: question.id });
+      // invalidate 후 refetch로 즉시 데이터 갱신
+      await utils.practice.countByQuestion.refetch({ questionId: question.id });
     }
     
     // 1.5초 후 입력 초기화 및 fade out 상태 해제
