@@ -467,37 +467,41 @@ export default function Practice({ questionId }: PracticeProps) {
     setIsFadingOut(true);
     setPracticeCount(prev => prev + 1);
     
+    // 입력 즉시 초기화 (애니메이션 없음 - 빠른 반응)
+    setUserInput("");
+    textareaRef.current?.focus();
+    
     // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신 (매번 저장)
     if (question && elapsedTime > 0) {
       try {
         const timeInMinutes = elapsedTime / 60;
         const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
         
-        // 정답 일치 시 즉시 세션 저장
-        await createSession.mutateAsync({
+        // 정답 일치 시 즉시 세션 저장 (비동기로 백그라운드에서 진행)
+        createSession.mutateAsync({
           questionId: question.id,
           duration: elapsedTime,
           typingSpeed: speed,
           accuracy: 100,
           errorCount: 0,
+        }).then(() => {
+          // 저장 완료 후 누적 연습 수 직접 증가 (fetch 없이 즉시 반영)
+          utils.practice.countByQuestion.setData(
+            { questionId: question.id },
+            (old) => old ? { count: old.count + 1 } : { count: 1 }
+          );
+        }).catch(error => {
+          console.error("정답 기록 저장 실패:", error);
         });
-        
-        // 저장 후 누적 연습 수 즉시 갱신
-        const newData = await utils.practice.countByQuestion.fetch({ questionId: question.id });
-        if (newData) {
-          utils.practice.countByQuestion.setData({ questionId: question.id }, newData);
-        }
       } catch (error) {
         console.error("정답 기록 저장 실패:", error);
       }
     }
     
-    // 1.5초 후 입력 초기화 및 fade out 상태 해제
+    // fade out 상태 빠르게 해제 (200ms)
     setTimeout(() => {
-      setUserInput("");
       setIsFadingOut(false);
-      textareaRef.current?.focus();
-    }, 1500);
+    }, 200);
   };
 
   const formatTime = (seconds: number) => {
