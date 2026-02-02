@@ -447,6 +447,8 @@ export default function Practice({ questionId }: PracticeProps) {
   const handleGoBack = async () => {
     if (practiceCount > 0 && elapsedTime > 0 && !hasBeenSaved.current) {
       await savePracticeSession();
+      // 저장 완료 후 바로 이동
+      setLocation(`/questions/${question?.subjectId || 1}`);
     } else {
       setLocation(`/questions/${question?.subjectId || 1}`);
     }
