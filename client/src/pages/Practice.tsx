@@ -467,8 +467,8 @@ export default function Practice({ questionId }: PracticeProps) {
     setIsFadingOut(true);
     setPracticeCount(prev => prev + 1);
     
-    // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신 (1회만)
-    if (question && elapsedTime > 0 && !hasBeenSaved.current) {
+    // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신 (매번 저장)
+    if (question && elapsedTime > 0) {
       try {
         const timeInMinutes = elapsedTime / 60;
         const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
@@ -481,9 +481,6 @@ export default function Practice({ questionId }: PracticeProps) {
           accuracy: 100,
           errorCount: 0,
         });
-        
-        // 저장 완료 표시 (페이지 나갈 때 중복 저장 방지)
-        hasBeenSaved.current = true;
         
         // 저장 후 누적 연습 수 즉시 갱신
         const newData = await utils.practice.countByQuestion.fetch({ questionId: question.id });
