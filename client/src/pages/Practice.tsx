@@ -50,6 +50,35 @@ export default function Practice({ questionId }: PracticeProps) {
     },
   });
 
+  // 페이지 언마운트 또는 돌아가기 시 자동으로 연습 기록 저장
+  const savePracticeSession = async () => {
+    if (!question || elapsedTime === 0 || practiceCount === 0) return;
+
+    const timeInMinutes = elapsedTime / 60;
+    const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
+
+    try {
+      await createSession.mutateAsync({
+        questionId: question.id,
+        duration: elapsedTime,
+        typingSpeed: speed,
+        accuracy: 100,
+        errorCount: 0,
+      });
+    } catch (error) {
+      console.error("연습 기록 저장 실패:", error);
+    }
+  };
+
+  // 페이지 언마운트 시 자동 저장
+  useEffect(() => {
+    return () => {
+      if (practiceCount > 0 && elapsedTime > 0) {
+        savePracticeSession();
+      }
+    };
+  }, [practiceCount, elapsedTime, question]);
+
   const targetText = question?.answer || "";
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
@@ -410,6 +439,15 @@ export default function Practice({ questionId }: PracticeProps) {
     });
   };
 
+  // 돌아가기 버튼 클릭 핸들러
+  const handleGoBack = async () => {
+    if (practiceCount > 0 && elapsedTime > 0) {
+      await savePracticeSession();
+    } else {
+      setLocation(`/questions/${question?.subjectId || 1}`);
+    }
+  };
+
   // 정답 일치 시 fade out 애니메이션 후 입력 초기화
   const handleCorrectAnswer = () => {
     setIsFadingOut(true);
@@ -689,7 +727,7 @@ export default function Practice({ questionId }: PracticeProps) {
   return (
     <div className="space-y-6 relative">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" onClick={() => setLocation(`/questions/${question?.subjectId || 1}`)} className="gap-2">
+        <Button variant="ghost" onClick={handleGoBack} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           돌아가기
         </Button>
