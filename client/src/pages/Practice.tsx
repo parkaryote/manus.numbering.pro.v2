@@ -43,12 +43,7 @@ export default function Practice({ questionId }: PracticeProps) {
     { questionId },
     { enabled: !!questionId }
   );
-  const createSession = trpc.practice.create.useMutation({
-    onSuccess: () => {
-      toast.success("연습 기록이 저장되었습니다");
-      // 자동 이동 제거 - 사용자가 돌아가기 버튼을 누르면 돌아가기
-    },
-  });
+  const createSession = trpc.practice.create.useMutation();
 
   // 페이지 언마운트 또는 돌아가기 시 자동으로 연습 기록 저장 (1회만)
   const hasBeenSaved = useRef(false);
@@ -74,6 +69,8 @@ export default function Practice({ questionId }: PracticeProps) {
       if (newData) {
         utils.practice.countByQuestion.setData({ questionId: question.id }, newData);
       }
+      // 페이지 나갈 때만 토스트 표시
+      toast.success("연습 기록이 저장되었습니다");
     } catch (error) {
       console.error("연습 기록 저장 실패:", error);
       hasBeenSaved.current = false; // 실패 시 다시 시도
@@ -470,8 +467,8 @@ export default function Practice({ questionId }: PracticeProps) {
     setIsFadingOut(true);
     setPracticeCount(prev => prev + 1);
     
-    // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신
-    if (question && elapsedTime > 0) {
+    // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신 (1회만)
+    if (question && elapsedTime > 0 && !hasBeenSaved.current) {
       try {
         const timeInMinutes = elapsedTime / 60;
         const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
@@ -484,6 +481,9 @@ export default function Practice({ questionId }: PracticeProps) {
           accuracy: 100,
           errorCount: 0,
         });
+        
+        // 저장 완료 표시 (페이지 나갈 때 중복 저장 방지)
+        hasBeenSaved.current = true;
         
         // 저장 후 누적 연습 수 즉시 갱신
         const newData = await utils.practice.countByQuestion.fetch({ questionId: question.id });
