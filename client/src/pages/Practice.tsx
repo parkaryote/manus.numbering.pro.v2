@@ -486,6 +486,8 @@ export default function Practice({ questionId }: PracticeProps) {
             { questionId: question.id },
             (old) => old ? { count: old.count + 1 } : { count: 1 }
           );
+          // 저장 완료 표시 (페이지 나갈 때 중복 저장 방지)
+          hasBeenSaved.current = true;
         }).catch(error => {
           console.error("정답 기록 저장 실패:", error);
         });
@@ -494,16 +496,16 @@ export default function Practice({ questionId }: PracticeProps) {
       }
     }
     
-    // 0.5초 후 입력 초기화 (여운 있는 속도)
+    // 0.7초 후 입력 초기화 (여운 있는 속도)
     setTimeout(() => {
       setUserInput("");
       textareaRef.current?.focus();
-    }, 500);
+    }, 700);
     
-    // fade out 상태 0.6초 후 해제 (자연스러운 여운)
+    // fade out 상태 0.8초 후 해제 (자연스러운 여운)
     setTimeout(() => {
       setIsFadingOut(false);
-    }, 600);
+    }, 800);
   };
 
   const formatTime = (seconds: number) => {
