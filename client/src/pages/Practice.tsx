@@ -467,10 +467,6 @@ export default function Practice({ questionId }: PracticeProps) {
     setIsFadingOut(true);
     setPracticeCount(prev => prev + 1);
     
-    // 입력 즉시 초기화 (애니메이션 없음 - 빠른 반응)
-    setUserInput("");
-    textareaRef.current?.focus();
-    
     // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신 (매번 저장)
     if (question && elapsedTime > 0) {
       try {
@@ -498,10 +494,16 @@ export default function Practice({ questionId }: PracticeProps) {
       }
     }
     
-    // fade out 상태 빠르게 해제 (200ms)
+    // 0.5초 후 입력 초기화 (여운 있는 속도)
+    setTimeout(() => {
+      setUserInput("");
+      textareaRef.current?.focus();
+    }, 500);
+    
+    // fade out 상태 0.6초 후 해제 (자연스러운 여운)
     setTimeout(() => {
       setIsFadingOut(false);
-    }, 200);
+    }, 600);
   };
 
   const formatTime = (seconds: number) => {
