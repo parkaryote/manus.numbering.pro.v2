@@ -52,6 +52,7 @@ export default function Practice({ questionId }: PracticeProps) {
 
   // 페이지 언마운트 또는 돌아가기 시 자동으로 연습 기록 저장 (1회만)
   const hasBeenSaved = useRef(false);
+  const utils = trpc.useUtils();
   
   const savePracticeSession = async () => {
     if (!question || elapsedTime === 0 || practiceCount === 0 || hasBeenSaved.current) return;
@@ -68,6 +69,8 @@ export default function Practice({ questionId }: PracticeProps) {
         accuracy: 100,
         errorCount: 0,
       });
+      // 저장 완료 후 누적 연습 수 실시간 갱신
+      await utils.practice.countByQuestion.invalidate({ questionId: question.id });
     } catch (error) {
       console.error("연습 기록 저장 실패:", error);
       hasBeenSaved.current = false; // 실패 시 다시 시도
@@ -82,6 +85,11 @@ export default function Practice({ questionId }: PracticeProps) {
       }
     };
   }, []);
+
+  // 새로운 문제로 이동할 때 hasBeenSaved 초기화
+  useEffect(() => {
+    hasBeenSaved.current = false;
+  }, [questionId]);
 
   const targetText = question?.answer || "";
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
@@ -455,9 +463,14 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   // 정답 일치 시 fade out 애니메이션 후 입력 초기화
-  const handleCorrectAnswer = () => {
+  const handleCorrectAnswer = async () => {
     setIsFadingOut(true);
     setPracticeCount(prev => prev + 1);
+    
+    // 정답 일치 시 누적 연습 수 실시간 갱신
+    if (question) {
+      await utils.practice.countByQuestion.invalidate({ questionId: question.id });
+    }
     
     // 1.5초 후 입력 초기화 및 fade out 상태 해제
     setTimeout(() => {
