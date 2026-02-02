@@ -46,14 +46,17 @@ export default function Practice({ questionId }: PracticeProps) {
   const createSession = trpc.practice.create.useMutation({
     onSuccess: () => {
       toast.success("연습 기록이 저장되었습니다");
-      setLocation(`/questions/${question?.subjectId || 1}`);
+      // 자동 이동 제거 - 사용자가 돌아가기 버튼을 누르면 돌아가기
     },
   });
 
-  // 페이지 언마운트 또는 돌아가기 시 자동으로 연습 기록 저장
+  // 페이지 언마운트 또는 돌아가기 시 자동으로 연습 기록 저장 (1회만)
+  const hasBeenSaved = useRef(false);
+  
   const savePracticeSession = async () => {
-    if (!question || elapsedTime === 0 || practiceCount === 0) return;
+    if (!question || elapsedTime === 0 || practiceCount === 0 || hasBeenSaved.current) return;
 
+    hasBeenSaved.current = true;
     const timeInMinutes = elapsedTime / 60;
     const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
 
@@ -67,17 +70,18 @@ export default function Practice({ questionId }: PracticeProps) {
       });
     } catch (error) {
       console.error("연습 기록 저장 실패:", error);
+      hasBeenSaved.current = false; // 실패 시 다시 시도
     }
   };
 
-  // 페이지 언마운트 시 자동 저장
+  // 페이지 언마운트 시 자동 저장 (단 1회)
   useEffect(() => {
     return () => {
-      if (practiceCount > 0 && elapsedTime > 0) {
+      if (practiceCount > 0 && elapsedTime > 0 && !hasBeenSaved.current) {
         savePracticeSession();
       }
     };
-  }, [practiceCount, elapsedTime, question]);
+  }, []);
 
   const targetText = question?.answer || "";
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
@@ -441,7 +445,7 @@ export default function Practice({ questionId }: PracticeProps) {
 
   // 돌아가기 버튼 클릭 핸들러
   const handleGoBack = async () => {
-    if (practiceCount > 0 && elapsedTime > 0) {
+    if (practiceCount > 0 && elapsedTime > 0 && !hasBeenSaved.current) {
       await savePracticeSession();
     } else {
       setLocation(`/questions/${question?.subjectId || 1}`);
