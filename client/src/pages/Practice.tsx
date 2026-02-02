@@ -470,13 +470,28 @@ export default function Practice({ questionId }: PracticeProps) {
     setIsFadingOut(true);
     setPracticeCount(prev => prev + 1);
     
-    // 정답 일치 시 누적 연습 수 실시간 갱신
-    if (question) {
-      // 데이터 직접 업데이트: 누적 연습 수 +1
-      const newData = await utils.practice.countByQuestion.fetch({ questionId: question.id });
-      if (newData) {
-        // 캐시 업데이트로 화면 내마당 갱신
-        utils.practice.countByQuestion.setData({ questionId: question.id }, newData);
+    // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신
+    if (question && elapsedTime > 0) {
+      try {
+        const timeInMinutes = elapsedTime / 60;
+        const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
+        
+        // 정답 일치 시 즉시 세션 저장
+        await createSession.mutateAsync({
+          questionId: question.id,
+          duration: elapsedTime,
+          typingSpeed: speed,
+          accuracy: 100,
+          errorCount: 0,
+        });
+        
+        // 저장 후 누적 연습 수 즉시 갱신
+        const newData = await utils.practice.countByQuestion.fetch({ questionId: question.id });
+        if (newData) {
+          utils.practice.countByQuestion.setData({ questionId: question.id }, newData);
+        }
+      } catch (error) {
+        console.error("정답 기록 저장 실패:", error);
       }
     }
     
