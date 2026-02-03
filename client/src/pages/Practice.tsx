@@ -567,13 +567,13 @@ export default function Practice({ questionId }: PracticeProps) {
   // 1. 사용자 입력의 N번째 줄 → 정답의 N번째 줄과 비교
   // 2. 조합 중인 글자도 정답의 일부이면 검은색
   // 3. 종성 예약: 다음 글자의 초성과 일치하면 정답
-  // 4. 언더바는 글자가 완성된 후에만 이동
+  // 4. 언더바는 글자 입력 위치를 가리킴
+  // 각 줄별 채점 정보
   const completionInfo = useMemo(() => {
-    // 줄 단위로 분리
-    const userLines = userInput.split('\n');
+    // 한글 조합 중에는 마지막 글자 제외
+    const adjustedUserInput = isComposing && userInput.length > 0 ? userInput.slice(0, -1) : userInput;
+    const userLines = adjustedUserInput.split('\n');
     const targetLines = targetText.split('\n');
-    
-    // 각 줄별 채점 정보
     const lineResults: Array<{
       userChars: string[];
       targetChars: string[];
@@ -634,13 +634,15 @@ export default function Practice({ questionId }: PracticeProps) {
     const currentLineIndex = userLines.length - 1;
     
     return { lineResults, currentLineIndex, userLines, targetLines };
-  }, [userInput, targetText, renderTrigger]);
+  }, [userInput, targetText, renderTrigger, isComposing]);
 
   // 실시간 단어 뷰: 줄 단위 opacity 계산
   const calculateLineOpacity = useMemo(() => {
     const lines = targetText.split('\n');
     const targetChars = targetText.split('');
-    const userChars = normalizeText(userInput).split('').filter(c => c !== ' ' && c !== '\n');
+    // 한글 조합 중에는 마지막 글자 제외
+    const adjustedUserInput = isComposing && userInput.length > 0 ? userInput.slice(0, -1) : userInput;
+    const userChars = normalizeText(adjustedUserInput).split('').filter(c => c !== ' ' && c !== '\n');
     
     // 각 줄에 입력이 시작되었는지 확인
     let charIndex = 0;
