@@ -587,8 +587,14 @@ export default function Practice({ questionId }: PracticeProps) {
       const targetLine = targetLines[lineIdx] || '';
       
       // 각 줄의 글자를 분리 (띄어쓰기 제거)
-      const userChars = splitGraphemes(userLine.replace(/\s+/g, ''));
+      let userChars = splitGraphemes(userLine.replace(/\s+/g, ''));
       const targetChars = splitGraphemes(targetLine.replace(/\s+/g, ''));
+      
+      // 조합 중인 마지막 글자 제외 (현재 줄이 마지막 줄이고 조합 중일 때)
+      const isLastLine = lineIdx === targetLines.length - 1;
+      if (isComposing && isLastLine && userChars.length > 0) {
+        userChars = userChars.slice(0, -1);
+      }
       
       let completedCount = 0;
       
