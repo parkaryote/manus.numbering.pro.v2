@@ -156,7 +156,67 @@ export default function Practice({ questionId }: PracticeProps) {
     };
   }, [question, userInput, imageLabelAnswers, revealedLabels, elapsedTime, createSession]);
 
+  const handleCompositionStart = () => {
+    setIsComposing(true);
+  };
+
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    setIsComposing(false);
+    // 조합 완료 후 입력값 처리
+    const newValue = e.currentTarget.value;
+    setUserInput(newValue);
+    setLastInputTime(Date.now());
+    lastInputRef.current = newValue;
+    
+    // 히스토리에 현재 입력 상태 기록
+    setInputHistory(prev => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      if (newHistory[newHistory.length - 1] !== newValue) {
+        newHistory.push(newValue);
+        if (newHistory.length > 50) {
+          newHistory.shift();
+        }
+      }
+      return newHistory;
+    });
+    setHistoryIndex(prev => Math.min(prev + 1, 49));
+
+    // Resume if was inactive
+    if (!isActive) {
+      setIsActive(true);
+      if (!startTime) {
+        setStartTime(Date.now());
+      }
+    }
+    
+    // Hide inactive alert
+    if (showInactiveAlert) {
+      setShowInactiveAlert(false);
+    }
+
+    // Auto-complete when normalized text matches
+    const normalized = normalizeText(newValue);
+    const normalizedTarget = normalizeText(targetText);
+    if (normalized === normalizedTarget) {
+      handleCorrectAnswer();
+    }
+    
+    // 뷰포트 실시간 이동
+    if (question?.autoNumbering === 1 && answerDisplayRef.current) {
+      const currentLineIndex = newValue.split('\n').length - 1;
+      const lineHeight = 28;
+      const scrollTarget = currentLineIndex * lineHeight;
+      answerDisplayRef.current.scrollTo({
+        top: scrollTarget,
+        behavior: 'smooth'
+      });
+    }
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    // 한글 조합 중에는 상태 업데이트 안 함
+    if (isComposing) return;
+    
     const newValue = e.target.value;
     setUserInput(newValue);
     setLastInputTime(Date.now());
@@ -206,8 +266,6 @@ export default function Practice({ questionId }: PracticeProps) {
       });
     }
   };
-
-
 
   // 띄어쓰기 입력 시 강제 리렌더링을 위한 트리거
   const renderTrigger = useMemo(() => {
@@ -426,15 +484,7 @@ export default function Practice({ questionId }: PracticeProps) {
     }
   };
 
-  const handleCompositionStart = () => {
-    setIsComposing(true);
-  };
 
-  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
-    setIsComposing(false);
-    // 모바일에서 compositionEnd 이벤트가 발생하지 않을 수 있으므로
-    // input 이벤트에서 이미 처리됨
-  };
 
   const handleComplete = async () => {
     if (!question || elapsedTime === 0) return;
@@ -891,10 +941,10 @@ export default function Practice({ questionId }: PracticeProps) {
               <textarea
                 ref={textareaRef}
                 value={userInput}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
                 onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
 
                 className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground"
                 placeholder="여기에 입력하세요..."
