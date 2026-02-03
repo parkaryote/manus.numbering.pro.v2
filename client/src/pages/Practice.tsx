@@ -673,7 +673,7 @@ export default function Practice({ questionId }: PracticeProps) {
         // 아직 입력하지 않은 글자
         if (currentCharIdx >= userChars.length) {
           // 현재 입력 위치 (다음에 입력할 글자) - 언더바 표시
-          if (isActiveLine && currentCharIdx === completedCount) {
+          if (currentCharIdx === userChars.length) {
             return (
               <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl animate-pulse" style={{ opacity: 1 }}>
                 {char}
