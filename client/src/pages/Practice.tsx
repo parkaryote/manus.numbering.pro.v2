@@ -215,7 +215,8 @@ export default function Practice({ questionId }: PracticeProps) {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     // 한글 조합 중에는 상태 업데이트 스킵
-    if (isComposing) {
+    // nativeEvent.isComposing을 우선적으로 사용 (더 정확함)
+    if ((e.nativeEvent as any).isComposing || isComposing) {
       return;
     }
     
