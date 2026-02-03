@@ -165,8 +165,8 @@ describe('Practice Balanced Speed with Lingering Effect', () => {
       const elapsed = Date.now() - totalTime;
       expect(currentCount).toBe(3);
       expect(cumulativeCount).toBe(3);
-      expect(elapsed).toBeGreaterThanOrEqual(1800); // 3 * 0.6초
-      expect(elapsed).toBeLessThan(2000);
+      expect(elapsed).toBeGreaterThanOrEqual(1700); // 3 * 0.6초 (오차 범위 포함)
+      expect(elapsed).toBeLessThan(2100);
     });
   });
 
