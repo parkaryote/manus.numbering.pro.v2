@@ -214,6 +214,9 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    // 한글 조합 중에는 처리하지 않음 (compositionEnd에서 처리)
+    if (isComposing) return;
+    
     const newValue = e.target.value;
     setUserInput(newValue);
     setLastInputTime(Date.now());
