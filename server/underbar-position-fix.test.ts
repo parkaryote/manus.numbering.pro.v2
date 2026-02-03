@@ -85,7 +85,7 @@ describe('Underbar Position Fix - Each Line Independent', () => {
       const userChars = ['남', '산'];
       const currentCharIdx = 2;
       
-      const shouldShowUnderbar = currentCharIdx === userChars.length;
+      const shouldShowUnderbar = userChars.length > 0 && currentCharIdx === userChars.length;
       
       expect(shouldShowUnderbar).toBe(true);
     });
@@ -101,7 +101,7 @@ describe('Underbar Position Fix - Each Line Independent', () => {
       ];
       
       testCases.forEach(({ currentCharIdx, expected }) => {
-        const shouldShowUnderbar = currentCharIdx === userChars.length;
+        const shouldShowUnderbar = userChars.length > 0 && currentCharIdx === userChars.length;
         expect(shouldShowUnderbar).toBe(expected);
       });
     });
