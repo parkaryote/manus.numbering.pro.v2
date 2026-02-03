@@ -32,6 +32,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const [inputHistory, setInputHistory] = useState<string[]>([""]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [showInactiveAlert, setShowInactiveAlert] = useState(false); // 입력 시간 알림
+  const [cursorPosition, setCursorPosition] = useState(0); // 커서 위치 추적
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const answerDisplayRef = useRef<HTMLDivElement>(null); // 정답 표시 영역 ref
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -159,6 +160,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
     setUserInput(newValue);
+    setCursorPosition(e.target.selectionStart); // 커서 위치 업데이트
     setLastInputTime(Date.now());
     lastInputRef.current = newValue;
 
@@ -520,7 +522,7 @@ export default function Practice({ questionId }: PracticeProps) {
   // 1. 사용자 입력의 N번째 줄 → 정답의 N번째 줄과 비교
   // 2. 조합 중인 글자도 정답의 일부이면 검은색
   // 3. 종성 예약: 다음 글자의 초성과 일치하면 정답
-  // 4. 언더바는 글자가 완성된 후에만 이동
+  // 4. 언더바는 실제 커서 위치를 따라감
   const completionInfo = useMemo(() => {
     // 줄 단위로 분리
     const userLines = userInput.split('\n');
@@ -534,6 +536,24 @@ export default function Practice({ questionId }: PracticeProps) {
       isLastCharPartial: boolean;
       lastCharMatchResult: string | null;
     }> = [];
+    
+    // 커서 위치를 기반으로 현재 줄과 줄 내 위치 계산
+    let charCount = 0;
+    let cursorLineIndex = 0;
+    let cursorCharIndexInLine = 0;
+    
+    for (let i = 0; i < userInput.length; i++) {
+      if (i === cursorPosition) {
+        cursorCharIndexInLine = charCount;
+        break;
+      }
+      if (userInput[i] === '\n') {
+        cursorLineIndex++;
+        charCount = 0;
+      } else {
+        charCount++;
+      }
+    }
     
     for (let lineIdx = 0; lineIdx < targetLines.length; lineIdx++) {
       const userLine = userLines[lineIdx] || '';
@@ -586,8 +606,8 @@ export default function Practice({ questionId }: PracticeProps) {
     // 현재 입력 중인 줄 인덱스 (마지막 줄)
     const currentLineIndex = userLines.length - 1;
     
-    return { lineResults, currentLineIndex, userLines, targetLines };
-  }, [userInput, targetText, renderTrigger]);
+    return { lineResults, currentLineIndex, userLines, targetLines, cursorLineIndex, cursorCharIndexInLine };
+  }, [userInput, targetText, cursorPosition, renderTrigger]);
 
   // 실시간 단어 뷰: 줄 단위 opacity 계산
   const calculateLineOpacity = useMemo(() => {
@@ -673,7 +693,7 @@ export default function Practice({ questionId }: PracticeProps) {
         // 아직 입력하지 않은 글자
         if (currentCharIdx >= userChars.length) {
           // 현재 입력 위치 (다음에 입력할 글자) - 언더바 표시
-          if (isActiveLine && currentCharIdx === completedCount) {
+          if (lineIdx === completionInfo.cursorLineIndex && currentCharIdx === completionInfo.cursorCharIndexInLine) {
             return (
               <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl animate-pulse" style={{ opacity: 1 }}>
                 {char}
