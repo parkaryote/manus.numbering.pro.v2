@@ -685,7 +685,7 @@ export default function Practice({ questionId }: PracticeProps) {
         if (!lineResult) {
           // 이 줄에 대한 입력이 없음
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
+            <span key={`${lineIdx}-${charIndex}`} className="text-gray-600 relative font-semibold text-xl bg-gray-200 px-0.5" style={{ opacity: lineOpacity }}>
               {char}
             </span>
           );
@@ -699,14 +699,14 @@ export default function Practice({ questionId }: PracticeProps) {
           // 단, 입력이 시작된 줄에만 언더바 표시
           if (completedCount > 0 && currentCharIdx === completedCount) {
             return (
-              <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl animate-pulse" style={{ opacity: 1 }}>
+              <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl animate-pulse bg-gray-200 px-0.5" style={{ opacity: 1 }}>
                 {char}
               </span>
             );
           }
           // 미입력 글자
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
+            <span key={`${lineIdx}-${charIndex}`} className="text-gray-600 relative font-semibold text-xl bg-gray-200 px-0.5" style={{ opacity: lineOpacity }}>
               {char}
             </span>
           );
@@ -723,26 +723,26 @@ export default function Practice({ questionId }: PracticeProps) {
         
         if (matchResult === 'complete') {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"} style={{ opacity: 1 }}>
+            <span key={`${lineIdx}-${charIndex}`} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500 bg-green-100 px-0.5" : "text-foreground relative font-semibold text-xl bg-green-100 px-0.5"} style={{ opacity: 1 }}>
               {char}
             </span>
           );
         } else if (matchResult === 'partial' || matchResult === 'partial_complete') {
           if (matchResult === 'partial_complete') {
             return (
-              <span key={`${lineIdx}-${charIndex}`} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"} style={{ opacity: 1 }}>
+              <span key={`${lineIdx}-${charIndex}`} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500 bg-green-100 px-0.5" : "text-foreground relative font-semibold text-xl bg-green-100 px-0.5"} style={{ opacity: 1 }}>
                 {char}
               </span>
             );
           }
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl" style={{ opacity: 1 }}>
+            <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl bg-yellow-100 px-0.5" style={{ opacity: 1 }}>
               {char}
             </span>
           );
         } else {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-red-500 relative font-semibold text-xl" style={{ opacity: 1 }}>
+            <span key={`${lineIdx}-${charIndex}`} className="text-red-500 relative font-semibold text-xl bg-red-100 px-0.5" style={{ opacity: 1 }}>
               {char}
             </span>
           );
