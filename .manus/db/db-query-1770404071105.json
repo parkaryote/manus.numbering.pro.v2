@@ -1,0 +1,9 @@
+{
+  "query": "INSERT INTO subjects (userId, name, description, color, displayOrder, isDemo, createdAt, updatedAt) VALUES\n(1, '악구강영역의 기능해부학 2', '데모 과목 - 텍스트 문제', '#3B82F6', 0, 1, NOW(), NOW()),\n(1, '해부학', '데모 과목 - 이미지 문제', '#10B981', 1, 1, NOW(), NOW()),\n(1, '치아형태학', '데모 과목 - 표 문제', '#8B5CF6', 2, 1, NOW(), NOW());",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute INSERT INTO subjects (userId, name, description, color, displayOrder, isDemo, createdAt, updatedAt) VALUES\n(1, '악구강영역의 기능해부학 2', '데모 과목 - 텍스트 문제', '#3B82F6', 0, 1, NOW(), NOW()),\n(1, '해부학', '데모 과목 - 이미지 문제', '#10B981', 1, 1, NOW(), NOW()),\n(1, '치아형태학', '데모 과목 - 표 문제', '#8B5CF6', 2, 1, NOW(), NOW());",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2227
+}

@@ -23,6 +23,19 @@ export const appRouter = router({
     }),
   }),
 
+  // Demo mode - public access
+  demo: router({
+    subjects: publicProcedure.query(async () => {
+      return db.getDemoSubjects();
+    }),
+    
+    questions: publicProcedure
+      .input(z.object({ subjectId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getDemoQuestions(input.subjectId);
+      }),
+  }),
+
   // Subject management
   subjects: router({
     list: protectedProcedure.query(async ({ ctx }) => {

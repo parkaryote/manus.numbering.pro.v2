@@ -11,6 +11,7 @@ import Questions from "./pages/Questions";
 import Practice from "./pages/Practice";
 import Test from "./pages/Test";
 import Statistics from "./pages/Statistics";
+import Demo from "./pages/Demo";
 
 function Router() {
   return (
@@ -50,6 +51,19 @@ function Router() {
         <DashboardLayout>
           <Statistics />
         </DashboardLayout>
+      </Route>
+      <Route path={"/demo"}>
+        <Demo />
+      </Route>
+      <Route path={"/demo/practice/:questionId"}>
+        {(params) => (
+          <Practice questionId={parseInt(params.questionId)} isDemo={true} />
+        )}
+      </Route>
+      <Route path={"/demo/test/:questionId"}>
+        {(params) => (
+          <Test questionId={parseInt(params.questionId)} isDemo={true} />
+        )}
       </Route>
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />

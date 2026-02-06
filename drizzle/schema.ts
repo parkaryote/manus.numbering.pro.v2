@@ -37,6 +37,7 @@ export const subjects = mysqlTable("subjects", {
   color: varchar("color", { length: 7 }).default("#3B82F6"),
   displayOrder: int("displayOrder").default(0).notNull(),
   examEndDate: timestamp("examEndDate"), // 시험 종료일 - 이 날짜 + 1달 후 미사용 문제 자동 삭제
+  isDemo: int("isDemo").default(0).notNull(), // 0: 일반 과목, 1: 데모 과목
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -60,6 +61,7 @@ export const questions = mysqlTable("questions", {
   tableData: text("tableData"), // JSON for table questions (엔터 기준 자동 번호 생성)
   difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default("medium"),
   displayOrder: int("displayOrder").default(0).notNull(),
+  isDemo: int("isDemo").default(0).notNull(), // 0: 일반 문제, 1: 데모 문제
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

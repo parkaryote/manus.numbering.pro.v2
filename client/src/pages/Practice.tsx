@@ -10,9 +10,10 @@ import { TableView, TableData, getBlankCells, gradeTable } from "@/components/Ta
 
 interface PracticeProps {
   questionId: number;
+  isDemo?: boolean;
 }
 
-export default function Practice({ questionId }: PracticeProps) {
+export default function Practice({ questionId, isDemo = false }: PracticeProps) {
   const [, setLocation] = useLocation();
   const [userInput, setUserInput] = useState("");
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});

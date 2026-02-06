@@ -1,0 +1,9 @@
+{
+  "query": "INSERT INTO questions (userId, subjectId, question, answer, difficulty, displayOrder, isDemo, autoNumbering, createdAt, updatedAt) VALUES\n(1, (SELECT id FROM subjects WHERE name = '악구강영역의 기능해부학 2' AND isDemo = 1 LIMIT 1), '안정된 교합의 조건을 쓰시오.', '악관절이 건강하고 안정\\n모든 치아가 견고\\n치아가 과도하게 닳지 않은 상태\\n모든 치아가 자신의 위치에 멈추어 있음\\n지지하는 조직들이 건강', 'medium', 0, 1, 1, NOW(), NOW());",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute INSERT INTO questions (userId, subjectId, question, answer, difficulty, displayOrder, isDemo, autoNumbering, createdAt, updatedAt) VALUES\n(1, (SELECT id FROM subjects WHERE name = '악구강영역의 기능해부학 2' AND isDemo = 1 LIMIT 1), '안정된 교합의 조건을 쓰시오.', '악관절이 건강하고 안정\\n모든 치아가 견고\\n치아가 과도하게 닳지 않은 상태\\n모든 치아가 자신의 위치에 멈추어 있음\\n지지하는 조직들이 건강', 'medium', 0, 1, 1, NOW(), NOW());",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1599
+}

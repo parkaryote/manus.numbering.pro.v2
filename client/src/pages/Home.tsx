@@ -2,7 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
-import { BookOpen, FileQuestion, Dumbbell, ClipboardCheck, TrendingUp } from "lucide-react";
+import { BookOpen, FileQuestion, Dumbbell, ClipboardCheck, TrendingUp, Play } from "lucide-react";
 
 export default function Home() {
   const [, setLocation] = useLocation();
@@ -121,7 +121,11 @@ export default function Home() {
           <CardDescription>학습을 시작하려면 아래 버튼을 클릭하세요</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-4">
-          <Button onClick={() => setLocation("/subjects")} className="gap-2">
+          <Button onClick={() => setLocation("/demo")} variant="default" className="gap-2">
+            <Play className="h-4 w-4" />
+            데모 시작 (로그인 불필요)
+          </Button>
+          <Button onClick={() => setLocation("/subjects")} variant="outline" className="gap-2">
             <BookOpen className="h-4 w-4" />
             과목 관리
           </Button>

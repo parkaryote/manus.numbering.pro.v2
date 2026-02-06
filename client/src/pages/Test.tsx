@@ -13,9 +13,10 @@ import { TableView, TableData, getBlankCells, gradeTable } from "@/components/Ta
 
 interface TestProps {
   questionId: number;
+  isDemo?: boolean;
 }
 
-export default function Test({ questionId }: TestProps) {
+export default function Test({ questionId, isDemo = false }: TestProps) {
   const [, setLocation] = useLocation();
   const [userAnswer, setUserAnswer] = useState("");
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});

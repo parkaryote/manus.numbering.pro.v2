@@ -1190,3 +1190,64 @@
   - [x] 정답 완전 입력 시 자동으로 다음 셀로 포커스 이동
   - [x] 채점하기 버튼 제거, 완료 버튼만 유지
 - [x] Test.tsx는 현재 방식 유지 (정답 숨기고 채점)
+
+
+# 데모 모드 추가 (v2.2.0)
+
+## 요구사항
+- 로그인 없이 연습할 수 있는 데모 모드
+- 3개 데모 과목:
+  1. 악구강영역의 기능해부학 2 (텍스트 문제)
+  2. 해부학 (이미지 문제)
+  3. 치아형태학 (표 문제)
+- 모든 사용자가 공유하는 데모 데이터
+
+## Phase 1: 계획 수립
+- [ ] 데모 모드 구현 방식 결정
+  - [ ] 별도 테이블 vs 기존 테이블에 isDemo 플래그
+  - [ ] 데모 데이터 저장 방식 (DB vs 하드코딩)
+- [ ] 데이터 구조 설계
+
+## Phase 2: DB 스키마 수정
+- [ ] subjects 테이블에 isDemo 필드 추가
+- [ ] questions 테이블에 isDemo 필드 추가
+- [ ] 마이그레이션 실행
+
+## Phase 3: 서버 API 수정
+- [ ] demo.getSubjects 프로시저 추가
+- [ ] demo.getQuestions 프로시저 추가
+- [ ] 데모 과목/문제 조회 로직 구현
+
+## Phase 4: 홈페이지 수정
+- [ ] Home.tsx에 "데모 시작" 버튼 추가
+- [ ] 데모 모드 안내 섹션 추가
+
+## Phase 5: 데모 과목 목록 페이지
+- [ ] DemoSubjects.tsx 생성
+- [ ] 데모 과목 목록 표시
+- [ ] 데모 문제 목록으로 이동
+
+## Phase 6: 데모 문제 데이터 생성
+- [ ] 텍스트 문제: "안정된 교합의 조건을 쓰시오." (5줄 답변)
+- [ ] 이미지 문제: 사용자가 업로드
+- [ ] 표 문제: 사용자가 작성
+
+## Phase 7: 테스트
+- [ ] 로그인 없이 데모 접근 가능 확인
+- [ ] 데모 과목/문제 조회 테스트
+- [ ] 연습 모드 테스트
+
+
+# 데모 모드 추가 (v2.2.0)
+- [x] DB 스키마: subjects와 questions 테이블에 isDemo 필드 추가
+- [x] 마이그레이션 실행
+- [x] 서버 API: demo.subjects, demo.questions 프로시저 추가
+- [x] server/db.ts에 getDemoSubjects, getDemoQuestions 함수 추가
+- [x] Home.tsx에 "데모 시작" 버튼 추가
+- [x] Demo.tsx 생성 - 데모 과목 목록 페이지
+- [x] App.tsx에 /demo, /demo/practice/:questionId, /demo/test/:questionId 라우트 추가
+- [x] Practice.tsx와 Test.tsx에 isDemo prop 추가
+- [x] 데모 과목 3개 생성 (SQL)
+- [x] 첫 번째 텍스트 문제 생성 (SQL)
+- [x] 데모 모드 테스트
+- [ ] 나머지 두 과목(해부학, 치아형태학)에 문제 추가 (사용자가 직접 업로드/작성)
