@@ -863,7 +863,7 @@ export default function Practice({ questionId }: PracticeProps) {
         <CardHeader>
           <CardTitle>{question.question}</CardTitle>
           <CardDescription>
-            {isTableQuestion ? "표의 빈칸을 채우세요 (Tab/Enter로 다음 칸으로 이동)" : isImageQuestion ? "이미지의 표시된 영역에 정답을 입력하세요" : "정답을 따라 입력하세요 (띄어쓰기 무시)"}
+            {isTableQuestion ? "표의 연습 셀을 타이핑하세요 (Tab/Enter로 다음 칸으로 이동)" : isImageQuestion ? "이미지의 표시된 영역에 정답을 입력하세요" : "정답을 따라 입력하세요 (띄어쓰기 무시)"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -873,53 +873,32 @@ export default function Practice({ questionId }: PracticeProps) {
               <TableView
                 tableData={tableData}
                 answers={tableAnswers}
+                practiceMode={true}
                 onAnswerChange={(key, value) => {
                   setTableAnswers((prev) => ({ ...prev, [key]: value }));
-                  setTableResults(null); // 입력 시 결과 초기화
                   // 시간 추적
                   if (!startTime) setStartTime(Date.now());
                   setLastInputTime(Date.now());
                   setIsActive(true);
                 }}
-                results={tableResults || undefined}
+                onCorrectAnswer={(key) => {
+                  // 정답 완성 시 연습 횟수 증가
+                  setPracticeCount((prev) => prev + 1);
+                }}
               />
               <div className="flex gap-2">
-                <Button
-                  onClick={() => {
-                    const { results, score, total } = gradeTable(tableData, tableAnswers);
-                    setTableResults(results);
-                    if (score === total) {
-                      toast.success(`🎉 모두 정답! (${score}/${total})`);
-                      setTablePracticeCount((prev) => prev + 1);
-                      setPracticeCount((prev) => prev + 1);
-                      // 자동 초기화
-                      setTimeout(() => {
-                        setTableAnswers({});
-                        setTableResults(null);
-                      }, 1500);
-                    } else {
-                      toast.error(`${score}/${total} 정답 - 다시 시도하세요`);
-                    }
-                  }}
-                  variant="secondary"
-                >
-                  채점하기
-                </Button>
                 <Button
                   variant="outline"
                   onClick={() => {
                     setTableAnswers({});
-                    setTableResults(null);
                   }}
                 >
                   초기화
                 </Button>
               </div>
-              {tableResults && (
-                <div className="text-sm text-muted-foreground">
-                  표 연습 횟수: {tablePracticeCount}회
-                </div>
-              )}
+              <div className="text-sm text-muted-foreground">
+                연습 횟수: {practiceCount}회
+              </div>
             </div>
           ) : isImageQuestion ? (
             /* Image question with label boxes - 2 column layout */

@@ -7,7 +7,7 @@ import { toast } from "sonner";
 // 표 데이터 타입 정의
 export interface TableCell {
   content: string;
-  isBlank: boolean; // 연습/시험 시 빈칸으로 표시할지 여부
+  isBlank: boolean; // 연습 셀로 지정할지 여부 (연습 모드에서 타이핑 대상)
   rowSpan?: number;
   colSpan?: number;
   isMerged?: boolean; // 병합된 셀에 의해 가려진 셀
@@ -160,7 +160,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
     [tableData, updateTable]
   );
 
-  // 빈칸 토글
+  // 연습 셀 토글
   const toggleBlank = useCallback(
     (row: number, col: number) => {
       const newCells = tableData.cells.map((r, ri) =>
@@ -173,7 +173,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
     [tableData, updateTable]
   );
 
-  // 선택된 셀 모두 빈칸 토글
+  // 선택된 셀 모두 연습 셀 토글
   const toggleSelectedBlanks = useCallback(() => {
     if (selectedCells.size === 0) return;
     const firstKey = Array.from(selectedCells)[0];
@@ -481,9 +481,9 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
             size="sm"
             onClick={toggleSelectedBlanks}
             disabled={selectedCells.size === 0}
-            title="선택 셀 빈칸 토글"
+            title="선택 셀 연습 셀 토글"
           >
-            <EyeOff className="h-3 w-3 mr-1" />빈칸
+            <EyeOff className="h-3 w-3 mr-1" />연습
           </Button>
           <Button
             type="button"
@@ -554,7 +554,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
       {/* 안내 텍스트 */}
       <div className="text-xs text-muted-foreground space-y-0.5">
         <p>더블클릭: 셀 편집 | 드래그: 범위 선택 | Ctrl+클릭: 다중 선택 | Shift+클릭: 범위 확장</p>
-        <p>빈칸으로 설정된 셀은 연습/시험 시 가려져 입력해야 합니다. <span className="text-amber-600 font-medium">빈칸: {blankCount}개</span></p>
+        <p>연습 셀로 설정된 셀은 연습 모드에서 타이핑 대상이 됩니다. <span className="text-amber-600 font-medium">연습 셀: {blankCount}개</span></p>
       </div>
 
       {/* 표 편집 영역 */}
@@ -610,7 +610,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
                           className="h-6 px-1 py-0 text-sm border-0 shadow-none focus-visible:ring-0 bg-transparent"
                         />
                       ) : previewMode && cell.isBlank ? (
-                        <span className="text-yellow-600 italic text-xs">빈칸</span>
+                        <span className="text-yellow-600 italic text-xs">연습</span>
                       ) : (
                         <span
                           className={`block truncate ${
@@ -624,7 +624,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
                           )}
                         </span>
                       )}
-                      {/* 빈칸 표시 아이콘 */}
+                      {/* 연습 셀 표시 아이콘 */}
                       {cell.isBlank && !previewMode && (
                         <div className="absolute top-0 right-0 w-0 h-0 border-t-[8px] border-t-amber-400 border-l-[8px] border-l-transparent" />
                       )}
@@ -650,10 +650,12 @@ interface TableViewProps {
   tableData: TableData;
   answers?: Record<string, string>; // "row-col" -> 사용자 입력
   onAnswerChange?: (key: string, value: string) => void;
-  showAnswers?: boolean; // 정답 표시 여부
+  showAnswers?: boolean; // 정답 표시 여부 (시험 모드에서 오답 시 정답 표시)
   results?: Record<string, boolean>; // "row-col" -> 정답 여부
   readOnly?: boolean;
+  practiceMode?: boolean; // 연습 모드 (정답 표시 + 실시간 타이핑 피드백)
   onCellFocus?: (key: string) => void;
+  onCorrectAnswer?: (key: string) => void; // 정답 완성 시 콜백
 }
 
 export function TableView({
@@ -663,12 +665,14 @@ export function TableView({
   showAnswers = false,
   results,
   readOnly = false,
+  practiceMode = false,
   onCellFocus,
+  onCorrectAnswer,
 }: TableViewProps) {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const blankCells = getBlankCells(tableData);
 
-  // Tab 키로 다음 빈칸으로 이동
+  // Tab 키로 다음 연습 셀으로 이동
   const handleKeyDown = (key: string, e: React.KeyboardEvent) => {
     if (e.key === "Tab") {
       e.preventDefault();
@@ -706,9 +710,16 @@ export function TableView({
                 const userAnswer = answers[cellKey] || "";
                 const isCorrect = results?.[cellKey];
 
+                // 연습 모드: 정답과 비교하여 실시간 피드백
+                const normalizeText = (text: string) => text.replace(/\s+/g, "");
+                const isTypingCorrect = practiceMode && isBlank
+                  ? normalizeText(userAnswer) === normalizeText(cell.content.slice(0, userAnswer.length))
+                  : undefined;
+
                 let bgColor = "bg-white";
                 if (isHeader) bgColor = "bg-slate-100";
-                if (isBlank && !showAnswers) bgColor = "bg-yellow-50";
+                if (practiceMode && !isHeader) bgColor = "bg-slate-50"; // 연습 모드: 모든 셀 회색
+                if (!practiceMode && isBlank && !showAnswers) bgColor = "bg-yellow-50";
                 if (isCorrect === true) bgColor = "bg-green-50";
                 if (isCorrect === false) bgColor = "bg-red-50";
 
@@ -719,7 +730,50 @@ export function TableView({
                     colSpan={cell.colSpan || 1}
                     className={`${bgColor} border border-slate-300 px-2 py-1.5 text-sm min-w-[60px]`}
                   >
-                    {isBlank && !showAnswers ? (
+                    {practiceMode && isBlank ? (
+                      /* 연습 모드: 정답 표시 + 실시간 타이핑 피드백 */
+                      <div className="relative">
+                        {/* 정답 표시 (회색) */}
+                        <div className="text-slate-400 text-sm whitespace-pre-wrap">
+                          {cell.content}
+                        </div>
+                        {/* 입력 필드 (오버레이) */}
+                        <input
+                          ref={(el) => {
+                            inputRefs.current[cellKey] = el;
+                          }}
+                          type="text"
+                          value={userAnswer}
+                          onChange={(e) => {
+                            const newValue = e.target.value;
+                            onAnswerChange?.(cellKey, newValue);
+                            // 정답 완성 시 다음 셀로 이동
+                            if (normalizeText(newValue) === normalizeText(cell.content)) {
+                              onCorrectAnswer?.(cellKey);
+                              // 다음 셀로 포커스 이동
+                              const currentIdx = blankCells.findIndex((k) => k === cellKey);
+                              if (currentIdx < blankCells.length - 1) {
+                                const nextKey = blankCells[currentIdx + 1];
+                                setTimeout(() => {
+                                  inputRefs.current[nextKey]?.focus();
+                                }, 100);
+                              }
+                            }
+                          }}
+                          onFocus={() => onCellFocus?.(cellKey)}
+                          onKeyDown={(e) => handleKeyDown(cellKey, e)}
+                          readOnly={readOnly}
+                          className={`absolute inset-0 w-full bg-transparent outline-none text-sm px-2 py-1.5 ${
+                            isTypingCorrect === true
+                              ? "text-black"
+                              : isTypingCorrect === false
+                              ? "text-red-600"
+                              : "text-slate-700"
+                          }`}
+                        />
+                      </div>
+                    ) : isBlank && !showAnswers ? (
+                      /* 시험 모드: 입력 필드 */
                       <div className="relative">
                         <input
                           ref={(el) => {
@@ -747,10 +801,13 @@ export function TableView({
                         )}
                       </div>
                     ) : (
+                      /* 일반 셀 또는 정답 표시 */
                       <span
                         className={`block ${
                           isHeader
                             ? "font-semibold text-slate-700 text-center"
+                            : practiceMode
+                            ? "text-slate-600"
                             : "text-slate-600"
                         }`}
                       >
@@ -772,7 +829,7 @@ export function TableView({
   );
 }
 
-// 빈칸 셀 키 목록 반환 (순서대로)
+// 연습 셀 키 목록 반환 (순서대로)
 export function getBlankCells(tableData: TableData): string[] {
   const blanks: string[] = [];
   for (let ri = 0; ri < tableData.cells.length; ri++) {
