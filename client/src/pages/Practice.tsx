@@ -199,7 +199,14 @@ export default function Practice({ questionId }: PracticeProps) {
     const normalized = normalizeText(newValue);
     const normalizedTarget = normalizeText(targetText);
     if (normalized === normalizedTarget) {
-      handleCorrectAnswer();
+      // 즉시 입력 초기화 - textarea value 직접 비우기
+      if (textareaRef.current) {
+        textareaRef.current.value = "";
+      }
+      setUserInput("");
+      // 그 후 완료 처리
+      handleCorrectAnswer(newValue.length);
+      return; // 이후 코드 실행 중단
     }
     
     // 뷰포트 실시간 이동
@@ -266,7 +273,14 @@ export default function Practice({ questionId }: PracticeProps) {
     const normalized = normalizeText(newValue);
     const normalizedTarget = normalizeText(targetText);
     if (normalized === normalizedTarget) {
-      handleCorrectAnswer();
+      // 즉시 입력 초기화 - textarea value 직접 비우기
+      if (textareaRef.current) {
+        textareaRef.current.value = "";
+      }
+      setUserInput("");
+      // 그 후 완료 처리
+      handleCorrectAnswer(newValue.length);
+      return; // 이후 코드 실행 중단
     }
     
     // 뷰포트 실시간 이동: 사용자 입력의 현재 줄 번호에 따라 스크롤
@@ -527,7 +541,7 @@ export default function Practice({ questionId }: PracticeProps) {
   };
 
   // 정답 일치 시 fade out 애니메이션 후 입력 초기화
-  const handleCorrectAnswer = async () => {
+  const handleCorrectAnswer = async (currentInputLength?: number) => {
     setIsFadingOut(true);
     setPracticeCount(prev => prev + 1);
     
@@ -535,7 +549,8 @@ export default function Practice({ questionId }: PracticeProps) {
     if (question && elapsedTime > 0) {
       try {
         const timeInMinutes = elapsedTime / 60;
-        const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
+        const inputLength = currentInputLength !== undefined ? currentInputLength : userInput.length;
+        const speed = timeInMinutes > 0 ? Math.round(inputLength / timeInMinutes) : 0;
         
         // 정답 일치 시 즉시 세션 저장 (비동기로 백그라운드에서 진행)
         createSession.mutateAsync({
@@ -560,9 +575,9 @@ export default function Practice({ questionId }: PracticeProps) {
       }
     }
     
-    // 0.7초 후 입력 초기화 (여운 있는 속도)
+    // 입력 초기화는 handleInputChange에서 이미 처리됨
+    // 여기서는 textarea에 포커스만 설정
     setTimeout(() => {
-      setUserInput("");
       textareaRef.current?.focus();
     }, 700);
     
