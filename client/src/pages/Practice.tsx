@@ -676,10 +676,11 @@ export default function Practice({ questionId }: PracticeProps) {
     }
     
     return lines.map((_, lineIndex) => {
-      if (lineHasInput[lineIndex] || lineIndex === underbarLineIndex) {
-        return 1; // 입력이 시작된 줄 또는 언더바가 있는 줄: opacity 1
+      // 현재 입력 중인 줄 (언더바가 있는 줄)만 opacity 1
+      if (lineIndex === underbarLineIndex) {
+        return 1; // 현재 입력 중인 줄: opacity 1 (진한 회색)
       } else {
-        return 0.4; // 아직 입력하지 않은 줄: opacity 0.4
+        return 0.4; // 다른 줄: opacity 0.4 (연한 회색)
       }
     });
   }, [userInput, targetText]);

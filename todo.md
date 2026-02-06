@@ -1085,3 +1085,19 @@
   - [x] renderTextWithFeedback에서 completedCount 기준으로 언더바 위치 결정
   - [x] 정답 글자와 일치할 때만 언더바 이동
   - [x] 틀린 글자 입력 시 언더바가 정답 위치에 정확하게 표시됨 확인
+
+
+# 버그 수정 (v1.15) - 진행 중
+- [ ] 줄 단위 opacity 표시 버그 수정
+  - [ ] 현재 입력 중인 줄만 진한 회색으로 표시되어야 함
+  - [ ] 나머지 줄은 연한 회색으로 표시되어야 함
+  - [ ] 엔터 후 다음 줄로 이동할 때 opacity 업데이트 안 됨
+  - [ ] calculateLineOpacity 함수 로직 확인 및 수정
+
+
+# 버그 수정 (v1.16) - 완료
+- [x] 줄 단위 opacity 표시 버그 수정
+  - [x] calculateLineOpacity 함수에서 underbarLineIndex만 기준으로 변경
+  - [x] 현재 입력 중인 줄만 opacity 1 (진한 회색)
+  - [x] 나머지 줄은 opacity 0.4 (연한 회색)
+  - [x] 엔터 후 다음 줄로 이동할 때 opacity 정확하게 업데이트됨 확인
