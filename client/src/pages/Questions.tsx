@@ -29,6 +29,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { toast } from "sonner";
 import { ImageLabelEditor, ImageLabel } from "@/components/ImageLabelEditor";
+import { TableEditor, TableData } from "@/components/TableEditor";
+import { Table2 } from "lucide-react";
 import imageCompression from "browser-image-compression";
 
 interface QuestionsProps {
@@ -75,6 +77,7 @@ function SortableQuestionCard({
 
   const hasImage = !!question.imageUrl;
   const hasLabels = question.imageLabels && JSON.parse(question.imageLabels).length > 0;
+  const hasTable = !!question.tableData;
 
   return (
     <Card
@@ -99,6 +102,12 @@ function SortableQuestionCard({
                   이미지
                 </span>
               )}
+              {hasTable && (
+                <span className="text-xs font-medium text-purple-600 flex items-center gap-1">
+                  <Table2 className="h-3 w-3" />
+                  표
+                </span>
+              )}
               <span className={`text-xs font-medium ${difficultyColor[question.difficulty || "medium"]}`}>
                 {difficultyLabel[question.difficulty || "medium"]}
               </span>
@@ -111,12 +120,21 @@ function SortableQuestionCard({
                 className="max-w-xs rounded-lg border mt-2 mb-2"
               />
             )}
-            {!hasImage && (
+            {!hasImage && !hasTable && (
               <CardDescription className="whitespace-pre-wrap">
                 {question.answer.length > 150
                   ? question.answer.substring(0, 150) + "..."
                   : question.answer}
               </CardDescription>
+            )}
+            {hasTable && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {(() => {
+                  const td = JSON.parse(question.tableData);
+                  const blankCount = td.cells.flat().filter((c: any) => c.isBlank && !c.isMerged).length;
+                  return `${td.rows}행 × ${td.cols}열 | 빈칸 ${blankCount}개`;
+                })()}
+              </p>
             )}
             {hasLabels && question.imageLabels && (
               <p className="text-xs text-muted-foreground mt-2">
@@ -191,7 +209,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
   const [selectedQuestion, setSelectedQuestion] = useState<any>(null);
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"text" | "image">("text");
+  const [activeTab, setActiveTab] = useState<"text" | "image" | "table">("text");
   const [difficultyFilter, setDifficultyFilter] = useState<"all" | "easy" | "medium" | "hard">("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -202,6 +220,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
     imageUrl: "",
     imageLabels: [] as ImageLabel[],
     autoNumbering: true, // 엔터 기준 자동 번호 생성
+    tableData: null as TableData | null,
   });
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
@@ -318,6 +337,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
       imageUrl: "",
       imageLabels: [],
       autoNumbering: true,
+      tableData: null,
     });
     setActiveTab("text");
   };
@@ -393,16 +413,36 @@ export default function Questions({ subjectId }: QuestionsProps) {
       return;
     }
 
-    // Text-based or image-based validation
+    // Table question validation
+    if (activeTab === "table") {
+      if (!formData.tableData) {
+        toast.error("표를 작성하세요");
+        return;
+      }
+      const blankCount = formData.tableData.cells.flat().filter((c) => c.isBlank && !c.isMerged).length;
+      if (blankCount === 0) {
+        toast.error("최소 1개의 빈칸을 지정하세요");
+        return;
+      }
+      createMutation.mutate({
+        subjectId,
+        question,
+        answer: "",
+        difficulty: formData.difficulty,
+        tableData: JSON.stringify(formData.tableData),
+        autoNumbering: 0,
+      } as any);
+      return;
+    }
+
+    // Image-based or text-based validation
     if (formData.imageUrl && formData.imageLabels.length > 0) {
-      // Image-based question
       const hasEmptyAnswer = formData.imageLabels.some((label) => !label.answer.trim());
       if (hasEmptyAnswer) {
         toast.error("모든 영역의 정답을 입력하세요");
         return;
       }
     } else if (!answer.trim()) {
-      // Text-based question
       toast.error("답안을 입력하세요");
       return;
     }
@@ -416,10 +456,11 @@ export default function Questions({ subjectId }: QuestionsProps) {
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
     } as any);
-  }, [activeTab, formData.imageUrl, formData.imageLabels, formData.difficulty, subjectId, createMutation]);
+  }, [activeTab, formData, subjectId, createMutation]);
 
   const handleEdit = (question: any) => {
     setEditingQuestion(question);
+    const parsedTableData = question.tableData ? JSON.parse(question.tableData) : null;
     setFormData({
       question: question.question,
       answer: question.answer || "",
@@ -427,13 +468,46 @@ export default function Questions({ subjectId }: QuestionsProps) {
       imageUrl: question.imageUrl || "",
       imageLabels: question.imageLabels ? JSON.parse(question.imageLabels) : [],
       autoNumbering: question.autoNumbering !== 0,
+      tableData: parsedTableData,
     });
+    // 탭 자동 선택
+    if (parsedTableData) {
+      setActiveTab("table");
+    } else if (question.imageUrl) {
+      setActiveTab("image");
+    } else {
+      setActiveTab("text");
+    }
     setIsEditOpen(true);
   };
 
   const handleUpdate = () => {
     if (!formData.question.trim()) {
       toast.error("질문을 입력하세요");
+      return;
+    }
+
+    // Table question
+    if (activeTab === "table") {
+      if (!formData.tableData) {
+        toast.error("표를 작성하세요");
+        return;
+      }
+      const blankCount = formData.tableData.cells.flat().filter((c) => c.isBlank && !c.isMerged).length;
+      if (blankCount === 0) {
+        toast.error("최소 1개의 빈칸을 지정하세요");
+        return;
+      }
+      updateMutation.mutate({
+        id: editingQuestion.id,
+        question: formData.question,
+        answer: "",
+        difficulty: formData.difficulty,
+        tableData: JSON.stringify(formData.tableData),
+        imageUrl: undefined,
+        imageLabels: undefined,
+        autoNumbering: 0,
+      } as any);
       return;
     }
 
@@ -455,6 +529,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
       difficulty: formData.difficulty,
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
+      tableData: undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
     } as any);
   };
@@ -507,10 +582,13 @@ export default function Questions({ subjectId }: QuestionsProps) {
 
   // QuestionForm을 useMemo로 감싸서 불필요한 리렌더링 방지
   const questionFormContent = (
-    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "image")} className="w-full">
-      <TabsList className="grid w-full grid-cols-2">
+    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "image" | "table")} className="w-full">
+      <TabsList className="grid w-full grid-cols-3">
         <TabsTrigger value="text">텍스트 문제</TabsTrigger>
         <TabsTrigger value="image">이미지 문제</TabsTrigger>
+        <TabsTrigger value="table" className="gap-1">
+          <Table2 className="h-3.5 w-3.5" />표 문제
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="text" className="space-y-4 mt-4">
@@ -654,6 +732,42 @@ export default function Questions({ subjectId }: QuestionsProps) {
           </Label>
         </div>
       </TabsContent>
+
+      <TabsContent value="table" className="space-y-4 mt-4">
+        <div className="space-y-2">
+          <Label htmlFor="question-table">질문 *</Label>
+          <Textarea
+            id="question-table"
+            value={formData.question}
+            onChange={(e) => handleQuestionChange(e.target.value)}
+            placeholder="예: 다음 표의 빈칸을 채우시오"
+            rows={2}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>표 작성</Label>
+          <TableEditor
+            initialData={formData.tableData || undefined}
+            onChange={(data) => setFormData((prev) => ({ ...prev, tableData: data }))}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="difficulty-table">난이도</Label>
+          <Select
+            value={formData.difficulty}
+            onValueChange={handleDifficultyChange}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="easy">쉬움</SelectItem>
+              <SelectItem value="medium">보통</SelectItem>
+              <SelectItem value="hard">어려움</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </TabsContent>
     </Tabs>
   );
 
@@ -682,10 +796,10 @@ export default function Questions({ subjectId }: QuestionsProps) {
               새 문제 추가
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
             <DialogHeader>
               <DialogTitle>새 문제 추가</DialogTitle>
-              <DialogDescription>텍스트 또는 이미지 문제를 생성하세요</DialogDescription>
+              <DialogDescription>텍스트, 이미지 또는 표 문제를 생성하세요</DialogDescription>
             </DialogHeader>
             <div className="py-4">
               {questionFormContent}
@@ -805,7 +919,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
 
       {/* Edit Dialog */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>문제 수정</DialogTitle>
             <DialogDescription>문제 내용을 수정하세요</DialogDescription>

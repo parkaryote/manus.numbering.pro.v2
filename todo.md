@@ -1125,3 +1125,51 @@
   - [ ] 완료 버튼을 눌러도 다음 문제로 진행되지 않음
   - [ ] Ctrl+C, Ctrl+V를 해야만 연습이 인정됨
   - [ ] 한글 문제는 정상 작동하는데 영어 문제만 문제 발생
+
+
+# 버그 수정 (v1.24) - 진행 중
+- [ ] 영어 문제: 처음부터 직접 입력 시 정답 인식 후 초기화 안 됨
+  - [ ] Ctrl+C/V 후 나머지 입력 시에는 정상 작동
+  - [ ] 처음부터 직접 타이핑하면 정답 인식은 되지만 초기화 안 됨
+  - [ ] handleInputChange vs handleCompositionEnd 이벤트 차이 분석
+  - [ ] 입력 방식별 코드 경로 차이 파악 및 수정
+
+
+# 표 문제 유형 추가 (v2.0.0)
+
+## Phase 1: 데이터베이스 스키마 수정
+- [x] questions 테이블에 tableData 컬럼 추가 (JSON 형태로 표 데이터 저장)
+- [x] questionType 필드에 'table' 유형 추가 (text, image, table)
+- [x] 마이그레이션 실행
+
+## Phase 2: 서버 API 수정
+- [x] questions.create 프로시저에 tableData 필드 추가
+- [x] questions.update 프로시저에 tableData 필드 추가
+- [x] questions.getById에서 tableData 반환
+
+## Phase 3: 표 편집기 UI 컴포넌트
+- [x] TableEditor 컴포넌트 구현
+- [x] 행/열 자유 추가/삭제 기능
+- [x] 셀 병합 기능
+- [x] 셀별 정답 입력 기능
+- [x] 셀별 가림 여부 설정 (연습/시험 시 빈칸으로 표시할 셀 지정)
+- [x] 드래그로 셀 크기 조정
+
+## Phase 4: Questions.tsx 통합
+- [x] 문제 생성 다이얼로그에 '표' 탭 추가
+- [x] 표 편집기 연동
+- [x] 표 문제 미리보기
+
+## Phase 5: 연습 모드 지원
+- [x] Practice.tsx에서 표 문제 렌더링
+- [x] 가려진 셀에 입력 필드 표시
+- [x] 셀별 정답 비교 및 채점
+
+## Phase 6: 시험 모드 지원
+- [x] Test.tsx에서 표 문제 렌더링
+- [x] 가려진 셀에 입력 필드 표시
+- [x] 셀별 채점 로직
+
+## Phase 7: 테스트 및 검증
+- [x] 표 문제 생성/수정/삭제 테스트
+- [x] 연습/시험 모드 통합 테스트

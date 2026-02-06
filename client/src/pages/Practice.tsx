@@ -3,9 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
-import { ArrowLeft, Circle, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Circle, Image as ImageIcon, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { splitGraphemes, isPartialMatch, isHangul, decomposeHangul } from "@/lib/hangul";
+import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 
 interface PracticeProps {
   questionId: number;
@@ -95,6 +96,11 @@ export default function Practice({ questionId }: PracticeProps) {
   const targetText = question?.answer || "";
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+  const tableData: TableData | null = question?.tableData ? JSON.parse(question.tableData) : null;
+  const isTableQuestion = !!tableData;
+  const [tableAnswers, setTableAnswers] = useState<Record<string, string>>({});
+  const [tableResults, setTableResults] = useState<Record<string, boolean> | null>(null);
+  const [tablePracticeCount, setTablePracticeCount] = useState(0);
   
 
 
@@ -857,11 +863,65 @@ export default function Practice({ questionId }: PracticeProps) {
         <CardHeader>
           <CardTitle>{question.question}</CardTitle>
           <CardDescription>
-            {isImageQuestion ? "이미지의 표시된 영역에 정답을 입력하세요" : "정답을 따라 입력하세요 (띄어쓰기 무시)"}
+            {isTableQuestion ? "표의 빈칸을 채우세요 (Tab/Enter로 다음 칸으로 이동)" : isImageQuestion ? "이미지의 표시된 영역에 정답을 입력하세요" : "정답을 따라 입력하세요 (띄어쓰기 무시)"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {isImageQuestion ? (
+          {isTableQuestion && tableData ? (
+            /* Table question */
+            <div className="space-y-4">
+              <TableView
+                tableData={tableData}
+                answers={tableAnswers}
+                onAnswerChange={(key, value) => {
+                  setTableAnswers((prev) => ({ ...prev, [key]: value }));
+                  setTableResults(null); // 입력 시 결과 초기화
+                  // 시간 추적
+                  if (!startTime) setStartTime(Date.now());
+                  setLastInputTime(Date.now());
+                  setIsActive(true);
+                }}
+                results={tableResults || undefined}
+              />
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => {
+                    const { results, score, total } = gradeTable(tableData, tableAnswers);
+                    setTableResults(results);
+                    if (score === total) {
+                      toast.success(`🎉 모두 정답! (${score}/${total})`);
+                      setTablePracticeCount((prev) => prev + 1);
+                      setPracticeCount((prev) => prev + 1);
+                      // 자동 초기화
+                      setTimeout(() => {
+                        setTableAnswers({});
+                        setTableResults(null);
+                      }, 1500);
+                    } else {
+                      toast.error(`${score}/${total} 정답 - 다시 시도하세요`);
+                    }
+                  }}
+                  variant="secondary"
+                >
+                  채점하기
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setTableAnswers({});
+                    setTableResults(null);
+                  }}
+                >
+                  초기화
+                </Button>
+              </div>
+              {tableResults && (
+                <div className="text-sm text-muted-foreground">
+                  표 연습 횟수: {tablePracticeCount}회
+                </div>
+              )}
+            </div>
+          ) : isImageQuestion ? (
             /* Image question with label boxes - 2 column layout */
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Left: Image with labels */}

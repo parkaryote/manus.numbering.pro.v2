@@ -6,9 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
-import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff } from "lucide-react";
+import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
+import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 
 interface TestProps {
   questionId: number;
@@ -35,6 +36,11 @@ export default function Test({ questionId }: TestProps) {
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+  const tableData: TableData | null = question?.tableData ? JSON.parse(question.tableData) : null;
+  const isTableQuestion = !!tableData;
+  const [tableAnswers, setTableAnswers] = useState<Record<string, string>>({});
+  const [tableResults, setTableResults] = useState<Record<string, boolean> | null>(null);
+  const [tableScore, setTableScore] = useState<{ score: number; total: number } | null>(null);
   const updateReviewMutation = trpc.review.updateAfterReview.useMutation();
   
   const evaluateMutation = trpc.test.evaluate.useMutation({
@@ -85,6 +91,9 @@ export default function Test({ questionId }: TestProps) {
     setRecallTime(0);
     setIsSubmitted(false);
     setResult(null);
+    setTableAnswers({});
+    setTableResults(null);
+    setTableScore(null);
     textareaRef.current?.focus();
   };
 
@@ -96,10 +105,41 @@ export default function Test({ questionId }: TestProps) {
     setIsSubmitted(false);
     setResult(null);
     setAudioBlob(null);
+    setTableAnswers({});
+    setTableResults(null);
+    setTableScore(null);
   };
 
   const handleSubmit = async () => {
     if (!question) return;
+
+    // 표 문제인 경우
+    if (isTableQuestion && tableData) {
+      const blankCells = getBlankCells(tableData);
+      const hasAllAnswers = blankCells.every((key) => tableAnswers[key]?.trim());
+      if (!hasAllAnswers) {
+        toast.error("모든 빈칸을 채우세요");
+        return;
+      }
+      const { results, score, total } = gradeTable(tableData, tableAnswers);
+      setTableResults(results);
+      setTableScore({ score, total });
+      setIsSubmitted(true);
+
+      // Update review schedule
+      const quality = score === total ? 5 : Math.max(0, Math.floor((score / total) * 5));
+      await updateReviewMutation.mutateAsync({
+        questionId: question.id,
+        quality,
+      });
+
+      if (score === total) {
+        toast.success(`🎉 모두 정답! (${score}/${total})`);
+      } else {
+        toast.error(`${score}/${total} 정답`);
+      }
+      return;
+    }
 
     // 이미지 문제인 경우 라벨 답안 확인
     if (isImageQuestion) {
@@ -467,6 +507,18 @@ export default function Test({ questionId }: TestProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-lg whitespace-pre-wrap">{question.question}</p>
+            {isTableQuestion && tableData && (
+              <div className="mt-4">
+                <TableView
+                  tableData={tableData}
+                  showAnswers={true}
+                  readOnly={true}
+                />
+                <p className="text-sm text-muted-foreground mt-2">
+                  빈칸 {getBlankCells(tableData).length}개를 채워야 합니다. 시작 버튼을 누르면 빈칸이 가려집니다.
+                </p>
+              </div>
+            )}
             {isImageQuestion && (
               <div className="relative w-full">
                 {!imageLoaded && (
@@ -539,7 +591,17 @@ export default function Test({ questionId }: TestProps) {
                 <p className="text-base whitespace-pre-wrap">{question.question}</p>
               </div>
 
-              {isImageQuestion ? (
+              {isTableQuestion && tableData ? (
+                <div className="space-y-4">
+                  <TableView
+                    tableData={tableData}
+                    answers={tableAnswers}
+                    onAnswerChange={(key, value) => {
+                      setTableAnswers((prev) => ({ ...prev, [key]: value }));
+                    }}
+                  />
+                </div>
+              ) : isImageQuestion ? (
                 <div className="space-y-4">
                   {/* 이미지 표시 (불투명 박스로 라벨 영역 표시) */}
                   <div className="relative w-full">
@@ -668,7 +730,9 @@ export default function Test({ questionId }: TestProps) {
               <div className="flex gap-2">
                 <Button
                   onClick={handleSubmit}
-                  disabled={evaluateMutation.isPending || (isImageQuestion ? 
+                  disabled={evaluateMutation.isPending || (isTableQuestion && tableData ?
+                    !getBlankCells(tableData).every((key) => tableAnswers[key]?.trim()) :
+                    isImageQuestion ? 
                     !imageLabels.every((_: any, index: number) => imageLabelAnswers[index]?.trim()) : 
                     !userAnswer.trim())}
                   className="gap-2"
@@ -692,6 +756,39 @@ export default function Test({ questionId }: TestProps) {
               <CardTitle>평가 결과</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
+              {isTableQuestion && tableScore ? (
+                <>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center p-4 bg-muted/30 rounded-lg">
+                      <p className="text-3xl font-bold">
+                        {tableScore.score === tableScore.total ? "✓" : "✗"}
+                      </p>
+                      <p className="text-sm text-muted-foreground mt-1">정답 여부</p>
+                    </div>
+                    <div className="text-center p-4 bg-muted/30 rounded-lg">
+                      <p className="text-3xl font-bold">{tableScore.score}/{tableScore.total}</p>
+                      <p className="text-sm text-muted-foreground mt-1">정답 수</p>
+                    </div>
+                    <div className="text-center p-4 bg-muted/30 rounded-lg">
+                      <p className="text-3xl font-bold">{formatTime(recallTime)}</p>
+                      <p className="text-sm text-muted-foreground mt-1">회상 시간</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <h3 className="font-semibold">정답 비교</h3>
+                    {tableData && (
+                      <TableView
+                        tableData={tableData}
+                        answers={tableAnswers}
+                        results={tableResults || undefined}
+                        showAnswers={true}
+                        readOnly={true}
+                      />
+                    )}
+                  </div>
+                </>
+              ) : (
+              <>
               <div className="grid grid-cols-3 gap-4">
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-3xl font-bold">
@@ -770,6 +867,8 @@ export default function Test({ questionId }: TestProps) {
                   문제 목록으로
                 </Button>
               </div>
+              </>
+              )}
             </CardContent>
           </Card>
         </>

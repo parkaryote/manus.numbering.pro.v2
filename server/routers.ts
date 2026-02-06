@@ -118,6 +118,7 @@ export const appRouter = router({
         imageUrl: z.string().optional(),
         imageLabels: z.string().optional(),
         autoNumbering: z.number().optional(),
+        tableData: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         return db.createQuestion({
@@ -129,6 +130,7 @@ export const appRouter = router({
           imageUrl: input.imageUrl,
           imageLabels: input.imageLabels,
           autoNumbering: input.autoNumbering,
+          tableData: input.tableData,
         });
       }),
     
@@ -141,6 +143,7 @@ export const appRouter = router({
         imageUrl: z.string().optional(),
         imageLabels: z.string().optional(),
         autoNumbering: z.number().optional(),
+        tableData: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
