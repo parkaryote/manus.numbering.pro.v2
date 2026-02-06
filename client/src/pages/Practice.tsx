@@ -98,8 +98,8 @@ export default function Practice({ questionId }: PracticeProps) {
   
 
 
-  // Normalize text: remove spaces but keep newlines for line-based comparison
-  const normalizeText = (text: string) => text.replace(/[^\S\n]+/g, "");
+  // Normalize text: remove spaces and newlines for completion check
+  const normalizeText = (text: string) => text.replace(/\s+/g, "");
 
   // Auto-start on mount
   useEffect(() => {
