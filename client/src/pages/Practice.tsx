@@ -712,8 +712,8 @@ export default function Practice({ questionId }: PracticeProps) {
         // 아직 입력하지 않은 글자
         if (currentCharIdx >= userChars.length) {
           // 현재 입력 위치 (다음에 입력할 글자) - 언더바 표시
-          // 단, 입력이 시작된 줄에만 언더바 표시
-          if (completedCount > 0 && currentCharIdx === completedCount) {
+          // 단, 현재 커서 위치의 줄에만 언더바 표시
+          if (lineIdx === activeLineIdx && completedCount > 0 && currentCharIdx === completedCount) {
             return (
               <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl animate-pulse" style={{ opacity: 1 }}>
                 {char}
