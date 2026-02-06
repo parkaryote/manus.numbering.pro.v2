@@ -660,18 +660,17 @@ export default function Practice({ questionId }: PracticeProps) {
   // 실시간 단어 뷰: 줄 단위 opacity 계산
   const calculateLineOpacity = useMemo(() => {
     const lines = targetText.split('\n');
-    const { currentLineIndex: activeLineIdx } = completionInfo;
     
     // 각 줄의 opacity 계산
     return lines.map((_, lineIndex) => {
-      // 현재 입력 중인 줄만 opacity 1 (진한 회색)
-      if (lineIndex === activeLineIdx) {
-        return 1; // 현재 입력 중인 줄: opacity 1 (진한 회색)
+      // 현재 커서 위치의 줄만 opacity 1 (진한 회색)
+      if (lineIndex === currentCursorLineIndex) {
+        return 1; // 현재 커서 위치의 줄: opacity 1 (진한 회색)
       } else {
-        return 0.4; // 완료된 줄 또는 아직 입력하지 않은 줄: opacity 0.4 (연한 회색)
+        return 0.4; // 다른 줄: opacity 0.4 (연한 회색)
       }
     });
-  }, [completionInfo]);
+  }, [currentCursorLineIndex, targetText]);
 
   // 한컴타자연습 스타일 렌더링 (줄 단위 비교)
   const renderTextWithFeedback = useMemo(() => {
@@ -935,6 +934,7 @@ export default function Practice({ questionId }: PracticeProps) {
                 onCompositionEnd={handleCompositionEnd}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
+                onKeyUp={handleKeyUp}
 
                 className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground"
                 placeholder="여기에 입력하세요..."
