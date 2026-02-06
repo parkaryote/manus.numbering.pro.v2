@@ -1101,3 +1101,11 @@
   - [x] 현재 입력 중인 줄만 opacity 1 (진한 회색)
   - [x] 나머지 줄은 opacity 0.4 (연한 회색)
   - [x] 엔터 후 다음 줄로 이동할 때 opacity 정확하게 업데이트됨 확인
+
+
+# 최종 수정 (v1.17) - 완료
+- [x] 줄 단위 opacity 표시 버그 최종 수정
+  - [x] calculateLineOpacity 함수에서 completionInfo.currentLineIndex 사용
+  - [x] 현재 입력 중인 줄만 opacity 1 (진한 회색)
+  - [x] 완료된 줄과 미입력 줄은 opacity 0.4 (연한 회색)
+  - [x] 엔터 후 다음 줄로 이동할 때 이전 줄의 회색이 자동으로 연해짐 확인

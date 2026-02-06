@@ -643,47 +643,18 @@ export default function Practice({ questionId }: PracticeProps) {
   // 실시간 단어 뷰: 줄 단위 opacity 계산
   const calculateLineOpacity = useMemo(() => {
     const lines = targetText.split('\n');
-    const targetChars = targetText.split('');
-    const userChars = normalizeText(userInput).split('').filter(c => c !== ' ' && c !== '\n');
+    const { currentLineIndex: activeLineIdx } = completionInfo;
     
-    // 각 줄에 입력이 시작되었는지 확인
-    let charIndex = 0;
-    let currentLineIndex = 0;
-    const lineHasInput: boolean[] = [];
-    let underbarLineIndex = -1; // 언더바가 있는 줄
-    
-    for (let i = 0; i < targetChars.length; i++) {
-      const char = targetChars[i];
-      
-      if (char === '\n') {
-        currentLineIndex++;
-        continue;
-      }
-      
-      if (char === ' ') {
-        continue;
-      }
-      
-      // 현재 글자에 입력이 있는지 확인
-      if (charIndex < userChars.length) {
-        lineHasInput[currentLineIndex] = true;
-      } else if (charIndex === userChars.length && underbarLineIndex === -1) {
-        // 언더바 위치 (다음 입력할 글자)
-        underbarLineIndex = currentLineIndex;
-      }
-      
-      charIndex++;
-    }
-    
+    // 각 줄의 opacity 계산
     return lines.map((_, lineIndex) => {
-      // 현재 입력 중인 줄 (언더바가 있는 줄)만 opacity 1
-      if (lineIndex === underbarLineIndex) {
+      // 현재 입력 중인 줄만 opacity 1 (진한 회색)
+      if (lineIndex === activeLineIdx) {
         return 1; // 현재 입력 중인 줄: opacity 1 (진한 회색)
       } else {
-        return 0.4; // 다른 줄: opacity 0.4 (연한 회색)
+        return 0.4; // 완료된 줄 또는 아직 입력하지 않은 줄: opacity 0.4 (연한 회색)
       }
     });
-  }, [userInput, targetText]);
+  }, [completionInfo]);
 
   // 한컴타자연습 스타일 렌더링 (줄 단위 비교)
   const renderTextWithFeedback = useMemo(() => {
