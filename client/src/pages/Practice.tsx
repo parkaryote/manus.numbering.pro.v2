@@ -32,6 +32,7 @@ export default function Practice({ questionId }: PracticeProps) {
   const [inputHistory, setInputHistory] = useState<string[]>([""]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [showInactiveAlert, setShowInactiveAlert] = useState(false); // 입력 시간 알림
+  const [currentCursorLineIndex, setCurrentCursorLineIndex] = useState(0); // 현재 커서 위치의 줄 인덱스
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const answerDisplayRef = useRef<HTMLDivElement>(null); // 정답 표시 영역 ref
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -213,8 +214,24 @@ export default function Practice({ questionId }: PracticeProps) {
     }
   };
 
+  const handleKeyUp = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const textarea = e.currentTarget;
+    const cursorPos = textarea.selectionStart;
+    const value = textarea.value;
+    
+    // 현재 커서 위치의 줄 인덱스 계산
+    const lineIndex = value.substring(0, cursorPos).split('\n').length - 1;
+    setCurrentCursorLineIndex(lineIndex);
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    
+    // 현재 커서 위치의 줄 인덱스 계산
+    const lineIndex = newValue.substring(0, cursorPos).split('\n').length - 1;
+    setCurrentCursorLineIndex(lineIndex);
+    
     setUserInput(newValue);
     setLastInputTime(Date.now());
     lastInputRef.current = newValue;
@@ -634,11 +651,11 @@ export default function Practice({ questionId }: PracticeProps) {
       });
     }
     
-    // 현재 입력 중인 줄 인덱스 (마지막 줄)
-    const currentLineIndex = userLines.length - 1;
+    // 현재 입력 중인 줄 인덱스 (커서 위치 기반)
+    const currentLineIndex = currentCursorLineIndex;
     
     return { lineResults, currentLineIndex, userLines, targetLines };
-  }, [userInput, targetText, renderTrigger]);
+  }, [userInput, targetText, renderTrigger, currentCursorLineIndex]);
 
   // 실시간 단어 뷰: 줄 단위 opacity 계산
   const calculateLineOpacity = useMemo(() => {
