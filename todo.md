@@ -1335,3 +1335,14 @@
   - [x] 근본 원인: handleCorrectAnswer 호출 전에 setUserInput('') 즉시 초기화 코드가 있었음
   - [x] 즉시 초기화 코드 제거, handleCorrectAnswer 내부에서만 처리
   - [x] 0.7초 delay 후 setIsFadingOut(true), 1.0초 후 입력 제거 및 fade out 해제
+
+# 버그 수정 (v2.2.5)
+- [ ] 마지막 줄의 진한 회색을 첫 줄로 옮기기
+  - [ ] renderTextWithFeedback에서 lineIdx === 0일 때만 text-gray-600 적용
+  - [ ] 나머지 줄은 모두 text-gray-300으로 통일
+
+# 버그 수정 (v2.2.5)
+- [x] 마지막 줄의 진한 회색을 첫 줄로 옮기기
+  - [x] renderTextWithFeedback에서 각 글자의 fade out 색상을 lineIdx 기반으로 결정
+  - [x] 첫 줄(lineIdx === 0): text-gray-600, 나머지: text-gray-300
+  - [x] 5줄 중 마지막 줄 입력 후 정답 인식 시 첫 줄만 진한 회색 fade out 확인

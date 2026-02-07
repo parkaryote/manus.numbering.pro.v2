@@ -762,15 +762,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const matchResult = isLastChar && lastCharMatchResult ? lastCharMatchResult : isPartialMatch(userChar, targetChar, nextTargetChar);
         
         if (matchResult === 'complete') {
+          const fadeClass = isFadingOut ? (lineIdx === 0 ? "text-gray-600" : "text-gray-300") : "text-foreground";
           return (
-            <span key={`${lineIdx}-${charIndex}`} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"} style={{ opacity: 1 }}>
+            <span key={`${lineIdx}-${charIndex}`} className={fadeClass + " relative font-semibold text-xl transition-colors duration-300"} style={{ opacity: 1 }}>
               {char}
             </span>
           );
         } else if (matchResult === 'partial' || matchResult === 'partial_complete') {
           if (matchResult === 'partial_complete') {
+            const fadeClass = isFadingOut ? (lineIdx === 0 ? "text-gray-600" : "text-gray-300") : "text-foreground";
             return (
-              <span key={`${lineIdx}-${charIndex}`} className={isFadingOut ? "text-gray-400 relative font-semibold text-xl transition-colors duration-1500" : "text-foreground relative font-semibold text-xl"} style={{ opacity: 1 }}>
+              <span key={`${lineIdx}-${charIndex}`} className={fadeClass + " relative font-semibold text-xl transition-colors duration-300"} style={{ opacity: 1 }}>
                 {char}
               </span>
             );
