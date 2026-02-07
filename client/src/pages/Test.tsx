@@ -817,7 +817,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 </div>
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-3xl font-bold">{result?.similarityScore || 0}%</p>
-                  <p className="text-sm text-muted-foreground mt-1">유사도</p>
+                  <p className="text-sm text-muted-foreground mt-1">정확도</p>
                 </div>
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-3xl font-bold">{formatTime(recallTime)}</p>
