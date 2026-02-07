@@ -1309,9 +1309,9 @@
   - [ ] 페이지 전환 전에 애니메이션 완료 대기
 
 # 버그 수정 (v2.2.1)
-- [x] 연습 완료 후 fade out 애니메이션 기능 복구
-  - [x] Practice.tsx 실시간 단어 뷰에 isFadingOut 조건 추가
-  - [x] 실시간 단어 뷰 컨테이너에 transition-opacity duration-700 애니메이션 추가
-  - [x] textarea에도 동일한 fade out 애니메이션 적용
-  - [x] opacity-20으로 fade out, 0.7초에 걸쳐 완료
-  - [x] 연습 모드에서 정답 입력 후 fade out 동작 테스트 완료
+- [x] 연습 완료 후 글자 색상 fade out 및 입력 천천히 초기화
+  - [x] 컨테이너 opacity 애니메이션 제거 (화면 전체 fade out 제거)
+  - [x] 글자 색상만 검정→회색으로 천천히 변하는 transition-colors duration-1500 유지
+  - [x] 입력값을 0.7초에 걸쳐 한 글자씩 천천히 제거 (setInterval 사용)
+  - [x] 입력 초기화 완료 후 fade out 상태 해제
+  - [x] 연습 모드에서 정답 입력 후 글자 색상 변화 및 입력 초기화 테스트 완료

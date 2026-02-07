@@ -556,7 +556,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
   };
 
-  // 정답 일치 시 fade out 애니메이션 후 입력 초기화
+  // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
   const handleCorrectAnswer = async (currentInputLength?: number) => {
     setIsFadingOut(true);
     setPracticeCount(prev => prev + 1);
@@ -591,16 +591,27 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
     }
     
-    // 입력 초기화는 handleInputChange에서 이미 처리됨
-    // 여기서는 textarea에 포커스만 설정
-    setTimeout(() => {
-      textareaRef.current?.focus();
-    }, 700);
+    // 입력값을 천천히 지우기 (0.7초에 걸쳐 한 글자씩 제거)
+    const currentInput = userInput;
+    const deleteInterval = currentInput.length > 0 ? 700 / currentInput.length : 700;
+    let charIndex = currentInput.length;
     
-    // fade out 상태 0.8초 후 해제 (자연스러운 여운)
-    setTimeout(() => {
-      setIsFadingOut(false);
-    }, 800);
+    const deleteTimer = setInterval(() => {
+      if (charIndex > 0) {
+        charIndex--;
+        const newInput = currentInput.substring(0, charIndex);
+        if (textareaRef.current) {
+          textareaRef.current.value = newInput;
+        }
+        setUserInput(newInput);
+      } else {
+        clearInterval(deleteTimer);
+        // 입력 초기화 완료 후 포커스 설정
+        textareaRef.current?.focus();
+        // fade out 상태 해제
+        setIsFadingOut(false);
+      }
+    }, deleteInterval);
   };
 
   const formatTime = (seconds: number) => {
@@ -984,7 +995,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             <>
               <div 
                 ref={answerDisplayRef}
-                className={`p-6 bg-muted/30 rounded-lg border-2 border-border max-h-[400px] overflow-y-auto transition-opacity duration-700 ${isFadingOut ? 'opacity-20' : 'opacity-100'}`}
+                className="p-6 bg-muted/30 rounded-lg border-2 border-border max-h-[400px] overflow-y-auto"
               >
                 <div className="leading-relaxed whitespace-pre-wrap">
                   {renderTextWithFeedback}
@@ -1000,7 +1011,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 onKeyDown={handleKeyDown}
                 onKeyUp={handleKeyUp}
 
-                className={`w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground transition-opacity duration-700 ${isFadingOut ? 'opacity-20' : 'opacity-100'}`}
+                className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground"
                 placeholder="여기에 입력하세요..."
                 autoFocus
               />
