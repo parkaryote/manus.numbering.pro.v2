@@ -70,6 +70,17 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     },
   });
 
+  const demoEvaluateMutation = trpc.demo.evaluate.useMutation({
+    onSuccess: (data: any) => {
+      setResult(data);
+      setIsSubmitted(true);
+      toast.success("답안이 제출되었습니다");
+    },
+    onError: (error: any) => {
+      toast.error("평가 실패: " + error.message);
+    },
+  });
+
   const transcribeMutation = trpc.voice.transcribe.useMutation({
     onSuccess: (data: any) => {
       setUserAnswer(data.text);
@@ -161,16 +172,18 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       const combinedAnswer = imageLabels.map((_: any, index: number) => 
         `${index + 1}. ${imageLabelAnswers[index]}`
       ).join("\n");
-      // 데모 모드에서도 채점 로직 실행 (망각 곱선 업데이트는 제외)
-      const evalResult = await evaluateMutation.mutateAsync({
-        questionId: question.id,
-        userAnswer: combinedAnswer,
-        recallTime,
-      });
-      
-      // 데모 모드에서는 망각 곱선 업데이트 실패 무시
       if (isDemo) {
-        // 채점 결과는 표시하지만 학습 기록은 저장하지 않음
+        await demoEvaluateMutation.mutateAsync({
+          questionId: question.id,
+          userAnswer: combinedAnswer,
+          recallTime,
+        });
+      } else {
+        await evaluateMutation.mutateAsync({
+          questionId: question.id,
+          userAnswer: combinedAnswer,
+          recallTime,
+        });
       }
     } else {
       // 텍스트 문제인 경우
@@ -178,16 +191,18 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
         toast.error("답안을 입력하세요");
         return;
       }
-      // 데모 모드에서도 채점 로직 실행 (망각 곱선 업데이트는 제외)
-      const evalResult = await evaluateMutation.mutateAsync({
-        questionId: question.id,
-        userAnswer: userAnswer.trim(),
-        recallTime,
-      });
-      
-      // 데모 모드에서는 망각 곱선 업데이트 실패 무시
       if (isDemo) {
-        // 채점 결과는 표시하지만 학습 기록은 저장하지 않음
+        await demoEvaluateMutation.mutateAsync({
+          questionId: question.id,
+          userAnswer: userAnswer.trim(),
+          recallTime,
+        });
+      } else {
+        await evaluateMutation.mutateAsync({
+          questionId: question.id,
+          userAnswer: userAnswer.trim(),
+          recallTime,
+        });
       }
     }
   };

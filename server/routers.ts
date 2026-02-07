@@ -34,6 +34,109 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.getDemoQuestions(input.subjectId);
       }),
+
+    evaluate: publicProcedure
+      .input(z.object({
+        questionId: z.number(),
+        userAnswer: z.string(),
+        recallTime: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const question = await db.getQuestionById(input.questionId);
+        if (!question) {
+          throw new Error("문제를 찾을 수 없습니다");
+        }
+
+        // 이미지 문제인 경우 imageLabels에서 정답 추출
+        const isImageQuestion = question.imageUrl && question.imageLabels;
+        let correctAnswer = question.answer || "";
+
+        if (isImageQuestion) {
+          try {
+            const imageLabels = JSON.parse(question.imageLabels || "[]");
+            correctAnswer = imageLabels.map((label: any, index: number) =>
+              `${index + 1}. ${label.answer}`
+            ).join("\n");
+          } catch (e) {
+            console.error("Failed to parse imageLabels:", e);
+          }
+        }
+
+        // 이미지 문제 라벨별 채점
+        if (isImageQuestion) {
+          try {
+            const imageLabels = JSON.parse(question.imageLabels || "[]");
+            const userAnswerLines = input.userAnswer.split("\n");
+
+            let correctCount = 0;
+            const totalCount = imageLabels.length;
+            const labelComparisons: any[] = [];
+
+            for (let i = 0; i < totalCount; i++) {
+              const correctAns = imageLabels[i]?.answer?.trim().toLowerCase() || "";
+              const userAnswerLine = userAnswerLines[i] || "";
+              const userAns = userAnswerLine.replace(/^\d+\.\s*/, "").trim().toLowerCase();
+              const isLabelCorrect = userAns === correctAns;
+              if (isLabelCorrect) correctCount++;
+
+              labelComparisons.push({
+                labelIndex: i + 1,
+                correctAnswer: correctAns,
+                userAnswer: userAns,
+                isCorrect: isLabelCorrect
+              });
+            }
+
+            const accuracyRate = Math.round((correctCount / totalCount) * 100);
+            const isCorrect = accuracyRate === 100;
+
+            return {
+              isCorrect,
+              similarityScore: accuracyRate,
+              accuracyRate,
+              mistakes: labelComparisons,
+              feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctCount}/${totalCount} 정답`,
+              missingKeywords: [],
+            };
+          } catch (e) {
+            console.error("Failed to grade image question:", e);
+          }
+        }
+
+        // 텍스트 문제 줄 단위 채점
+        const userLines = input.userAnswer.split('\n').map(line => line.trim());
+        const correctLines = correctAnswer.split('\n').map(line => line.trim());
+
+        const lineComparisons: any[] = [];
+        let correctLineCount = 0;
+        const totalLines = correctLines.length;
+
+        for (let i = 0; i < totalLines; i++) {
+          const correctLine = correctLines[i].toLowerCase().replace(/\s+/g, "");
+          const userLine = (userLines[i] || "").toLowerCase().replace(/\s+/g, "");
+          const isLineCorrect = userLine === correctLine;
+          if (isLineCorrect) correctLineCount++;
+
+          lineComparisons.push({
+            lineIndex: i + 1,
+            correctAnswer: correctLines[i],
+            userAnswer: userLines[i] || "",
+            isCorrect: isLineCorrect
+          });
+        }
+
+        const isCorrect = correctLineCount === totalLines && userLines.length === totalLines;
+        const accuracyRate = totalLines > 0 ? Math.round((correctLineCount / totalLines) * 100) : 0;
+
+        return {
+          isCorrect,
+          similarityScore: accuracyRate,
+          accuracyRate,
+          mistakes: lineComparisons,
+          feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctLineCount}/${totalLines} 줄 정답 (정확도: ${accuracyRate}%)`,
+          missingKeywords: [],
+        };
+      }),
   }),
 
   // Subject management
