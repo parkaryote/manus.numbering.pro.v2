@@ -984,7 +984,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             <>
               <div 
                 ref={answerDisplayRef}
-                className="p-6 bg-muted/30 rounded-lg border-2 border-border max-h-[400px] overflow-y-auto"
+                className={`p-6 bg-muted/30 rounded-lg border-2 border-border max-h-[400px] overflow-y-auto transition-opacity duration-700 ${isFadingOut ? 'opacity-20' : 'opacity-100'}`}
               >
                 <div className="leading-relaxed whitespace-pre-wrap">
                   {renderTextWithFeedback}
@@ -1000,7 +1000,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 onKeyDown={handleKeyDown}
                 onKeyUp={handleKeyUp}
 
-                className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground"
+                className={`w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground transition-opacity duration-700 ${isFadingOut ? 'opacity-20' : 'opacity-100'}`}
                 placeholder="여기에 입력하세요..."
                 autoFocus
               />

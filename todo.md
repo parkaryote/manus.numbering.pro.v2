@@ -1301,3 +1301,17 @@
   - [x] 프론트엔드: 정확도는 2/5 형식, 유사도는 30% 형식으로 표시
   - [x] demo.evaluate에도 동일 로직 적용
   - [x] vitest 8개 테스트 작성 및 통과
+
+# 버그 수정 (v2.2.1)
+- [ ] 연습 완료 후 fade out 애니메이션 기능 복구
+  - [ ] Practice.tsx에서 완료 후 fade out 로직 찾기
+  - [ ] CSS 애니메이션 또는 JavaScript 애니메이션 구현
+  - [ ] 페이지 전환 전에 애니메이션 완료 대기
+
+# 버그 수정 (v2.2.1)
+- [x] 연습 완료 후 fade out 애니메이션 기능 복구
+  - [x] Practice.tsx 실시간 단어 뷰에 isFadingOut 조건 추가
+  - [x] 실시간 단어 뷰 컨테이너에 transition-opacity duration-700 애니메이션 추가
+  - [x] textarea에도 동일한 fade out 애니메이션 적용
+  - [x] opacity-20으로 fade out, 0.7초에 걸쳐 완료
+  - [x] 연습 모드에서 정답 입력 후 fade out 동작 테스트 완료
