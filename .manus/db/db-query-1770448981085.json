@@ -1,0 +1,25 @@
+{
+  "query": "SELECT id, subjectId, question FROM questions WHERE isDemo = 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT id, subjectId, question FROM questions WHERE isDemo = 1;",
+  "rows": [
+    {
+      "id": "420012",
+      "subjectId": "180011",
+      "question": "안정된 교합의 조건을 쓰시오."
+    },
+    {
+      "id": "450003",
+      "subjectId": "1",
+      "question": "정상 교합의 조건을 설명하시오."
+    },
+    {
+      "id": "450004",
+      "subjectId": "2",
+      "question": "상악 우측 제1대구치의 특징을 설명하시오."
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tsubjectId\tquestion\n420012\t180011\t안정된 교합의 조건을 쓰시오.\n450003\t1\t정상 교합의 조건을 설명하시오.\n450004\t2\t상악 우측 제1대구치의 특징을 설명하시오.\n",
+  "stderr": "",
+  "execution_time_ms": 1630
+}

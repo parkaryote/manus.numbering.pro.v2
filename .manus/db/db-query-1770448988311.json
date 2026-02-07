@@ -1,0 +1,25 @@
+{
+  "query": "SELECT s.id as subjectId, s.name, COUNT(q.id) as questionCount FROM subjects s LEFT JOIN questions q ON s.id = q.subjectId AND q.isDemo = 1 WHERE s.isDemo = 1 GROUP BY s.id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT s.id as subjectId, s.name, COUNT(q.id) as questionCount FROM subjects s LEFT JOIN questions q ON s.id = q.subjectId AND q.isDemo = 1 WHERE s.isDemo = 1 GROUP BY s.id;",
+  "rows": [
+    {
+      "subjectId": "180013",
+      "name": "치아형태학",
+      "questionCount": "0"
+    },
+    {
+      "subjectId": "180011",
+      "name": "악구강영역의 기능해부학 2",
+      "questionCount": "1"
+    },
+    {
+      "subjectId": "180012",
+      "name": "해부학",
+      "questionCount": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "subjectId\tname\tquestionCount\n180013\t치아형태학\t0\n180011\t악구강영역의 기능해부학 2\t1\n180012\t해부학\t0\n",
+  "stderr": "",
+  "execution_time_ms": 1498
+}

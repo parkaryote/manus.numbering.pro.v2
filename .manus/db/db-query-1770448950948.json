@@ -1,0 +1,39 @@
+{
+  "query": "SELECT id, subjectId, question, answer FROM questions WHERE isDemo = 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT id, subjectId, question, answer FROM questions WHERE isDemo = 1;",
+  "rows": [
+    {
+      "id": "420012",
+      "subjectId": "180011",
+      "question": "안정된 교합의 조건을 쓰시오.",
+      "answer": "악관절이 건강하고 안정"
+    },
+    {
+      "id": "450003",
+      "subjectId": "1",
+      "question": "정상 교합의 조건을 설명하시오.",
+      "answer": "상악 전치가 하악 전치를 약 2-3mm 피복"
+    },
+    {
+      "id": "450004",
+      "subjectId": "2",
+      "question": "상악 우측 제1대구치의 특징을 설명하시오.",
+      "answer": "근심면에 4개의 근심변연융선"
+    }
+  ],
+  "messages": [
+    "모든 치아가 견고",
+    "치아가 과도하게 닳지 않은 상태",
+    "모든 치아가 자신의 위치에 멈추어 있음",
+    "지지하는 조직들이 건강",
+    "상악 구치가 하악 구치를 약 1mm 피복",
+    "상하 정중선이 일치",
+    "상악 구치의 협측 교두가 하악 구치의 협측 홈에 위치",
+    "원심면에 3개의 원심변연융선",
+    "협측면에 2개의 협측 교두",
+    "설측면에 1개의 설측 교두"
+  ],
+  "stdout": "id\tsubjectId\tquestion\tanswer\n420012\t180011\t안정된 교합의 조건을 쓰시오.\t악관절이 건강하고 안정\n모든 치아가 견고\n치아가 과도하게 닳지 않은 상태\n모든 치아가 자신의 위치에 멈추어 있음\n지지하는 조직들이 건강\n450003\t1\t정상 교합의 조건을 설명하시오.\t상악 전치가 하악 전치를 약 2-3mm 피복\n상악 구치가 하악 구치를 약 1mm 피복\n상하 정중선이 일치\n상악 구치의 협측 교두가 하악 구치의 협측 홈에 위치\n450004\t2\t상악 우측 제1대구치의 특징을 설명하시오.\t근심면에 4개의 근심변연융선\n원심면에 3개의 원심변연융선\n협측면에 2개의 협측 교두\n설측면에 1개의 설측 교두\n",
+  "stderr": "",
+  "execution_time_ms": 1668
+}
