@@ -10,6 +10,30 @@ import { transcribeAudio } from "./_core/voiceTranscription";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 
+// 글자 단위 유사도 계산 (대소문자 무시, 띄어쓰기 무시)
+function calcCharSimilarity(userText: string, correctText: string): number {
+  const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+  const a = normalize(userText);
+  const b = normalize(correctText);
+  if (b.length === 0) return a.length === 0 ? 100 : 0;
+  if (a.length === 0) return 0;
+  // LCS 기반 유사도
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  const lcsLen = dp[m][n];
+  return Math.round((lcsLen / Math.max(m, n)) * 100);
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -127,13 +151,16 @@ export const appRouter = router({
 
         const isCorrect = correctLineCount === totalLines && userLines.length === totalLines;
         const accuracyRate = totalLines > 0 ? Math.round((correctLineCount / totalLines) * 100) : 0;
+        const similarityScore = calcCharSimilarity(input.userAnswer, correctAnswer);
 
         return {
           isCorrect,
-          similarityScore: accuracyRate,
+          similarityScore,
           accuracyRate,
+          correctLineCount,
+          totalLines,
           mistakes: lineComparisons,
-          feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctLineCount}/${totalLines} 줄 정답 (정확도: ${accuracyRate}%)`,
+          feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctLineCount}/${totalLines} 줄 정답`,
           missingKeywords: [],
         };
       }),
@@ -547,14 +574,14 @@ export const appRouter = router({
           
           // Calculate accuracy rate based on correct lines
           const accuracyRate = totalLines > 0 ? Math.round((correctLineCount / totalLines) * 100) : 0;
+          // Calculate character-level similarity
+          const similarityScore = calcCharSimilarity(input.userAnswer, correctAnswer);
           
           console.log("[DEBUG] Line-by-line comparison mode");
-          console.log("[DEBUG] userLines:", userLines);
-          console.log("[DEBUG] correctLines:", correctLines);
           console.log("[DEBUG] correctLineCount:", correctLineCount, "/", totalLines);
           console.log("[DEBUG] isCorrect:", isCorrect);
           console.log("[DEBUG] accuracyRate:", accuracyRate);
-          console.log("[DEBUG] lineComparisons:", lineComparisons);
+          console.log("[DEBUG] similarityScore:", similarityScore);
           
           // Save test session
           await db.createTestSession({
@@ -563,17 +590,19 @@ export const appRouter = router({
             userAnswer: input.userAnswer,
             isCorrect: isCorrect ? 1 : 0,
             recallTime: input.recallTime,
-            similarityScore: accuracyRate,
+            similarityScore,
             mistakeHighlights: JSON.stringify(lineComparisons),
             llmFeedback: null,
           });
           
           return {
             isCorrect,
-            similarityScore: accuracyRate,
+            similarityScore,
             accuracyRate,
+            correctLineCount,
+            totalLines,
             mistakes: lineComparisons,
-            feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctLineCount}/${totalLines} 줄 정답 (정확도: ${accuracyRate}%)`,
+            feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctLineCount}/${totalLines} 줄 정답`,
             missingKeywords: [],
           };
         }

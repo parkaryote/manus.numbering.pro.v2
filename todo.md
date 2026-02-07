@@ -1294,3 +1294,10 @@
   - [x] demo.evaluate publicProcedure 추가 (세션 저장 없이 채점만 수행)
   - [x] Test.tsx에서 데모 모드일 때 demo.evaluate 호출하도록 수정
   - [x] 부분 정답 2/5 줄 = 40% 정확도 표시 확인
+# 기능 개선 (v2.2.0)
+- [x] 정확도 + 유사도 동시 표시
+  - [x] 서버: LCS 기반 글자 단위 유사도 계산 함수 추가 (calcCharSimilarity)
+  - [x] 서버: 정확도(correctLineCount/totalLines)와 유사도(%) 모두 반환
+  - [x] 프론트엔드: 정확도는 2/5 형식, 유사도는 30% 형식으로 표시
+  - [x] demo.evaluate에도 동일 로직 적용
+  - [x] vitest 8개 테스트 작성 및 통과
