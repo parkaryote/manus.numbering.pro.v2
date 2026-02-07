@@ -2,7 +2,8 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
-import { BookOpen, ArrowLeft, FileText, Image as ImageIcon, Table } from "lucide-react";
+import { BookOpen, ArrowLeft, FileText, Image as ImageIcon, Table, LogIn } from "lucide-react";
+import { getLoginUrl } from "@/const";
 
 export default function Demo() {
   const [, setLocation] = useLocation();
@@ -18,6 +19,24 @@ export default function Demo() {
         <h1 className="text-4xl font-semibold tracking-tight">데모 모드</h1>
         <p className="text-muted-foreground mt-2">로그인 없이 연습할 수 있습니다</p>
       </div>
+
+      <Card className="mb-6 border-primary/20 bg-primary/5">
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="font-medium">나만의 문제를 만들고 학습 기록을 저장하려면?</p>
+              <p className="text-sm text-muted-foreground">로그인하면 과목 생성, 문제 추가, 학습 통계 기능을 사용할 수 있습니다</p>
+            </div>
+            <Button
+              onClick={() => { window.location.href = getLoginUrl(); }}
+              className="gap-2 shrink-0"
+            >
+              <LogIn className="h-4 w-4" />
+              로그인
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {isLoading ? (
         <Card className="shadow-elegant">
