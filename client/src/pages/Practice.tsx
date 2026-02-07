@@ -213,12 +213,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const normalized = normalizeText(newValue);
     const normalizedTarget = normalizeText(targetText);
     if (normalized === normalizedTarget) {
-      // 즉시 입력 초기화 - textarea value 직접 비우기
-      if (textareaRef.current) {
-        textareaRef.current.value = "";
-      }
-      setUserInput("");
-      // 그 후 완료 처리
+      // 완료 처리 - fade out 후 입력 초기화는 handleCorrectAnswer 내부에서 처리
       handleCorrectAnswer(newValue.length);
       return; // 이후 코드 실행 중단
     }
@@ -287,12 +282,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const normalized = normalizeText(newValue);
     const normalizedTarget = normalizeText(targetText);
     if (normalized === normalizedTarget) {
-      // 즉시 입력 초기화 - textarea value 직접 비우기
-      if (textareaRef.current) {
-        textareaRef.current.value = "";
-      }
-      setUserInput("");
-      // 그 후 완료 처리
+      // 완료 처리 - fade out 후 입력 초기화는 handleCorrectAnswer 내부에서 처리
       handleCorrectAnswer(newValue.length);
       return; // 이후 코드 실행 중단
     }
@@ -590,20 +580,20 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
     }
     
-    // 0.7초 delay 후 색상 fade out 시작 및 입력창 제거
+    // 0.7초 delay 후 글자 색상 fade out 시작
     setTimeout(() => {
       setIsFadingOut(true);
+    }, 700);
+    
+    // 1.0초 후 (0.7초 delay + 0.3초 fade out) 입력창 제거 및 fade out 해제
+    setTimeout(() => {
       setUserInput('');
       if (textareaRef.current) {
         textareaRef.current.value = '';
       }
       textareaRef.current?.focus();
-      
-      // 0.3초 후 fade out 상태 해제
-      setTimeout(() => {
-        setIsFadingOut(false);
-      }, 300);
-    }, 700);
+      setIsFadingOut(false);
+    }, 1000);
   };
 
   const formatTime = (seconds: number) => {

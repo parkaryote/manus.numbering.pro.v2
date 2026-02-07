@@ -1329,3 +1329,9 @@
   - [x] 글자 색상 fade out: 0.3초 동안 진행 (transition-colors duration-300)
   - [x] 입력창 제거: 0.7초 delay 후 통째로 제거
   - [x] 0.7초 대기 후 0.3초 동안 연동된 여운 단사 테스트 완료
+
+# 버그 수정 (v2.2.4)
+- [x] fade out delay/duration이 실제로 적용되지 않는 문제 해결
+  - [x] 근본 원인: handleCorrectAnswer 호출 전에 setUserInput('') 즉시 초기화 코드가 있었음
+  - [x] 즉시 초기화 코드 제거, handleCorrectAnswer 내부에서만 처리
+  - [x] 0.7초 delay 후 setIsFadingOut(true), 1.0초 후 입력 제거 및 fade out 해제
