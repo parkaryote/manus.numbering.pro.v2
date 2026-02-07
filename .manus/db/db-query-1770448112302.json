@@ -1,0 +1,46 @@
+{
+  "query": "SELECT * FROM subjects WHERE isDemo = 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT * FROM subjects WHERE isDemo = 1;",
+  "rows": [
+    {
+      "id": "180011",
+      "userId": "1",
+      "name": "악구강영역의 기능해부학 2",
+      "description": "데모 과목 - 텍스트 문제",
+      "color": "#3B82F6",
+      "createdAt": "2026-02-06 18:54:30",
+      "updatedAt": "2026-02-06 18:54:30",
+      "displayOrder": "0",
+      "examEndDate": "NULL",
+      "isDemo": "1"
+    },
+    {
+      "id": "180012",
+      "userId": "1",
+      "name": "해부학",
+      "description": "데모 과목 - 이미지 문제",
+      "color": "#10B981",
+      "createdAt": "2026-02-06 18:54:30",
+      "updatedAt": "2026-02-06 18:54:30",
+      "displayOrder": "1",
+      "examEndDate": "NULL",
+      "isDemo": "1"
+    },
+    {
+      "id": "180013",
+      "userId": "1",
+      "name": "치아형태학",
+      "description": "데모 과목 - 표 문제",
+      "color": "#8B5CF6",
+      "createdAt": "2026-02-06 18:54:30",
+      "updatedAt": "2026-02-06 18:54:30",
+      "displayOrder": "2",
+      "examEndDate": "NULL",
+      "isDemo": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tuserId\tname\tdescription\tcolor\tcreatedAt\tupdatedAt\tdisplayOrder\texamEndDate\tisDemo\n180011\t1\t악구강영역의 기능해부학 2\t데모 과목 - 텍스트 문제\t#3B82F6\t2026-02-06 18:54:30\t2026-02-06 18:54:30\t0\tNULL\t1\n180012\t1\t해부학\t데모 과목 - 이미지 문제\t#10B981\t2026-02-06 18:54:30\t2026-02-06 18:54:30\t1\tNULL\t1\n180013\t1\t치아형태학\t데모 과목 - 표 문제\t#8B5CF6\t2026-02-06 18:54:30\t2026-02-06 18:54:30\t2\tNULL\t1\n",
+  "stderr": "",
+  "execution_time_ms": 1673
+}

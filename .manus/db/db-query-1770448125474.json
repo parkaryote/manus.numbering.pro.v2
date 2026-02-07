@@ -1,0 +1,9 @@
+{
+  "query": "INSERT INTO questions (userId, subjectId, question, answer, difficulty, isDemo, displayOrder) VALUES \n(1, 1, '정상 교합의 조건을 설명하시오.', '상악 전치가 하악 전치를 약 2-3mm 피복\\n상악 구치가 하악 구치를 약 1mm 피복\\n상하 정중선이 일치\\n상악 구치의 협측 교두가 하악 구치의 협측 홈에 위치', 'medium', 1, 1),\n(1, 2, '상악 우측 제1대구치의 특징을 설명하시오.', '근심면에 4개의 근심변연융선\\n원심면에 3개의 원심변연융선\\n협측면에 2개의 협측 교두\\n설측면에 1개의 설측 교두', 'medium', 1, 1);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute INSERT INTO questions (userId, subjectId, question, answer, difficulty, isDemo, displayOrder) VALUES \n(1, 1, '정상 교합의 조건을 설명하시오.', '상악 전치가 하악 전치를 약 2-3mm 피복\\n상악 구치가 하악 구치를 약 1mm 피복\\n상하 정중선이 일치\\n상악 구치의 협측 교두가 하악 구치의 협측 홈에 위치', 'medium', 1, 1),\n(1, 2, '상악 우측 제1대구치의 특징을 설명하시오.', '근심면에 4개의 근심변연융선\\n원심면에 3개의 원심변연융선\\n협측면에 2개의 협측 교두\\n설측면에 1개의 설측 교두', 'medium', 1, 1);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1605
+}

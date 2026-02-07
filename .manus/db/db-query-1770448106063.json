@@ -1,0 +1,22 @@
+{
+  "query": "SELECT id, name FROM subjects WHERE isDemo = 1 AND (name LIKE '%해부%' OR name LIKE '%치아%');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT id, name FROM subjects WHERE isDemo = 1 AND (name LIKE '%해부%' OR name LIKE '%치아%');",
+  "rows": [
+    {
+      "id": "180011",
+      "name": "악구강영역의 기능해부학 2"
+    },
+    {
+      "id": "180012",
+      "name": "해부학"
+    },
+    {
+      "id": "180013",
+      "name": "치아형태학"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\n180011\t악구강영역의 기능해부학 2\n180012\t해부학\n180013\t치아형태학\n",
+  "stderr": "",
+  "execution_time_ms": 1592
+}
