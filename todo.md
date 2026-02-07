@@ -1346,3 +1346,10 @@
   - [x] renderTextWithFeedback에서 각 글자의 fade out 색상을 lineIdx 기반으로 결정
   - [x] 첫 줄(lineIdx === 0): text-gray-600, 나머지: text-gray-300
   - [x] 5줄 중 마지막 줄 입력 후 정답 인식 시 첫 줄만 진한 회색 fade out 확인
+
+# 버그 수정 (v2.2.6)
+- [x] 연습 중 나가기 버튼 클릭 시 에러 발생 및 로그인 창 표시 문제 해결
+  - [x] handleGoBack 함수에 isDemo 메드 추가
+  - [x] 데모 모드에서는 세션 저장 없이 바로 나가기
+  - [x] 로그인 모드에서는 try-catch로 에러 처리 및 바로 나가기
+  - [x] 나가기 버튼 클릭 시 에러 없이 정상 나가기 테스트 완료

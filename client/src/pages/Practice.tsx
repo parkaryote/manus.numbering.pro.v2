@@ -537,13 +537,19 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   // 돌아가기 버튼 클릭 핸들러
   const handleGoBack = async () => {
-    if (practiceCount > 0 && elapsedTime > 0 && !hasBeenSaved.current) {
-      await savePracticeSession();
-      // 저장 완료 후 바로 이동
+    if (isDemo) {
       setLocation(`/questions/${question?.subjectId || 1}`);
-    } else {
-      setLocation(`/questions/${question?.subjectId || 1}`);
+      return;
     }
+    
+    if (practiceCount > 0 && elapsedTime > 0 && !hasBeenSaved.current) {
+      try {
+        await savePracticeSession();
+      } catch (error) {
+        console.error('연습 기록 저장 실패:', error);
+      }
+    }
+    setLocation(`/questions/${question?.subjectId || 1}`);
   };
 
   // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
