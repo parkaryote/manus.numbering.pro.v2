@@ -558,7 +558,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
   const handleCorrectAnswer = async (currentInputLength?: number) => {
-    setIsFadingOut(true);
     setPracticeCount(prev => prev + 1);
     
     // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신 (매번 저장)
@@ -591,15 +590,19 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
     }
     
-    // 0.7초 후 입력창 통째로 제거
+    // 0.7초 delay 후 색상 fade out 시작 및 입력창 제거
     setTimeout(() => {
+      setIsFadingOut(true);
       setUserInput('');
       if (textareaRef.current) {
         textareaRef.current.value = '';
       }
       textareaRef.current?.focus();
-      // fade out 상태 해제
-      setIsFadingOut(false);
+      
+      // 0.3초 후 fade out 상태 해제
+      setTimeout(() => {
+        setIsFadingOut(false);
+      }, 300);
     }, 700);
   };
 
@@ -799,8 +802,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       // 줄 끝에 줄바꿈 추가 (마지막 줄 제외)
       // 첫 줄은 진한 회색 글씨, 나머지는 연한 회색 줄로 fade out
       const lineClass = lineIdx === 0 
-        ? (isFadingOut ? "text-gray-600 transition-colors duration-1500" : "text-foreground")
-        : (isFadingOut ? "text-gray-300 transition-colors duration-1500" : "text-foreground");
+        ? (isFadingOut ? "text-gray-600 transition-colors duration-300" : "text-foreground")
+        : (isFadingOut ? "text-gray-300 transition-colors duration-300" : "text-foreground");
       
        if (lineIdx < targetLines.length - 1) {
         return (

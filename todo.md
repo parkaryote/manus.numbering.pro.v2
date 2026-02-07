@@ -1323,3 +1323,9 @@
   - [x] 입력창: 0.7초 후 통째로 제거 (setTimeout 사용)
   - [x] transition-colors duration-1500으로 0.7초 동안 연동된 색상 변화
   - [x] 연습 모드에서 정답 입력 후 남는 여운 단사 테스트 완료
+
+# 버그 수정 (v2.2.3)
+- [x] fade out 타이밍 정확하게 조정
+  - [x] 글자 색상 fade out: 0.3초 동안 진행 (transition-colors duration-300)
+  - [x] 입력창 제거: 0.7초 delay 후 통째로 제거
+  - [x] 0.7초 대기 후 0.3초 동안 연동된 여운 단사 테스트 완료
