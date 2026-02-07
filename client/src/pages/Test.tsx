@@ -862,14 +862,33 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <div className="p-3 bg-green-50 rounded-lg border border-green-300">
-                      <p className="text-xs font-semibold text-muted-foreground mb-1">정답</p>
-                      <p className="text-sm font-medium whitespace-pre-wrap">{question?.answer}</p>
-                    </div>
-                    <div className={`p-3 rounded-lg border ${result?.isCorrect ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
-                      <p className="text-xs font-semibold text-muted-foreground mb-1">내 답</p>
-                      <p className={`text-sm font-medium whitespace-pre-wrap ${result?.isCorrect ? 'text-green-700' : 'text-red-700'}`}>{userAnswer}</p>
-                    </div>
+                    {result?.mistakes && result.mistakes.length > 0 ? (
+                      // Line-by-line comparison for multi-line text questions
+                      result.mistakes.map((mistake: any) => (
+                        <div key={mistake.lineIndex} className={`p-3 rounded-lg border ${mistake.isCorrect ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-semibold">{mistake.lineIndex}번째 줄</span>
+                            <span className={`text-lg ${mistake.isCorrect ? 'text-green-600' : 'text-red-600'}`}>{mistake.isCorrect ? '✓' : '✗'}</span>
+                          </div>
+                          <div className="text-xs space-y-1">
+                            <div><span className="font-semibold">정답:</span> {mistake.correctAnswer}</div>
+                            <div className={mistake.isCorrect ? 'text-green-700' : 'text-red-700'}><span className="font-semibold">내 답:</span> {mistake.userAnswer || '(입력 없음)'}</div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      // Fallback for single-line or old format
+                      <>
+                        <div className="p-3 bg-green-50 rounded-lg border border-green-300">
+                          <p className="text-xs font-semibold text-muted-foreground mb-1">정답</p>
+                          <p className="text-sm font-medium whitespace-pre-wrap">{question?.answer}</p>
+                        </div>
+                        <div className={`p-3 rounded-lg border ${result?.isCorrect ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+                          <p className="text-xs font-semibold text-muted-foreground mb-1">내 답</p>
+                          <p className={`text-sm font-medium whitespace-pre-wrap ${result?.isCorrect ? 'text-green-700' : 'text-red-700'}`}>{userAnswer}</p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

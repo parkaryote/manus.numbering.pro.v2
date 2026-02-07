@@ -414,39 +414,44 @@ export const appRouter = router({
           }
           
           // Line-by-line comparison for text questions
-          const userLines = input.userAnswer.split('\n').map(line => line.trim().toLowerCase().replace(/\s+/g, ""));
-          const correctLines = correctAnswer.split('\n').map(line => line.trim().toLowerCase().replace(/\s+/g, ""));
+          const userLines = input.userAnswer.split('\n').map(line => line.trim());
+          const correctLines = correctAnswer.split('\n').map(line => line.trim());
+          
+          // Compare each line and build lineComparisons array
+          const lineComparisons: any[] = [];
+          let correctLineCount = 0;
+          const totalLines = correctLines.length;
+          
+          for (let i = 0; i < totalLines; i++) {
+            const correctLine = correctLines[i].toLowerCase().replace(/\s+/g, "");
+            const userLine = (userLines[i] || "").toLowerCase().replace(/\s+/g, "");
+            const isLineCorrect = userLine === correctLine;
+            
+            if (isLineCorrect) {
+              correctLineCount++;
+            }
+            
+            lineComparisons.push({
+              lineIndex: i + 1,
+              correctAnswer: correctLines[i],
+              userAnswer: userLines[i] || "",
+              isCorrect: isLineCorrect
+            });
+          }
           
           // Check if all lines match (exact correctness)
-          let isCorrect = true;
-          if (userLines.length !== correctLines.length) {
-            isCorrect = false;
-          } else {
-            for (let i = 0; i < correctLines.length; i++) {
-              if (userLines[i] !== correctLines[i]) {
-                isCorrect = false;
-                break;
-              }
-            }
-          }
+          const isCorrect = correctLineCount === totalLines && userLines.length === totalLines;
           
-          // Calculate character-level similarity (유사도)
-          const normalizedUser = input.userAnswer.trim().toLowerCase().replace(/\s+/g, "");
-          const normalizedCorrect = correctAnswer.trim().toLowerCase().replace(/\s+/g, "");
-          let matchCount = 0;
-          const maxLength = Math.max(normalizedUser.length, normalizedCorrect.length);
-          for (let i = 0; i < Math.min(normalizedUser.length, normalizedCorrect.length); i++) {
-            if (normalizedUser[i] === normalizedCorrect[i]) {
-              matchCount++;
-            }
-          }
-          const similarityScore = maxLength > 0 ? Math.round((matchCount / maxLength) * 100) : 0;
+          // Calculate accuracy rate based on correct lines
+          const accuracyRate = totalLines > 0 ? Math.round((correctLineCount / totalLines) * 100) : 0;
           
           console.log("[DEBUG] Line-by-line comparison mode");
           console.log("[DEBUG] userLines:", userLines);
           console.log("[DEBUG] correctLines:", correctLines);
+          console.log("[DEBUG] correctLineCount:", correctLineCount, "/", totalLines);
           console.log("[DEBUG] isCorrect:", isCorrect);
-          console.log("[DEBUG] similarityScore:", similarityScore);
+          console.log("[DEBUG] accuracyRate:", accuracyRate);
+          console.log("[DEBUG] lineComparisons:", lineComparisons);
           
           // Save test session
           await db.createTestSession({
@@ -455,16 +460,17 @@ export const appRouter = router({
             userAnswer: input.userAnswer,
             isCorrect: isCorrect ? 1 : 0,
             recallTime: input.recallTime,
-            similarityScore: similarityScore,
-            mistakeHighlights: null,
+            similarityScore: accuracyRate,
+            mistakeHighlights: JSON.stringify(lineComparisons),
             llmFeedback: null,
           });
           
           return {
             isCorrect,
-            similarityScore: similarityScore,
-            mistakes: [],
-            feedback: isCorrect ? "정확하게 작성하셨습니다!" : `유사도: ${similarityScore}% - 답안을 다시 확인해보세요.`,
+            similarityScore: accuracyRate,
+            accuracyRate,
+            mistakes: lineComparisons,
+            feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctLineCount}/${totalLines} 줄 정답 (정확도: ${accuracyRate}%)`,
             missingKeywords: [],
           };
         }
