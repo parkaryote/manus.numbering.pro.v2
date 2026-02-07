@@ -161,16 +161,16 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       const combinedAnswer = imageLabels.map((_: any, index: number) => 
         `${index + 1}. ${imageLabelAnswers[index]}`
       ).join("\n");
-      if (!isDemo) {
-        await evaluateMutation.mutateAsync({
-          questionId: question.id,
-          userAnswer: combinedAnswer,
-          recallTime,
-        });
-      } else {
-        // Demo mode: show result without saving
-        setResult({ score: 0, total: 100, isCorrect: false });
-        setIsSubmitted(true);
+      // 데모 모드에서도 채점 로직 실행 (망각 곱선 업데이트는 제외)
+      const evalResult = await evaluateMutation.mutateAsync({
+        questionId: question.id,
+        userAnswer: combinedAnswer,
+        recallTime,
+      });
+      
+      // 데모 모드에서는 망각 곱선 업데이트 실패 무시
+      if (isDemo) {
+        // 채점 결과는 표시하지만 학습 기록은 저장하지 않음
       }
     } else {
       // 텍스트 문제인 경우
@@ -178,16 +178,16 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
         toast.error("답안을 입력하세요");
         return;
       }
-      if (!isDemo) {
-        await evaluateMutation.mutateAsync({
-          questionId: question.id,
-          userAnswer: userAnswer.trim(),
-          recallTime,
-        });
-      } else {
-        // Demo mode: show result without saving
-        setResult({ score: 0, total: 100, isCorrect: false });
-        setIsSubmitted(true);
+      // 데모 모드에서도 채점 로직 실행 (망각 곱선 업데이트는 제외)
+      const evalResult = await evaluateMutation.mutateAsync({
+        questionId: question.id,
+        userAnswer: userAnswer.trim(),
+        recallTime,
+      });
+      
+      // 데모 모드에서는 망각 곱선 업데이트 실패 무시
+      if (isDemo) {
+        // 채점 결과는 표시하지만 학습 기록은 저장하지 않음
       }
     }
   };
