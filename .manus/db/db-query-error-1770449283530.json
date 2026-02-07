@@ -1,0 +1,8 @@
+{
+  "query": "SELECT id, subjectId, question, answer, imageUrl, imageLabels, questionType, difficulty, displayOrder FROM questions WHERE question LIKE '%머리뼈%' AND isDemo = 0;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT id, subjectId, question, answer, imageUrl, imageLabels, questionType, difficulty, displayOrder FROM questions WHERE question LIKE '%머리뼈%' AND isDemo = 0;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'questiontype' in 'field list'"
+  ]
+}

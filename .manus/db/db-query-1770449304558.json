@@ -1,0 +1,20 @@
+{
+  "query": "SELECT id, subjectId, question, LEFT(answer, 200) as answer_preview, LEFT(imageUrl, 200) as imageUrl_preview, LEFT(imageLabels, 500) as imageLabels_preview, difficulty, displayOrder FROM questions WHERE question LIKE '%머리뼈%' AND isDemo = 0;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT id, subjectId, question, LEFT(answer, 200) as answer_preview, LEFT(imageUrl, 200) as imageUrl_preview, LEFT(imageLabels, 500) as imageLabels_preview, difficulty, displayOrder FROM questions WHERE question LIKE '%머리뼈%' AND isDemo = 0;",
+  "rows": [
+    {
+      "id": "450001",
+      "subjectId": "180012",
+      "question": "머리뼈아래면의 빈칸을 채우시오.",
+      "answer_preview": "",
+      "imageUrl_preview": "https://d2xsxph8kpxj0f.cloudfront.net/310519663305612880/Zt6E6wVVzDENrVcXUKGBHG/questions/oLAeGood-I-40bKC5IjA4.blob",
+      "imageLabels_preview": "[{\"id\":\"label-1770447107899\",\"x\":59.14671098263982,\"y\":13.733875715035257,\"width\":17.589821564667858,\"height\":3.332453924470105,\"answer\":\"Median palatine suture\"},{\"id\":\"label-1770447110286\",\"x\":17.604791968211465,\"y\":23.453532994739735,\"width\":19.8353307005829,\"height\":3.0547494307642644,\"answer\":\"Transverse palatine suture\"},{\"id\":\"label-1770447112543\",\"x\":6.3772462886362336,\"y\":53.4456183149707,\"width\":24.326348972413,\"height\":2.4993404433525725,\"answer\":\"Squamous part of temporal bone\"},{\"id",
+      "difficulty": "hard",
+      "displayOrder": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tsubjectId\tquestion\tanswer_preview\timageUrl_preview\timageLabels_preview\tdifficulty\tdisplayOrder\n450001\t180012\t머리뼈아래면의 빈칸을 채우시오.\t\thttps://d2xsxph8kpxj0f.cloudfront.net/310519663305612880/Zt6E6wVVzDENrVcXUKGBHG/questions/oLAeGood-I-40bKC5IjA4.blob\t[{\"id\":\"label-1770447107899\",\"x\":59.14671098263982,\"y\":13.733875715035257,\"width\":17.589821564667858,\"height\":3.332453924470105,\"answer\":\"Median palatine suture\"},{\"id\":\"label-1770447110286\",\"x\":17.604791968211465,\"y\":23.453532994739735,\"width\":19.8353307005829,\"height\":3.0547494307642644,\"answer\":\"Transverse palatine suture\"},{\"id\":\"label-1770447112543\",\"x\":6.3772462886362336,\"y\":53.4456183149707,\"width\":24.326348972413,\"height\":2.4993404433525725,\"answer\":\"Squamous part of temporal bone\"},{\"id\thard\t0\n",
+  "stderr": "",
+  "execution_time_ms": 1537
+}
