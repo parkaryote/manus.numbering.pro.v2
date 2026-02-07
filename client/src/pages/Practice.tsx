@@ -591,27 +591,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
     }
     
-    // 입력값을 천천히 지우기 (0.7초에 걸쳐 한 글자씩 제거)
-    const currentInput = userInput;
-    const deleteInterval = currentInput.length > 0 ? 700 / currentInput.length : 700;
-    let charIndex = currentInput.length;
-    
-    const deleteTimer = setInterval(() => {
-      if (charIndex > 0) {
-        charIndex--;
-        const newInput = currentInput.substring(0, charIndex);
-        if (textareaRef.current) {
-          textareaRef.current.value = newInput;
-        }
-        setUserInput(newInput);
-      } else {
-        clearInterval(deleteTimer);
-        // 입력 초기화 완료 후 포커스 설정
-        textareaRef.current?.focus();
-        // fade out 상태 해제
-        setIsFadingOut(false);
+    // 0.7초 후 입력창 통째로 제거
+    setTimeout(() => {
+      setUserInput('');
+      if (textareaRef.current) {
+        textareaRef.current.value = '';
       }
-    }, deleteInterval);
+      textareaRef.current?.focus();
+      // fade out 상태 해제
+      setIsFadingOut(false);
+    }, 700);
   };
 
   const formatTime = (seconds: number) => {
@@ -808,16 +797,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       });
       
       // 줄 끝에 줄바꿈 추가 (마지막 줄 제외)
-      if (lineIdx < targetLines.length - 1) {
+      // 첫 줄은 진한 회색 글씨, 나머지는 연한 회색 줄로 fade out
+      const lineClass = lineIdx === 0 
+        ? (isFadingOut ? "text-gray-600 transition-colors duration-1500" : "text-foreground")
+        : (isFadingOut ? "text-gray-300 transition-colors duration-1500" : "text-foreground");
+      
+       if (lineIdx < targetLines.length - 1) {
         return (
-          <span key={`line-${lineIdx}`}>
+          <span key={`line-${lineIdx}`} className={lineClass}>
             {renderedChars}
-            <span className="text-muted-foreground">{'\n'}</span>
+            <span className="text-muted-foreground">{"\n"}</span>
           </span>
         );
       }
       
-      return <span key={`line-${lineIdx}`}>{renderedChars}</span>;
+      return <span key={`line-${lineIdx}`} className={lineClass}>{renderedChars}</span>;
     });
   }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity]);
 
