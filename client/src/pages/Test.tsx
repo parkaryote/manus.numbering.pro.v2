@@ -42,7 +42,13 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [tableAnswers, setTableAnswers] = useState<Record<string, string>>({});
   const [tableResults, setTableResults] = useState<Record<string, boolean> | null>(null);
   const [tableScore, setTableScore] = useState<{ score: number; total: number } | null>(null);
-  const updateReviewMutation = trpc.review.updateAfterReview.useMutation();
+  const updateReviewMutation = trpc.review.updateAfterReview.useMutation({
+    onError: (error) => {
+      if (!isDemo) {
+        console.error('Failed to update review:', error);
+      }
+    },
+  });
   
   const evaluateMutation = trpc.test.evaluate.useMutation({
     onSuccess: async (data: any) => {
@@ -155,22 +161,34 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       const combinedAnswer = imageLabels.map((_: any, index: number) => 
         `${index + 1}. ${imageLabelAnswers[index]}`
       ).join("\n");
-      await evaluateMutation.mutateAsync({
-        questionId: question.id,
-        userAnswer: combinedAnswer,
-        recallTime,
-      });
+      if (!isDemo) {
+        await evaluateMutation.mutateAsync({
+          questionId: question.id,
+          userAnswer: combinedAnswer,
+          recallTime,
+        });
+      } else {
+        // Demo mode: show result without saving
+        setResult({ score: 0, total: 100, isCorrect: false });
+        setIsSubmitted(true);
+      }
     } else {
       // 텍스트 문제인 경우
       if (!userAnswer.trim()) {
         toast.error("답안을 입력하세요");
         return;
       }
-      await evaluateMutation.mutateAsync({
-        questionId: question.id,
-        userAnswer: userAnswer.trim(),
-        recallTime,
-      });
+      if (!isDemo) {
+        await evaluateMutation.mutateAsync({
+          questionId: question.id,
+          userAnswer: userAnswer.trim(),
+          recallTime,
+        });
+      } else {
+        // Demo mode: show result without saving
+        setResult({ score: 0, total: 100, isCorrect: false });
+        setIsSubmitted(true);
+      }
     }
   };
 

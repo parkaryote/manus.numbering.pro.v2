@@ -116,10 +116,19 @@ export const appRouter = router({
       return db.countQuestionsByUserId(ctx.user.id);
     }),
     
-    getById: protectedProcedure
+    getById: publicProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        return db.getQuestionById(input.id);
+      .query(async ({ input, ctx }) => {
+        const question = await db.getQuestionById(input.id);
+        // Allow access to demo questions without auth
+        if (question?.isDemo) {
+          return question;
+        }
+        // Require auth for non-demo questions
+        if (!ctx.user) {
+          throw new TRPCError({ code: 'UNAUTHORIZED' });
+        }
+        return question;
       }),
     
     create: protectedProcedure

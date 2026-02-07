@@ -44,9 +44,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const { data: practiceCountData } = trpc.practice.countByQuestion.useQuery(
     { questionId },
-    { enabled: !!questionId }
+    { enabled: !!questionId && !isDemo }
   );
-  const createSession = trpc.practice.create.useMutation();
+  const createSession = trpc.practice.create.useMutation({
+    onError: (error) => {
+      // Silently ignore errors in demo mode
+      if (!isDemo) {
+        console.error('Failed to create practice session:', error);
+      }
+    },
+  });
 
   // 페이지 언마운트 또는 돌아가기 시 자동으로 연습 기록 저장 (1회만)
   const hasBeenSaved = useRef(false);
@@ -527,13 +534,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const timeInMinutes = elapsedTime / 60;
     const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
 
-    await createSession.mutateAsync({
-      questionId: question.id,
-      duration: elapsedTime,
-      typingSpeed: speed,
-      accuracy: 100, // Not tracking accuracy anymore
-      errorCount: 0, // Not tracking errors anymore
-    });
+    if (!isDemo) {
+      await createSession.mutateAsync({
+        questionId: question.id,
+        duration: elapsedTime,
+        typingSpeed: speed,
+        accuracy: 100, // Not tracking accuracy anymore
+        errorCount: 0, // Not tracking errors anymore
+      });
+    }
   };
 
   // 돌아가기 버튼 클릭 핸들러
@@ -560,23 +569,23 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const speed = timeInMinutes > 0 ? Math.round(inputLength / timeInMinutes) : 0;
         
         // 정답 일치 시 즉시 세션 저장 (비동기로 백그라운드에서 진행)
-        createSession.mutateAsync({
-          questionId: question.id,
-          duration: elapsedTime,
-          typingSpeed: speed,
-          accuracy: 100,
-          errorCount: 0,
-        }).then(() => {
-          // 저장 완료 후 누적 연습 수 직접 증가 (fetch 없이 즉시 반영)
-          utils.practice.countByQuestion.setData(
-            { questionId: question.id },
-            (old) => old ? { count: old.count + 1 } : { count: 1 }
-          );
-          // 저장 완료 표시 (페이지 나갈 때 중복 저장 방지)
-          hasBeenSaved.current = true;
-        }).catch(error => {
-          console.error("정답 기록 저장 실패:", error);
-        });
+        if (!isDemo) {
+          createSession.mutateAsync({
+            questionId: question.id,
+            duration: elapsedTime,
+            typingSpeed: speed,
+            accuracy: 100,
+            errorCount: 0,
+          }).then(() => {
+            // 저장 완료 후 누적 연습 수 직접 증가 (fetch 없이 즉시 반영)
+            utils.practice.countByQuestion.setData(
+              { questionId: question.id },
+              (old) => old ? { count: old.count + 1 } : { count: 1 }
+            );
+            // 저장 완료 표시 (페이지 나갈 때 중복 저장 방지)
+            hasBeenSaved.current = true;
+          });
+        }
       } catch (error) {
         console.error("정답 기록 저장 실패:", error);
       }
