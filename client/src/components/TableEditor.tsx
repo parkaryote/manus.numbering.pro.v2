@@ -732,7 +732,7 @@ export function TableView({
                   >
                     {practiceMode && isBlank ? (
                       /* 연습 모드: 정답 표시 + 실시간 타이핑 피드백 */
-                      <div className="relative min-h-[28px]">
+                      <div className="relative min-h-[28px] flex items-center gap-1">
                         {/* 정답 표시 (회색 배경) - 입력이 없을 때만 표시 */}
                         {!userAnswer && (
                           <div className="absolute inset-0 text-slate-400 text-sm whitespace-pre-wrap px-2 py-1.5 pointer-events-none">
@@ -765,12 +765,34 @@ export function TableView({
                           onFocus={() => onCellFocus?.(cellKey)}
                           onKeyDown={(e) => handleKeyDown(cellKey, e)}
                           readOnly={readOnly}
-                          className={`relative z-10 w-full bg-transparent outline-none text-sm px-2 py-1.5 ${
+                          className={`relative z-10 flex-1 bg-transparent outline-none text-sm px-2 py-1.5 ${
                             normalizeText(userAnswer) === normalizeText(cell.content)
                               ? "text-green-600 font-semibold"
+                              : userAnswer && normalizeText(userAnswer) !== normalizeText(cell.content.slice(0, userAnswer.length))
+                              ? "text-red-600"
                               : "text-black"
                           }`}
                         />
+                        {/* 힌트 보기 버튼 */}
+                        {!userAnswer && (
+                          <button
+                            onClick={() => {
+                              onAnswerChange?.(cellKey, cell.content);
+                              onCorrectAnswer?.(cellKey);
+                              const currentIdx = blankCells.findIndex((k) => k === cellKey);
+                              if (currentIdx < blankCells.length - 1) {
+                                const nextKey = blankCells[currentIdx + 1];
+                                setTimeout(() => {
+                                  inputRefs.current[nextKey]?.focus();
+                                }, 100);
+                              }
+                            }}
+                            className="z-20 px-1.5 py-0.5 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded whitespace-nowrap pointer-events-auto"
+                            title="정답 보기"
+                          >
+                            힌트
+                          </button>
+                        )}
                       </div>
                     ) : isBlank && !showAnswers ? (
                       /* 시험 모드: 입력 필드 */
