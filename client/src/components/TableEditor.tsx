@@ -718,7 +718,7 @@ export function TableView({
 
                 let bgColor = "bg-white";
                 if (isHeader) bgColor = "bg-slate-100";
-                if (practiceMode && !isHeader) bgColor = "bg-slate-50"; // 연습 모드: 모든 셀 회색
+                if (practiceMode && isBlank) bgColor = "bg-slate-50"; // 연습 모드: 연습 셀만 회색
                 if (!practiceMode && isBlank && !showAnswers) bgColor = "bg-yellow-50";
                 if (isCorrect === true) bgColor = "bg-green-50";
                 if (isCorrect === false) bgColor = "bg-red-50";
@@ -732,12 +732,14 @@ export function TableView({
                   >
                     {practiceMode && isBlank ? (
                       /* 연습 모드: 정답 표시 + 실시간 타이핑 피드백 */
-                      <div className="relative">
-                        {/* 정답 표시 (회색) */}
-                        <div className="text-slate-400 text-sm whitespace-pre-wrap">
-                          {cell.content}
-                        </div>
-                        {/* 입력 필드 (오버레이) */}
+                      <div className="relative min-h-[28px]">
+                        {/* 정답 표시 (회색 배경) - 입력이 없을 때만 표시 */}
+                        {!userAnswer && (
+                          <div className="absolute inset-0 text-slate-400 text-sm whitespace-pre-wrap px-2 py-1.5 pointer-events-none">
+                            {cell.content}
+                          </div>
+                        )}
+                        {/* 입력 필드 */}
                         <input
                           ref={(el) => {
                             inputRefs.current[cellKey] = el;
@@ -763,12 +765,10 @@ export function TableView({
                           onFocus={() => onCellFocus?.(cellKey)}
                           onKeyDown={(e) => handleKeyDown(cellKey, e)}
                           readOnly={readOnly}
-                          className={`absolute inset-0 w-full bg-transparent outline-none text-sm px-2 py-1.5 ${
-                            isTypingCorrect === true
-                              ? "text-black"
-                              : isTypingCorrect === false
-                              ? "text-red-600"
-                              : "text-slate-700"
+                          className={`relative z-10 w-full bg-transparent outline-none text-sm px-2 py-1.5 ${
+                            normalizeText(userAnswer) === normalizeText(cell.content)
+                              ? "text-green-600 font-semibold"
+                              : "text-black"
                           }`}
                         />
                       </div>
