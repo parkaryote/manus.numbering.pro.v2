@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight } from "lucide-react";
+import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, FileUp } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -789,6 +789,10 @@ export default function Questions({ subjectId }: QuestionsProps) {
           </div>
           <p className="text-muted-foreground mt-1">문제를 추가하고 학습하세요</p>
         </div>
+        <Button variant="outline" className="gap-2" onClick={() => setLocation(`/upload/${subjectId}`)}>
+          <FileUp className="h-4 w-4" />
+          PDF/PPT 가져오기
+        </Button>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
             <Button className="gap-2">

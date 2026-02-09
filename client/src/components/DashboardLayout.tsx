@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, BookOpen, FileQuestion, Dumbbell, ClipboardCheck, BarChart3 } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, BookOpen, FileQuestion, Dumbbell, ClipboardCheck, BarChart3, FileUp } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -30,6 +30,7 @@ import { Button } from "./ui/button";
 const menuItems = [
   { icon: LayoutDashboard, label: "대시보드", path: "/" },
   { icon: BookOpen, label: "과목 관리", path: "/subjects" },
+  { icon: FileUp, label: "PDF/PPT 가져오기", path: "/upload" },
   { icon: BarChart3, label: "학습 통계", path: "/statistics" },
 ];
 
