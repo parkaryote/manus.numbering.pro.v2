@@ -867,6 +867,15 @@ ${input.userAnswer}
       }),
   }),
 
+  // Document OCR extraction
+  documents: router({
+    extractText: publicProcedure
+      .input(z.object({ fileUrl: z.string() }))
+      .mutation(async ({ input }) => {
+        return { rawText: "" };
+      }),
+  }),
+
   // Expiring questions management
   expiring: router({
     // 만료 예정 문제 조회 (1달 이내 삭제 예정)
