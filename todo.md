@@ -1479,3 +1479,21 @@
   - [ ] OCR 결과 미리보기
   - [ ] 텍스트 수정 및 저장
   - [ ] 바로 등록 기능
+
+
+# 기능 재구현 (v2.7.0) - Google Cloud Vision API asyncBatchAnnotateFiles
+- [x] ocr.ts 전면 재작성
+  - [x] pdftoppm 제거
+  - [x] 서비스 계정 JSON 키 제거 → Application Default Credentials(IAM)
+  - [x] Cloud Storage 연동 (S3 대신 GCS 사용)
+  - [x] asyncBatchAnnotateFiles로 PDF 직접 처리
+  - [x] OCR 결과 파싱 및 구조화
+- [x] uploadDocument.ts 업데이트
+  - [x] Cloud Storage 업로드 로직 추가 (기존 코드 유지)
+  - [x] 기존 OCR 흐름과 통합
+- [ ] 테스트
+  - [ ] GCS 버킷 생성 및 IAM 설정
+  - [ ] Application Default Credentials 설정
+  - [ ] PDF 업로드 및 OCR 처리
+  - [ ] PPT 업로드 및 OCR 처리
+  - [ ] 이미지 업로드 및 OCR 처리

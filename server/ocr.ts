@@ -1,14 +1,15 @@
 /**
  * OCR Service Module
  * 
- * Uses Google Cloud Vision API with service account authentication.
- * PDF/PPT pages are converted to images first, then OCR is applied.
+ * Uses Google Cloud Vision API with asyncBatchAnnotateFiles for PDF/PPT processing.
+ * Files are uploaded to Cloud Storage, processed asynchronously, and results are parsed.
  * 
- * Authentication: Service account JSON key via GOOGLE_APPLICATION_CREDENTIALS env.
- * The Vision API client library automatically handles authentication.
+ * Authentication: Application Default Credentials (IAM) - no JSON key required.
+ * Suitable for Cloud Run environments with proper IAM roles.
  */
 
 import { ImageAnnotatorClient } from "@google-cloud/vision";
+import { Storage } from "@google-cloud/storage";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,43 +34,137 @@ export interface OcrResult {
 }
 
 // ---------------------------------------------------------------------------
-// Google Cloud Vision API - Service Account
+// Google Cloud Clients - Application Default Credentials
 // ---------------------------------------------------------------------------
 
 let visionClient: ImageAnnotatorClient | null = null;
+let storageClient: Storage | null = null;
 
 function getVisionClient(): ImageAnnotatorClient {
   if (!visionClient) {
+    // Uses Application Default Credentials (IAM)
     visionClient = new ImageAnnotatorClient();
   }
   return visionClient;
 }
 
+function getStorageClient(): Storage {
+  if (!storageClient) {
+    // Uses Application Default Credentials (IAM)
+    storageClient = new Storage();
+  }
+  return storageClient;
+}
+
+// ---------------------------------------------------------------------------
+// Cloud Storage Operations
+// ---------------------------------------------------------------------------
+
 /**
- * Call Google Cloud Vision API for a single image (base64 encoded).
- * Uses service account authentication via GOOGLE_APPLICATION_CREDENTIALS.
+ * Upload file to Cloud Storage and return GCS URI.
+ * Format: gs://bucket-name/path/to/file
  */
-async function callVisionApi(imageBase64: string): Promise<any> {
+async function uploadToGcs(buffer: Buffer, filename: string): Promise<string> {
+  const storage = getStorageClient();
+  
+  // Use environment variable for bucket name, fallback to default
+  const bucketName = process.env.GCS_BUCKET_NAME || "typing-quiz-ocr-temp";
+  const bucket = storage.bucket(bucketName);
+  
+  // Generate unique filename with timestamp
+  const timestamp = Date.now();
+  const gcsFilename = `ocr-uploads/${timestamp}-${filename}`;
+  const file = bucket.file(gcsFilename);
+
+  await file.save(buffer, {
+    metadata: {
+      contentType: "application/pdf", // Adjust based on file type
+    },
+  });
+
+  return `gs://${bucketName}/${gcsFilename}`;
+}
+
+/**
+ * Delete file from Cloud Storage after processing.
+ */
+async function deleteFromGcs(gcsUri: string): Promise<void> {
+  try {
+    const storage = getStorageClient();
+    const match = gcsUri.match(/^gs:\/\/([^\/]+)\/(.+)$/);
+    if (!match) {
+      console.warn("[OCR] Invalid GCS URI:", gcsUri);
+      return;
+    }
+    const [, bucketName, filename] = match;
+    await storage.bucket(bucketName).file(filename).delete();
+    console.log("[OCR] Deleted temp file:", gcsUri);
+  } catch (error: any) {
+    console.warn("[OCR] Failed to delete temp file:", error.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Vision API - asyncBatchAnnotateFiles
+// ---------------------------------------------------------------------------
+
+/**
+ * Process PDF/PPT using Vision API's asyncBatchAnnotateFiles.
+ * This method supports multi-page documents natively.
+ */
+async function processDocumentWithVisionApi(gcsUri: string): Promise<OcrResult> {
   const client = getVisionClient();
 
   const request = {
-    image: {
-      content: imageBase64,
-    },
-    features: [
+    requests: [
       {
-        type: "DOCUMENT_TEXT_DETECTION" as const,
-        maxResults: 50,
+        inputConfig: {
+          gcsSource: {
+            uri: gcsUri,
+          },
+          mimeType: "application/pdf", // Adjust for PPT if needed
+        },
+        features: [
+          {
+            type: "DOCUMENT_TEXT_DETECTION" as const,
+          },
+        ],
+        outputConfig: {
+          gcsDestination: {
+            uri: gcsUri.replace(/\/[^\/]+$/, "/output-"), // Output to same bucket
+          },
+          batchSize: 1,
+        },
       },
     ],
-    imageContext: {
-      languageHints: ["ko", "en"],
-    },
   };
 
   try {
-    const [result] = await client.annotateImage(request);
-    return result;
+    console.log("[OCR] Starting async batch annotation...");
+    const [operation] = await client.asyncBatchAnnotateFiles(request);
+    console.log("[OCR] Waiting for operation to complete...");
+    const [filesResponse] = await operation.promise();
+
+    // Parse results
+    const pages: OcrPage[] = [];
+    let pageNum = 1;
+
+    for (const response of filesResponse.responses || []) {
+      for (const outputFile of response.outputConfig?.gcsDestination?.uri ? [response.outputConfig.gcsDestination.uri] : []) {
+        // Download and parse output JSON from GCS
+        const page = await parseVisionOutputFromGcs(outputFile, pageNum);
+        pages.push(page);
+        pageNum++;
+      }
+    }
+
+    const rawText = pages.map(p => p.text).join("\n\n---\n\n");
+
+    return {
+      pages,
+      totalPages: pages.length,
+      rawText,
+    };
   } catch (error: any) {
     console.error("[OCR] Vision API error:", error);
     throw new Error(`Vision API error: ${error.message}`);
@@ -77,123 +172,108 @@ async function callVisionApi(imageBase64: string): Promise<any> {
 }
 
 /**
- * Parse Vision API response into structured OcrPage.
+ * Parse Vision API output JSON from GCS.
  */
-function parseVisionResponse(apiResponse: any, pageNumber: number): OcrPage {
-  if (apiResponse.error) {
-    const errorMsg = apiResponse.error.message || "Unknown Vision API error";
-    console.error("[OCR] Vision API response error:", errorMsg);
+async function parseVisionOutputFromGcs(gcsUri: string, pageNumber: number): Promise<OcrPage> {
+  const storage = getStorageClient();
+  const match = gcsUri.match(/^gs:\/\/([^\/]+)\/(.+)$/);
+  if (!match) {
     return { pageNumber, text: "", blocks: [] };
   }
 
-  const fullTextAnnotation = apiResponse.fullTextAnnotation;
-  if (!fullTextAnnotation) {
-    return { pageNumber, text: "", blocks: [] };
-  }
-
-  const fullText = fullTextAnnotation.text || "";
+  const [, bucketName, filename] = match;
+  const file = storage.bucket(bucketName).file(filename);
   
-  // Extract blocks from pages
-  const blocks: OcrBlock[] = [];
-  
-  for (const page of fullTextAnnotation.pages || []) {
-    for (const block of page.blocks || []) {
-      const blockText = (block.paragraphs || [])
-        .map((para: any) =>
-          (para.words || [])
-            .map((word: any) =>
-              (word.symbols || []).map((s: any) => {
-                let char = s.text || "";
-                // Add space/newline based on detected break
-                const breakType = s.property?.detectedBreak?.type;
-                if (breakType === "SPACE" || breakType === "SURE_SPACE") {
-                  char += " ";
-                } else if (breakType === "EOL_SURE_SPACE" || breakType === "LINE_BREAK") {
-                  char += "\n";
-                }
-                return char;
-              }).join("")
-            ).join("")
-        ).join("\n");
+  try {
+    const [contents] = await file.download();
+    const jsonData = JSON.parse(contents.toString());
+    
+    // Extract text from Vision API response
+    const fullText = jsonData.responses?.[0]?.fullTextAnnotation?.text || "";
+    const blocks: OcrBlock[] = [];
 
-      const confidence = block.confidence || 0;
-      const blockType = block.blockType === "TABLE" ? "table" as const : "paragraph" as const;
-      
-      if (blockText.trim()) {
-        blocks.push({
-          type: blockType,
-          text: blockText.trim(),
-          confidence,
-        });
+    // Parse blocks
+    for (const page of jsonData.responses?.[0]?.fullTextAnnotation?.pages || []) {
+      for (const block of page.blocks || []) {
+        const blockText = extractTextFromBlock(block);
+        const confidence = block.confidence || 0;
+        const blockType = block.blockType === "TABLE" ? "table" as const : "paragraph" as const;
+        
+        if (blockText.trim()) {
+          blocks.push({
+            type: blockType,
+            text: blockText.trim(),
+            confidence,
+          });
+        }
       }
     }
-  }
 
-  return {
-    pageNumber,
-    text: fullText,
-    blocks,
-  };
+    // Cleanup output file
+    await deleteFromGcs(gcsUri);
+
+    return {
+      pageNumber,
+      text: fullText,
+      blocks,
+    };
+  } catch (error: any) {
+    console.error("[OCR] Failed to parse output from GCS:", error);
+    return { pageNumber, text: "", blocks: [] };
+  }
+}
+
+/**
+ * Extract text from a Vision API block structure.
+ */
+function extractTextFromBlock(block: any): string {
+  return (block.paragraphs || [])
+    .map((para: any) =>
+      (para.words || [])
+        .map((word: any) =>
+          (word.symbols || []).map((s: any) => {
+            let char = s.text || "";
+            const breakType = s.property?.detectedBreak?.type;
+            if (breakType === "SPACE" || breakType === "SURE_SPACE") {
+              char += " ";
+            } else if (breakType === "EOL_SURE_SPACE" || breakType === "LINE_BREAK") {
+              char += "\n";
+            }
+            return char;
+          }).join("")
+        ).join("")
+    ).join("\n");
 }
 
 // ---------------------------------------------------------------------------
-// PDF Processing
+// Public API
 // ---------------------------------------------------------------------------
 
 /**
- * Convert PDF buffer to base64 images using poppler (pdftoppm).
- * Returns array of base64-encoded PNG images, one per page.
+ * Extract text from a PDF file using Google Cloud Vision OCR.
+ * Uses asyncBatchAnnotateFiles for native PDF processing.
  */
-async function pdfToImages(pdfBuffer: Buffer): Promise<string[]> {
-  const fs = await import("fs");
-  const path = await import("path");
-  const { execSync } = await import("child_process");
-  const os = await import("os");
-
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ocr-pdf-"));
-  const pdfPath = path.join(tmpDir, "input.pdf");
-  const outputPrefix = path.join(tmpDir, "page");
-
+export async function extractTextFromPdf(pdfBuffer: Buffer): Promise<OcrResult> {
+  console.log("[OCR] Uploading PDF to Cloud Storage...");
+  const gcsUri = await uploadToGcs(pdfBuffer, "input.pdf");
+  
   try {
-    // Write PDF to temp file
-    fs.writeFileSync(pdfPath, pdfBuffer);
-
-    // Convert PDF to PNG images using poppler's pdftoppm (pre-installed)
-    execSync(`pdftoppm -png -r 300 "${pdfPath}" "${outputPrefix}"`, {
-      timeout: 120000, // 2 min timeout
-    });
-
-    // Read generated images
-    const files = fs.readdirSync(tmpDir)
-      .filter((f: string) => f.startsWith("page-") && f.endsWith(".png"))
-      .sort();
-
-    const images: string[] = [];
-    for (const file of files) {
-      const imgBuffer = fs.readFileSync(path.join(tmpDir, file));
-      images.push(imgBuffer.toString("base64"));
-    }
-
-    return images;
+    console.log("[OCR] Processing PDF with Vision API...");
+    const result = await processDocumentWithVisionApi(gcsUri);
+    return result;
   } finally {
-    // Cleanup temp files
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch (e) {
-      console.warn("[OCR] Failed to cleanup temp dir:", tmpDir);
-    }
+    // Cleanup uploaded file
+    await deleteFromGcs(gcsUri);
   }
 }
 
-// ---------------------------------------------------------------------------
-// PPT Processing
-// ---------------------------------------------------------------------------
-
 /**
- * Convert PPT/PPTX buffer to base64 images using LibreOffice.
- * Returns array of base64-encoded PNG images, one per slide.
+ * Extract text from a PPT/PPTX file using Google Cloud Vision OCR.
+ * Note: PPT files need to be converted to PDF first using LibreOffice.
  */
-async function pptToImages(pptBuffer: Buffer, filename: string): Promise<string[]> {
+export async function extractTextFromPpt(pptBuffer: Buffer, filename: string): Promise<OcrResult> {
+  console.log("[OCR] Converting PPT to PDF...");
+  
   const fs = await import("fs");
   const path = await import("path");
   const { execSync } = await import("child_process");
@@ -206,9 +286,10 @@ async function pptToImages(pptBuffer: Buffer, filename: string): Promise<string[
     // Write PPT to temp file
     fs.writeFileSync(pptPath, pptBuffer);
 
-    // Convert PPT to PDF first using LibreOffice
+    // Convert PPT to PDF using LibreOffice
     execSync(`libreoffice --headless --convert-to pdf --outdir "${tmpDir}" "${pptPath}"`, {
       timeout: 120000,
+      stdio: "pipe",
     });
 
     // Find the generated PDF
@@ -218,7 +299,7 @@ async function pptToImages(pptBuffer: Buffer, filename: string): Promise<string[
     }
 
     const pdfBuffer = fs.readFileSync(path.join(tmpDir, pdfFile));
-    return pdfToImages(pdfBuffer);
+    return extractTextFromPdf(pdfBuffer);
   } finally {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -228,74 +309,56 @@ async function pptToImages(pptBuffer: Buffer, filename: string): Promise<string[
   }
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * Extract text from a PDF file using Google Cloud Vision OCR.
- */
-export async function extractTextFromPdf(pdfBuffer: Buffer): Promise<OcrResult> {
-  console.log("[OCR] Converting PDF to images...");
-  const images = await pdfToImages(pdfBuffer);
-  console.log(`[OCR] Converted ${images.length} pages to images`);
-
-  const pages: OcrPage[] = [];
-
-  for (let i = 0; i < images.length; i++) {
-    console.log(`[OCR] Processing page ${i + 1}/${images.length}...`);
-    const apiResponse = await callVisionApi(images[i]);
-    const page = parseVisionResponse(apiResponse, i + 1);
-    pages.push(page);
-  }
-
-  const rawText = pages.map(p => p.text).join("\n\n---\n\n");
-
-  return {
-    pages,
-    totalPages: pages.length,
-    rawText,
-  };
-}
-
-/**
- * Extract text from a PPT/PPTX file using Google Cloud Vision OCR.
- */
-export async function extractTextFromPpt(pptBuffer: Buffer, filename: string): Promise<OcrResult> {
-  console.log("[OCR] Converting PPT to images...");
-  const images = await pptToImages(pptBuffer, filename);
-  console.log(`[OCR] Converted ${images.length} slides to images`);
-
-  const pages: OcrPage[] = [];
-
-  for (let i = 0; i < images.length; i++) {
-    console.log(`[OCR] Processing slide ${i + 1}/${images.length}...`);
-    const apiResponse = await callVisionApi(images[i]);
-    const page = parseVisionResponse(apiResponse, i + 1);
-    pages.push(page);
-  }
-
-  const rawText = pages.map(p => p.text).join("\n\n---\n\n");
-
-  return {
-    pages,
-    totalPages: pages.length,
-    rawText,
-  };
-}
-
 /**
  * Extract text from an image file using Google Cloud Vision OCR.
+ * Uses synchronous annotateImage for single images.
  */
 export async function extractTextFromImage(imageBuffer: Buffer): Promise<OcrResult> {
   console.log("[OCR] Processing single image...");
-  const base64 = imageBuffer.toString("base64");
-  const apiResponse = await callVisionApi(base64);
-  const page = parseVisionResponse(apiResponse, 1);
+  const client = getVisionClient();
 
-  return {
-    pages: [page],
-    totalPages: 1,
-    rawText: page.text,
+  const request = {
+    image: {
+      content: imageBuffer.toString("base64"),
+    },
+    features: [
+      {
+        type: "DOCUMENT_TEXT_DETECTION" as const,
+      },
+    ],
+    imageContext: {
+      languageHints: ["ko", "en"],
+    },
   };
+
+  try {
+    const [result] = await client.annotateImage(request);
+    const fullText = result.fullTextAnnotation?.text || "";
+    const blocks: OcrBlock[] = [];
+
+    for (const page of result.fullTextAnnotation?.pages || []) {
+      for (const block of page.blocks || []) {
+        const blockText = extractTextFromBlock(block);
+        const confidence = block.confidence || 0;
+        const blockType = block.blockType === "TABLE" ? "table" as const : "paragraph" as const;
+        
+        if (blockText.trim()) {
+          blocks.push({
+            type: blockType,
+            text: blockText.trim(),
+            confidence,
+          });
+        }
+      }
+    }
+
+    return {
+      pages: [{ pageNumber: 1, text: fullText, blocks }],
+      totalPages: 1,
+      rawText: fullText,
+    };
+  } catch (error: any) {
+    console.error("[OCR] Vision API error:", error);
+    throw new Error(`Vision API error: ${error.message}`);
+  }
 }
