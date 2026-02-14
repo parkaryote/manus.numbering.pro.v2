@@ -12,7 +12,6 @@ import Practice from "./pages/Practice";
 import Test from "./pages/Test";
 import Statistics from "./pages/Statistics";
 import Demo from "./pages/Demo";
-import DocumentUpload from "./pages/DocumentUpload";
 
 function Router() {
   return (
@@ -52,18 +51,6 @@ function Router() {
         <DashboardLayout>
           <Statistics />
         </DashboardLayout>
-      </Route>
-      <Route path={"/upload"}>
-        <DashboardLayout>
-          <DocumentUpload />
-        </DashboardLayout>
-      </Route>
-      <Route path={"/upload/:subjectId"}>
-        {(params) => (
-          <DashboardLayout>
-            <DocumentUpload subjectId={parseInt(params.subjectId)} />
-          </DashboardLayout>
-        )}
       </Route>
       <Route path={"/demo"}>
         <Demo />

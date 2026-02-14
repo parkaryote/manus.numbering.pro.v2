@@ -123,23 +123,3 @@ export const reviewSchedules = mysqlTable("reviewSchedules", {
 
 export type ReviewSchedule = typeof reviewSchedules.$inferSelect;
 export type InsertReviewSchedule = typeof reviewSchedules.$inferInsert;
-
-/**
- * OCR 작업 테이블 - PDF/PPT 파일 OCR 처리 작업 추적
- */
-export const ocrJobs = mysqlTable("ocrJobs", {
-  id: varchar("id", { length: 64 }).primaryKey(), // ocr-job-{uuid}
-  userId: int("userId").notNull(),
-  s3Key: varchar("s3Key", { length: 512 }).notNull(), // S3 파일 경로
-  gcsInputPath: varchar("gcsInputPath", { length: 512 }), // GCS 입력 경로
-  gcsOutputPath: varchar("gcsOutputPath", { length: 512 }), // GCS 출력 경로
-  status: mysqlEnum("status", ["RUNNING", "DONE", "ERROR"]).default("RUNNING").notNull(),
-  errorMessage: text("errorMessage"), // 에러 메시지
-  result: text("result"), // JSON: { fullText, draft }
-  expiresAt: timestamp("expiresAt").notNull(), // 자동 삭제 시간
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export type OcrJob = typeof ocrJobs.$inferSelect;
-export type InsertOcrJob = typeof ocrJobs.$inferInsert;
