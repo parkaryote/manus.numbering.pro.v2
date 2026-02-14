@@ -1,13 +1,16 @@
 /**
- * Document Upload Router
+ * Document Upload Router - Job 기반 API
  * 
- * Handles PDF/PPT/image file uploads, runs OCR via Google Cloud Vision API,
- * and returns extracted text for problem registration.
+ * 1. POST /api/upload/document - 파일 업로드 및 OCR 작업 시작
+ * 2. GET /api/ocr/jobs/:id - 작업 상태 조회
+ * 3. GET /api/ocr/jobs/:id/result - 결과 조회
  */
 
 import express from "express";
 import multer from "multer";
-import { extractTextFromPdf, extractTextFromPpt, extractTextFromImage } from "./ocr";
+import { startOcrJob, getOcrJobStatus, getOcrJobResult } from "./ocr";
+import { storagePut } from "./storage";
+import { v4 as uuidv4 } from "uuid";
 
 const router = express.Router();
 
@@ -34,6 +37,10 @@ const upload = multer({
   },
 });
 
+/**
+ * POST /api/upload/document
+ * 파일 업로드 및 OCR 작업 시작
+ */
 router.post("/", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
@@ -41,44 +48,44 @@ router.post("/", upload.single("file"), async (req, res) => {
     }
 
     const { mimetype, buffer, originalname } = req.file;
-    console.log(`[Document Upload] Processing ${originalname} (${mimetype}, ${buffer.length} bytes)`);
+    const userId = (req as any).user?.id;
 
-    let result;
-
-    if (mimetype === "application/pdf") {
-      result = await extractTextFromPdf(buffer);
-    } else if (
-      mimetype === "application/vnd.ms-powerpoint" ||
-      mimetype === "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    ) {
-      result = await extractTextFromPpt(buffer, originalname);
-    } else if (mimetype.startsWith("image/")) {
-      result = await extractTextFromImage(buffer);
-    } else {
-      return res.status(400).json({ error: `Unsupported file type: ${mimetype}` });
+    if (!userId) {
+      return res.status(401).json({ error: "User not authenticated" });
     }
 
-    console.log(`[Document Upload] OCR complete: ${result.totalPages} pages, ${result.rawText.length} chars`);
+    console.log(`[Document Upload] Processing ${originalname} (${mimetype}, ${buffer.length} bytes) for user ${userId}`);
+
+    // 1. S3에 파일 업로드
+    const s3Key = `ocr-uploads/${userId}/${uuidv4()}/${originalname}`;
+    const { url: s3Url } = await storagePut(s3Key, buffer, mimetype);
+
+    console.log(`[Document Upload] Uploaded to S3: ${s3Key}`);
+
+    // 2. OCR 작업 시작
+    const { jobId, status } = await startOcrJob(userId, s3Key, originalname, mimetype);
+
+    console.log(`[Document Upload] OCR job started: ${jobId}`);
 
     res.json({
       success: true,
+      jobId,
+      status,
       filename: originalname,
-      totalPages: result.totalPages,
-      pages: result.pages,
-      rawText: result.rawText,
+      s3Url,
     });
   } catch (error: any) {
     console.error("[Document Upload] Error:", error);
-    
-    // Provide user-friendly error messages
+
+    // 사용자 친화적 에러 메시지
     if (error.message?.includes("GOOGLE_APPLICATION_CREDENTIALS") || error.message?.includes("authentication")) {
-      return res.status(503).json({ 
-        error: "OCR 서비스가 설정되지 않았습니다. 관리자에게 문의하세요." 
+      return res.status(503).json({
+        error: "OCR 서비스가 설정되지 않았습니다. 관리자에게 문의하세요.",
       });
     }
-    
-    res.status(500).json({ 
-      error: error.message || "파일 처리 중 오류가 발생했습니다." 
+
+    res.status(500).json({
+      error: error.message || "파일 처리 중 오류가 발생했습니다.",
     });
   }
 });
