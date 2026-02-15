@@ -183,5 +183,23 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
+    watch: {
+      ignored: [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.next/**",
+        "**/.turbo/**",
+        "**/.cache/**",
+        "**/.pnpm-store/**",
+        "**/tmp/**",
+        "**/.output/**",
+        "**/.vercel/**",
+        "**/.manus-logs/**",
+      ],
+      usePolling: true,
+      interval: 1000,
+    },
   },
 });

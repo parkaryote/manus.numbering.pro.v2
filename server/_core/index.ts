@@ -9,6 +9,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import uploadAudioRouter from "../uploadAudio";
 import uploadImageRouter from "../uploadImage";
+import uploadDocumentRouter from "../uploadDocument";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -41,6 +42,8 @@ async function startServer() {
   app.use("/api", uploadAudioRouter);
   // Image upload endpoint
   app.use("/api/upload/image", uploadImageRouter);
+  // Document upload + OCR endpoint
+  app.use("/api/upload/document", uploadDocumentRouter);
   // tRPC API
   app.use(
     "/api/trpc",

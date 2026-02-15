@@ -9,8 +9,26 @@ import viteConfig from "../../vite.config";
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
-    hmr: { server },
+    hmr: false, // Disable HMR to reduce file watchers
     allowedHosts: true as const,
+    watch: {
+      ignored: [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.next/**",
+        "**/.turbo/**",
+        "**/.cache/**",
+        "**/.pnpm-store/**",
+        "**/tmp/**",
+        "**/.output/**",
+        "**/.vercel/**",
+        "**/.manus-logs/**",
+      ],
+      usePolling: true,
+      interval: 2000,
+    },
   };
 
   const vite = await createViteServer({

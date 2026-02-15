@@ -1,6 +1,21 @@
 {
   "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
+  "exclude": [
+    "node_modules",
+    "build",
+    "dist",
+    "**/*.test.ts",
+    ".git",
+    ".pnpm-store",
+    ".cache",
+    "tmp",
+    "/tmp",
+    "**/tmp/**",
+    "**/.output/**",
+    "**/.vercel/**",
+    "**/.next/**",
+    "**/.turbo/**"
+  ],
   "compilerOptions": {
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
