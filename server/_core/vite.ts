@@ -9,7 +9,7 @@ import viteConfig from "../../vite.config";
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
-    hmr: false, // Disable HMR to reduce file watchers
+    hmr: false,
     allowedHosts: true as const,
     watch: {
       ignored: [

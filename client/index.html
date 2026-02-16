@@ -14,6 +14,12 @@
 
   <body>
     <div id="root"></div>
+    <script>
+      // Disable Vite HMR to prevent WebSocket errors in production
+      if (typeof window !== 'undefined') {
+        window.__VITE_HMR__ = false;
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
     <script
       defer
