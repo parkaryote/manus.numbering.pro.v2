@@ -15,10 +15,24 @@
   <body>
     <div id="root"></div>
     <script>
-      // Disable Vite HMR to prevent WebSocket errors in production
-      if (typeof window !== 'undefined') {
-        window.__VITE_HMR__ = false;
-      }
+      // Aggressively disable Vite HMR
+      window.__VITE_HMR__ = false;
+      window.__VITE_HMR_HOST__ = null;
+      window.__VITE_HMR_PROTOCOL__ = null;
+      window.__VITE_HMR_PORT__ = null;
+      window.__VITE_HMR_DIRECT__ = false;
+      
+      // Intercept WebSocket to prevent HMR connections
+      const OriginalWebSocket = window.WebSocket;
+      window.WebSocket = class extends OriginalWebSocket {
+        constructor(url, ...args) {
+          if (typeof url === 'string' && (url.includes('ws://') || url.includes('wss://'))) {
+            console.warn('[HMR Disabled] WebSocket connection blocked:', url);
+            throw new Error('WebSocket disabled for HMR');
+          }
+          super(url, ...args);
+        }
+      };
     </script>
     <script type="module" src="/src/main.tsx"></script>
     <script

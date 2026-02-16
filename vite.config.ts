@@ -144,6 +144,9 @@ export default defineConfig({
   define: {
     'import.meta.hot': 'false',
   },
+  optimizeDeps: {
+    exclude: ['@vite/client'],
+  },
   plugins,
   resolve: {
     alias: {
