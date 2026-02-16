@@ -30,6 +30,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { toast } from "sonner";
 import { ImageLabelEditor, ImageLabel } from "@/components/ImageLabelEditor";
 import { TableEditor, TableData } from "@/components/TableEditor";
+import { OCRUploader } from "@/components/OCRUploader";
 import { Table2 } from "lucide-react";
 import imageCompression from "browser-image-compression";
 
@@ -209,7 +210,7 @@ export default function Questions({ subjectId }: QuestionsProps) {
   const [selectedQuestion, setSelectedQuestion] = useState<any>(null);
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"text" | "image" | "table">("text");
+  const [activeTab, setActiveTab] = useState<"text" | "image" | "table" | "ocr">("text");
   const [difficultyFilter, setDifficultyFilter] = useState<"all" | "easy" | "medium" | "hard">("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -582,12 +583,15 @@ export default function Questions({ subjectId }: QuestionsProps) {
 
   // QuestionForm을 useMemo로 감싸서 불필요한 리렌더링 방지
   const questionFormContent = (
-    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "image" | "table")} className="w-full">
-      <TabsList className="grid w-full grid-cols-3">
+    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "image" | "table" | "ocr")} className="w-full">
+      <TabsList className="grid w-full grid-cols-4">
         <TabsTrigger value="text">텍스트 문제</TabsTrigger>
         <TabsTrigger value="image">이미지 문제</TabsTrigger>
         <TabsTrigger value="table" className="gap-1">
           <Table2 className="h-3.5 w-3.5" />표 문제
+        </TabsTrigger>
+        <TabsTrigger value="ocr" className="gap-1">
+          <Upload className="h-3.5 w-3.5" />OCR
         </TabsTrigger>
       </TabsList>
 
@@ -767,6 +771,20 @@ export default function Questions({ subjectId }: QuestionsProps) {
             </SelectContent>
           </Select>
         </div>
+      </TabsContent>
+
+      <TabsContent value="ocr" className="space-y-4 mt-4">
+        <OCRUploader
+          onExtractedText={(text) => {
+            setFormData((prev) => ({
+              ...prev,
+              question: text,
+              answer: "",
+            }));
+            setActiveTab("text");
+            toast.success("OCR 결과가 질문에 입력되었습니다. 답안을 입력하세요.");
+          }}
+        />
       </TabsContent>
     </Tabs>
   );
