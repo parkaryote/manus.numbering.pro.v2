@@ -1,4 +1,3 @@
-import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
@@ -51,19 +50,15 @@ function trimLogFile(logPath: string, maxSize: number) {
 
 function writeToLogFile(source: LogSource, entries: unknown[]) {
   if (entries.length === 0) return;
-
   ensureLogDir();
   const logPath = path.join(LOG_DIR, `${source}.log`);
-
   // Format entries with timestamps
   const lines = entries.map((entry) => {
     const ts = new Date().toISOString();
     return `[${ts}] ${JSON.stringify(entry)}`;
   });
-
   // Append to log file
   fs.appendFileSync(logPath, `${lines.join("\n")}\n`, "utf-8");
-
   // Trim if exceeds max size
   trimLogFile(logPath, MAX_LOG_SIZE_BYTES);
 }
@@ -77,7 +72,6 @@ function writeToLogFile(source: LogSource, entries: unknown[]) {
 function vitePluginManusDebugCollector(): Plugin {
   return {
     name: "manus-debug-collector",
-
     transformIndexHtml(html) {
       if (process.env.NODE_ENV === "production") {
         return html;
@@ -96,14 +90,12 @@ function vitePluginManusDebugCollector(): Plugin {
         ],
       };
     },
-
     configureServer(server: ViteDevServer) {
       // POST /__manus__/logs: Browser sends logs (written directly to files)
       server.middlewares.use("/__manus__/logs", (req, res, next) => {
         if (req.method !== "POST") {
           return next();
         }
-
         const handlePayload = (payload: any) => {
           // Write logs directly to files
           if (payload.consoleLogs?.length > 0) {
@@ -115,11 +107,9 @@ function vitePluginManusDebugCollector(): Plugin {
           if (payload.sessionEvents?.length > 0) {
             writeToLogFile("sessionReplay", payload.sessionEvents);
           }
-
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ success: true }));
         };
-
         const reqBody = (req as { body?: unknown }).body;
         if (reqBody && typeof reqBody === "object") {
           try {
@@ -130,12 +120,10 @@ function vitePluginManusDebugCollector(): Plugin {
           }
           return;
         }
-
         let body = "";
         req.on("data", (chunk) => {
           body += chunk.toString();
         });
-
         req.on("end", () => {
           try {
             const payload = JSON.parse(body);
@@ -150,9 +138,12 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+const plugins = [react(), tailwindcss(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
 
 export default defineConfig({
+  define: {
+    'import.meta.hot': 'false',
+  },
   plugins,
   resolve: {
     alias: {
