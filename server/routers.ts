@@ -9,6 +9,7 @@ import { invokeLLM } from "./_core/llm";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
+import * as ocrModule from "./ocr";
 
 // 글자 단위 유사도 계산 (대소문자 무시, 띄어쓰기 무시)
 function calcCharSimilarity(userText: string, correctText: string): number {
@@ -864,6 +865,199 @@ ${input.userAnswer}
         }
         
         return { nextReviewDate, interval };
+      }),
+  }),
+
+  // OCR - Document text extraction
+  ocr: router({
+    // Start OCR job
+    startJob: protectedProcedure
+      .input(z.object({ s3Url: z.string(), fileName: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          // Download file from S3
+          const response = await fetch(input.s3Url);
+          if (!response.ok) {
+            throw new Error(`Failed to download file: ${response.statusText}`);
+          }
+          const fileBuffer = await response.arrayBuffer();
+
+          // Upload to GCS
+          const gcsUri = await ocrModule.uploadToGCS(
+            Buffer.from(fileBuffer),
+            input.fileName
+          );
+
+          // Start Vision API job
+          const operationName = await ocrModule.startOCRJob(gcsUri);
+
+          // Create job record in database
+          const job = await db.createOcrJob({
+            userId: ctx.user.id,
+            fileName: input.fileName,
+            s3Url: input.s3Url,
+            gcsUri,
+            operationName,
+            status: "processing",
+          });
+
+          return { jobId: job.id, status: "processing" };
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : "Unknown error";
+          console.error("[OCR] Start job failed:", errorMsg);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `OCR job failed: ${errorMsg}`,
+          });
+        }
+      }),
+
+    // Check job status
+    getStatus: protectedProcedure
+      .input(z.object({ jobId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const job = await db.getOcrJobById(input.jobId);
+        if (!job) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "OCR job not found",
+          });
+        }
+
+        if (job.userId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Access denied",
+          });
+        }
+
+        // If already completed or failed, return cached status
+        if (job.status === "completed" || job.status === "failed") {
+          return {
+            jobId: job.id,
+            status: job.status,
+            extractedText: job.extractedText,
+            errorMessage: job.errorMessage,
+          };
+        }
+
+        // Poll operation status
+        try {
+          const isComplete = await ocrModule.checkOCRJobStatus(job.operationName!);
+
+          if (isComplete) {
+            // Get results
+            const extractedText = await ocrModule.getOCRResults(job.operationName!);
+
+            // Update job record
+            await db.updateOcrJob(job.id, {
+              status: "completed",
+              extractedText,
+              completedAt: new Date(),
+            });
+
+            // Cleanup GCS files
+            if (job.gcsUri) {
+              await ocrModule.cleanupGCSFiles(job.gcsUri).catch(err => {
+                console.error("[OCR] Cleanup failed:", err);
+              });
+            }
+
+            return {
+              jobId: job.id,
+              status: "completed",
+              extractedText,
+            };
+          } else {
+            return {
+              jobId: job.id,
+              status: "processing",
+            };
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : "Unknown error";
+          console.error("[OCR] Status check failed:", errorMsg);
+
+          // Update job as failed
+          await db.updateOcrJob(job.id, {
+            status: "failed",
+            errorMessage: errorMsg,
+          });
+
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `OCR status check failed: ${errorMsg}`,
+          });
+        }
+      }),
+
+    // Get job result
+    getResult: protectedProcedure
+      .input(z.object({ jobId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const job = await db.getOcrJobById(input.jobId);
+        if (!job) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "OCR job not found",
+          });
+        }
+
+        if (job.userId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Access denied",
+          });
+        }
+
+        if (job.status !== "completed") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Job not completed (status: ${job.status})`,
+          });
+        }
+
+        return {
+          jobId: job.id,
+          fileName: job.fileName,
+          extractedText: job.extractedText || "",
+          completedAt: job.completedAt,
+        };
+      }),
+
+    // List user's OCR jobs
+    listJobs: protectedProcedure.query(async ({ ctx }) => {
+      return db.getOcrJobsByUserId(ctx.user.id);
+    }),
+
+    // Delete OCR job
+    deleteJob: protectedProcedure
+      .input(z.object({ jobId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const job = await db.getOcrJobById(input.jobId);
+        if (!job) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "OCR job not found",
+          });
+        }
+
+        if (job.userId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Access denied",
+          });
+        }
+
+        // Cleanup GCS files if exists
+        if (job.gcsUri) {
+          await ocrModule.cleanupGCSFiles(job.gcsUri).catch(err => {
+            console.error("[OCR] Cleanup failed:", err);
+          });
+        }
+
+        await db.deleteOcrJob(job.id);
+        return { success: true };
       }),
   }),
 

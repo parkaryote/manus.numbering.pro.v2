@@ -8,11 +8,14 @@ import {
   practiceSessions,
   testSessions,
   reviewSchedules,
+  ocrJobs,
   InsertSubject,
   InsertQuestion,
   InsertPracticeSession,
   InsertTestSession,
   InsertReviewSchedule,
+  InsertOcrJob,
+  OcrJob,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -496,4 +499,54 @@ export async function getDemoQuestions(subjectId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(questions).where(and(eq(questions.subjectId, subjectId), eq(questions.isDemo, 1))).orderBy(questions.displayOrder);
+}
+
+
+// OCR Job functions
+export async function createOcrJob(job: InsertOcrJob): Promise<OcrJob> {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Database not available");
+  }
+
+  const result = await db.insert(ocrJobs).values(job);
+  const jobId = result[0].insertId;
+  
+  return getOcrJobById(jobId as number) as Promise<OcrJob>;
+}
+
+export async function getOcrJobById(id: number): Promise<OcrJob | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db.select().from(ocrJobs).where(eq(ocrJobs.id, id));
+  return result[0];
+}
+
+export async function updateOcrJob(
+  id: number,
+  updates: Partial<Omit<OcrJob, 'id' | 'createdAt'>>
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Database not available");
+  }
+
+  await db.update(ocrJobs).set(updates).where(eq(ocrJobs.id, id));
+}
+
+export async function getOcrJobsByUserId(userId: number): Promise<OcrJob[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db.select().from(ocrJobs).where(eq(ocrJobs.userId, userId)).orderBy(desc(ocrJobs.createdAt));
+}
+
+export async function deleteOcrJob(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("Database not available");
+  }
+
+  await db.delete(ocrJobs).where(eq(ocrJobs.id, id));
 }

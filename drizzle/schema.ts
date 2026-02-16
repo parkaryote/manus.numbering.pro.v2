@@ -123,3 +123,24 @@ export const reviewSchedules = mysqlTable("reviewSchedules", {
 
 export type ReviewSchedule = typeof reviewSchedules.$inferSelect;
 export type InsertReviewSchedule = typeof reviewSchedules.$inferInsert;
+
+/**
+ * OCR 작업 테이블 - 비동기 OCR 처리 추적
+ */
+export const ocrJobs = mysqlTable("ocrJobs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  fileName: varchar("fileName", { length: 255 }).notNull(),
+  s3Url: text("s3Url").notNull(), // Original S3 file URL
+  gcsUri: text("gcsUri"), // gs:// URI after upload to GCS
+  operationName: text("operationName"), // Google Cloud Vision operation name
+  status: mysqlEnum("status", ["pending", "processing", "completed", "failed"]).default("pending").notNull(),
+  extractedText: text("extractedText"), // OCR result
+  errorMessage: text("errorMessage"), // Error details if failed
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completedAt"), // When OCR completed
+});
+
+export type OcrJob = typeof ocrJobs.$inferSelect;
+export type InsertOcrJob = typeof ocrJobs.$inferInsert;

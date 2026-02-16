@@ -1382,3 +1382,25 @@
   - [x] TableEditor.tsx의 TableView 컴포넌트 수정
   - [x] 단일 input 필드 + absolute 배경 정답 방식으로 구현
   - [x] 브라우저 테스트 완료 (입력/완성/색상 변경 확인)
+
+
+# OCR 기능 구현 (v2.0.0)
+- [x] OCR 패키지 설치 (@google-cloud/vision, @google-cloud/storage)
+- [x] server/ocr.ts 구현 - asyncBatchAnnotateFiles 기반
+  - [x] S3 → GCS 업로드 로직
+  - [x] Vision API asyncBatchAnnotateFiles 호출
+  - [x] Operation polling 로직
+  - [x] GCS 결과 파싱 (fullTextAnnotation)
+  - [x] GCS cleanup 로직
+- [x] OCR Job 데이터베이스 스키마 추가 (ocrJobs 테이블)
+- [x] tRPC 라우터에 OCR 엔드포인트 추가
+  - [x] POST /api/ocr/jobs - 작업 시작
+  - [x] GET /api/ocr/jobs/:id - 상태 조회
+  - [x] GET /api/ocr/jobs/:id/result - 결과 반환
+- [x] 환경변수 설정 (GCP_PROJECT_ID, GCS_TEMP_BUCKET)
+- [x] 프론트엔드 OCR UI 구현 (Questions 페이지에 OCR 탭)
+  - [x] 파일 업로드 인터페이스
+  - [x] jobId 기반 polling
+  - [x] 추출된 텍스트 미리보기
+  - [x] 문제로 등록 버튼
+- [x] 통합 테스트 및 안정성 검증
