@@ -914,8 +914,23 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   setIsActive(true);
                 }}
                 onCorrectAnswer={(key) => {
-                  // 정답 완성 시 연습 횟수 증가
-                  setPracticeCount((prev) => prev + 1);
+                  // 모든 빈칸이 완성되었는지 확인
+                  const blankCells = getBlankCells(tableData);
+                  const allCorrect = blankCells.every((cellKey) => {
+                    const cell = tableData.rows.flat().find((c) => c.key === cellKey);
+                    if (!cell) return false;
+                    const userAnswer = tableAnswers[cellKey] || "";
+                    return userAnswer.trim().toLowerCase() === cell.content.trim().toLowerCase();
+                  });
+                  
+                  if (allCorrect) {
+                    setPracticeCount((prev) => prev + 1);
+                    if (isDemo && question) {
+                      const storageKey = `demo_practice_count_${question.id}`;
+                      const currentCount = parseInt(localStorage.getItem(storageKey) || "0", 10);
+                      localStorage.setItem(storageKey, String(currentCount + 1));
+                    }
+                  }
                 }}
               />
               <div className="flex gap-2">
