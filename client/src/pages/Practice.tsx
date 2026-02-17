@@ -871,7 +871,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             <p className="text-xs text-muted-foreground">현재 연습</p>
           </div>
           <div className="text-center">
-            <p className="text-2xl font-bold">{isDemo ? practiceCount : (practiceCountData?.count || 0)}</p>
+            <p className="text-2xl font-bold">{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)}</p>
             <p className="text-xs text-muted-foreground">누적 연습</p>
           </div>
           <div className="flex items-center gap-2">
