@@ -157,11 +157,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   // Global keyboard event listener for ESC and Ctrl+Enter
   useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      // ESC or Ctrl+Enter: Complete and save
+    const handleGlobalKeyDown = async (e: KeyboardEvent) => {
       if (e.key === "Escape" || (e.ctrlKey && e.key === "Enter")) {
         e.preventDefault();
-        handleComplete();
+        await handleComplete();
+        if (isDemo) {
+          setLocation("/demo");
+        }
       }
     };
 
@@ -169,7 +171,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown);
     };
-  }, [question, userInput, imageLabelAnswers, revealedLabels, elapsedTime, createSession]);
+  }, [question, userInput, imageLabelAnswers, revealedLabels, elapsedTime, createSession, isDemo, setLocation]);
 
   const handleCompositionStart = () => {
     setIsComposing(true);
@@ -524,7 +526,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const timeInMinutes = elapsedTime / 60;
     const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
 
-    if (!isDemo) {
+    if (isDemo) {
+      setPracticeCount(prev => prev + 1);
+    } else {
       await createSession.mutateAsync({
         questionId: question.id,
         duration: elapsedTime,
