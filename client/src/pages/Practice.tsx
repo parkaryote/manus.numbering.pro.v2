@@ -546,12 +546,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 돌아가기 버튼 클릭 핸들러
   const handleGoBack = async () => {
     if (isDemo) {
-      // 데모 모드에서 페이지를 떠날 때 현재 연습을 누적 연습으로 저장
-      if (practiceCount > 0 && question) {
-        const storageKey = `demo_practice_count_${question.id}`;
-        const currentCount = parseInt(localStorage.getItem(storageKey) || "0", 10);
-        localStorage.setItem(storageKey, String(currentCount + practiceCount));
-      }
+      // 데모 모드: 현재 연습만 초기화하고 돌아가기 (누적 연습은 이미 실시간으로 저장됨)
       setLocation(`/questions/${question?.subjectId || 1}`);
       return;
     }
