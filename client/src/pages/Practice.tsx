@@ -26,7 +26,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
   const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
-  const [practiceCount, setPracticeCount] = useState(0); // 연습 횟수
+  const [practiceCount, setPracticeCount] = useState(() => {
+    // 데모 모드에서는 로컬 스토리지에서 누적 연습 수 로드
+    if (isDemo && questionId) {
+      const storageKey = `demo_practice_count_${questionId}`;
+      const saved = localStorage.getItem(storageKey);
+      return saved ? parseInt(saved, 10) : 0;
+    }
+    return 0;
+  }); // 연습 횟수
   const [showShortcutHelp, setShowShortcutHelp] = useState(() => {
     const saved = localStorage.getItem("showShortcutHelp");
     return saved !== null ? saved === "true" : true;
@@ -527,7 +535,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
 
     if (isDemo) {
-      setPracticeCount(prev => prev + 1);
+      setPracticeCount(prev => {
+        const newCount = prev + 1;
+        const storageKey = `demo_practice_count_${question.id}`;
+        localStorage.setItem(storageKey, String(newCount));
+        return newCount;
+      });
     } else {
       await createSession.mutateAsync({
         questionId: question.id,
@@ -558,7 +571,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
   const handleCorrectAnswer = async (currentInputLength?: number) => {
-    setPracticeCount(prev => prev + 1);
+    setPracticeCount(prev => {
+      const newCount = prev + 1;
+      if (isDemo && question) {
+        const storageKey = `demo_practice_count_${question.id}`;
+        localStorage.setItem(storageKey, String(newCount));
+      }
+      return newCount;
+    });
     
     // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신 (매번 저장)
     if (question && elapsedTime > 0) {

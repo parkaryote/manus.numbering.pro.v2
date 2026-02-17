@@ -97,6 +97,7 @@ function DemoQuestions({ subjectId }: { subjectId: number }) {
         const isImageQuestion = !!question.imageUrl;
         const isTableQuestion = !!question.tableData;
         const questionType = isTableQuestion ? "table" : isImageQuestion ? "image" : "text";
+        const practiceCount = parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10);
         
         return (
           <div
@@ -110,7 +111,7 @@ function DemoQuestions({ subjectId }: { subjectId: number }) {
               <div className="flex-1">
                 <p className="font-medium line-clamp-1">{question.question}</p>
                 <p className="text-sm text-muted-foreground">
-                  난이도: {question.difficulty === "easy" ? "쉬움" : question.difficulty === "medium" ? "보통" : "어려움"}
+                  난이도: {question.difficulty === "easy" ? "쉬움" : question.difficulty === "medium" ? "보통" : "어려움"} · 누적 연습: {practiceCount}
                 </p>
               </div>
             </div>
