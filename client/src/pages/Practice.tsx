@@ -26,15 +26,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
   const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
-  const [practiceCount, setPracticeCount] = useState(() => {
-    // 데모 모드에서는 로컬 스토리지에서 누적 연습 수 로드
-    if (isDemo && questionId) {
-      const storageKey = `demo_practice_count_${questionId}`;
-      const saved = localStorage.getItem(storageKey);
-      return saved ? parseInt(saved, 10) : 0;
-    }
-    return 0;
-  }); // 연습 횟수
+  const [practiceCount, setPracticeCount] = useState(0); // 현재 연습 횟수 (세션 동안만 유지)
   const [showShortcutHelp, setShowShortcutHelp] = useState(() => {
     const saved = localStorage.getItem("showShortcutHelp");
     return saved !== null ? saved === "true" : true;
