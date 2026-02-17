@@ -535,12 +535,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
 
     if (isDemo) {
-      setPracticeCount(prev => {
-        const newCount = prev + 1;
-        const storageKey = `demo_practice_count_${question.id}`;
-        localStorage.setItem(storageKey, String(newCount));
-        return newCount;
-      });
+      setPracticeCount(prev => prev + 1);
     } else {
       await createSession.mutateAsync({
         questionId: question.id,
@@ -555,6 +550,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 돌아가기 버튼 클릭 핸들러
   const handleGoBack = async () => {
     if (isDemo) {
+      // 데모 모드에서 페이지를 떠날 때 현재 연습을 누적 연습으로 저장
+      if (practiceCount > 0 && question) {
+        const storageKey = `demo_practice_count_${question.id}`;
+        const currentCount = parseInt(localStorage.getItem(storageKey) || "0", 10);
+        localStorage.setItem(storageKey, String(currentCount + practiceCount));
+      }
       setLocation(`/questions/${question?.subjectId || 1}`);
       return;
     }
@@ -571,14 +572,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
   const handleCorrectAnswer = async (currentInputLength?: number) => {
-    setPracticeCount(prev => {
-      const newCount = prev + 1;
-      if (isDemo && question) {
-        const storageKey = `demo_practice_count_${question.id}`;
-        localStorage.setItem(storageKey, String(newCount));
-      }
-      return newCount;
-    });
+    setPracticeCount(prev => prev + 1);
     
     // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신 (매번 저장)
     if (question && elapsedTime > 0) {
