@@ -528,6 +528,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
     if (isDemo) {
       setPracticeCount(prev => prev + 1);
+      // 누적 연습도 동시 증가
+      const storageKey = `demo_practice_count_${question.id}`;
+      const currentCount = parseInt(localStorage.getItem(storageKey) || "0", 10);
+      localStorage.setItem(storageKey, String(currentCount + 1));
     } else {
       await createSession.mutateAsync({
         questionId: question.id,
@@ -565,6 +569,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
   const handleCorrectAnswer = async (currentInputLength?: number) => {
     setPracticeCount(prev => prev + 1);
+    
+    // 데모 모드: 누적 연습도 동시 증가
+    if (isDemo && question) {
+      const storageKey = `demo_practice_count_${question.id}`;
+      const currentCount = parseInt(localStorage.getItem(storageKey) || "0", 10);
+      localStorage.setItem(storageKey, String(currentCount + 1));
+    }
     
     // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신 (매번 저장)
     if (question && elapsedTime > 0) {
