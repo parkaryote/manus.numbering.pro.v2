@@ -7,6 +7,7 @@ import { ArrowLeft, Circle, Image as ImageIcon, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { splitGraphemes, isPartialMatch, isHangul, decomposeHangul } from "@/lib/hangul";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
+import { trackQuestionAttempt, trackPracticeComplete } from "@/lib/ga4Events";
 
 interface PracticeProps {
   questionId: number;
@@ -564,6 +565,19 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
   const handleCorrectAnswer = async (currentInputLength?: number) => {
     setPracticeCount(prev => prev + 1);
+    
+    // GA4 이벤트 추적: 문제 풀이 완료
+    if (question) {
+      const questionType = question.imageUrl && question.imageLabels ? 'image' : 
+                          (question.answer?.includes('|') ? 'table' : 'text');
+      trackQuestionAttempt(
+        question.id,
+        question.subjectId,
+        questionType as 'text' | 'image' | 'table',
+        true, // isCorrect
+        elapsedTime
+      );
+    }
     
     // 데모 모드: 누적 연습도 동시 증가
     if (isDemo && question) {

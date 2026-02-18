@@ -33,6 +33,7 @@ import { TableEditor, TableData } from "@/components/TableEditor";
 import { OCRUploader } from "@/components/OCRUploader";
 import { Table2 } from "lucide-react";
 import imageCompression from "browser-image-compression";
+import { trackQuestionCreate, trackQuestionUpdate, trackQuestionDelete } from "@/lib/ga4Events";
 
 interface QuestionsProps {
   subjectId: number;
@@ -229,7 +230,9 @@ export default function Questions({ subjectId }: QuestionsProps) {
   const utils = trpc.useUtils();
 
   const createMutation = trpc.questions.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
+      const questionType = data.imageUrl && data.imageLabels ? 'image' : (data.tableData ? 'table' : 'text');
+      trackQuestionCreate(data.id, subjectId, questionType as 'text' | 'image' | 'table');
       utils.questions.listBySubject.invalidate({ subjectId });
       setIsCreateOpen(false);
       resetForm();
@@ -241,7 +244,9 @@ export default function Questions({ subjectId }: QuestionsProps) {
   });
 
   const updateMutation = trpc.questions.update.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
+      const questionType = data.imageUrl && data.imageLabels ? 'image' : (data.tableData ? 'table' : 'text');
+      trackQuestionUpdate(data.id, subjectId, questionType as 'text' | 'image' | 'table');
       utils.questions.listBySubject.invalidate({ subjectId });
       setIsEditOpen(false);
       setEditingQuestion(null);
@@ -255,6 +260,9 @@ export default function Questions({ subjectId }: QuestionsProps) {
 
   const deleteMutation = trpc.questions.delete.useMutation({
     onSuccess: () => {
+      if (editingQuestion) {
+        trackQuestionDelete(editingQuestion.id, subjectId);
+      }
       utils.questions.listBySubject.invalidate({ subjectId });
       toast.success("문제가 삭제되었습니다");
     },

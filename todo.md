@@ -1468,3 +1468,11 @@
 - [x] GA4 측정 ID 환경변수 설정 (G-YZMECQLB80)
 - [x] 클라이언트에 GA4 스크립트 추가
 - [x] GA4 이벤트 트래킹 (페이지 뷰 추적 구현)
+# GA4 커스타링 이벤트 추적 (v2.6.0)
+- [x] GA4 이벤트 추적 유틸 라이브러리 작성 (client/src/lib/ga4Events.ts)
+- [x] 문제 풀이 이벤트 추적 (question_attempt) - Practice.tsx에 추가
+- [x] 연습 완료 이벤트 추적 (practice_complete) - 유틸 라이브러리에 포함
+- [x] 시험 제출 이벤트 추적 (test_submit) - Test.tsx에 추가
+- [x] 과목 생성/수정/삭제 이벤트 추적 - 유틸 라이브러리에 포함
+- [x] 문제 생성/수정/삭제 이벤트 추적 - Questions.tsx에 추가
+- [x] GA4 이벤트 로깅 구조 완성

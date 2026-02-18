@@ -10,6 +10,7 @@ import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff, Table2 } from "lucide-re
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
+import { trackTestSubmit } from "@/lib/ga4Events";
 
 interface TestProps {
   questionId: number;
@@ -143,6 +144,15 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       setTableResults(results);
       setTableScore({ score, total });
       setIsSubmitted(true);
+
+      // GA4 이벤트 추적: 시험 제출
+      trackTestSubmit(
+        question.subjectId,
+        Math.round((score / total) * 100),
+        total,
+        score,
+        recallTime
+      );
 
       // Update review schedule
       const quality = score === total ? 5 : Math.max(0, Math.floor((score / total) * 5));
