@@ -8,6 +8,25 @@ import App from "./App";
 import { getLoginUrl } from "./const";
 import "./index.css";
 
+// Initialize GA4 if measurement ID is available
+if (typeof window !== 'undefined' && window.gtag) {
+  const measurementId = import.meta.env.VITE_GA4_MEASUREMENT_ID;
+  if (measurementId) {
+    window.gtag('config', measurementId, {
+      'anonymize_ip': true,
+      'allow_google_signals': false
+    });
+  }
+}
+
+// Declare gtag for TypeScript
+declare global {
+  interface Window {
+    gtag?: (...args: any[]) => void;
+    dataLayer?: any[];
+  }
+}
+
 const queryClient = new QueryClient();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
@@ -36,6 +55,14 @@ queryClient.getMutationCache().subscribe(event => {
     console.error("[API Mutation Error]", error);
   }
 });
+
+// Track page views with GA4
+if (typeof window !== 'undefined' && window.gtag) {
+  window.gtag('event', 'page_view', {
+    'page_path': window.location.pathname,
+    'page_title': document.title
+  });
+}
 
 const trpcClient = trpc.createClient({
   links: [
