@@ -1460,6 +1460,6 @@
 
 
 # OCR 업로드 오류 수정 (v2.4.0)
-- [ ] OCR 파일 업로드 tRPC 라우터 추가 (uploadFile)
-- [ ] OCRUploader에서 /api/upload 대신 tRPC 사용
-- [ ] uploadDocument.ts 파일 삭제 및 import 제거
+- [x] OCR 파일 업로드 tRPC 라우터 추가 (uploadFile)
+- [x] OCRUploader에서 /api/upload 대신 tRPC 사용
+- [x] uploadDocument.ts 파일 삭제 및 import 제거
