@@ -870,6 +870,24 @@ ${input.userAnswer}
 
   // OCR - Document text extraction
   ocr: router({
+    // Upload file to S3
+    uploadFile: protectedProcedure
+      .input(z.object({ fileBuffer: z.instanceof(Uint8Array), fileName: z.string(), mimeType: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const fileKey = `ocr/${ctx.user.id}/${Date.now()}-${input.fileName}`;
+          const { url } = await storagePut(fileKey, Buffer.from(input.fileBuffer), input.mimeType);
+          return { s3Url: url };
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : "Unknown error";
+          console.error("[OCR] Upload file failed:", errorMsg);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `File upload failed: ${errorMsg}`,
+          });
+        }
+      }),
+
     // Start OCR job
     startJob: protectedProcedure
       .input(z.object({ s3Url: z.string(), fileName: z.string() }))

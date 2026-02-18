@@ -63,6 +63,21 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
     }
   };
 
+  // Upload file to S3 using tRPC
+  const uploadFileMutation = trpc.ocr.uploadFile.useMutation({
+    onSuccess: (data) => {
+      // Start OCR job with S3 URL
+      startJobMutation.mutate({
+        s3Url: data.s3Url,
+        fileName: file!.name,
+      });
+    },
+    onError: (error) => {
+      setStatus("failed");
+      setErrorMessage(error.message);
+    },
+  });
+
   // Handle upload
   const handleUpload = async () => {
     if (!file) return;
@@ -70,26 +85,17 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
     setStatus("uploading");
 
     try {
-      // Upload file to S3 first
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const uploadResponse = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error("Failed to upload file to S3");
-      }
-
-      const { url: s3Url } = await uploadResponse.json();
-
-      // Start OCR job
-      startJobMutation.mutate({
-        s3Url,
-        fileName: file.name,
-      });
+      // Read file as buffer and upload via tRPC
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const arrayBuffer = e.target?.result as ArrayBuffer;
+        uploadFileMutation.mutate({
+          fileBuffer: new Uint8Array(arrayBuffer),
+          fileName: file.name,
+          mimeType: file.type,
+        });
+      };
+      reader.readAsArrayBuffer(file);
     } catch (error) {
       setStatus("failed");
       setErrorMessage(error instanceof Error ? error.message : "Upload failed");

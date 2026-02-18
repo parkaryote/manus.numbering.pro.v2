@@ -1457,3 +1457,9 @@
 - [x] 표 문제는 모든 빈칸을 채워야 1회 연습으로 카운트
 - [x] 현재는 각 셋마다 카운트되는 문제 해결
 - [x] 데모 모드에서도 표 문제 연습 카운트 수정 적용
+
+
+# OCR 업로드 오류 수정 (v2.4.0)
+- [ ] OCR 파일 업로드 tRPC 라우터 추가 (uploadFile)
+- [ ] OCRUploader에서 /api/upload 대신 tRPC 사용
+- [ ] uploadDocument.ts 파일 삭제 및 import 제거
