@@ -1,0 +1,20 @@
+{
+  "query": "SELECT id, subjectId, question, answer FROM questions WHERE question LIKE '%상악 우측 제1대구치%' LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yp3nD2VtcmPj65.root --database Zt6E6wVVzDENrVcXUKGBHG --execute SELECT id, subjectId, question, answer FROM questions WHERE question LIKE '%상악 우측 제1대구치%' LIMIT 10;",
+  "rows": [
+    {
+      "id": "480002",
+      "subjectId": "180011",
+      "question": "상악 우측 제1대구치의 특징을 설명하시오.",
+      "answer": "근심면에 4개의 근심변연융선"
+    }
+  ],
+  "messages": [
+    "원심면에 3개의 원심변연융선",
+    "협측면에 2개의 협측 교두",
+    "설측면에 1개의 설측 교두"
+  ],
+  "stdout": "id\tsubjectId\tquestion\tanswer\n480002\t180011\t상악 우측 제1대구치의 특징을 설명하시오.\t근심면에 4개의 근심변연융선\n원심면에 3개의 원심변연융선\n협측면에 2개의 협측 교두\n설측면에 1개의 설측 교두\n",
+  "stderr": "",
+  "execution_time_ms": 2129
+}

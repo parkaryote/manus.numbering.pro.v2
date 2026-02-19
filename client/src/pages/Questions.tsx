@@ -37,6 +37,7 @@ import { trackQuestionCreate, trackQuestionUpdate, trackQuestionDelete } from "@
 
 interface QuestionsProps {
   subjectId: number;
+  isDemo?: boolean;
 }
 
 interface SortableQuestionCardProps {
@@ -202,7 +203,7 @@ function SortableQuestionCard({
   );
 }
 
-export default function Questions({ subjectId }: QuestionsProps) {
+export default function Questions({ subjectId, isDemo = false }: QuestionsProps) {
   const [, setLocation] = useLocation();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);

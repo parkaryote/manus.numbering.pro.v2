@@ -2,11 +2,13 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
-import { BookOpen, ArrowLeft, FileText, Image as ImageIcon, Table, LogIn } from "lucide-react";
+import { BookOpen, ArrowLeft, FileText, Image as ImageIcon, Table, LogIn, Plus } from "lucide-react";
 import { getLoginUrl } from "@/const";
+import { useState } from "react";
 
 export default function Demo() {
   const [, setLocation] = useLocation();
+  const [expandedSubject, setExpandedSubject] = useState<number | null>(null);
   const { data: subjects, isLoading } = trpc.demo.subjects.useQuery();
 
   return (
@@ -49,12 +51,23 @@ export default function Demo() {
           {subjects.map((subject) => (
             <Card key={subject.id} className="shadow-elegant hover:shadow-lg transition-shadow">
               <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-4 h-4 rounded-full"
-                    style={{ backgroundColor: subject.color || "#3B82F6" }}
-                  />
-                  <CardTitle>{subject.name}</CardTitle>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-4 h-4 rounded-full"
+                      style={{ backgroundColor: subject.color || "#3B82F6" }}
+                    />
+                    <CardTitle>{subject.name}</CardTitle>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => setLocation(`/demo/questions/${subject.id}`)}
+                  >
+                    <Plus className="h-4 w-4" />
+                    문제 추가
+                  </Button>
                 </div>
                 {subject.description && (
                   <CardDescription>{subject.description}</CardDescription>

@@ -65,6 +65,11 @@ function Router() {
           <Test questionId={parseInt(params.questionId)} isDemo={true} />
         )}
       </Route>
+      <Route path={"/demo/questions/:subjectId"}>
+        {(params) => (
+          <Questions subjectId={parseInt(params.subjectId)} isDemo={true} />
+        )}
+      </Route>
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

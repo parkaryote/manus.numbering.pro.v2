@@ -1476,3 +1476,14 @@
 - [x] 과목 생성/수정/삭제 이벤트 추적 - 유틸 라이브러리에 포함
 - [x] 문제 생성/수정/삭제 이벤트 추적 - Questions.tsx에 추가
 - [x] GA4 이벤트 로깅 구조 완성
+
+# Google Cloud Vision API 인증 설정 (v2.7.0)
+- [ ] Google Cloud 서비스 계정 JSON 키 생성
+- [ ] GOOGLE_APPLICATION_CREDENTIALS 환경변수 설정
+- [ ] OCR 기능 테스트
+
+# 데모 모드 개선 (v2.8.0)
+- [x] "악구강영역의 기능해부학 2" 과목에서 "상악 우측 제1대구치의 스른진을 설명하시오" 문제 삭제
+- [x] 데모 모드에 문제 추가 기능 활성화 (/demo/questions/:subjectId 라우트 추가)
+- [x] 데모 사용자 문제 생성 권한 설정 (Questions 컴포넌트에 isDemo prop 추가)
+- [x] 데모 모드 기능 테스트 (데모 모드 내 각 과목에서 문제 추가 버튼 동작 확인)
