@@ -623,11 +623,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setTimeout(() => {
       setIsFadingOut(true);
     }, 700);
-    
-    // 1.0초 후 (0.7초 delay + 0.3초 fade out) 입력창 제거 및 fade out 해제
+       // 1.0초 후 (0.7초 delay + 0.3초 fade out) 입력창 제uac70 및 fade out 해제
     setTimeout(() => {
       setUserInput('');
       setInputHistory(['']); // inputHistory 초기화
+      setStartTime(null); // startTime 초기화 - 다음 문제를 위한 useEffect 실행
       if (textareaRef.current) {
         textareaRef.current.value = '';
         textareaRef.current.setSelectionRange(0, 0);
