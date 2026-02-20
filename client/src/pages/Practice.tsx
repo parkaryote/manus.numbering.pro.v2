@@ -367,15 +367,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
     
     // Enter: 줄바꿈 추가 (autoNumbering=1인 경우, 답안 줄 수만큼 허용)
-    // 엔터 입력 시 커서를 첫째 줄로 강제 이동
-    if (e.key === "Enter") {
-      setTimeout(() => {
-        if (textareaRef.current) {
-          textareaRef.current.setSelectionRange(0, 0);
-        }
-      }, 0);
-    }
-    
     if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey && question?.autoNumbering === 1) {
       const lines = targetText.split('\n');
       const maxLines = lines.length;
