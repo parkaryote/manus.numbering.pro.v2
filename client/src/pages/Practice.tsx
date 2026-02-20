@@ -626,8 +626,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       setUserInput('');
       if (textareaRef.current) {
         textareaRef.current.value = '';
-        textareaRef.current.focus();
         textareaRef.current.setSelectionRange(0, 0);
+        textareaRef.current.focus();
       }
       setIsFadingOut(false);
     }, 1000);
