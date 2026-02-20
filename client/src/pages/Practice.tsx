@@ -633,7 +633,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         textareaRef.current.setSelectionRange(0, 0);
         textareaRef.current.focus();
       }
-      setIsFadingOut(false);
+      setTimeout(() => {
+        setIsFadingOut(false);
+      }, 50);
     }, 1000);
   };
 
