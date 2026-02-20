@@ -627,6 +627,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // 1.0초 후 (0.7초 delay + 0.3초 fade out) 입력창 제거 및 fade out 해제
     setTimeout(() => {
       setUserInput('');
+      setInputHistory(['']); // inputHistory 초기화
       if (textareaRef.current) {
         textareaRef.current.value = '';
         textareaRef.current.setSelectionRange(0, 0);
