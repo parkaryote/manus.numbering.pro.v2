@@ -1057,7 +1057,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
                 className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground"
                 placeholder="여기에 입력하세요..."
-                autoFocus
+
               />
             </>
           )}
