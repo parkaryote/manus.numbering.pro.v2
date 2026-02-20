@@ -120,7 +120,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   useEffect(() => {
     if (question && !startTime) {
       setStartTime(Date.now());
-      textareaRef.current?.focus();
+      if (textareaRef.current) {
+        textareaRef.current.setSelectionRange(0, 0);
+        textareaRef.current.focus();
+      }
     }
   }, [question]);
 
