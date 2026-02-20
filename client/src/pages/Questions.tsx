@@ -215,6 +215,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   const [activeTab, setActiveTab] = useState<"text" | "image" | "table" | "ocr">("text");
   const [difficultyFilter, setDifficultyFilter] = useState<"all" | "easy" | "medium" | "hard">("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const questionTextareaRef = useRef<HTMLTextAreaElement>(null);
   
   const [formData, setFormData] = useState({
     question: "",
@@ -350,6 +351,13 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       tableData: null,
     });
     setActiveTab("text");
+    // 포커스를 질문 입력 필드의 첫 줄로 리셋
+    setTimeout(() => {
+      if (questionTextareaRef.current) {
+        questionTextareaRef.current.focus();
+        questionTextareaRef.current.setSelectionRange(0, 0);
+      }
+    }, 0);
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -609,6 +617,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           <Label htmlFor="question">질문 *</Label>
           <Textarea
             id="question"
+            ref={questionTextareaRef}
             value={formData.question}
             onChange={(e) => handleQuestionChange(e.target.value)}
             placeholder="예: 조선시대의 주요 사건을 시대순으로 나열하시오"
