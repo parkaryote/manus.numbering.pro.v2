@@ -25,7 +25,7 @@ export default function AdminDemoManagement() {
   }, [user, setLocation]);
 
   // 데모 과목 조회
-  const { data: subjects = [], isLoading: subjectsLoading } = trpc.admin.demo.subjects.useQuery(undefined, {
+  const { data: subjects = [], isLoading: subjectsLoading, error: subjectsError } = trpc.admin.demo.subjects.useQuery(undefined, {
     enabled: user?.role === "admin",
   });
 
@@ -76,9 +76,15 @@ export default function AdminDemoManagement() {
     await deleteMutation.mutateAsync({ questionId });
   };
 
-  if (!user || user.role !== "admin") {
+  if (!user) {
+    return <div className="p-8 text-center">로딩 중...</div>;
+  }
+
+  if (user.role !== "admin") {
     return <div className="p-8 text-center">관리자만 접근할 수 있습니다.</div>;
   }
+
+
 
   return (
     <div className="p-8 space-y-8">

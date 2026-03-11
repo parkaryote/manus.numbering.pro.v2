@@ -1528,3 +1528,10 @@
 - [x] 관리자 라우터 통합 (server/routers.ts)
 - [x] 관리자 데모 관리 라우트 추가 (/admin/demo-management)
 - [x] 테스트 코드 작성 및 통과 (adminRouter.test.ts)
+
+# 버그 수정 (v2.0.1) - 데모 관리 페이지
+- [x] 데모 관리 페이지에서 과목 목록이 표시되지 않는 문제 해결
+  - [x] API 호출 상태 확인 (admin.demo.subjects) - 서버 재시작 필요
+  - [x] 데이터베이스 쿼리 검증 - 데모 과목 3개 정상 조회
+  - [x] AdminDemoManagement 컴포넌트 로직 수정
+  - [x] 브라우저 콘솔 오류 확인 - 서버 재시작 후 정상 동작
