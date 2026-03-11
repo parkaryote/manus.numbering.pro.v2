@@ -1,6 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
+import { adminRouter } from "./adminRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -1091,6 +1092,9 @@ ${input.userAnswer}
       return db.deleteExpiredQuestions();
     }),
   }),
+
+  // Admin routes
+  admin: adminRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -12,6 +12,7 @@ import Practice from "./pages/Practice";
 import Test from "./pages/Test";
 import Statistics from "./pages/Statistics";
 import Demo from "./pages/Demo";
+import AdminDemoManagement from "./pages/AdminDemoManagement";
 
 function Router() {
   return (
@@ -65,10 +66,15 @@ function Router() {
           <Test questionId={parseInt(params.questionId)} isDemo={true} />
         )}
       </Route>
-      <Route path={"/demo/questions/:subjectId"}>
+      <Route path={"\demo/questions/:subjectId"}>
         {(params) => (
           <Questions subjectId={parseInt(params.subjectId)} isDemo={true} />
         )}
+      </Route>
+      <Route path={"/admin/demo-management"}>
+        <DashboardLayout>
+          <AdminDemoManagement />
+        </DashboardLayout>
       </Route>
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />

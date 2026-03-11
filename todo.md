@@ -1502,3 +1502,29 @@
 - [ ] 연습 완료 후 포커스가 첫 줄에 위치하도록 최종 수정
 - [ ] 초기화 후 다음 입력 시 마지막 글자가 입력창에 뜨는 버그 수정
 - [ ] userInput 상태 초기화 및 textarea 값 동기화
+
+# 데모 과목 관리 기능 (v3.0.0)
+- [ ] 관리자 전용 데모 과목 관리 페이지 구현 (/admin/demo-subjects)
+- [ ] 데모 과목 목록 조회 및 문제 관리 UI
+- [ ] 실시간 데이터 동기화 (캐시 무효화)
+- [ ] 관리자 권한 검증 (role === 'admin')
+- [ ] 데모 모드 사용자에게 수정 사항 실시간 반영
+
+# 기능 추가 (v2.0.0) - 관리자 데모 관리
+- [x] 관리자 권한 확인 미들웨어 구현 (adminProcedure)
+- [x] 데모 과목 조회 API (admin.demo.subjects)
+- [x] 데모 문제 조회 API (admin.demo.questions)
+- [x] 데모 문제 수정 API (admin.demo.updateQuestion)
+- [x] 데모 문제 삭제 API (admin.demo.deleteQuestion)
+- [x] 데모 문제 생성 API (admin.demo.createQuestion)
+- [x] 관리자 데모 관리 페이지 UI 구현
+  - [x] 데모 과목 목록 표시
+  - [x] 과목별 문제 조회
+  - [x] 문제 수정/삭제 기능
+  - [x] 실시간 캐시 무효화 신호
+- [x] DashboardLayout에 관리자 메뉴 추가
+  - [x] 사이드바에 "데모 관리" 메뉴 추가 (Settings 아이콘)
+  - [x] 드롭다운 메뉴에도 "데모 관리" 옵션 추가
+- [x] 관리자 라우터 통합 (server/routers.ts)
+- [x] 관리자 데모 관리 라우트 추가 (/admin/demo-management)
+- [x] 테스트 코드 작성 및 통과 (adminRouter.test.ts)

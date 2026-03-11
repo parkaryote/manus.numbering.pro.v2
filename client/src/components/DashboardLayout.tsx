@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, BookOpen, FileQuestion, Dumbbell, ClipboardCheck, BarChart3 } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, BookOpen, FileQuestion, Dumbbell, ClipboardCheck, BarChart3, Settings } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -31,6 +31,10 @@ const menuItems = [
   { icon: LayoutDashboard, label: "대시보드", path: "/" },
   { icon: BookOpen, label: "과목 관리", path: "/subjects" },
   { icon: BarChart3, label: "학습 통계", path: "/statistics" },
+];
+
+const adminMenuItems = [
+  { icon: Settings, label: "데모 관리", path: "/admin/demo-management" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -180,6 +184,29 @@ function DashboardLayoutContent({
                   </SidebarMenuItem>
                 );
               })}
+              {user?.role === "admin" && (
+                <>
+                  <div className="my-2 border-t" />
+                  {adminMenuItems.map(item => {
+                    const isActive = location === item.path;
+                    return (
+                      <SidebarMenuItem key={item.path}>
+                        <SidebarMenuButton
+                          isActive={isActive}
+                          onClick={() => setLocation(item.path)}
+                          tooltip={item.label}
+                          className={`h-10 transition-all font-normal`}
+                        >
+                          <item.icon
+                            className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
+                          />
+                          <span>{item.label}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </>
+              )}
             </SidebarMenu>
           </SidebarContent>
 
@@ -203,6 +230,18 @@ function DashboardLayoutContent({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
+                {user?.role === "admin" && (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => setLocation("/admin/demo-management")}
+                      className="cursor-pointer"
+                    >
+                      <Settings className="mr-2 h-4 w-4" />
+                      <span>데모 관리</span>
+                    </DropdownMenuItem>
+                    <div className="my-1 border-t" />
+                  </>
+                )}
                 <DropdownMenuItem
                   onClick={logout}
                   className="cursor-pointer text-destructive focus:text-destructive"

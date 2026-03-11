@@ -550,3 +550,39 @@ export async function deleteOcrJob(id: number): Promise<void> {
 
   await db.delete(ocrJobs).where(eq(ocrJobs.id, id));
 }
+
+// Admin demo management functions
+export async function getAllDemoSubjects() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(subjects).where(eq(subjects.isDemo, 1)).orderBy(subjects.displayOrder);
+}
+
+export async function getDemoQuestionsBySubjectId(subjectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(questions).where(and(eq(questions.subjectId, subjectId), eq(questions.isDemo, 1))).orderBy(questions.displayOrder);
+}
+
+export async function updateDemoQuestion(id: number, data: Partial<InsertQuestion>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(questions).set(data).where(eq(questions.id, id));
+  const result = await db.select().from(questions).where(eq(questions.id, id)).limit(1);
+  return result[0];
+}
+
+export async function deleteDemoQuestion(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(questions).where(eq(questions.id, id));
+}
+
+export async function createDemoQuestion(data: InsertQuestion) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(questions).values(data);
+  const insertId = Number(result[0].insertId);
+  const created = await db.select().from(questions).where(eq(questions.id, insertId)).limit(1);
+  return created[0];
+}
