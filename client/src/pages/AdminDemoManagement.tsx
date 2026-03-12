@@ -1,20 +1,39 @@
-import { useState, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Loader2, Edit2, Trash2, Plus, Image, Table2 } from "lucide-react";
+import { Loader2, Edit2, Trash2, Plus, Image as ImageIcon, Table2, Upload } from "lucide-react";
+import { ImageLabelEditor, ImageLabel } from "@/components/ImageLabelEditor";
+import { TableEditor, TableData } from "@/components/TableEditor";
+import { toast } from "sonner";
+import imageCompression from "browser-image-compression";
 
 export default function AdminDemoManagement() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [selectedSubject, setSelectedSubject] = useState<number | null>(null);
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({ question: "", answer: "" });
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"text" | "image" | "table">("text");
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [formData, setFormData] = useState({
+    question: "",
+    answer: "",
+    difficulty: "medium" as "easy" | "medium" | "hard",
+    imageUrl: "",
+    imageLabels: [] as ImageLabel[],
+    autoNumbering: true,
+    tableData: null as TableData | null,
+  });
 
   useEffect(() => {
     if (user && user.role !== "admin") {
@@ -37,154 +56,232 @@ export default function AdminDemoManagement() {
   const updateMutation = trpc.admin.demo.updateQuestion.useMutation({
     onSuccess: () => {
       refetchAllQuestions();
-      setIsDialogOpen(false);
+      setIsEditOpen(false);
       setEditingQuestion(null);
-      setFormData({ question: "", answer: "" });
+      resetForm();
+      toast.success("문제가 수정되었습니다");
+    },
+    onError: (error) => {
+      toast.error("수정 실패: " + error.message);
     },
   });
 
   const deleteMutation = trpc.admin.demo.deleteQuestion.useMutation({
     onSuccess: () => {
       refetchAllQuestions();
+      toast.success("문제가 삭제되었습니다");
+    },
+    onError: (error) => {
+      toast.error("삭제 실패: " + error.message);
     },
   });
 
+  const resetForm = () => {
+    setFormData({
+      question: "",
+      answer: "",
+      difficulty: "medium",
+      imageUrl: "",
+      imageLabels: [],
+      autoNumbering: true,
+      tableData: null,
+    });
+    setActiveTab("text");
+  };
+
   const handleEditQuestion = (question: any) => {
     setEditingQuestion(question);
+    const parsedTableData = question.tableData ? JSON.parse(question.tableData) : null;
     setFormData({
       question: question.question,
       answer: question.answer || "",
+      difficulty: question.difficulty || "medium",
+      imageUrl: question.imageUrl || "",
+      imageLabels: question.imageLabels ? JSON.parse(question.imageLabels) : [],
+      autoNumbering: question.autoNumbering !== 0,
+      tableData: parsedTableData,
     });
-    setIsDialogOpen(true);
+    // 탭 자동 선택
+    if (parsedTableData) {
+      setActiveTab("table");
+    } else if (question.imageUrl) {
+      setActiveTab("image");
+    } else {
+      setActiveTab("text");
+    }
+    setIsEditOpen(true);
   };
 
-  const handleSaveQuestion = async () => {
-    if (!editingQuestion || !formData.question) return;
-    await updateMutation.mutateAsync({
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("이미지 파일만 업로드할 수 있습니다");
+      return;
+    }
+    if (file.size > 16 * 1024 * 1024) {
+      toast.error("파일 크기는 16MB 이하여야 합니다");
+      return;
+    }
+    setIsUploading(true);
+    try {
+      const options = { maxSizeMB: 2, maxWidthOrHeight: 1920, useWebWorker: true };
+      const compressedFile = await imageCompression(file, options);
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", compressedFile);
+      const response = await fetch("/api/upload/image", { method: "POST", body: uploadFormData });
+      if (!response.ok) throw new Error("Upload failed");
+      const data = await response.json();
+      setFormData((prev) => ({ ...prev, imageUrl: data.url }));
+      toast.success("이미지가 업로드되었습니다");
+    } catch {
+      toast.error("이미지 업로드 실패");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleUpdate = () => {
+    if (!formData.question.trim()) {
+      toast.error("질문을 입력하세요");
+      return;
+    }
+
+    if (activeTab === "table") {
+      if (!formData.tableData) {
+        toast.error("표를 작성하세요");
+        return;
+      }
+      const blankCount = formData.tableData.cells.flat().filter((c) => c.isBlank && !c.isMerged).length;
+      if (blankCount === 0) {
+        toast.error("최소 1개의 빈칸을 지정하세요");
+        return;
+      }
+      updateMutation.mutate({
+        questionId: editingQuestion.id,
+        question: formData.question,
+        answer: "",
+        difficulty: formData.difficulty,
+        tableData: JSON.stringify(formData.tableData),
+        imageUrl: undefined,
+        imageLabels: undefined,
+        autoNumbering: 0,
+      } as any);
+      return;
+    }
+
+    if (activeTab === "image") {
+      if (formData.imageUrl && formData.imageLabels.length > 0) {
+        const hasEmptyAnswer = formData.imageLabels.some((label) => !label.answer.trim());
+        if (hasEmptyAnswer) {
+          toast.error("모든 영역의 정답을 입력하세요");
+          return;
+        }
+      }
+      updateMutation.mutate({
+        questionId: editingQuestion.id,
+        question: formData.question,
+        answer: "",
+        difficulty: formData.difficulty,
+        imageUrl: formData.imageUrl || undefined,
+        imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
+        tableData: undefined,
+        autoNumbering: formData.autoNumbering ? 1 : 0,
+      } as any);
+      return;
+    }
+
+    // 텍스트 문제
+    if (!formData.answer.trim()) {
+      toast.error("답안을 입력하세요");
+      return;
+    }
+    updateMutation.mutate({
       questionId: editingQuestion.id,
       question: formData.question,
       answer: formData.answer,
-    });
+      difficulty: formData.difficulty,
+      imageUrl: undefined,
+      imageLabels: undefined,
+      tableData: undefined,
+      autoNumbering: formData.autoNumbering ? 1 : 0,
+    } as any);
   };
 
   const handleDeleteQuestion = async (questionId: number) => {
     if (!confirm("정말 삭제하시겠습니까?")) return;
-    await deleteMutation.mutateAsync({ questionId });
+    deleteMutation.mutate({ questionId });
   };
 
-  // 이미지 문제 정답 렌더링
-  const renderImageAnswer = (question: any) => {
-    let labels: any[] = [];
-    try {
-      if (question.imageLabels) {
-        labels = typeof question.imageLabels === "string"
-          ? JSON.parse(question.imageLabels)
-          : question.imageLabels;
-      }
-    } catch {}
-
-    return (
-      <div className="space-y-2">
-        {/* 이미지 미리보기 */}
-        {question.imageUrl && (
-          <div className="border rounded overflow-hidden bg-gray-50">
-            <img
-              src={question.imageUrl}
-              alt="문제 이미지"
-              className="w-full max-h-48 object-contain"
-            />
-          </div>
-        )}
-        {/* 라벨 정답 목록 */}
-        {labels.length > 0 ? (
-          <div className="bg-green-50 border border-green-200 rounded p-3 space-y-1">
-            <p className="text-xs font-semibold text-green-700 mb-2 flex items-center gap-1">
-              <Image className="w-3 h-3" /> 이미지 라벨 정답 ({labels.length}개)
-            </p>
-            <div className="grid grid-cols-1 gap-1 max-h-40 overflow-y-auto">
-              {labels.map((label: any, idx: number) => (
-                <div key={idx} className="flex items-start gap-2 text-sm text-green-900">
-                  <span className="font-bold shrink-0 text-green-600">[{idx + 1}]</span>
-                  <span>{label.answer || "(빈칸)"}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground italic">(라벨 정답 없음)</p>
-        )}
-      </div>
-    );
-  };
-
-  // 표 문제 정답 렌더링
-  const renderTableAnswer = (question: any) => {
-    let tableData: any = null;
-    try {
-      if (question.tableData) {
-        tableData = typeof question.tableData === "string"
-          ? JSON.parse(question.tableData)
-          : question.tableData;
-      }
-    } catch {}
-
-    // tableData 구조: { rows: number, cols: number, cells: any[][], headerRow: bool, headerCol: bool }
-    const rows: any[][] = tableData?.cells || tableData?.data || (Array.isArray(tableData) ? tableData : null);
-
-    if (!rows || !Array.isArray(rows) || rows.length === 0) {
-      return <p className="text-sm text-muted-foreground italic">(표 데이터 없음)</p>;
-    }
-
-    return (
-      <div className="space-y-2">
-        <p className="text-xs font-semibold text-blue-700 flex items-center gap-1">
-          <Table2 className="w-3 h-3" /> 표 데이터 미리보기
-        </p>
-        <div className="overflow-x-auto border rounded">
-          <table className="text-xs w-full border-collapse">
-            <tbody>
-              {rows.slice(0, 6).map((row: any[], rowIdx: number) => (
-                <tr key={rowIdx} className={rowIdx === 0 ? "bg-blue-50 font-semibold" : "even:bg-gray-50"}>
-                  {row.map((cell: any, colIdx: number) => {
-                    const content = typeof cell === "object" ? cell?.content ?? "" : String(cell ?? "");
-                    const isBlank = typeof cell === "object" ? cell?.isBlank : false;
-                    return (
-                      <td
-                        key={colIdx}
-                        className={`border border-gray-200 px-2 py-1 max-w-24 truncate ${
-                          colIdx === 0 ? "bg-blue-50 font-semibold" : ""
-                        } ${isBlank ? "bg-yellow-50 text-yellow-700 font-bold" : ""}`}
-                        title={content}
-                      >
-                        {isBlank ? "▢" : content || "-"}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-              {rows.length > 6 && (
-                <tr>
-                  <td colSpan={rows[0]?.length || 1} className="text-center text-xs text-muted-foreground py-1 border border-gray-200">
-                    ... 외 {rows.length - 6}행 더 있음
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  };
-
-  // 정답 표시 헬퍼
-  const renderAnswer = (question: any) => {
+  // 정답 미리보기 렌더링
+  const renderAnswerPreview = (question: any) => {
     const hasImage = question.imageUrl;
     const hasTable = question.tableData;
-    const hasTextAnswer = question.answer && question.answer.trim().length > 0;
 
-    if (hasImage) return renderImageAnswer(question);
-    if (hasTable) return renderTableAnswer(question);
-    if (hasTextAnswer) {
+    if (hasImage) {
+      let labels: any[] = [];
+      try { labels = JSON.parse(question.imageLabels || "[]"); } catch {}
+      return (
+        <div className="space-y-2">
+          <div className="border rounded overflow-hidden bg-gray-50">
+            <img src={question.imageUrl} alt="문제 이미지" className="w-full max-h-48 object-contain" />
+          </div>
+          {labels.length > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded p-3 space-y-1">
+              <p className="text-xs font-semibold text-green-700 mb-2 flex items-center gap-1">
+                <ImageIcon className="w-3 h-3" /> 이미지 라벨 정답 ({labels.length}개)
+              </p>
+              <div className="grid grid-cols-1 gap-1 max-h-40 overflow-y-auto">
+                {labels.map((label: any, idx: number) => (
+                  <div key={idx} className="flex items-start gap-2 text-sm text-green-900">
+                    <span className="font-bold shrink-0 text-green-600">[{idx + 1}]</span>
+                    <span>{label.answer || "(빈칸)"}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (hasTable) {
+      let tableData: any = null;
+      try { tableData = JSON.parse(question.tableData); } catch {}
+      const cells: any[][] = tableData?.cells;
+      if (!cells || !Array.isArray(cells)) return <p className="text-sm text-muted-foreground italic">(표 데이터 없음)</p>;
+      return (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-blue-700 flex items-center gap-1">
+            <Table2 className="w-3 h-3" /> 표 데이터 미리보기
+          </p>
+          <div className="overflow-x-auto border rounded">
+            <table className="text-xs w-full border-collapse">
+              <tbody>
+                {cells.slice(0, 6).map((row: any[], rowIdx: number) => (
+                  <tr key={rowIdx} className={rowIdx === 0 ? "bg-blue-50 font-semibold" : "even:bg-gray-50"}>
+                    {row.map((cell: any, colIdx: number) => {
+                      const content = typeof cell === "object" ? cell?.content ?? "" : String(cell ?? "");
+                      const isBlank = typeof cell === "object" ? cell?.isBlank : false;
+                      return (
+                        <td key={colIdx} className={`border border-gray-200 px-2 py-1 max-w-24 truncate ${colIdx === 0 ? "bg-blue-50 font-semibold" : ""} ${isBlank ? "bg-yellow-50 text-yellow-700 font-bold" : ""}`} title={content}>
+                          {isBlank ? "▢" : content || "-"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                {cells.length > 6 && (
+                  <tr><td colSpan={cells[0]?.length || 1} className="text-center text-xs text-muted-foreground py-1 border border-gray-200">... 외 {cells.length - 6}행 더 있음</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    if (question.answer?.trim()) {
       return (
         <div className="bg-green-50 p-3 rounded text-green-900 border border-green-200 whitespace-pre-wrap text-sm leading-relaxed">
           {question.answer}
@@ -216,11 +313,7 @@ export default function AdminDemoManagement() {
             return (
               <Card
                 key={subject.id}
-                className={`cursor-pointer transition-all ${
-                  selectedSubject === subject.id
-                    ? "ring-2 ring-primary bg-primary/5"
-                    : "hover:shadow-lg"
-                }`}
+                className={`cursor-pointer transition-all ${selectedSubject === subject.id ? "ring-2 ring-primary bg-primary/5" : "hover:shadow-lg"}`}
                 onClick={() => setSelectedSubject(subject.id)}
               >
                 <CardHeader>
@@ -242,21 +335,14 @@ export default function AdminDemoManagement() {
           <div className="flex justify-between items-center">
             <h2 className="text-2xl font-bold">문제 목록</h2>
             <Button variant="outline" size="sm" disabled>
-              <Plus className="w-4 h-4 mr-2" />
-              새 문제 추가 (준비 중)
+              <Plus className="w-4 h-4 mr-2" />새 문제 추가 (준비 중)
             </Button>
           </div>
 
           {allQuestionsLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="w-8 h-8 animate-spin" />
-            </div>
+            <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin" /></div>
           ) : selectedQuestions.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center text-muted-foreground">
-                이 과목에 문제가 없습니다
-              </CardContent>
-            </Card>
+            <Card><CardContent className="py-8 text-center text-muted-foreground">이 과목에 문제가 없습니다</CardContent></Card>
           ) : (
             <div className="space-y-3">
               {selectedQuestions.map((question) => (
@@ -269,21 +355,14 @@ export default function AdminDemoManagement() {
                       </div>
                       <div>
                         <p className="text-sm font-semibold text-muted-foreground mb-2">정답</p>
-                        {renderAnswer(question)}
+                        {renderAnswerPreview(question)}
                       </div>
                       <div className="flex gap-2 justify-end pt-2 border-t">
                         <Button variant="outline" size="sm" onClick={() => handleEditQuestion(question)}>
-                          <Edit2 className="w-4 h-4 mr-1" />
-                          수정
+                          <Edit2 className="w-4 h-4 mr-1" />수정
                         </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleDeleteQuestion(question.id)}
-                          disabled={deleteMutation.isPending}
-                        >
-                          <Trash2 className="w-4 h-4 mr-1" />
-                          삭제
+                        <Button variant="destructive" size="sm" onClick={() => handleDeleteQuestion(question.id)} disabled={deleteMutation.isPending}>
+                          <Trash2 className="w-4 h-4 mr-1" />삭제
                         </Button>
                       </div>
                     </div>
@@ -295,51 +374,126 @@ export default function AdminDemoManagement() {
         </div>
       )}
 
-      {/* 편집 다이얼로그 */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-2xl">
+      {/* 수정 다이얼로그 - 문제 유형별 */}
+      <Dialog open={isEditOpen} onOpenChange={(open) => { setIsEditOpen(open); if (!open) { setEditingQuestion(null); resetForm(); } }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>문제 수정</DialogTitle>
-            <DialogDescription>
-              문제와 정답을 수정하면 모든 사용자에게 즉시 반영됩니다
-            </DialogDescription>
+            <DialogDescription>수정하면 모든 사용자에게 즉시 반영됩니다</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-semibold">문제</label>
-              <Textarea
-                value={formData.question}
-                onChange={(e) => setFormData({ ...formData, question: e.target.value })}
-                placeholder="문제를 입력하세요"
-                className="mt-2 min-h-24"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-semibold">텍스트 정답</label>
-              {editingQuestion?.imageUrl && (
-                <p className="text-xs text-muted-foreground mt-1">이미지 라벨 정답은 이 화면에서 수정할 수 없습니다</p>
+
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "image" | "table")} className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="text">텍스트 문제</TabsTrigger>
+              <TabsTrigger value="image">이미지 문제</TabsTrigger>
+              <TabsTrigger value="table" className="gap-1">
+                <Table2 className="h-3.5 w-3.5" />표 문제
+              </TabsTrigger>
+            </TabsList>
+
+            {/* 텍스트 문제 탭 */}
+            <TabsContent value="text" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label>질문 *</Label>
+                <Textarea value={formData.question} onChange={(e) => setFormData({ ...formData, question: e.target.value })} placeholder="질문을 입력하세요" rows={3} />
+              </div>
+              <div className="space-y-2">
+                <Label>답안 *</Label>
+                <Textarea value={formData.answer} onChange={(e) => setFormData({ ...formData, answer: e.target.value })} placeholder="모범 답안을 입력하세요" rows={6} />
+              </div>
+              <div className="space-y-2">
+                <Label>난이도</Label>
+                <Select value={formData.difficulty} onValueChange={(v) => setFormData({ ...formData, difficulty: v as any })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="easy">쉬움</SelectItem>
+                    <SelectItem value="medium">보통</SelectItem>
+                    <SelectItem value="hard">어려움</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="autoNumbering" checked={formData.autoNumbering} onChange={(e) => setFormData({ ...formData, autoNumbering: e.target.checked })} className="w-4 h-4 rounded border-gray-300 cursor-pointer" />
+                <Label htmlFor="autoNumbering" className="cursor-pointer text-sm font-normal">엔터 기준으로 답안 번호 자동 생성</Label>
+              </div>
+            </TabsContent>
+
+            {/* 이미지 문제 탭 */}
+            <TabsContent value="image" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label>질문 *</Label>
+                <Textarea value={formData.question} onChange={(e) => setFormData({ ...formData, question: e.target.value })} placeholder="예: 다음 해부도에서 표시된 부위의 명칭을 쓰시오" rows={2} />
+              </div>
+              {!formData.imageUrl ? (
+                <div className="space-y-2">
+                  <Label>이미지 업로드</Label>
+                  <div className="border-2 border-dashed rounded-lg p-8 text-center">
+                    <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                    <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="gap-2">
+                      <Upload className="h-4 w-4" />
+                      {isUploading ? "업로드 중..." : "이미지 선택"}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-2">PNG, JPG, GIF (최대 16MB)</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>정답 영역 지정</Label>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setFormData({ ...formData, imageUrl: "", imageLabels: [] })}>이미지 제거</Button>
+                  </div>
+                  <ImageLabelEditor
+                    imageUrl={formData.imageUrl}
+                    initialLabels={formData.imageLabels}
+                    onChange={(labels: ImageLabel[]) => setFormData((prev) => ({ ...prev, imageLabels: labels }))}
+                  />
+                </div>
               )}
-              {editingQuestion?.tableData && (
-                <p className="text-xs text-muted-foreground mt-1">표 데이터는 이 화면에서 수정할 수 없습니다</p>
-              )}
-              <Textarea
-                value={formData.answer}
-                onChange={(e) => setFormData({ ...formData, answer: e.target.value })}
-                placeholder="텍스트 정답을 입력하세요"
-                className="mt-2 min-h-24"
-              />
-            </div>
-            <div className="flex gap-2 justify-end pt-4">
-              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>취소</Button>
-              <Button
-                onClick={handleSaveQuestion}
-                disabled={updateMutation.isPending || !formData.question}
-              >
-                {updateMutation.isPending ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />저장 중...</>
-                ) : "저장"}
-              </Button>
-            </div>
+              <div className="space-y-2">
+                <Label>난이도</Label>
+                <Select value={formData.difficulty} onValueChange={(v) => setFormData({ ...formData, difficulty: v as any })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="easy">쉬움</SelectItem>
+                    <SelectItem value="medium">보통</SelectItem>
+                    <SelectItem value="hard">어려움</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </TabsContent>
+
+            {/* 표 문제 탭 */}
+            <TabsContent value="table" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label>질문 *</Label>
+                <Textarea value={formData.question} onChange={(e) => setFormData({ ...formData, question: e.target.value })} placeholder="예: 다음 표의 빈칸을 채우시오" rows={2} />
+              </div>
+              <div className="space-y-2">
+                <Label>표 작성</Label>
+                <TableEditor
+                  initialData={formData.tableData || undefined}
+                  onChange={(data) => setFormData((prev) => ({ ...prev, tableData: data }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>난이도</Label>
+                <Select value={formData.difficulty} onValueChange={(v) => setFormData({ ...formData, difficulty: v as any })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="easy">쉬움</SelectItem>
+                    <SelectItem value="medium">보통</SelectItem>
+                    <SelectItem value="hard">어려움</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          <div className="flex gap-2 justify-end pt-4 border-t mt-4">
+            <Button variant="outline" onClick={() => { setIsEditOpen(false); setEditingQuestion(null); resetForm(); }}>취소</Button>
+            <Button onClick={handleUpdate} disabled={updateMutation.isPending || !formData.question}>
+              {updateMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />저장 중...</> : "저장"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

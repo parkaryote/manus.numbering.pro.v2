@@ -45,6 +45,8 @@ export const adminRouter = router({
           answer: z.string(),
           imageUrl: z.string().optional(),
           imageLabels: z.string().optional(),
+          tableData: z.string().optional(),
+          autoNumbering: z.number().optional(),
           useAIGrading: z.number().optional(),
         })
       )
@@ -56,6 +58,8 @@ export const adminRouter = router({
             answer: input.answer,
             imageUrl: input.imageUrl,
             imageLabels: input.imageLabels,
+            tableData: input.tableData,
+            autoNumbering: input.autoNumbering,
             useAIGrading: input.useAIGrading,
           }
         );
