@@ -495,6 +495,12 @@ export async function getDemoSubjects() {
   return db.select().from(subjects).where(eq(subjects.isDemo, 1)).orderBy(subjects.displayOrder);
 }
 
+export async function getAllDemoQuestions() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(questions).where(eq(questions.isDemo, 1)).orderBy(questions.displayOrder);
+}
+
 export async function getDemoQuestions(subjectId: number) {
   const db = await getDb();
   if (!db) return [];

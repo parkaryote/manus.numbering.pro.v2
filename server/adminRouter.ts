@@ -14,6 +14,8 @@ const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   return next({ ctx });
 });
 
+
+
 export const adminRouter = router({
   // 데모 과목 관리
   demo: router({
@@ -22,7 +24,12 @@ export const adminRouter = router({
       return db.getAllDemoSubjects();
     }),
 
-    // 데모 과목의 모든 문제 조회
+    // 모든 데모 문제 조회 (과목 선택 여부와 관계없이)
+    allQuestions: adminProcedure.query(async () => {
+      return await db.getAllDemoQuestions();
+    }),
+
+    // 데모 과목의 기본 문제 조회
     questions: adminProcedure
       .input(z.object({ subjectId: z.number() }))
       .query(async ({ input }) => {

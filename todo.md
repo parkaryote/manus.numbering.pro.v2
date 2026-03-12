@@ -1542,3 +1542,11 @@
 - [x] 이미지 문제 정답 표시 - imageLabels에서 정답 추출하여 [1], [2], [3] 형식으로 표시
 - [x] 표 문제 정답 표시 - 구조화된 형식으로 정답 표시
 - [x] 정답 미리보기 UI 개선 - 녹색 배경 박스에 테두리 추가, 패딩 증가로 명확하게 표시
+
+# 버그 수정 (v2.0.3) - 문제 수 초기 표시 버그
+- [ ] 문제 수 초기 표시 버그 수정
+  - [x] 원인 분석: 과목별 문제 조회로 인한 초기 0 표시
+  - [x] server/db.ts에 getAllDemoQuestions() 함수 추가
+  - [x] server/adminRouter.ts에 allQuestions 프로시저 추가
+  - [x] client/AdminDemoManagement.tsx 로직 수정 - 모든 문제 한 번에 조회
+  - [ ] 브라우저 테스트 및 검증

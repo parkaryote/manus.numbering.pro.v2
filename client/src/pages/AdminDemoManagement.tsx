@@ -29,16 +29,20 @@ export default function AdminDemoManagement() {
     enabled: user?.role === "admin",
   });
 
-  // 데모 문제 조회
-  const { data: questions = [], isLoading: questionsLoading, refetch: refetchQuestions } = trpc.admin.demo.questions.useQuery(
-    { subjectId: selectedSubject! },
-    { enabled: selectedSubject !== null && user?.role === "admin" }
-  );
+  // 모든 데모 문제 조회 (과목 선택 여부와 상관없이)
+  const { data: allQuestions = [], isLoading: allQuestionsLoading, refetch: refetchAllQuestions } = trpc.admin.demo.allQuestions.useQuery(undefined, {
+    enabled: user?.role === "admin",
+  });
+
+  // 선택된 과목의 문제만 필터링
+  const selectedQuestions = selectedSubject 
+    ? allQuestions.filter((q) => q.subjectId === selectedSubject)
+    : [];
 
   // 문제 수정
   const updateMutation = trpc.admin.demo.updateQuestion.useMutation({
     onSuccess: () => {
-      refetchQuestions();
+      refetchAllQuestions();
       setIsDialogOpen(false);
       setEditingQuestion(null);
       setFormData({ question: "", answer: "" });
@@ -48,7 +52,7 @@ export default function AdminDemoManagement() {
   // 문제 삭제
   const deleteMutation = trpc.admin.demo.deleteQuestion.useMutation({
     onSuccess: () => {
-      refetchQuestions();
+      refetchAllQuestions();
     },
   });
 
@@ -116,13 +120,13 @@ export default function AdminDemoManagement() {
 
       {/* 과목 목록 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {subjectsLoading ? (
+        {subjectsLoading || allQuestionsLoading ? (
           <div className="col-span-full flex justify-center py-8">
             <Loader2 className="w-8 h-8 animate-spin" />
           </div>
         ) : (
           subjects.map((subject) => {
-            const questionCount = questions.filter((q) => q.subjectId === subject.id).length;
+            const questionCount = allQuestions.filter((q) => q.subjectId === subject.id).length;
             return (
               <Card
                 key={subject.id}
@@ -159,11 +163,11 @@ export default function AdminDemoManagement() {
             </Button>
           </div>
 
-          {questionsLoading ? (
+          {allQuestionsLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="w-8 h-8 animate-spin" />
             </div>
-          ) : questions.length === 0 ? (
+          ) : selectedQuestions.length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">
                 이 과목에 문제가 없습니다
@@ -171,7 +175,7 @@ export default function AdminDemoManagement() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {questions.map((question) => (
+              {selectedQuestions.map((question) => (
                 <Card key={question.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="py-4">
                     <div className="space-y-3">
