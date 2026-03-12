@@ -1566,3 +1566,11 @@
 # UI 개선 (v2.0.6) - 문제 등록/수정 전체 화면
 - [x] Questions.tsx: 등록/수정 다이얼로그 → fixed inset-0 전체 화면 패널
 - [x] AdminDemoManagement.tsx: 수정 다이얼로그 → fixed inset-0 전체 화면 패널
+
+# 기능 추가 (v2.1.0) - 데모 관리 새 과목/문제 추가
+- [x] server/db.ts: createDemoSubject, updateDemoSubject, deleteDemoSubject 함수 추가
+- [x] server/adminRouter.ts: createSubject, updateSubject, deleteSubject, createQuestion 프로시저 추가
+- [x] AdminDemoManagement.tsx: 새 과목 추가 전체 화면 폼 구현 (이름/설명/색상)
+- [x] AdminDemoManagement.tsx: 새 문제 추가 전체 화면 폼 구현 (텍스트/이미지/표 유형별)
+- [x] AdminDemoManagement.tsx: 과목 수정/삭제 버튼 추가 (카드 우상단)
+- [x] AdminDemoManagement.tsx: 과목 색상 표시 (색상 원형 아이콘)

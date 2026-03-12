@@ -89,9 +89,12 @@ export const adminRouter = router({
         z.object({
           subjectId: z.number(),
           question: z.string(),
-          answer: z.string(),
+          answer: z.string().optional().default(""),
           imageUrl: z.string().optional(),
           imageLabels: z.string().optional(),
+          tableData: z.string().optional(),
+          autoNumbering: z.number().optional().default(1),
+          difficulty: z.enum(["easy", "medium", "hard"]).optional().default("medium"),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -99,9 +102,12 @@ export const adminRouter = router({
           subjectId: input.subjectId,
           userId: ctx.user.id,
           question: input.question,
-          answer: input.answer,
+          answer: input.answer ?? "",
           imageUrl: input.imageUrl,
           imageLabels: input.imageLabels,
+          tableData: input.tableData,
+          autoNumbering: input.autoNumbering ?? 1,
+          difficulty: input.difficulty ?? "medium",
           isDemo: 1,
         });
         
@@ -110,6 +116,54 @@ export const adminRouter = router({
           data: created,
           cacheInvalidated: true,
         };
+      }),
+
+    // 데모 과목 생성
+    createSubject: adminProcedure
+      .input(
+        z.object({
+          name: z.string().min(1),
+          description: z.string().optional().default(""),
+          color: z.string().optional().default("#3B82F6"),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const created = await db.createDemoSubject({
+          userId: ctx.user.id,
+          name: input.name,
+          description: input.description ?? "",
+          color: input.color ?? "#3B82F6",
+          isDemo: 1,
+          displayOrder: 0,
+        });
+        return { success: true, data: created };
+      }),
+
+    // 데모 과목 수정
+    updateSubject: adminProcedure
+      .input(
+        z.object({
+          subjectId: z.number(),
+          name: z.string().min(1),
+          description: z.string().optional(),
+          color: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const updated = await db.updateDemoSubject(input.subjectId, {
+          name: input.name,
+          description: input.description,
+          color: input.color,
+        });
+        return { success: true, data: updated };
+      }),
+
+    // 데모 과목 삭제
+    deleteSubject: adminProcedure
+      .input(z.object({ subjectId: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deleteDemoSubject(input.subjectId);
+        return { success: true };
       }),
   }),
 });

@@ -592,3 +592,28 @@ export async function createDemoQuestion(data: InsertQuestion) {
   const created = await db.select().from(questions).where(eq(questions.id, insertId)).limit(1);
   return created[0];
 }
+
+export async function createDemoSubject(data: InsertSubject) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(subjects).values(data);
+  const insertId = Number(result[0].insertId);
+  const created = await db.select().from(subjects).where(eq(subjects.id, insertId)).limit(1);
+  return created[0];
+}
+
+export async function updateDemoSubject(id: number, data: Partial<InsertSubject>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(subjects).set(data).where(eq(subjects.id, id));
+  const result = await db.select().from(subjects).where(eq(subjects.id, id)).limit(1);
+  return result[0];
+}
+
+export async function deleteDemoSubject(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // 과목에 속한 데모 문제도 함께 삭제
+  await db.delete(questions).where(and(eq(questions.subjectId, id), eq(questions.isDemo, 1)));
+  await db.delete(subjects).where(eq(subjects.id, id));
+}
