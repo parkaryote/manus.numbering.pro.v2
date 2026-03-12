@@ -1589,3 +1589,9 @@
 - [x] Subjects.tsx: 관리자 전용 "데모 과목으로 지정" 체크박스 추가 (생성/수정 다이얼로그)
 - [x] Questions.tsx: 관리자 전용 "데모 문제로 지정" 체크박스 추가 (등록/수정 전체화면 폼)
 - [x] AdminDemoManagement.tsx: 간소화 - 데모 지정 목록 조회 및 해제 전용
+
+# 기능 개선 (v2.3.0) - 데모 관리 ↔ 과목 관리 연결
+- [x] AdminDemoManagement: 데모 과목 클릭 시 해당 과목 문제 목록(/questions/:id)으로 이동 (ExternalLink 아이콘)
+- [x] AdminDemoManagement: 데모 문제 클릭 시 해당 과목 문제 목록으로 이동 (ExternalLink 아이콘)
+- [x] Subjects.tsx: 데모 과목에 amber 색상 뱃지 표시 (⭐ 데모)
+- [x] Questions.tsx: 데모 문제에 amber 색상 뱃지 표시 (⭐ 데모)

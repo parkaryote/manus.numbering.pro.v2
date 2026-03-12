@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -75,7 +76,15 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: any) {
           style={{ backgroundColor: subject.color }}
         />
         <div className="flex-1 min-w-0" onClick={() => setLocation(`/questions/${subject.id}`)}>
-          <CardTitle className="text-lg">{subject.name}</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg">{subject.name}</CardTitle>
+            {subject.isDemo === 1 && (
+              <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                <Star className="w-2.5 h-2.5" />
+                데모
+              </Badge>
+            )}
+          </div>
           {subject.description && (
             <CardDescription className="line-clamp-1">{subject.description}</CardDescription>
           )}

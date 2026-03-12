@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -115,6 +116,12 @@ function SortableQuestionCard({
               <span className={`text-xs font-medium ${difficultyColor[question.difficulty || "medium"]}`}>
                 {difficultyLabel[question.difficulty || "medium"]}
               </span>
+              {question.isDemo === 1 && (
+                <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                  <Star className="w-2.5 h-2.5" />
+                  데모
+                </Badge>
+              )}
             </div>
             <CardTitle className="text-lg mb-2">{question.question}</CardTitle>
             {hasImage && question.imageUrl && (
