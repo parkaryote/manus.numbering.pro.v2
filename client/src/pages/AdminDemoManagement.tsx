@@ -4,10 +4,9 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Loader2, Edit2, Trash2, Plus } from "lucide-react";
+import { Loader2, Edit2, Trash2, Plus, Image, Table2 } from "lucide-react";
 
 export default function AdminDemoManagement() {
   const { user } = useAuth();
@@ -17,29 +16,24 @@ export default function AdminDemoManagement() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ question: "", answer: "" });
 
-  // 권한 확인
   useEffect(() => {
     if (user && user.role !== "admin") {
       setLocation("/");
     }
   }, [user, setLocation]);
 
-  // 데모 과목 조회
   const { data: subjects = [], isLoading: subjectsLoading } = trpc.admin.demo.subjects.useQuery(undefined, {
     enabled: user?.role === "admin",
   });
 
-  // 모든 데모 문제 조회 (과목 선택 여부와 상관없이)
   const { data: allQuestions = [], isLoading: allQuestionsLoading, refetch: refetchAllQuestions } = trpc.admin.demo.allQuestions.useQuery(undefined, {
     enabled: user?.role === "admin",
   });
 
-  // 선택된 과목의 문제만 필터링
-  const selectedQuestions = selectedSubject 
+  const selectedQuestions = selectedSubject
     ? allQuestions.filter((q) => q.subjectId === selectedSubject)
     : [];
 
-  // 문제 수정
   const updateMutation = trpc.admin.demo.updateQuestion.useMutation({
     onSuccess: () => {
       refetchAllQuestions();
@@ -49,7 +43,6 @@ export default function AdminDemoManagement() {
     },
   });
 
-  // 문제 삭제
   const deleteMutation = trpc.admin.demo.deleteQuestion.useMutation({
     onSuccess: () => {
       refetchAllQuestions();
@@ -60,14 +53,13 @@ export default function AdminDemoManagement() {
     setEditingQuestion(question);
     setFormData({
       question: question.question,
-      answer: question.answer,
+      answer: question.answer || "",
     });
     setIsDialogOpen(true);
   };
 
   const handleSaveQuestion = async () => {
-    if (!editingQuestion || !formData.question || !formData.answer) return;
-
+    if (!editingQuestion || !formData.question) return;
     await updateMutation.mutateAsync({
       questionId: editingQuestion.id,
       question: formData.question,
@@ -80,36 +72,129 @@ export default function AdminDemoManagement() {
     await deleteMutation.mutateAsync({ questionId });
   };
 
-  // 정답 표시 헬퍼 함수
-  const renderAnswer = (question: any) => {
-    // 이미지 문제: imageLabels 배열 표시
-    if (question.imageLabels && Array.isArray(question.imageLabels) && question.imageLabels.length > 0) {
-      return (
-        <div className="bg-green-50 p-3 rounded text-green-900 space-y-1 border border-green-200">
-          {question.imageLabels.map((label: any, idx: number) => (
-            <div key={idx} className="text-sm">
-              <span className="font-semibold">[{idx + 1}]</span> {label.answer || label}
-            </div>
-          ))}
-        </div>
-      );
-    }
-    
-    // 텍스트 문제: 개행 처리
+  // 이미지 문제 정답 렌더링
+  const renderImageAnswer = (question: any) => {
+    let labels: any[] = [];
+    try {
+      if (question.imageLabels) {
+        labels = typeof question.imageLabels === "string"
+          ? JSON.parse(question.imageLabels)
+          : question.imageLabels;
+      }
+    } catch {}
+
     return (
-      <div className="bg-green-50 p-3 rounded text-green-900 border border-green-200 whitespace-pre-wrap text-sm leading-relaxed">
-        {question.answer || "(정답 없음)"}
+      <div className="space-y-2">
+        {/* 이미지 미리보기 */}
+        {question.imageUrl && (
+          <div className="border rounded overflow-hidden bg-gray-50">
+            <img
+              src={question.imageUrl}
+              alt="문제 이미지"
+              className="w-full max-h-48 object-contain"
+            />
+          </div>
+        )}
+        {/* 라벨 정답 목록 */}
+        {labels.length > 0 ? (
+          <div className="bg-green-50 border border-green-200 rounded p-3 space-y-1">
+            <p className="text-xs font-semibold text-green-700 mb-2 flex items-center gap-1">
+              <Image className="w-3 h-3" /> 이미지 라벨 정답 ({labels.length}개)
+            </p>
+            <div className="grid grid-cols-1 gap-1 max-h-40 overflow-y-auto">
+              {labels.map((label: any, idx: number) => (
+                <div key={idx} className="flex items-start gap-2 text-sm text-green-900">
+                  <span className="font-bold shrink-0 text-green-600">[{idx + 1}]</span>
+                  <span>{label.answer || "(빈칸)"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground italic">(라벨 정답 없음)</p>
+        )}
       </div>
     );
   };
 
-  if (!user) {
-    return <div className="p-8 text-center">로딩 중...</div>;
-  }
+  // 표 문제 정답 렌더링
+  const renderTableAnswer = (question: any) => {
+    let tableData: any = null;
+    try {
+      if (question.tableData) {
+        tableData = typeof question.tableData === "string"
+          ? JSON.parse(question.tableData)
+          : question.tableData;
+      }
+    } catch {}
 
-  if (user.role !== "admin") {
-    return <div className="p-8 text-center">관리자만 접근할 수 있습니다.</div>;
-  }
+    const rows: any[][] = tableData?.rows || tableData?.data || (Array.isArray(tableData) ? tableData : null);
+
+    if (!rows || rows.length === 0) {
+      return <p className="text-sm text-muted-foreground italic">(표 데이터 없음)</p>;
+    }
+
+    return (
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-blue-700 flex items-center gap-1">
+          <Table2 className="w-3 h-3" /> 표 데이터 미리보기
+        </p>
+        <div className="overflow-x-auto border rounded">
+          <table className="text-xs w-full border-collapse">
+            <tbody>
+              {rows.slice(0, 6).map((row: any[], rowIdx: number) => (
+                <tr key={rowIdx} className={rowIdx === 0 ? "bg-blue-50 font-semibold" : "even:bg-gray-50"}>
+                  {row.map((cell: any, colIdx: number) => {
+                    const content = typeof cell === "object" ? cell?.content ?? "" : String(cell ?? "");
+                    const isBlank = typeof cell === "object" ? cell?.isBlank : false;
+                    return (
+                      <td
+                        key={colIdx}
+                        className={`border border-gray-200 px-2 py-1 max-w-24 truncate ${
+                          colIdx === 0 ? "bg-blue-50 font-semibold" : ""
+                        } ${isBlank ? "bg-yellow-50 text-yellow-700 font-bold" : ""}`}
+                        title={content}
+                      >
+                        {isBlank ? "▢" : content || "-"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+              {rows.length > 6 && (
+                <tr>
+                  <td colSpan={rows[0]?.length || 1} className="text-center text-xs text-muted-foreground py-1 border border-gray-200">
+                    ... 외 {rows.length - 6}행 더 있음
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // 정답 표시 헬퍼
+  const renderAnswer = (question: any) => {
+    const hasImage = question.imageUrl;
+    const hasTable = question.tableData;
+    const hasTextAnswer = question.answer && question.answer.trim().length > 0;
+
+    if (hasImage) return renderImageAnswer(question);
+    if (hasTable) return renderTableAnswer(question);
+    if (hasTextAnswer) {
+      return (
+        <div className="bg-green-50 p-3 rounded text-green-900 border border-green-200 whitespace-pre-wrap text-sm leading-relaxed">
+          {question.answer}
+        </div>
+      );
+    }
+    return <p className="text-sm text-muted-foreground italic">(정답 없음)</p>;
+  };
+
+  if (!user) return <div className="p-8 text-center">로딩 중...</div>;
+  if (user.role !== "admin") return <div className="p-8 text-center">관리자만 접근할 수 있습니다.</div>;
 
   return (
     <div className="p-8 space-y-8">
@@ -142,9 +227,7 @@ export default function AdminDemoManagement() {
                   <CardDescription>{subject.description}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm font-semibold text-primary">
-                    문제 수: {questionCount}
-                  </p>
+                  <p className="text-sm font-semibold text-primary">문제 수: {questionCount}</p>
                 </CardContent>
               </Card>
             );
@@ -188,11 +271,7 @@ export default function AdminDemoManagement() {
                         {renderAnswer(question)}
                       </div>
                       <div className="flex gap-2 justify-end pt-2 border-t">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleEditQuestion(question)}
-                        >
+                        <Button variant="outline" size="sm" onClick={() => handleEditQuestion(question)}>
                           <Edit2 className="w-4 h-4 mr-1" />
                           수정
                         </Button>
@@ -224,7 +303,6 @@ export default function AdminDemoManagement() {
               문제와 정답을 수정하면 모든 사용자에게 즉시 반영됩니다
             </DialogDescription>
           </DialogHeader>
-
           <div className="space-y-4">
             <div>
               <label className="text-sm font-semibold">문제</label>
@@ -235,36 +313,30 @@ export default function AdminDemoManagement() {
                 className="mt-2 min-h-24"
               />
             </div>
-
             <div>
-              <label className="text-sm font-semibold">정답</label>
+              <label className="text-sm font-semibold">텍스트 정답</label>
+              {editingQuestion?.imageUrl && (
+                <p className="text-xs text-muted-foreground mt-1">이미지 라벨 정답은 이 화면에서 수정할 수 없습니다</p>
+              )}
+              {editingQuestion?.tableData && (
+                <p className="text-xs text-muted-foreground mt-1">표 데이터는 이 화면에서 수정할 수 없습니다</p>
+              )}
               <Textarea
                 value={formData.answer}
                 onChange={(e) => setFormData({ ...formData, answer: e.target.value })}
-                placeholder="정답을 입력하세요"
+                placeholder="텍스트 정답을 입력하세요"
                 className="mt-2 min-h-24"
               />
             </div>
-
             <div className="flex gap-2 justify-end pt-4">
-              <Button
-                variant="outline"
-                onClick={() => setIsDialogOpen(false)}
-              >
-                취소
-              </Button>
+              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>취소</Button>
               <Button
                 onClick={handleSaveQuestion}
-                disabled={updateMutation.isPending || !formData.question || !formData.answer}
+                disabled={updateMutation.isPending || !formData.question}
               >
                 {updateMutation.isPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    저장 중...
-                  </>
-                ) : (
-                  "저장"
-                )}
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />저장 중...</>
+                ) : "저장"}
               </Button>
             </div>
           </div>

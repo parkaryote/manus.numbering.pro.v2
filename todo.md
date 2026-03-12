@@ -1550,3 +1550,8 @@
   - [x] server/adminRouter.ts에 allQuestions 프로시저 추가
   - [x] client/AdminDemoManagement.tsx 로직 수정 - 모든 문제 한 번에 조회
   - [x] 브라우저 테스트 및 검증 - 서버 재시작 후 정상 동작
+
+# UI 개선 (v2.0.4) - 이미지/표 문제 정답 표시
+- [x] 이미지 문제: 이미지 미리보기 + 라벨 정답 표시
+- [x] 표 문제: 표 구조 미리보기 표시
+- [x] 데이터 구조 확인 (imageUrl, imageLabels, tableData)
