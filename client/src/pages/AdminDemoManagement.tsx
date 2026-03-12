@@ -128,9 +128,10 @@ export default function AdminDemoManagement() {
       }
     } catch {}
 
-    const rows: any[][] = tableData?.rows || tableData?.data || (Array.isArray(tableData) ? tableData : null);
+    // tableData 구조: { rows: number, cols: number, cells: any[][], headerRow: bool, headerCol: bool }
+    const rows: any[][] = tableData?.cells || tableData?.data || (Array.isArray(tableData) ? tableData : null);
 
-    if (!rows || rows.length === 0) {
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
       return <p className="text-sm text-muted-foreground italic">(표 데이터 없음)</p>;
     }
 
