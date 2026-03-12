@@ -25,7 +25,7 @@ export default function AdminDemoManagement() {
   }, [user, setLocation]);
 
   // 데모 과목 조회
-  const { data: subjects = [], isLoading: subjectsLoading, error: subjectsError } = trpc.admin.demo.subjects.useQuery(undefined, {
+  const { data: subjects = [], isLoading: subjectsLoading } = trpc.admin.demo.subjects.useQuery(undefined, {
     enabled: user?.role === "admin",
   });
 
@@ -76,6 +76,29 @@ export default function AdminDemoManagement() {
     await deleteMutation.mutateAsync({ questionId });
   };
 
+  // 정답 표시 헬퍼 함수
+  const renderAnswer = (question: any) => {
+    // 이미지 문제: imageLabels 배열 표시
+    if (question.imageLabels && Array.isArray(question.imageLabels) && question.imageLabels.length > 0) {
+      return (
+        <div className="bg-green-50 p-3 rounded text-green-900 space-y-1 border border-green-200">
+          {question.imageLabels.map((label: any, idx: number) => (
+            <div key={idx} className="text-sm">
+              <span className="font-semibold">[{idx + 1}]</span> {label.answer || label}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    
+    // 텍스트 문제: 개행 처리
+    return (
+      <div className="bg-green-50 p-3 rounded text-green-900 border border-green-200 whitespace-pre-wrap text-sm leading-relaxed">
+        {question.answer || "(정답 없음)"}
+      </div>
+    );
+  };
+
   if (!user) {
     return <div className="p-8 text-center">로딩 중...</div>;
   }
@@ -83,8 +106,6 @@ export default function AdminDemoManagement() {
   if (user.role !== "admin") {
     return <div className="p-8 text-center">관리자만 접근할 수 있습니다.</div>;
   }
-
-
 
   return (
     <div className="p-8 space-y-8">
@@ -100,27 +121,30 @@ export default function AdminDemoManagement() {
             <Loader2 className="w-8 h-8 animate-spin" />
           </div>
         ) : (
-          subjects.map((subject) => (
-            <Card
-              key={subject.id}
-              className={`cursor-pointer transition-all ${
-                selectedSubject === subject.id
-                  ? "ring-2 ring-primary bg-primary/5"
-                  : "hover:shadow-lg"
-              }`}
-              onClick={() => setSelectedSubject(subject.id)}
-            >
-              <CardHeader>
-                <CardTitle className="text-lg">{subject.name}</CardTitle>
-                <CardDescription>{subject.description}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  문제 수: {questions.filter((q) => q.subjectId === subject.id).length}
-                </p>
-              </CardContent>
-            </Card>
-          ))
+          subjects.map((subject) => {
+            const questionCount = questions.filter((q) => q.subjectId === subject.id).length;
+            return (
+              <Card
+                key={subject.id}
+                className={`cursor-pointer transition-all ${
+                  selectedSubject === subject.id
+                    ? "ring-2 ring-primary bg-primary/5"
+                    : "hover:shadow-lg"
+                }`}
+                onClick={() => setSelectedSubject(subject.id)}
+              >
+                <CardHeader>
+                  <CardTitle className="text-lg">{subject.name}</CardTitle>
+                  <CardDescription>{subject.description}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm font-semibold text-primary">
+                    문제 수: {questionCount}
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          })
         )}
       </div>
 
@@ -150,18 +174,16 @@ export default function AdminDemoManagement() {
               {questions.map((question) => (
                 <Card key={question.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="py-4">
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       <div>
-                        <p className="text-sm font-semibold text-muted-foreground mb-1">문제</p>
-                        <p className="text-base">{question.question}</p>
+                        <p className="text-sm font-semibold text-muted-foreground mb-2">문제</p>
+                        <p className="text-base whitespace-pre-wrap leading-relaxed">{question.question}</p>
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-muted-foreground mb-1">정답</p>
-                        <p className="text-base bg-green-50 p-2 rounded text-green-900">
-                          {question.answer}
-                        </p>
+                        <p className="text-sm font-semibold text-muted-foreground mb-2">정답</p>
+                        {renderAnswer(question)}
                       </div>
-                      <div className="flex gap-2 justify-end pt-2">
+                      <div className="flex gap-2 justify-end pt-2 border-t">
                         <Button
                           variant="outline"
                           size="sm"
