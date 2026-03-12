@@ -1562,3 +1562,7 @@
 - [x] 이미지 문제 수정: 이미지 + 라벨 편집 (기존 방식과 동일)
 - [x] 표 문제 수정: 표 셀 편집 (기존 방식과 동일)
 - [x] adminRouter에 이미지/표 문제 수정 API 업데이트 (tableData, autoNumbering 필드 추가)
+
+# UI 개선 (v2.0.6) - 문제 등록/수정 전체 화면
+- [x] Questions.tsx: 등록/수정 다이얼로그 → fixed inset-0 전체 화면 패널
+- [x] AdminDemoManagement.tsx: 수정 다이얼로그 → fixed inset-0 전체 화면 패널

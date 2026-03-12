@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -374,13 +374,23 @@ export default function AdminDemoManagement() {
         </div>
       )}
 
-      {/* 수정 다이얼로그 - 문제 유형별 */}
-      <Dialog open={isEditOpen} onOpenChange={(open) => { setIsEditOpen(open); if (!open) { setEditingQuestion(null); resetForm(); } }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>문제 수정</DialogTitle>
-            <DialogDescription>수정하면 모든 사용자에게 즉시 반영됩니다</DialogDescription>
-          </DialogHeader>
+      {/* 수정 전체 화면 - 문제 유형별 */}
+      {isEditOpen && (
+        <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
+          <div className="min-h-full flex flex-col">
+            <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 flex items-center justify-between shadow-sm">
+              <div>
+                <h2 className="text-xl font-bold">문제 수정</h2>
+                <p className="text-sm text-muted-foreground">수정하면 모든 사용자에게 즉시 반영됩니다</p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => { setIsEditOpen(false); setEditingQuestion(null); resetForm(); }}>취소</Button>
+                <Button onClick={handleUpdate} disabled={updateMutation.isPending || !formData.question}>
+                  {updateMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />저장 중...</> : "저장"}
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 px-6 py-6 max-w-4xl mx-auto w-full">
 
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "image" | "table")} className="w-full">
             <TabsList className="grid w-full grid-cols-3">
@@ -488,15 +498,10 @@ export default function AdminDemoManagement() {
               </div>
             </TabsContent>
           </Tabs>
-
-          <div className="flex gap-2 justify-end pt-4 border-t mt-4">
-            <Button variant="outline" onClick={() => { setIsEditOpen(false); setEditingQuestion(null); resetForm(); }}>취소</Button>
-            <Button onClick={handleUpdate} disabled={updateMutation.isPending || !formData.question}>
-              {updateMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />저장 중...</> : "저장"}
-            </Button>
+            </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </div>
   );
 }

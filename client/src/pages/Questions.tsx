@@ -825,31 +825,10 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           </div>
           <p className="text-muted-foreground mt-1">문제를 추가하고 학습하세요</p>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2">
+<Button className="gap-2" onClick={() => setIsCreateOpen(true)}>
               <Plus className="h-4 w-4" />
               새 문제 추가
             </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
-            <DialogHeader>
-              <DialogTitle>새 문제 추가</DialogTitle>
-              <DialogDescription>텍스트, 이미지 또는 표 문제를 생성하세요</DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              {questionFormContent}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm(); }}>
-                취소
-              </Button>
-              <Button onClick={handleCreate} disabled={createMutation.isPending}>
-                {createMutation.isPending ? "생성 중..." : "생성"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
 
       {/* 난이도 필터 버튼 */}
@@ -953,26 +932,51 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         })()
       )}
 
-      {/* Edit Dialog */}
-      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
-          <DialogHeader>
-            <DialogTitle>문제 수정</DialogTitle>
-            <DialogDescription>문제 내용을 수정하세요</DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            {questionFormContent}
+      {/* 등록 전체 화면 */}
+      {isCreateOpen && (
+        <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
+          <div className="min-h-full flex flex-col">
+            <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 flex items-center justify-between shadow-sm">
+              <div>
+                <h2 className="text-xl font-bold">새 문제 추가</h2>
+                <p className="text-sm text-muted-foreground">텍스트, 이미지 또는 표 문제를 생성하세요</p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm(); }}>취소</Button>
+                <Button onClick={handleCreate} disabled={createMutation.isPending}>
+                  {createMutation.isPending ? "생성 중..." : "생성"}
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 px-6 py-6 max-w-4xl mx-auto w-full">
+              {questionFormContent}
+            </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setIsEditOpen(false); resetForm(); }}>
-              취소
-            </Button>
-            <Button onClick={handleUpdate} disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? "수정 중..." : "수정"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
+
+      {/* 수정 전체 화면 */}
+      {isEditOpen && (
+        <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
+          <div className="min-h-full flex flex-col">
+            <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 flex items-center justify-between shadow-sm">
+              <div>
+                <h2 className="text-xl font-bold">문제 수정</h2>
+                <p className="text-sm text-muted-foreground">문제 내용을 수정하세요</p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => { setIsEditOpen(false); resetForm(); }}>취소</Button>
+                <Button onClick={handleUpdate} disabled={updateMutation.isPending}>
+                  {updateMutation.isPending ? "수정 중..." : "저장"}
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 px-6 py-6 max-w-4xl mx-auto w-full">
+              {questionFormContent}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Copy/Move Dialog */}
       <Dialog open={isCopyMoveOpen} onOpenChange={setIsCopyMoveOpen}>
