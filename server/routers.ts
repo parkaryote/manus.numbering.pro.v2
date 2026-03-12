@@ -1086,6 +1086,183 @@ ${input.userAnswer}
       }),
   }),
 
+  // 학습 통계 분석 API
+  statistics: router({
+    // 과목별 학습 분석: 연습 횟수/시간 vs 시험 점수(난도별)
+    getSubjectAnalysis: protectedProcedure.query(async ({ ctx }) => {
+      const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
+      const allTests = await db.getTestSessionsByUserId(ctx.user.id);
+      const allQuestions = await db.getQuestionsByUserId(ctx.user.id);
+      const allSubjects = await db.getSubjectsByUserId(ctx.user.id);
+
+      return allSubjects.map(subject => {
+        const subjectQs = allQuestions.filter(q => q.subjectId === subject.id);
+        const subjectQIds = subjectQs.map(q => q.id);
+
+        const practices = allPractice.filter(p => subjectQIds.includes(p.questionId));
+        const tests = allTests.filter(t => subjectQIds.includes(t.questionId));
+
+        const totalPracticeTime = practices.reduce((sum, p) => sum + p.duration, 0);
+        const practiceCount = practices.length;
+
+        // 난도별 시험 성과
+        const difficultyStats = ["easy", "medium", "hard"].map(diff => {
+          const diffQIds = subjectQs.filter(q => q.difficulty === diff).map(q => q.id);
+          const diffTests = tests.filter(t => diffQIds.includes(t.questionId));
+          const correct = diffTests.filter(t => t.isCorrect === 1).length;
+          const avgSimilarity = diffTests.length > 0
+            ? Math.round(diffTests.reduce((s, t) => s + (t.similarityScore || 0), 0) / diffTests.length)
+            : 0;
+          return {
+            difficulty: diff,
+            totalTests: diffTests.length,
+            correctCount: correct,
+            correctRate: diffTests.length > 0 ? Math.round((correct / diffTests.length) * 100) : 0,
+            avgSimilarity,
+          };
+        });
+
+        // 문제별 분석 (연습 횟수 vs 시험 정답률)
+        const questionAnalysis = subjectQs.map(q => {
+          const qPractices = practices.filter(p => p.questionId === q.id);
+          const qTests = tests.filter(t => t.questionId === q.id);
+          const qCorrect = qTests.filter(t => t.isCorrect === 1).length;
+          return {
+            questionId: q.id,
+            question: q.question.substring(0, 50),
+            difficulty: q.difficulty,
+            practiceCount: qPractices.length,
+            practiceTime: qPractices.reduce((s, p) => s + p.duration, 0),
+            testCount: qTests.length,
+            correctCount: qCorrect,
+            correctRate: qTests.length > 0 ? Math.round((qCorrect / qTests.length) * 100) : 0,
+            latestSimilarity: qTests.length > 0 ? (qTests[qTests.length - 1].similarityScore || 0) : null,
+          };
+        });
+
+        // 시간 경과에 따른 시험 성과 추이 (날짜별 그룹)
+        const testsByDate = tests.reduce((acc, t) => {
+          const date = new Date(t.completedAt).toISOString().split('T')[0];
+          if (!acc[date]) acc[date] = [];
+          acc[date].push(t);
+          return acc;
+        }, {} as Record<string, typeof tests>);
+
+        const performanceTrend = Object.entries(testsByDate)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([date, dayTests]) => {
+            const correct = dayTests.filter(t => t.isCorrect === 1).length;
+            const avgSim = Math.round(dayTests.reduce((s, t) => s + (t.similarityScore || 0), 0) / dayTests.length);
+            // 해당 날짜까지의 누적 연습 횟수
+            const cumulativePractice = practices.filter(p => 
+              new Date(p.completedAt) <= new Date(date + 'T23:59:59')
+            ).length;
+            return {
+              date,
+              correctRate: Math.round((correct / dayTests.length) * 100),
+              avgSimilarity: avgSim,
+              testCount: dayTests.length,
+              cumulativePractice,
+            };
+          });
+
+        return {
+          subjectId: subject.id,
+          subjectName: subject.name,
+          subjectColor: subject.color,
+          totalQuestions: subjectQs.length,
+          practiceCount,
+          totalPracticeTime,
+          totalTests: tests.length,
+          overallCorrectRate: tests.length > 0
+            ? Math.round((tests.filter(t => t.isCorrect === 1).length / tests.length) * 100)
+            : 0,
+          overallAvgSimilarity: tests.length > 0
+            ? Math.round(tests.reduce((s, t) => s + (t.similarityScore || 0), 0) / tests.length)
+            : 0,
+          difficultyStats,
+          questionAnalysis,
+          performanceTrend,
+        };
+      });
+    }),
+
+    // 전체 학습 요약 - 핵심 숫자들
+    getSummary: protectedProcedure.query(async ({ ctx }) => {
+      const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
+      const allTests = await db.getTestSessionsByUserId(ctx.user.id);
+      const allQuestions = await db.getQuestionsByUserId(ctx.user.id);
+
+      const totalPracticeTime = allPractice.reduce((sum, p) => sum + p.duration, 0);
+      const totalPracticeCount = allPractice.length;
+      const totalTestCount = allTests.length;
+      const totalCorrect = allTests.filter(t => t.isCorrect === 1).length;
+
+      // 연습 횟수 구간별 시험 정답률
+      const practiceCountBuckets = allQuestions.map(q => {
+        const pCount = allPractice.filter(p => p.questionId === q.id).length;
+        const qTests = allTests.filter(t => t.questionId === q.id);
+        const correct = qTests.filter(t => t.isCorrect === 1).length;
+        return { practiceCount: pCount, testCount: qTests.length, correctCount: correct };
+      });
+
+      // 연습 횟수 구간별 그룹화 (0회, 1-2회, 3-5회, 6-10회, 11회+)
+      const bucketRanges = [
+        { label: "0회", min: 0, max: 0 },
+        { label: "1-2회", min: 1, max: 2 },
+        { label: "3-5회", min: 3, max: 5 },
+        { label: "6-10회", min: 6, max: 10 },
+        { label: "11회+", min: 11, max: Infinity },
+      ];
+
+      const practiceVsTestData = bucketRanges.map(range => {
+        const inRange = practiceCountBuckets.filter(
+          b => b.practiceCount >= range.min && b.practiceCount <= range.max
+        );
+        const totalTests = inRange.reduce((s, b) => s + b.testCount, 0);
+        const totalCorrectInRange = inRange.reduce((s, b) => s + b.correctCount, 0);
+        return {
+          label: range.label,
+          questionCount: inRange.length,
+          testCount: totalTests,
+          correctRate: totalTests > 0 ? Math.round((totalCorrectInRange / totalTests) * 100) : 0,
+        };
+      });
+
+      // 연습 부족 문제 (시험 봤는데 틀린 문제 중 연습 적은 것)
+      const weakQuestions = allQuestions
+        .map(q => {
+          const qTests = allTests.filter(t => t.questionId === q.id);
+          const qPractices = allPractice.filter(p => p.questionId === q.id);
+          const correct = qTests.filter(t => t.isCorrect === 1).length;
+          const latestTest = qTests.length > 0 ? qTests[qTests.length - 1] : null;
+          return {
+            questionId: q.id,
+            question: q.question.substring(0, 60),
+            subjectId: q.subjectId,
+            difficulty: q.difficulty,
+            practiceCount: qPractices.length,
+            testCount: qTests.length,
+            correctRate: qTests.length > 0 ? Math.round((correct / qTests.length) * 100) : -1,
+            latestSimilarity: latestTest?.similarityScore || null,
+          };
+        })
+        .filter(q => q.testCount > 0 && q.correctRate < 70)
+        .sort((a, b) => a.correctRate - b.correctRate)
+        .slice(0, 10);
+
+      return {
+        totalPracticeTime,
+        totalPracticeCount,
+        totalTestCount,
+        totalCorrect,
+        overallCorrectRate: totalTestCount > 0 ? Math.round((totalCorrect / totalTestCount) * 100) : 0,
+        practiceVsTestData,
+        weakQuestions,
+      };
+    }),
+  }),
+
   // Expiring questions management
   expiring: router({
     // 만료 예정 문제 조회 (1달 이내 삭제 예정)

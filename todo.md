@@ -1595,3 +1595,15 @@
 - [x] AdminDemoManagement: 데모 문제 클릭 시 해당 과목 문제 목록으로 이동 (ExternalLink 아이콘)
 - [x] Subjects.tsx: 데모 과목에 amber 색상 뱃지 표시 (⭐ 데모)
 - [x] Questions.tsx: 데모 문제에 amber 색상 뱃지 표시 (⭐ 데모)
+
+# 대규모 리팩토링 (v3.0.0) - 학습 통계 완전 재설계
+- [x] 현재 통계 페이지/DB 스키마/연습·시험 데이터 구조 파악
+- [x] 서버 API: statistics.getSummary - 전체 요약, 연습횟수별 시험 정답률, 취약 문제
+- [x] 서버 API: statistics.getSubjectAnalysis - 과목별 난도별 성과, 문제별 분석, 성과 추이
+- [x] UI: 핵심 요약 카드 4개 (총 연습, 총 시험, 정답률, 문제당 평균 연습)
+- [x] UI: 개인화된 학습 전략 분석 카드 (5가지 패턴 분석)
+- [x] UI: 연습 횟수별 시험 정답률 바 차트
+- [x] UI: 과목별 상세 분석 (난도별 성과, 성과 추이, 문제별 테이블)
+- [x] UI: 취약 문제 목록 (정답률 70% 미마)
+- [x] UI: 통계 초기화 기능 유지
+- [x] 테스트: statistics.test.ts 7개 테스트 전체 통과
