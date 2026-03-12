@@ -7,8 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Plus, BookOpen, Trash2, Edit, GripVertical } from "lucide-react";
+import { Plus, BookOpen, Trash2, Edit, GripVertical, Star } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/_core/hooks/useAuth";
 import {
   DndContext,
   closestCenter,
@@ -108,6 +109,8 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: any) {
 
 export default function Subjects() {
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingSubject, setEditingSubject] = useState<any>(null);
@@ -117,6 +120,7 @@ export default function Subjects() {
     description: "",
     color: colorOptions[0],
     examEndDate: "", // YYYY-MM-DD format
+    isDemo: false,
   });
 
   const { data: subjects, isLoading } = trpc.subjects.list.useQuery();
@@ -133,7 +137,7 @@ export default function Subjects() {
     onSuccess: () => {
       utils.subjects.list.invalidate();
       setIsCreateOpen(false);
-      setFormData({ name: "", description: "", color: colorOptions[0], examEndDate: "" });
+      setFormData({ name: "", description: "", color: colorOptions[0], examEndDate: "", isDemo: false });
       toast.success("과목이 생성되었습니다");
     },
     onError: (error) => {
@@ -170,6 +174,14 @@ export default function Subjects() {
     },
   });
 
+  const toggleDemoMutation = trpc.admin.demo.toggleSubjectDemo.useMutation({
+    onSuccess: () => {
+      utils.subjects.list.invalidate();
+      toast.success("데모 설정이 변경되었습니다");
+    },
+    onError: (error) => toast.error("데모 설정 실패: " + error.message),
+  });
+
   const handleCreate = () => {
     if (!formData.name.trim()) {
       toast.error("과목명을 입력하세요");
@@ -182,6 +194,7 @@ export default function Subjects() {
       color: formData.color,
       examEndDate: formData.examEndDate || undefined,
       displayOrder: maxOrder + 1,
+      isDemo: isAdmin && formData.isDemo ? 1 : 0,
     } as any);
   };
 
@@ -192,6 +205,7 @@ export default function Subjects() {
       description: subject.description || "",
       color: subject.color || colorOptions[0],
       examEndDate: subject.examEndDate ? new Date(subject.examEndDate).toISOString().split('T')[0] : "",
+      isDemo: subject.isDemo === 1,
     });
     setIsEditOpen(true);
   };
@@ -206,8 +220,9 @@ export default function Subjects() {
       name: formData.name,
       description: formData.description,
       color: formData.color,
-      examEndDate: formData.examEndDate || null, // null to clear the date
-    });
+      examEndDate: formData.examEndDate || null,
+      isDemo: isAdmin && formData.isDemo ? 1 : 0,
+    } as any);
   };
 
   const handleDelete = (id: number, name: string) => {
@@ -308,6 +323,22 @@ export default function Subjects() {
                   시험 종료일로부터 1달 후, 연습/시험 기록이 없는 문제는 자동 삭제됩니다.
                 </p>
               </div>
+              {isAdmin && (
+                <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-3 py-2">
+                  <Star className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                  <div className="flex-1">
+                    <Label htmlFor="create-isDemo" className="text-sm font-medium cursor-pointer">데모 과목으로 지정</Label>
+                    <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                  </div>
+                  <input
+                    id="create-isDemo"
+                    type="checkbox"
+                    checked={formData.isDemo}
+                    onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                    className="h-4 w-4 accent-amber-500"
+                  />
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
@@ -415,6 +446,22 @@ export default function Subjects() {
                 시험 종료일로부터 1달 후, 연습/시험 기록이 없는 문제는 자동 삭제됩니다.
               </p>
             </div>
+            {isAdmin && (
+              <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-3 py-2">
+                <Star className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                <div className="flex-1">
+                  <Label htmlFor="edit-isDemo" className="text-sm font-medium cursor-pointer">데모 과목으로 지정</Label>
+                  <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                </div>
+                <input
+                  id="edit-isDemo"
+                  type="checkbox"
+                  checked={formData.isDemo}
+                  onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                  className="h-4 w-4 accent-amber-500"
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditOpen(false)}>

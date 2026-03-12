@@ -1574,3 +1574,18 @@
 - [x] AdminDemoManagement.tsx: 새 문제 추가 전체 화면 폼 구현 (텍스트/이미지/표 유형별)
 - [x] AdminDemoManagement.tsx: 과목 수정/삭제 버튼 추가 (카드 우상단)
 - [x] AdminDemoManagement.tsx: 과목 색상 표시 (색상 원형 아이콘)
+
+# 리팩토링 (v2.2.0) - 데모 지정 방식 단순화
+- [ ] server/adminRouter.ts: 과목 isDemo 토글 API 추가
+- [ ] server/adminRouter.ts: 문제 isDemo 토글 API 추가
+- [ ] Subjects.tsx / 과목 관리: 관리자 전용 "데모 과목으로 지정" 체크박스 추가
+- [ ] Questions.tsx / 문제 등록·수정: 관리자 전용 "데모 문제로 지정" 체크박스 추가
+- [ ] AdminDemoManagement.tsx: 편집 기능 제거, 데모 지정 목록 조회 전용으로 간소화
+
+# 리팩토링 (v2.2.0) - 데모 지정 방식 단순화
+- [x] server/routers.ts: subjects.create/update에 isDemo 필드 추가
+- [x] server/routers.ts: questions.create/update에 isDemo 필드 추가
+- [x] server/adminRouter.ts: toggleSubjectDemo, toggleQuestionDemo API 추가
+- [x] Subjects.tsx: 관리자 전용 "데모 과목으로 지정" 체크박스 추가 (생성/수정 다이얼로그)
+- [x] Questions.tsx: 관리자 전용 "데모 문제로 지정" 체크박스 추가 (등록/수정 전체화면 폼)
+- [x] AdminDemoManagement.tsx: 간소화 - 데모 지정 목록 조회 및 해제 전용

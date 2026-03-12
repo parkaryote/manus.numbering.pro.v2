@@ -186,6 +186,7 @@ export const appRouter = router({
         description: z.string().optional(),
         color: z.string().optional(),
         examEndDate: z.string().optional(), // ISO date string
+        isDemo: z.number().optional(), // 0 or 1
       }))
       .mutation(async ({ ctx, input }) => {
         return db.createSubject({
@@ -194,6 +195,7 @@ export const appRouter = router({
           description: input.description,
           color: input.color,
           examEndDate: input.examEndDate ? new Date(input.examEndDate) : undefined,
+          isDemo: input.isDemo ?? 0,
         });
       }),
     
@@ -204,6 +206,7 @@ export const appRouter = router({
         description: z.string().optional(),
         color: z.string().optional(),
         examEndDate: z.string().nullable().optional(), // ISO date string or null to clear
+        isDemo: z.number().optional(), // 0 or 1
       }))
       .mutation(async ({ input }) => {
         const { id, examEndDate, ...data } = input;
@@ -273,6 +276,7 @@ export const appRouter = router({
         imageLabels: z.string().optional(),
         autoNumbering: z.number().optional(),
         tableData: z.string().optional(),
+        isDemo: z.number().optional(), // 0 or 1
       }))
       .mutation(async ({ ctx, input }) => {
         return db.createQuestion({
@@ -285,6 +289,7 @@ export const appRouter = router({
           imageLabels: input.imageLabels,
           autoNumbering: input.autoNumbering,
           tableData: input.tableData,
+          isDemo: input.isDemo ?? 0,
         });
       }),
     
@@ -298,6 +303,7 @@ export const appRouter = router({
         imageLabels: z.string().optional(),
         autoNumbering: z.number().optional(),
         tableData: z.string().optional(),
+        isDemo: z.number().optional(), // 0 or 1
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;

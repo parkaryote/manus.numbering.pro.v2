@@ -165,5 +165,21 @@ export const adminRouter = router({
         await db.deleteDemoSubject(input.subjectId);
         return { success: true };
       }),
+
+    // 과목 isDemo 토글 (0 ↔ 1)
+    toggleSubjectDemo: adminProcedure
+      .input(z.object({ subjectId: z.number(), isDemo: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.updateSubjectIsDemo(input.subjectId, input.isDemo);
+        return { success: true };
+      }),
+
+    // 문제 isDemo 토글 (0 ↔ 1)
+    toggleQuestionDemo: adminProcedure
+      .input(z.object({ questionId: z.number(), isDemo: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.updateQuestionIsDemo(input.questionId, input.isDemo);
+        return { success: true };
+      }),
   }),
 });

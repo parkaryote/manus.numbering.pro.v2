@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight } from "lucide-react";
+import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star } from "lucide-react";
+import { useAuth } from "@/_core/hooks/useAuth";
 import {
   DndContext,
   closestCenter,
@@ -205,6 +206,8 @@ function SortableQuestionCard({
 
 export default function Questions({ subjectId, isDemo = false }: QuestionsProps) {
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isCopyMoveOpen, setIsCopyMoveOpen] = useState(false);
@@ -225,6 +228,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     imageLabels: [] as ImageLabel[],
     autoNumbering: true, // 엔터 기준 자동 번호 생성
     tableData: null as TableData | null,
+    isDemo: false,
   });
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
@@ -232,7 +236,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   const utils = trpc.useUtils();
 
   const createMutation = trpc.questions.create.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       const questionType = data.imageUrl && data.imageLabels ? 'image' : (data.tableData ? 'table' : 'text');
       trackQuestionCreate(data.id, subjectId, questionType as 'text' | 'image' | 'table');
       utils.questions.listBySubject.invalidate({ subjectId });
@@ -246,7 +250,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   });
 
   const updateMutation = trpc.questions.update.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       const questionType = data.imageUrl && data.imageLabels ? 'image' : (data.tableData ? 'table' : 'text');
       trackQuestionUpdate(data.id, subjectId, questionType as 'text' | 'image' | 'table');
       utils.questions.listBySubject.invalidate({ subjectId });
@@ -349,6 +353,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       imageLabels: [],
       autoNumbering: true,
       tableData: null,
+      isDemo: false,
     });
     setActiveTab("text");
     // 포커스를 질문 입력 필드의 첫 줄로 리셋
@@ -449,6 +454,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         difficulty: formData.difficulty,
         tableData: JSON.stringify(formData.tableData),
         autoNumbering: 0,
+        isDemo: isAdmin && formData.isDemo ? 1 : 0,
       } as any);
       return;
     }
@@ -473,8 +479,9 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
+      isDemo: isAdmin && formData.isDemo ? 1 : 0,
     } as any);
-  }, [activeTab, formData, subjectId, createMutation]);
+  }, [activeTab, formData, subjectId, createMutation, isAdmin]);
 
   const handleEdit = (question: any) => {
     setEditingQuestion(question);
@@ -487,6 +494,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       imageLabels: question.imageLabels ? JSON.parse(question.imageLabels) : [],
       autoNumbering: question.autoNumbering !== 0,
       tableData: parsedTableData,
+      isDemo: question.isDemo === 1,
     });
     // 탭 자동 선택
     if (parsedTableData) {
@@ -525,6 +533,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         imageUrl: undefined,
         imageLabels: undefined,
         autoNumbering: 0,
+        isDemo: isAdmin && formData.isDemo ? 1 : 0,
       } as any);
       return;
     }
@@ -549,6 +558,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       tableData: undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
+      isDemo: isAdmin && formData.isDemo ? 1 : 0,
     } as any);
   };
 
@@ -950,6 +960,22 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             </div>
             <div className="flex-1 px-6 py-6 max-w-4xl mx-auto w-full">
               {questionFormContent}
+              {isAdmin && (
+                <div className="mt-6 flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-3">
+                  <Star className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                  <div className="flex-1">
+                    <label htmlFor="create-isDemo-q" className="text-sm font-medium cursor-pointer">데모 문제로 지정</label>
+                    <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                  </div>
+                  <input
+                    id="create-isDemo-q"
+                    type="checkbox"
+                    checked={formData.isDemo}
+                    onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                    className="h-4 w-4 accent-amber-500"
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -973,6 +999,22 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             </div>
             <div className="flex-1 px-6 py-6 max-w-4xl mx-auto w-full">
               {questionFormContent}
+              {isAdmin && (
+                <div className="mt-6 flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-3">
+                  <Star className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                  <div className="flex-1">
+                    <label htmlFor="edit-isDemo-q" className="text-sm font-medium cursor-pointer">데모 문제로 지정</label>
+                    <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                  </div>
+                  <input
+                    id="edit-isDemo-q"
+                    type="checkbox"
+                    checked={formData.isDemo}
+                    onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                    className="h-4 w-4 accent-amber-500"
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>

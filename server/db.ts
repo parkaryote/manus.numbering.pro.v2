@@ -610,6 +610,18 @@ export async function updateDemoSubject(id: number, data: Partial<InsertSubject>
   return result[0];
 }
 
+export async function updateSubjectIsDemo(id: number, isDemo: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(subjects).set({ isDemo }).where(eq(subjects.id, id));
+}
+
+export async function updateQuestionIsDemo(id: number, isDemo: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(questions).set({ isDemo }).where(eq(questions.id, id));
+}
+
 export async function deleteDemoSubject(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
