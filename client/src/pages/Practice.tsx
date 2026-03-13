@@ -26,6 +26,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [lastInputTime, setLastInputTime] = useState<number>(Date.now());
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
+  const [hasInteracted, setHasInteracted] = useState(false); // 이미지 문제: 클릭 또는 입력 여부
   const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
   const [practiceCount, setPracticeCount] = useState(0); // 현재 연습 횟수 (세션 동안만 유지)
   const [showShortcutHelp, setShowShortcutHelp] = useState(() => {
@@ -88,6 +89,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
   };
 
+  // 이미지 문제: 상호작용 시 practiceCount를 최소 1로 설정
+  useEffect(() => {
+    if (hasInteracted && practiceCount === 0) {
+      setPracticeCount(1);
+    }
+  }, [hasInteracted]);
+
   // 페이지 언마운트 시 자동 저장 (단 1회)
   useEffect(() => {
     return () => {
@@ -100,6 +108,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 새로운 문제로 이동할 때 hasBeenSaved 초기화
   useEffect(() => {
     hasBeenSaved.current = false;
+    setHasInteracted(false);
   }, [questionId]);
 
   const targetText = question?.answer || "";
@@ -1011,6 +1020,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                             newRevealed.add(index);
                           }
                           setRevealedLabels(newRevealed);
+                          // 이미지 라벨 클릭 시 연습 카운팅 및 시간 추적
+                          if (!hasInteracted) setHasInteracted(true);
+                          if (!startTime) setStartTime(Date.now());
+                          setLastInputTime(Date.now());
+                          if (!isActive) setIsActive(true);
                         }}
                       >
                         {!isRevealed && (
@@ -1031,7 +1045,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 </label>
                 <textarea
                   value={practiceNote}
-                  onChange={(e) => setPracticeNote(e.target.value)}
+                  onChange={(e) => {
+                    setPracticeNote(e.target.value);
+                    // 연습장 입력 시 연습 카운팅 및 시간 추적
+                    if (!hasInteracted && e.target.value.length > 0) setHasInteracted(true);
+                    if (!startTime) setStartTime(Date.now());
+                    setLastInputTime(Date.now());
+                    if (!isActive) setIsActive(true);
+                  }}
                   className="w-full h-[400px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="여기에 답안을 연습해보세요... (저장되지 않습니다)"
                 />

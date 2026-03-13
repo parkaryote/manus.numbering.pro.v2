@@ -1607,3 +1607,10 @@
 - [x] UI: 취약 문제 목록 (정답률 70% 미마)
 - [x] UI: 통계 초기화 기능 유지
 - [x] 테스트: statistics.test.ts 7개 테스트 전체 통과
+
+# 기능 개선 (v3.0.1) - 이미지 문제 연습 카운팅
+- [x] 이미지 문제 연습 모드: 라벨 클릭 1회 이상 시 연습 세션 기록 (hasInteracted 플래그)
+- [x] 이미지 문제 연습 모드: 연습장 텍스트 1자 이상 입력 시 연습 세션 기록
+- [x] 중복 카운팅 방지 (hasInteracted 플래그로 1회만 카운팅)
+- [x] 시간 추적: 라벨 클릭/메모장 입력 시 startTime 및 lastInputTime 설정
+- [x] questionId 변경 시 hasInteracted 초기화
