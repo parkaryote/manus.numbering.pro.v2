@@ -34,22 +34,27 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
     {
       enabled: jobId !== null && status === "processing",
       refetchInterval: 2000, // Poll every 2 seconds
-      onSuccess: (data) => {
-        if (data.status === "completed") {
-          setExtractedText(data.extractedText || "");
-          setStatus("completed");
-          onExtractedText?.(data.extractedText || "");
-        } else if (data.status === "failed") {
-          setStatus("failed");
-          setErrorMessage(data.errorMessage || "OCR processing failed");
-        }
-      },
-      onError: (error) => {
-        setStatus("failed");
-        setErrorMessage(error.message);
-      },
     }
   );
+
+  // Handle status query results
+  useEffect(() => {
+    if (statusQuery.data) {
+      const data = statusQuery.data;
+      if (data.status === "completed") {
+        setExtractedText(data.extractedText || "");
+        setStatus("completed");
+        onExtractedText?.(data.extractedText || "");
+      } else if (data.status === "failed") {
+        setStatus("failed");
+        setErrorMessage(data.errorMessage || "OCR processing failed");
+      }
+    }
+    if (statusQuery.error) {
+      setStatus("failed");
+      setErrorMessage(statusQuery.error.message);
+    }
+  }, [statusQuery.data, statusQuery.error, onExtractedText]);
 
   // Handle file selection
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {

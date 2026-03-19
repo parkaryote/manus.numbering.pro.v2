@@ -12,8 +12,8 @@
 import { Storage } from "@google-cloud/storage";
 import { ImageAnnotatorClient } from "@google-cloud/vision";
 
-const PROJECT_ID = process.env.GCP_PROJECT_ID;
-const GCS_TEMP_BUCKET = process.env.GCS_TEMP_BUCKET;
+const PROJECT_ID = process.env.GCP_PROJECT_ID as string;
+const GCS_TEMP_BUCKET = process.env.GCS_TEMP_BUCKET as string;
 
 if (!PROJECT_ID || !GCS_TEMP_BUCKET) {
   throw new Error("Missing required env vars: GCP_PROJECT_ID, GCS_TEMP_BUCKET");
@@ -80,9 +80,10 @@ export async function startOCRJob(gcsUri: string): Promise<string> {
  * Returns: true if complete, false if still processing
  */
 export async function checkOCRJobStatus(operationName: string): Promise<boolean> {
-  const [operation] = await visionClient.checkAsyncBatchAnnotateFilesProgress(
+  const result = await visionClient.checkAsyncBatchAnnotateFilesProgress(
     operationName
   );
+  const operation = Array.isArray(result) ? result[0] : result;
 
   return operation.done ?? false;
 }
@@ -92,9 +93,10 @@ export async function checkOCRJobStatus(operationName: string): Promise<boolean>
  * Parses fullTextAnnotation from Vision API output
  */
 export async function getOCRResults(operationName: string): Promise<string> {
-  const [operation] = await visionClient.checkAsyncBatchAnnotateFilesProgress(
+  const result = await visionClient.checkAsyncBatchAnnotateFilesProgress(
     operationName
   );
+  const operation = Array.isArray(result) ? result[0] : result;
 
   if (!operation.done) {
     throw new Error("Operation not yet complete");
@@ -161,7 +163,7 @@ export async function cleanupOldOCRFiles(maxAgeHours: number = 24): Promise<void
 
     for (const file of files) {
       const metadata = await file.getMetadata();
-      const createdTime = new Date(metadata[0].timeCreated).getTime();
+      const createdTime = new Date(metadata[0].timeCreated || '').getTime();
 
       if (now - createdTime > maxAge) {
         await file.delete().catch(() => {

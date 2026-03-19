@@ -947,7 +947,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   // 모든 빈칸이 완성되었는지 확인
                   const blankCells = getBlankCells(tableData);
                   const allCorrect = blankCells.every((cellKey) => {
-                    const cell = tableData.rows.flat().find((c) => c.key === cellKey);
+                    const cell = tableData.cells.flat().find((c: any) => c.key === cellKey);
                     if (!cell) return false;
                     const userAnswer = tableAnswers[cellKey] || "";
                     return userAnswer.trim().toLowerCase() === cell.content.trim().toLowerCase();
@@ -1035,6 +1035,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       </div>
                     );
                   })}
+                </div>
+                {/* License information for image questions */}
+                <div className="mt-3 text-xs text-muted-foreground space-y-0.5 border-t border-border/50 pt-2">
+                  <p>© Ksiom, Kwj2772 / Wikimedia Commons</p>
+                  <p>Licensed under Public Domain</p>
                 </div>
               </div>
 

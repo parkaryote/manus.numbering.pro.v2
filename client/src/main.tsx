@@ -10,7 +10,7 @@ import "./index.css";
 
 // Initialize GA4 if measurement ID is available
 if (typeof window !== 'undefined' && window.gtag) {
-  const measurementId = import.meta.env.VITE_GA4_MEASUREMENT_ID;
+  const measurementId = import.meta.env.VITE_GA4_MEASUREMENT_ID as string;
   if (measurementId) {
     window.gtag('config', measurementId, {
       'anonymize_ip': true,
