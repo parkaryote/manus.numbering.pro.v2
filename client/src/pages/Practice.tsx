@@ -20,6 +20,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
   const [imageLoaded, setImageLoaded] = useState(false);
   const [revealedLabels, setRevealedLabels] = useState<Set<number>>(new Set()); // 클릭하여 공개된 라벨
+  const [lastLabelAction, setLastLabelAction] = useState<'reveal' | 'hide' | null>(null); // 마지막 라벨 클릭 행동
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isActive, setIsActive] = useState(true); // 측정 중 여부
@@ -169,6 +170,36 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }, [lastInputTime, isActive]);;
 
   // Global keyboard event listener for ESC and Ctrl+Enter
+
+  // Tab 키: 가림막 전체 표시/제거
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Tab' && isImageQuestion) {
+        e.preventDefault();
+        
+        if (lastLabelAction === null) {
+          // 첫 번째 Tab: 모두 표시
+          const allLabels = new Set(Array.from({length: question?.imageLabels?.length || 0}, (_, i) => i));
+          setRevealedLabels(allLabels);
+          setLastLabelAction('reveal');
+        } else if (lastLabelAction === 'reveal') {
+          // 다음 Tab: 모두 제거
+          setRevealedLabels(new Set());
+          setLastLabelAction('hide');
+        } else {
+          // 다시 Tab: 모두 표시
+          const allLabels = new Set(Array.from({length: question?.imageLabels?.length || 0}, (_, i) => i));
+          setRevealedLabels(allLabels);
+          setLastLabelAction('reveal');
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lastLabelAction, question?.imageLabels, isImageQuestion]);
+
+
   useEffect(() => {
     const handleGlobalKeyDown = async (e: KeyboardEvent) => {
       if (e.key === "Escape" || (e.ctrlKey && e.key === "Enter")) {
@@ -1042,8 +1073,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                           const newRevealed = new Set(revealedLabels);
                           if (isRevealed) {
                             newRevealed.delete(index);
+                            setLastLabelAction('hide');
                           } else {
                             newRevealed.add(index);
+                            setLastLabelAction('reveal');
                           }
                           setRevealedLabels(newRevealed);
                           // 이미지 라벨 클릭 시 연습 카운팅 및 시간 추적
