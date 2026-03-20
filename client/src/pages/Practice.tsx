@@ -174,30 +174,31 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // Tab 키: 가림막 전체 표시/제거
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Tab' && isImageQuestion) {
+      // Tab 키이고, 이미지 문제인 경우에만 처리
+      if (e.key === 'Tab' && isImageQuestion && imageLabels.length > 0) {
         e.preventDefault();
+        e.stopPropagation();
         
         if (lastLabelAction === null) {
-          // 첫 번째 Tab: 모두 표시
-          const allLabels = new Set(Array.from({length: question?.imageLabels?.length || 0}, (_, i) => i));
-          setRevealedLabels(allLabels);
-          setLastLabelAction('reveal');
-        } else if (lastLabelAction === 'reveal') {
-          // 다음 Tab: 모두 제거
+          // 첫 번째 Tab: 모두 제거
           setRevealedLabels(new Set());
           setLastLabelAction('hide');
-        } else {
-          // 다시 Tab: 모두 표시
-          const allLabels = new Set(Array.from({length: question?.imageLabels?.length || 0}, (_, i) => i));
+        } else if (lastLabelAction === 'hide') {
+          // 다음 Tab: 모두 표시
+          const allLabels = new Set(Array.from({length: imageLabels.length}, (_, i) => i));
           setRevealedLabels(allLabels);
           setLastLabelAction('reveal');
+        } else {
+          // 다시 Tab: 모두 제거
+          setRevealedLabels(new Set());
+          setLastLabelAction('hide');
         }
       }
     };
     
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [lastLabelAction, question?.imageLabels, isImageQuestion]);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [lastLabelAction, imageLabels, isImageQuestion]);
 
 
   useEffect(() => {
