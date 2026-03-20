@@ -1109,7 +1109,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     >+</button>
                   </div>
                   <button
-                    onClick={() => setImageScale(100)}
+                    onClick={() => {
+                      if (imageContainerRef.current) {
+                        const img = imageContainerRef.current.querySelector('img');
+                        if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+                          const imgWidth = img.naturalWidth;
+                          const imgHeight = img.naturalHeight;
+                          const maxWidth = window.innerWidth * 0.5;
+                          const maxHeight = window.innerHeight * 0.8;
+                          const scaleByWidth = (maxWidth / imgWidth) * 100;
+                          const scaleByHeight = (maxHeight / imgHeight) * 100;
+                          const optimalScale = Math.min(scaleByWidth, scaleByHeight, 100);
+                          setImageScale(Math.max(30, Math.round(optimalScale)));
+                        }
+                      }
+                    }}
                     className="px-2 py-0.5 text-xs rounded border border-border hover:bg-muted transition-colors"
                   >맞춤</button>
                 </div>
