@@ -30,6 +30,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [lastInputTime, setLastInputTime] = useState<number>(Date.now());
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
+  const [notepadLines, setNotepadLines] = useState(50); // 메모장 줄 수
   const [imageScale, setImageScale] = useState(60); // 이미지 크기 비율 (%)
   const [imageContainerHeight, setImageContainerHeight] = useState(400); // 이미지 컨테이너 높이
   const imageContainerRef = useRef<HTMLDivElement>(null);
@@ -51,12 +52,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (!imageContainerRef.current) return;
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setImageContainerHeight(entry.contentRect.height);
+        const h = entry.contentRect.height;
+        setImageContainerHeight(h);
+        // 이미지 높이에 맞춰 메모장 줄 수 계산 (28px per line)
+        const lines = Math.max(20, Math.ceil(h / 28));
+        setNotepadLines(lines);
       }
     });
     observer.observe(imageContainerRef.current);
     return () => observer.disconnect();
   }, [imageLoaded, imageScale]);
+
   const answerDisplayRef = useRef<HTMLDivElement>(null); // 정답 표시 영역 ref
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const inactiveAlertTimerRef = useRef<NodeJS.Timeout | null>(null); // 입력 시간 알림 타이머
@@ -133,6 +139,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const targetText = question?.answer || "";
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+
+  // 메모장에 미리 줄바꿈 채워넣기 (줄이 그어진 연습장처럼 어디서나 클릭 시 바로 입력 가능)
+  useEffect(() => {
+    if (!isImageQuestion) return;
+    // practiceNote가 비어있을 때만 초기화
+    if (practiceNote === "") {
+      setPracticeNote("\n".repeat(notepadLines));
+    }
+  }, [isImageQuestion, notepadLines]);
   const tableData: TableData | null = question?.tableData ? JSON.parse(question.tableData) : null;
   const isTableQuestion = !!tableData;
   const [tableAnswers, setTableAnswers] = useState<Record<string, string>>({});
@@ -1099,10 +1114,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   >맞춤</button>
                 </div>
               </div>
-              <div className="flex flex-col lg:flex-row gap-4" style={{ alignItems: 'stretch' }}>
+              <div className="flex flex-col lg:flex-row gap-4" style={{ alignItems: 'flex-start' }}>
                 {/* Left: Image with labels */}
                 <div className="flex-shrink-0" style={{ width: `${imageScale}%`, minWidth: '200px' }}>
-                  <div className="relative w-full" ref={imageContainerRef}>
+                  <div className="relative w-full rounded-lg border-2 border-border overflow-hidden" ref={imageContainerRef}>
                     {!imageLoaded && (
                       <div className="flex items-center justify-center min-h-[300px] md:min-h-[400px] bg-muted/30 rounded-lg border-2 border-border">
                         <p className="text-muted-foreground">이미지 로딩 중...</p>
@@ -1111,7 +1126,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     <img
                       src={question.imageUrl || ""}
                       alt="Question image"
-                      className={`w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
+                      className={`w-full h-auto block ${!imageLoaded ? 'hidden' : ''}`}
                       onLoad={() => setImageLoaded(true)}
                       loading="eager"
                       fetchPriority="high"
@@ -1181,15 +1196,31 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
                 {/* Right: Lined notebook-style practice note */}
                 <div className="flex-1 flex flex-col" style={{ minWidth: '200px' }}>
-                  <label className="text-xs font-semibold text-muted-foreground mb-1">
-                    타이핑 연습장 (저장되지 않음)
-                  </label>
                   <div
-                    className="relative flex-1 rounded-lg border-2 border-border bg-background overflow-hidden cursor-text"
-                    style={{ minHeight: `${imageContainerHeight}px` }}
-                    onClick={(e) => {
-                      const ta = (e.currentTarget.querySelector('textarea') as HTMLTextAreaElement);
-                      if (ta) ta.focus();
+                    className="relative rounded-lg border-2 border-border bg-background overflow-hidden cursor-text"
+                    style={{ height: `${imageContainerHeight}px` }}
+                    onMouseDown={(e) => {
+                      // textarea 자체 클릭은 기본 동작으로 처리
+                      if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+                      e.preventDefault();
+                      const ta = notepadRef.current;
+                      if (!ta) return;
+                      ta.focus();
+                      // 클릭한 Y 위치로 커서 이동
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clickY = e.clientY - rect.top;
+                      const lineHeight = 28;
+                      const paddingTop = 8;
+                      const targetLine = Math.floor((clickY - paddingTop) / lineHeight);
+                      if (targetLine >= 0) {
+                        const lines = ta.value.split('\n');
+                        let pos = 0;
+                        for (let i = 0; i < Math.min(targetLine, lines.length - 1); i++) {
+                          pos += lines[i].length + 1;
+                        }
+                        pos += (lines[Math.min(targetLine, lines.length - 1)]?.length || 0);
+                        ta.setSelectionRange(pos, pos);
+                      }
                     }}
                   >
                     {/* Lined paper background */}
@@ -1204,18 +1235,18 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       value={practiceNote}
                       onChange={(e) => {
                         setPracticeNote(e.target.value);
-                        if (!hasInteracted && e.target.value.length > 0) setHasInteracted(true);
+                        if (!hasInteracted && e.target.value.trim().length > 0) setHasInteracted(true);
                         if (!startTime) setStartTime(Date.now());
                         setLastInputTime(Date.now());
                         if (!isActive) setIsActive(true);
                       }}
-                      className="relative w-full h-full p-2 bg-transparent resize-none focus:outline-none font-mono text-sm"
+                      className="absolute inset-0 bg-transparent resize-none focus:outline-none font-mono text-sm text-foreground"
                       style={{
                         lineHeight: '28px',
                         paddingTop: '8px',
                         paddingLeft: '44px',
-                        minHeight: `${imageContainerHeight}px`,
                         caretColor: 'oklch(0.5 0.15 260)',
+                        zIndex: 1,
                       }}
                       placeholder=""
                       spellCheck={false}
