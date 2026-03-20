@@ -31,7 +31,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
   const [notepadLines, setNotepadLines] = useState(50); // 메모장 줄 수
-  const [imageScale, setImageScale] = useState(60); // 이미지 크기 비율 (%)
+  const [imageScale, setImageScaleRaw] = useState(() => {
+    const saved = localStorage.getItem('imageScale');
+    return saved ? Math.max(30, Math.min(100, parseInt(saved, 10))) : 60;
+  }); // 이미지 크기 비율 (%)
+  const setImageScale = (val: number) => {
+    setImageScaleRaw(val);
+    localStorage.setItem('imageScale', String(val));
+  };
   const [imageContainerHeight, setImageContainerHeight] = useState(400); // 이미지 컨테이너 높이
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const notepadRef = useRef<HTMLTextAreaElement>(null);
