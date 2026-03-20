@@ -30,6 +30,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [lastInputTime, setLastInputTime] = useState<number>(Date.now());
   const [isComposing, setIsComposing] = useState(false); // 한글 조합 중
   const [practiceNote, setPracticeNote] = useState(""); // 연습용 메모장
+  const [imageScale, setImageScale] = useState(60); // 이미지 크기 비율 (%)
+  const [imageContainerHeight, setImageContainerHeight] = useState(400); // 이미지 컨테이너 높이
+  const imageContainerRef = useRef<HTMLDivElement>(null);
+  const notepadRef = useRef<HTMLTextAreaElement>(null);
   const [hasInteracted, setHasInteracted] = useState(false); // 이미지 문제: 클릭 또는 입력 여부
   const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
   const [practiceCount, setPracticeCount] = useState(0); // 현재 연습 횟수 (세션 동안만 유지)
@@ -42,6 +46,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [showInactiveAlert, setShowInactiveAlert] = useState(false); // 입력 시간 알림
   const [currentCursorLineIndex, setCurrentCursorLineIndex] = useState(0); // 현재 커서 위치의 줄 인덱스
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 이미지 컨테이너 높이 추적 (메모장 높이 동기화)
+  useEffect(() => {
+    if (!imageContainerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setImageContainerHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(imageContainerRef.current);
+    return () => observer.disconnect();
+  }, [imageLoaded, imageScale]);
   const answerDisplayRef = useRef<HTMLDivElement>(null); // 정답 표시 영역 ref
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const inactiveAlertTimerRef = useRef<NodeJS.Timeout | null>(null); // 입력 시간 알림 타이머
@@ -1059,106 +1074,154 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               </div>
             </div>
           ) : isImageQuestion ? (
-            /* Image question with label boxes - 2 column layout */
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Left: Image with labels */}
-              <div className="space-y-4">
-                <div className="relative w-full">
-                  {!imageLoaded && (
-                    <div className="flex items-center justify-center min-h-[300px] md:min-h-[400px] bg-muted/30 rounded-lg border-2 border-border">
-                      <p className="text-muted-foreground">이미지 로딩 중...</p>
-                    </div>
-                  )}
-                  <img
-                    src={question.imageUrl || ""}
-                    alt="Question image"
-                    className={`w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
-                    onLoad={() => setImageLoaded(true)}
-                    loading="eager"
-                    fetchPriority="high"
-                  />
-                  {imageLabels.map((label: any, index: number) => {
-                    const isRevealed = revealedLabels.has(index);
-                    return (
-                      <div
-                        key={index}
-                        className={`absolute border-2 transition-all cursor-pointer ${
-                          isRevealed
-                            ? "border-dashed border-primary bg-transparent"
-                            : "border-primary bg-black hover:bg-black/90"
-                        }`}
-                        style={{
-                          left: `${label.x}%`,
-                          top: `${label.y}%`,
-                          width: `${label.width}%`,
-                          height: `${label.height}%`,
-                        }}
-                        onClick={() => {
-                          const newRevealed = new Set(revealedLabels);
-                          if (isRevealed) {
-                            newRevealed.delete(index);
-                            lastLabelActionRef.current = 'hide';
-                          } else {
-                            newRevealed.add(index);
-                            lastLabelActionRef.current = 'reveal';
-                          }
-                          revealedLabelsRef.current = newRevealed;
-                          setRevealedLabels(newRevealed);
-                          // 이미지 라벨 클릭 시 연습 카운팅 및 시간 추적
-                          if (!hasInteracted) setHasInteracted(true);
-                          if (!startTime) setStartTime(Date.now());
-                          setLastInputTime(Date.now());
-                          if (!isActive) setIsActive(true);
-                        }}
-                      >
-                        {!isRevealed && (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <span className="text-white font-bold text-2xl">{index + 1}</span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {/* License information for image questions */}
-                <div className="mt-3 text-xs text-muted-foreground space-y-0.5 border-t border-border/50 pt-2">
-                  {question?.id === 570001 ? (
-                    <>
-                      <p>© Ksiom, Kwj2772 / Wikimedia Commons</p>
-                      <p>Licensed under Public Domain</p>
-                    </>
-                  ) : question?.id === 570002 ? (
-                    <>
-                      <p>© Jonathan Richter</p>
-                      <p>https://richterguitar.com</p>
-                    </>
-                  ) : question?.id === 600004 ? (
-                    <>
-                      <p>머리 및 목 해부학 2021 개정판</p>
-                      <p>저자: 김명국, p.10</p>
-                    </>
-                  ) : null}
+            /* Image question with label boxes - resizable 2 column layout */
+            <div>
+              {/* Size control toolbar */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">크기:</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setImageScale(Math.max(30, imageScale - 10))}
+                      className="px-2 py-0.5 text-xs rounded border border-border hover:bg-muted transition-colors"
+                      title="줄이기"
+                    >−</button>
+                    <span className="text-xs font-mono w-10 text-center">{imageScale}%</span>
+                    <button
+                      onClick={() => setImageScale(Math.min(100, imageScale + 10))}
+                      className="px-2 py-0.5 text-xs rounded border border-border hover:bg-muted transition-colors"
+                      title="늘이기"
+                    >+</button>
+                  </div>
+                  <button
+                    onClick={() => setImageScale(100)}
+                    className="px-2 py-0.5 text-xs rounded border border-border hover:bg-muted transition-colors"
+                  >맞춤</button>
                 </div>
               </div>
+              <div className="flex flex-col lg:flex-row gap-4" style={{ alignItems: 'stretch' }}>
+                {/* Left: Image with labels */}
+                <div className="flex-shrink-0" style={{ width: `${imageScale}%`, minWidth: '200px' }}>
+                  <div className="relative w-full" ref={imageContainerRef}>
+                    {!imageLoaded && (
+                      <div className="flex items-center justify-center min-h-[300px] md:min-h-[400px] bg-muted/30 rounded-lg border-2 border-border">
+                        <p className="text-muted-foreground">이미지 로딩 중...</p>
+                      </div>
+                    )}
+                    <img
+                      src={question.imageUrl || ""}
+                      alt="Question image"
+                      className={`w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
+                      onLoad={() => setImageLoaded(true)}
+                      loading="eager"
+                      fetchPriority="high"
+                    />
+                    {imageLabels.map((label: any, index: number) => {
+                      const isRevealed = revealedLabels.has(index);
+                      return (
+                        <div
+                          key={index}
+                          className={`absolute border-2 transition-all cursor-pointer ${
+                            isRevealed
+                              ? "border-dashed border-primary bg-transparent"
+                              : "border-primary bg-black hover:bg-black/90"
+                          }`}
+                          style={{
+                            left: `${label.x}%`,
+                            top: `${label.y}%`,
+                            width: `${label.width}%`,
+                            height: `${label.height}%`,
+                          }}
+                          onClick={() => {
+                            const newRevealed = new Set(revealedLabels);
+                            if (isRevealed) {
+                              newRevealed.delete(index);
+                              lastLabelActionRef.current = 'hide';
+                            } else {
+                              newRevealed.add(index);
+                              lastLabelActionRef.current = 'reveal';
+                            }
+                            revealedLabelsRef.current = newRevealed;
+                            setRevealedLabels(newRevealed);
+                            if (!hasInteracted) setHasInteracted(true);
+                            if (!startTime) setStartTime(Date.now());
+                            setLastInputTime(Date.now());
+                            if (!isActive) setIsActive(true);
+                          }}
+                        >
+                          {!isRevealed && (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <span className="text-white font-bold text-2xl">{index + 1}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* License information */}
+                  <div className="mt-2 text-xs text-muted-foreground space-y-0.5 border-t border-border/50 pt-1">
+                    {question?.id === 570001 ? (
+                      <>
+                        <p>© Ksiom, Kwj2772 / Wikimedia Commons</p>
+                        <p>Licensed under Public Domain</p>
+                      </>
+                    ) : question?.id === 570002 ? (
+                      <>
+                        <p>© Jonathan Richter</p>
+                        <p>https://richterguitar.com</p>
+                      </>
+                    ) : question?.id === 600004 ? (
+                      <>
+                        <p>머리 및 목 해부학 2021 개정판</p>
+                        <p>저자: 김명국, p.10</p>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
 
-              {/* Right: Practice note */}
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-muted-foreground">
-                  타이핑 연습용 메모장
-                </label>
-                <textarea
-                  value={practiceNote}
-                  onChange={(e) => {
-                    setPracticeNote(e.target.value);
-                    // 연습장 입력 시 연습 카운팅 및 시간 추적
-                    if (!hasInteracted && e.target.value.length > 0) setHasInteracted(true);
-                    if (!startTime) setStartTime(Date.now());
-                    setLastInputTime(Date.now());
-                    if (!isActive) setIsActive(true);
-                  }}
-                  className="w-full h-[400px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="여기에 답안을 연습해보세요... (저장되지 않습니다)"
-                />
+                {/* Right: Lined notebook-style practice note */}
+                <div className="flex-1 flex flex-col" style={{ minWidth: '200px' }}>
+                  <label className="text-xs font-semibold text-muted-foreground mb-1">
+                    타이핑 연습장 (저장되지 않음)
+                  </label>
+                  <div
+                    className="relative flex-1 rounded-lg border-2 border-border bg-background overflow-hidden cursor-text"
+                    style={{ minHeight: `${imageContainerHeight}px` }}
+                    onClick={(e) => {
+                      const ta = (e.currentTarget.querySelector('textarea') as HTMLTextAreaElement);
+                      if (ta) ta.focus();
+                    }}
+                  >
+                    {/* Lined paper background */}
+                    <div className="absolute inset-0 pointer-events-none" style={{ 
+                      backgroundImage: 'repeating-linear-gradient(transparent, transparent 27px, oklch(0.7 0.01 260 / 0.25) 27px, oklch(0.7 0.01 260 / 0.25) 28px)',
+                      backgroundPositionY: '7px'
+                    }} />
+                    {/* Left margin line */}
+                    <div className="absolute top-0 bottom-0 left-[36px] w-[1px] pointer-events-none" style={{ backgroundColor: 'oklch(0.7 0.1 20 / 0.2)' }} />
+                    <textarea
+                      ref={notepadRef}
+                      value={practiceNote}
+                      onChange={(e) => {
+                        setPracticeNote(e.target.value);
+                        if (!hasInteracted && e.target.value.length > 0) setHasInteracted(true);
+                        if (!startTime) setStartTime(Date.now());
+                        setLastInputTime(Date.now());
+                        if (!isActive) setIsActive(true);
+                      }}
+                      className="relative w-full h-full p-2 bg-transparent resize-none focus:outline-none font-mono text-sm"
+                      style={{
+                        lineHeight: '28px',
+                        paddingTop: '8px',
+                        paddingLeft: '44px',
+                        minHeight: `${imageContainerHeight}px`,
+                        caretColor: 'oklch(0.5 0.15 260)',
+                      }}
+                      placeholder=""
+                      spellCheck={false}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
