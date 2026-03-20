@@ -1115,8 +1115,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
                           const imgWidth = img.naturalWidth;
                           const imgHeight = img.naturalHeight;
-                          const maxWidth = window.innerWidth * 0.5;
-                          const maxHeight = window.innerHeight * 0.8;
+                          // 화면 전체에 맞추기 위해 더 작은 마진 설정
+                          const maxWidth = window.innerWidth * 0.4;
+                          const maxHeight = window.innerHeight * 0.7;
                           const scaleByWidth = (maxWidth / imgWidth) * 100;
                           const scaleByHeight = (maxHeight / imgHeight) * 100;
                           const optimalScale = Math.min(scaleByWidth, scaleByHeight, 100);
