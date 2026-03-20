@@ -131,7 +131,7 @@ function SortableQuestionCard({
           <p className="text-sm font-medium truncate leading-tight">{question.question}</p>
           {!hasImage && !hasTable && question.answer && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">
-              {question.answer.substring(0, 80)}
+              {question.answer.substring(0, 80).replace(/\n/g, ' / ')}
             </p>
           )}
           {hasTable && (
