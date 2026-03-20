@@ -135,11 +135,13 @@ function SortableQuestionCard({
             </p>
           )}
           {hasTable && (
-            <p className="text-[10px] text-muted-foreground mt-0.5">
+            <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
               {(() => {
                 const td = JSON.parse(question.tableData);
                 const blankCount = td.cells.flat().filter((c: any) => c.isBlank && !c.isMerged).length;
-                return `${td.rows}×${td.cols} | 빈칸 ${blankCount}`;
+                const firstCell = td.cells[0]?.[0]?.content || '';
+                const preview = firstCell ? `${firstCell} | ` : '';
+                return `${preview}${td.rows}×${td.cols} | 빈칸 ${blankCount}`;
               })()}
             </p>
           )}
