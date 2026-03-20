@@ -135,15 +135,75 @@ function SortableQuestionCard({
             </p>
           )}
           {hasTable && (
-            <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+            <div className="text-[10px] text-muted-foreground mt-0.5 space-y-0">
               {(() => {
                 const td = JSON.parse(question.tableData);
                 const blankCount = td.cells.flat().filter((c: any) => c.isBlank && !c.isMerged).length;
-                const firstCell = td.cells[0]?.[0]?.content || '';
-                const preview = firstCell ? `${firstCell} | ` : '';
-                return `${preview}${td.rows}×${td.cols} | 빈칸 ${blankCount}`;
+                
+                // 헤더 행 내용 추출 (첫 행 + 병합으로 인한 두번째 헤더 행)
+                const headerRowParts: string[] = [];
+                if (td.headerRow && td.cells[0]) {
+                  const row0 = td.cells[0]
+                    .filter((c: any) => !c.isMerged && c.content?.trim())
+                    .map((c: any) => c.content.trim());
+                  if (row0.length > 0) headerRowParts.push(...row0);
+                  // 첫 행에 rowSpan > 1인 셀이 있으면 두번째 행도 헤더의 일부
+                  const hasMultiRowHeader = td.cells[0].some((c: any) => c.rowSpan > 1);
+                  if (hasMultiRowHeader && td.cells[1]) {
+                    const row1 = td.cells[1]
+                      .filter((c: any) => !c.isMerged && c.content?.trim())
+                      .map((c: any) => c.content.trim());
+                    // 숫자 시퀀스인 경우 범위로 표시
+                    if (row1.length > 3 && row1.every((v: string) => /^\d+(\.\d+)?$/.test(v))) {
+                      headerRowParts.push(`${row1[0]}~${row1[row1.length - 1]}`);
+                    } else if (row1.length > 0 && row1.length <= 5) {
+                      headerRowParts.push(row1.join(', '));
+                    } else if (row1.length > 5) {
+                      headerRowParts.push(row1.slice(0, 3).join(', ') + ` 외 ${row1.length - 3}개`);
+                    }
+                  }
+                }
+                
+                // 헤더 열 내용 추출 (첫 열의 비어있지 않은 셀, 헤더 행 제외)
+                const headerColParts: string[] = [];
+                if (td.headerCol) {
+                  const startRow = td.headerRow ? (td.cells[1]?.[0]?.content?.trim() ? 1 : 2) : 0;
+                  for (let i = startRow; i < td.cells.length; i++) {
+                    const cell = td.cells[i]?.[0];
+                    if (cell && !cell.isMerged && cell.content?.trim()) {
+                      headerColParts.push(cell.content.trim());
+                    }
+                  }
+                } else if (td.headerRow) {
+                  // headerCol이 아니지만 첫 열에 카테고리가 있는 경우 (병합 셀)
+                  for (let i = 1; i < td.cells.length; i++) {
+                    const cell = td.cells[i]?.[0];
+                    if (cell && !cell.isMerged && cell.content?.trim() && (cell.rowSpan > 1 || cell.colSpan > 1)) {
+                      headerColParts.push(cell.content.trim());
+                    }
+                  }
+                }
+                
+                const headerRowText = headerRowParts.length > 0 ? headerRowParts.join(' · ') : '';
+                const headerColText = headerColParts.length > 0 
+                  ? (headerColParts.length > 4 
+                    ? headerColParts.slice(0, 3).join(', ') + ` 외 ${headerColParts.length - 3}개`
+                    : headerColParts.join(', '))
+                  : '';
+                const sizeInfo = `${td.rows}×${td.cols} | 빈칸 ${blankCount}`;
+                
+                return (
+                  <>
+                    {headerRowText && (
+                      <p className="truncate font-medium text-foreground/70">{headerRowText}</p>
+                    )}
+                    <p className="truncate">
+                      {headerColText ? `${headerColText} | ${sizeInfo}` : sizeInfo}
+                    </p>
+                  </>
+                );
               })()}
-            </p>
+            </div>
           )}
           {hasLabels && question.imageLabels && (
             <p className="text-[10px] text-muted-foreground mt-0.5">
