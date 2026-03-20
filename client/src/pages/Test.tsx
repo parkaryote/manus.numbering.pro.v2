@@ -595,8 +595,17 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 ))}
                 {/* License information for image questions */}
                 <div className="mt-3 text-xs text-muted-foreground space-y-0.5 border-t border-border/50 pt-2">
-                  <p>© Ksiom, Kwj2772 / Wikimedia Commons</p>
-                  <p>Licensed under Public Domain</p>
+                  {question?.id === 570001 ? (
+                    <>
+                      <p>© Ksiom, Kwj2772 / Wikimedia Commons</p>
+                      <p>Licensed under Public Domain</p>
+                    </>
+                  ) : question?.id === 570002 ? (
+                    <>
+                      <p>© Jonathan Richter</p>
+                      <p>https://richterguitar.com</p>
+                    </>
+                  ) : null}
                 </div>
               </div>
             )}
