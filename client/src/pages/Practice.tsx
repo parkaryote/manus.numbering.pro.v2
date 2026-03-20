@@ -972,6 +972,32 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 >
                   초기화
                 </Button>
+                <Button
+                  onClick={async () => {
+                    const blankCells = getBlankCells(tableData);
+                    const allCorrect = blankCells.every((cellKey) => {
+                      const cell = tableData.cells.flat().find((c: any) => c.key === cellKey);
+                      if (!cell) return false;
+                      const userAnswer = tableAnswers[cellKey] || "";
+                      return userAnswer.trim().toLowerCase() === cell.content.trim().toLowerCase();
+                    });
+
+                    if (!allCorrect) {
+                      toast.error("모든 빈칸을 올바르게 입력해주세요");
+                      return;
+                    }
+
+                    // 텍스트 문제와 동일한 처리
+                    await handleCorrectAnswer(Object.keys(tableAnswers).length);
+                    // 표 답안 초기화
+                    setTimeout(() => {
+                      setTableAnswers({});
+                    }, 1000);
+                  }}
+                  disabled={createSession.isPending}
+                >
+                  {createSession.isPending ? "저장 중..." : "완료"}
+                </Button>
               </div>
               <div className="text-sm text-muted-foreground">
                 연습 횟수: {practiceCount}회
