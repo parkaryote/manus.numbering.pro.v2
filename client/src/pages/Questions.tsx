@@ -85,129 +85,131 @@ function SortableQuestionCard({
   const hasTable = !!question.tableData;
 
   return (
-    <Card
+    <div
       ref={setNodeRef}
       style={style}
-      className="shadow-elegant hover:shadow-elegant-lg transition-shadow"
+      className="group relative border rounded-lg bg-card hover:shadow-md transition-all overflow-hidden"
     >
-      <CardHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div
-            {...attributes}
-            {...listeners}
-            className="cursor-grab active:cursor-grabbing touch-none mt-1"
-          >
-            <GripVertical className="h-5 w-5 text-muted-foreground" />
+      {/* 컴팩트 카드 - 가로 레이아웃 */}
+      <div className="flex items-stretch">
+        {/* 드래그 핸들 */}
+        <div
+          {...attributes}
+          {...listeners}
+          className="flex items-center px-1.5 cursor-grab active:cursor-grabbing touch-none border-r bg-muted/30 hover:bg-muted/60"
+        >
+          <GripVertical className="h-4 w-4 text-muted-foreground" />
+        </div>
+
+        {/* 이미지 썸네일 (있을 경우) */}
+        {hasImage && question.imageUrl && (
+          <div className="w-16 h-16 flex-shrink-0 border-r overflow-hidden bg-muted/20">
+            <img
+              src={question.imageUrl!}
+              alt=""
+              className="w-full h-full object-cover"
+            />
           </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              {hasImage && (
-                <span className="text-xs font-medium text-blue-600 flex items-center gap-1">
-                  <ImageIcon className="h-3 w-3" />
-                  이미지
-                </span>
-              )}
-              {hasTable && (
-                <span className="text-xs font-medium text-purple-600 flex items-center gap-1">
-                  <Table2 className="h-3 w-3" />
-                  표
-                </span>
-              )}
-              <span className={`text-xs font-medium ${difficultyColor[question.difficulty || "medium"]}`}>
-                {difficultyLabel[question.difficulty || "medium"]}
-              </span>
-              {question.isDemo === 1 && (
-                <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
-                  <Star className="w-2.5 h-2.5" />
-                  데모
-                </Badge>
-              )}
-            </div>
-            <CardTitle className="text-lg mb-2">{question.question}</CardTitle>
-            {hasImage && question.imageUrl && (
-              <img
-                src={question.imageUrl!}
-                alt="Question"
-                className="max-w-xs rounded-lg border mt-2 mb-2"
-              />
-            )}
-            {!hasImage && !hasTable && (
-              <CardDescription className="whitespace-pre-wrap">
-                {question.answer.length > 150
-                  ? question.answer.substring(0, 150) + "..."
-                  : question.answer}
-              </CardDescription>
+        )}
+
+        {/* 문제 정보 */}
+        <div className="flex-1 px-3 py-2 min-w-0">
+          <div className="flex items-center gap-1.5 mb-0.5">
+            {hasImage && (
+              <ImageIcon className="h-3 w-3 text-blue-500 flex-shrink-0" />
             )}
             {hasTable && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {(() => {
-                  const td = JSON.parse(question.tableData);
-                  const blankCount = td.cells.flat().filter((c: any) => c.isBlank && !c.isMerged).length;
-                  return `${td.rows}행 × ${td.cols}열 | 빈칸 ${blankCount}개`;
-                })()}
-              </p>
+              <Table2 className="h-3 w-3 text-purple-500 flex-shrink-0" />
             )}
-            {hasLabels && question.imageLabels && (
-              <p className="text-xs text-muted-foreground mt-2">
-                {JSON.parse(question.imageLabels).length}개의 정답 영역
-              </p>
+            <span className={`text-[10px] font-medium ${difficultyColor[question.difficulty || "medium"]}`}>
+              {difficultyLabel[question.difficulty || "medium"]}
+            </span>
+            {question.isDemo === 1 && (
+              <Star className="w-2.5 h-2.5 text-amber-500 flex-shrink-0" />
             )}
           </div>
-          <div className="flex gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onCopy(question)}
-              title="복사"
-            >
-              <Copy className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onMove(question)}
-              title="이동"
-            >
-              <MoveRight className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onEdit(question)}
-              title="수정"
-            >
-              <Edit className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onDelete(question.id)}
-              title="삭제"
-            >
-              <Trash2 className="h-4 w-4 text-destructive" />
-            </Button>
-          </div>
+          <p className="text-sm font-medium truncate leading-tight">{question.question}</p>
+          {!hasImage && !hasTable && question.answer && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {question.answer.substring(0, 80)}
+            </p>
+          )}
+          {hasTable && (
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {(() => {
+                const td = JSON.parse(question.tableData);
+                const blankCount = td.cells.flat().filter((c: any) => c.isBlank && !c.isMerged).length;
+                return `${td.rows}×${td.cols} | 빈칸 ${blankCount}`;
+              })()}
+            </p>
+          )}
+          {hasLabels && question.imageLabels && (
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              라벨 {JSON.parse(question.imageLabels).length}개
+            </p>
+          )}
         </div>
-      </CardHeader>
-      <CardContent className="flex gap-2">
-        <Button
-          variant="outline"
-          className="gap-2"
-          onClick={() => onPractice(question.id)}
-        >
-          <Dumbbell className="h-4 w-4" />
-          연습 모드
-        </Button>
-        <Button
-          variant="outline"
-          className="gap-2"
-          onClick={() => onTest(question.id)}
-        >
-          <ClipboardCheck className="h-4 w-4" />
-          시험 모드
-        </Button>
-      </CardContent>
-    </Card>
+
+        {/* 액션 버튼 */}
+        <div className="flex items-center gap-0.5 px-1.5 border-l bg-muted/10">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => onPractice(question.id)}
+            title="연습 모드"
+          >
+            <Dumbbell className="h-3.5 w-3.5 text-blue-600" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => onTest(question.id)}
+            title="시험 모드"
+          >
+            <ClipboardCheck className="h-3.5 w-3.5 text-green-600" />
+          </Button>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={() => onCopy(question)}
+            title="복사"
+          >
+            <Copy className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={() => onMove(question)}
+            title="이동"
+          >
+            <MoveRight className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={() => onEdit(question)}
+            title="수정"
+          >
+            <Edit className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={() => onDelete(question.id)}
+            title="삭제"
+          >
+            <Trash2 className="h-3 w-3 text-destructive" />
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -825,31 +827,57 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/subjects")}>
-          <ArrowLeft className="h-5 w-5" />
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation("/subjects")}>
+          <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
             {subject && (
               <div
-                className="w-4 h-4 rounded-full"
+                className="w-3 h-3 rounded-full flex-shrink-0"
                 style={{ backgroundColor: subject.color || "#3B82F6" }}
               />
             )}
-            <h1 className="text-3xl font-semibold tracking-tight">{subject?.name || "문제 관리"}</h1>
+            <h1 className="text-xl font-semibold tracking-tight truncate">{subject?.name || "문제 관리"}</h1>
+            <span className="text-sm text-muted-foreground flex-shrink-0">
+              {questions?.length || 0}문제
+            </span>
           </div>
-          <p className="text-muted-foreground mt-1">문제를 추가하고 학습하세요</p>
         </div>
-<Button className="gap-2" onClick={() => setIsCreateOpen(true)}>
-              <Plus className="h-4 w-4" />
-              새 문제 추가
-            </Button>
+        <div className="flex gap-1.5 flex-shrink-0">
+          {questions && questions.length > 0 && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 h-8"
+                onClick={() => setLocation(`/practice/${questions[0].id}`)}
+              >
+                <Dumbbell className="h-3.5 w-3.5" />
+                연습
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 h-8"
+                onClick={() => setLocation(`/test/${questions[0].id}`)}
+              >
+                <ClipboardCheck className="h-3.5 w-3.5" />
+                시험
+              </Button>
+            </>
+          )}
+          <Button size="sm" className="gap-1.5 h-8" onClick={() => setIsCreateOpen(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            추가
+          </Button>
+        </div>
       </div>
 
       {/* 난이도 필터 버튼 */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-1.5 flex-wrap">
         <Button
           variant={difficultyFilter === "all" ? "default" : "outline"}
           size="sm"
@@ -927,7 +955,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 items={filteredQuestions?.map(q => q.id) || []}
                 strategy={verticalListSortingStrategy}
               >
-                <div className="space-y-4">
+                <div className="space-y-1.5">
                   {filteredQuestions?.map((question) => (
                     <SortableQuestionCard
                       key={question.id}
