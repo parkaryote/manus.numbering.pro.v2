@@ -250,6 +250,8 @@ export async function copyQuestion(userId: number, questionId: number, targetSub
     imageUrl: original[0].imageUrl,
     imageLabels: original[0].imageLabels,
     useAIGrading: original[0].useAIGrading,
+    autoNumbering: original[0].autoNumbering,
+    tableData: original[0].tableData,
     difficulty: original[0].difficulty,
     displayOrder: maxOrder + 1,
   });
