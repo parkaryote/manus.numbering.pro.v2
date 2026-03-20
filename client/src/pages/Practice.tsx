@@ -1084,7 +1084,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         key={index}
                         className={`absolute border-2 transition-all cursor-pointer ${
                           isRevealed
-                            ? "border-transparent bg-transparent"
+                            ? "border-dashed border-primary bg-transparent"
                             : "border-primary bg-black hover:bg-black/90"
                         }`}
                         style={{
