@@ -980,40 +980,58 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }
 
   return (
-    <div className="space-y-6 relative">
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" onClick={handleGoBack} className="gap-2">
-          <ArrowLeft className="h-4 w-4" />
-          돌아가기
-        </Button>
-        <div className="flex items-center gap-6">
-          <div className="text-center">
-            <p className="text-2xl font-bold">{practiceCountDisplay}</p>
-            <p className="text-xs text-muted-foreground">현재 연습</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold">{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)}</p>
-            <p className="text-xs text-muted-foreground">누적 연습</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Circle
-              className={`h-3 w-3 ${isActive ? "fill-green-500 text-green-500" : "fill-red-500 text-red-500"}`}
-            />
-            <span className="text-sm text-muted-foreground">
-              {isActive ? "측정 중" : "중단됨"}
-            </span>
+    <div className={`relative ${isImageQuestion ? 'space-y-2' : 'space-y-6'}`}>
+      {isImageQuestion ? (
+        /* 이미지 문제: 최소 상단 - 돌아가기 + 연습횟수를 한 줄에 작게 */
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" size="sm" onClick={handleGoBack} className="gap-1 h-7 px-2 text-xs">
+            <ArrowLeft className="h-3 w-3" />
+            돌아가기
+          </Button>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span>{practiceCountDisplay} 현재</span>
+            <span>{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)} 누적</span>
+            <Circle className={`h-2 w-2 ${isActive ? "fill-green-500 text-green-500" : "fill-red-500 text-red-500"}`} />
           </div>
         </div>
-      </div>
+      ) : (
+        /* 텍스트/표 문제: 기존 상단 */
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" onClick={handleGoBack} className="gap-2">
+            <ArrowLeft className="h-4 w-4" />
+            돌아가기
+          </Button>
+          <div className="flex items-center gap-6">
+            <div className="text-center">
+              <p className="text-2xl font-bold">{practiceCountDisplay}</p>
+              <p className="text-xs text-muted-foreground">현재 연습</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold">{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)}</p>
+              <p className="text-xs text-muted-foreground">누적 연습</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Circle
+                className={`h-3 w-3 ${isActive ? "fill-green-500 text-green-500" : "fill-red-500 text-red-500"}`}
+              />
+              <span className="text-sm text-muted-foreground">
+                {isActive ? "측정 중" : "중단됨"}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
-      <Card className="shadow-elegant">
-        <CardHeader>
-          <CardTitle>{question.question}</CardTitle>
-          <CardDescription>
-            {isTableQuestion ? "표의 연습 셀을 타이핑하세요 (Tab/Enter로 다음 칸으로 이동)" : isImageQuestion ? "이미지의 표시된 영역에 정답을 입력하세요" : "정답을 따라 입력하세요 (띄어쓰기 무시)"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+      <Card className={isImageQuestion ? 'shadow-none border-0' : 'shadow-elegant'}>
+        {!isImageQuestion && (
+          <CardHeader>
+            <CardTitle>{question.question}</CardTitle>
+            <CardDescription>
+              {isTableQuestion ? "표의 연습 셀을 타이핑하세요 (Tab/Enter로 다음 칸으로 이동)" : "정답을 따라 입력하세요 (띄어쓰기 무시)"}
+            </CardDescription>
+          </CardHeader>
+        )}
+        <CardContent className={isImageQuestion ? 'p-0 space-y-2' : 'space-y-6'}>
           {isTableQuestion && tableData ? (
             /* Table question */
             <div className="space-y-4">
@@ -1091,47 +1109,43 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           ) : isImageQuestion ? (
             /* Image question with label boxes - resizable 2 column layout */
             <div>
-              {/* Size control toolbar */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">크기:</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setImageScale(Math.max(30, imageScale - 10))}
-                      className="px-2 py-0.5 text-xs rounded border border-border hover:bg-muted transition-colors"
-                      title="줄이기"
-                    >−</button>
-                    <span className="text-xs font-mono w-10 text-center">{imageScale}%</span>
-                    <button
-                      onClick={() => setImageScale(Math.min(100, imageScale + 10))}
-                      className="px-2 py-0.5 text-xs rounded border border-border hover:bg-muted transition-colors"
-                      title="늘이기"
-                    >+</button>
-                  </div>
-                  <button
-                    onClick={() => {
-                      if (imageContainerRef.current) {
-                        const img = imageContainerRef.current.querySelector('img');
-                        if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
-                          const imgWidth = img.naturalWidth;
-                          const imgHeight = img.naturalHeight;
-                          // 화면 전체에 맞추기 위해 더 작은 마진 설정
-                          const maxWidth = window.innerWidth * 0.4;
-                          const maxHeight = window.innerHeight * 0.7;
-                          const scaleByWidth = (maxWidth / imgWidth) * 100;
-                          const scaleByHeight = (maxHeight / imgHeight) * 100;
-                          const optimalScale = Math.min(scaleByWidth, scaleByHeight, 100);
-                          setImageScale(Math.max(30, Math.round(optimalScale)));
-                        }
-                      }
-                    }}
-                    className="px-2 py-0.5 text-xs rounded border border-border hover:bg-muted transition-colors"
-                  >맞춤</button>
-                </div>
-              </div>
-              <div className="flex flex-col lg:flex-row gap-4" style={{ alignItems: 'flex-start' }}>
+              <div className="flex flex-col lg:flex-row gap-2" style={{ alignItems: 'flex-start' }}>
                 {/* Left: Image with labels */}
-                <div className="flex-shrink-0" style={{ width: `${imageScale}%`, minWidth: '200px' }}>
+                <div className="flex-shrink-0 relative" style={{ width: `${imageScale}%`, minWidth: '200px' }}>
+                  {/* Size control - floating overlay on top-right of image */}
+                  <div className="absolute top-1 right-1 z-10 flex items-center gap-1 bg-background/80 backdrop-blur-sm rounded px-1.5 py-0.5 border border-border/50">
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={() => setImageScale(Math.max(30, imageScale - 10))}
+                        className="px-1.5 py-0.5 text-[10px] rounded hover:bg-muted transition-colors"
+                        title="줄이기"
+                      >−</button>
+                      <span className="text-[10px] font-mono w-8 text-center">{imageScale}%</span>
+                      <button
+                        onClick={() => setImageScale(Math.min(100, imageScale + 10))}
+                        className="px-1.5 py-0.5 text-[10px] rounded hover:bg-muted transition-colors"
+                        title="늘이기"
+                      >+</button>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (imageContainerRef.current) {
+                          const img = imageContainerRef.current.querySelector('img');
+                          if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+                            const imgWidth = img.naturalWidth;
+                            const imgHeight = img.naturalHeight;
+                            const maxWidth = window.innerWidth * 0.4;
+                            const maxHeight = window.innerHeight * 0.7;
+                            const scaleByWidth = (maxWidth / imgWidth) * 100;
+                            const scaleByHeight = (maxHeight / imgHeight) * 100;
+                            const optimalScale = Math.min(scaleByWidth, scaleByHeight, 100);
+                            setImageScale(Math.max(30, Math.round(optimalScale)));
+                          }
+                        }
+                      }}
+                      className="px-1.5 py-0.5 text-[10px] rounded hover:bg-muted transition-colors"
+                    >맞춤</button>
+                  </div>
                   <div className="relative w-full rounded-lg border-2 border-border overflow-hidden" ref={imageContainerRef}>
                     {!imageLoaded && (
                       <div className="flex items-center justify-center min-h-[300px] md:min-h-[400px] bg-muted/30 rounded-lg border-2 border-border">
