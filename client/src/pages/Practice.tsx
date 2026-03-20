@@ -1074,6 +1074,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       <p>© Jonathan Richter</p>
                       <p>https://richterguitar.com</p>
                     </>
+                  ) : question?.id === 600004 ? (
+                    <>
+                      <p>머리 및 목 해부학 2021 개정판</p>
+                      <p>저자: 김명국, p.10</p>
+                    </>
                   ) : null}
                 </div>
               </div>
