@@ -1247,6 +1247,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         paddingLeft: '44px',
                         caretColor: 'oklch(0.5 0.15 260)',
                         zIndex: 1,
+                        overflow: 'hidden',
                       }}
                       placeholder=""
                       spellCheck={false}
