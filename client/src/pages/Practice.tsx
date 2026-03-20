@@ -20,7 +20,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
   const [imageLoaded, setImageLoaded] = useState(false);
   const [revealedLabels, setRevealedLabels] = useState<Set<number>>(new Set()); // 클릭하여 공개된 라벨
-  const [lastLabelAction, setLastLabelAction] = useState<'reveal' | 'hide' | null>(null); // 마지막 라벨 클릭 행동
+  const lastLabelActionRef = useRef<'reveal' | 'hide' | null>(null);
+  const revealedLabelsRef = useRef<Set<number>>(new Set()); // 마지막 라벨 클릭 행동
+  const setRevealedLabelsRef = useRef<React.Dispatch<React.SetStateAction<Set<number>>> | null>(null);
+  const imageLabelsLengthRef = useRef<number>(0);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isActive, setIsActive] = useState(true); // 측정 중 여부
@@ -171,7 +174,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   // Global keyboard event listener for ESC and Ctrl+Enter
 
-  // Tab 키: 가림막 전체 표시/제거
+  // setRevealedLabels와 imageLabels.length를 항상 최신 ref에 저장
+  useEffect(() => {
+    setRevealedLabelsRef.current = setRevealedLabels;
+  }, [setRevealedLabels]);
+  
+  useEffect(() => {
+    imageLabelsLengthRef.current = imageLabels.length;
+  }, [imageLabels]);
+
+  // Tab 키: 가림막 전체 표시/제거 (마지막 클릭 행동 기반)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Tab 키이고, 이미지 문제인 경우에만 처리
@@ -179,23 +191,37 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         e.preventDefault();
         e.stopPropagation();
         
-        // 현재 상태 확인: 모든 라벨이 보이는지 여부
-        const allRevealed = revealedLabels.size === imageLabels.length;
-        
-        if (allRevealed) {
-          // 모두 보이고 있으면 모두 숨기기
-          setRevealedLabels(new Set());
+        // 마지막 클릭 행동과 동일하게 Tab 동작
+        // reveal = 가림막 제거(숫자 보임), hide = 가림막 표시(숫자 가려짐)
+        // 마지막 클릭이 제거(reveal)였으면 → Tab도 전체 제거
+        // 마지막 클릭이 가리기(hide)였거나 초기 상태 → Tab도 전체 가리기
+        if (lastLabelActionRef.current === 'reveal') {
+          // 마지막 행동이 가림막 제거(reveal)였으면 → Tab도 전체 제거 (모두 보이기)
+          const len = imageLabelsLengthRef.current;
+          const indices = Array.from({length: len}, (_, i) => i);
+          const allLabels = new Set<number>(indices);
+          revealedLabelsRef.current = allLabels;
+          if (setRevealedLabelsRef.current) {
+            setRevealedLabelsRef.current(new Set<number>(indices));
+          }
+          // 다음 Tab은 반대 동작
+          lastLabelActionRef.current = 'hide';
         } else {
-          // 그 외의 경우 모두 보이기
-          const allLabels = new Set(Array.from({length: imageLabels.length}, (_, i) => i));
-          setRevealedLabels(allLabels);
+          // 마지막 행동이 가리기(hide)였거나 초기 상태 → Tab도 전체 가리기
+          const emptySet = new Set<number>();
+          revealedLabelsRef.current = emptySet;
+          if (setRevealedLabelsRef.current) {
+            setRevealedLabelsRef.current(new Set<number>());
+          }
+          // 다음 Tab은 반대 동작
+          lastLabelActionRef.current = 'reveal';
         }
       }
     };
     
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [revealedLabels, imageLabels, isImageQuestion]);
+  }, [imageLabels, isImageQuestion]);
 
 
   useEffect(() => {
@@ -1071,11 +1097,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                           const newRevealed = new Set(revealedLabels);
                           if (isRevealed) {
                             newRevealed.delete(index);
-                            setLastLabelAction('hide');
+                            lastLabelActionRef.current = 'hide';
                           } else {
                             newRevealed.add(index);
-                            setLastLabelAction('reveal');
+                            lastLabelActionRef.current = 'reveal';
                           }
+                          revealedLabelsRef.current = newRevealed;
                           setRevealedLabels(newRevealed);
                           // 이미지 라벨 클릭 시 연습 카운팅 및 시간 추적
                           if (!hasInteracted) setHasInteracted(true);
