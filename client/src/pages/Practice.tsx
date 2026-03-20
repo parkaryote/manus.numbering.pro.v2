@@ -179,26 +179,23 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         e.preventDefault();
         e.stopPropagation();
         
-        if (lastLabelAction === null) {
-          // 첫 번째 Tab: 모두 제거
+        // 현재 상태 확인: 모든 라벨이 보이는지 여부
+        const allRevealed = revealedLabels.size === imageLabels.length;
+        
+        if (allRevealed) {
+          // 모두 보이고 있으면 모두 숨기기
           setRevealedLabels(new Set());
-          setLastLabelAction('hide');
-        } else if (lastLabelAction === 'hide') {
-          // 다음 Tab: 모두 표시
+        } else {
+          // 그 외의 경우 모두 보이기
           const allLabels = new Set(Array.from({length: imageLabels.length}, (_, i) => i));
           setRevealedLabels(allLabels);
-          setLastLabelAction('reveal');
-        } else {
-          // 다시 Tab: 모두 제거
-          setRevealedLabels(new Set());
-          setLastLabelAction('hide');
         }
       }
     };
     
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [lastLabelAction, imageLabels, isImageQuestion]);
+  }, [revealedLabels, imageLabels, isImageQuestion]);
 
 
   useEffect(() => {
