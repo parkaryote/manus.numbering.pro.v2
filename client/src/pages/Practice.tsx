@@ -56,15 +56,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [showInactiveAlert, setShowInactiveAlert] = useState(false); // 입력 시간 알림
   const [currentCursorLineIndex, setCurrentCursorLineIndex] = useState(0); // 현재 커서 위치의 줄 인덱스
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-<<<<<<< Updated upstream
-  const [showConfidencePopup, setShowConfidencePopup] = useState(false);
-  const [confidenceBefore, setConfidenceBefore] = useState(0);
-  const [confidenceAfter, setConfidenceAfter] = useState(0);
-=======
   const [showDamageNumber, setShowDamageNumber] = useState(false);
   const [damageValue, setDamageValue] = useState(0);
   const [currentConfidence, setCurrentConfidence] = useState(0);
->>>>>>> Stashed changes
   // 이미지 컨테이너 높이 추적 (메모장 높이 동기화)
   useEffect(() => {
     if (!imageContainerRef.current) return;
@@ -684,22 +678,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const handleCorrectAnswer = async (currentInputLength?: number) => {
     setPracticeCount(prev => prev + 1);
     
-<<<<<<< Updated upstream
-    // 안정도 변화 계산 (임시: 정답 일치 시 +5, 오답 시 -3)
-    const scoreChange = 5; // 실제로는 examConfidence.ts의 계산 결과 사용
-    const newScore = Math.max(0, Math.min(100, confidenceBefore + scoreChange));
-    setConfidenceBefore(confidenceBefore);
-    setConfidenceAfter(newScore);
-    setShowConfidencePopup(true);
-=======
     // 메이플스토리 스타일 안정도 증감 애니메이션
     const scoreChange = 5; // 정답 시 +5%
     const newScore = Math.max(0, Math.min(100, currentConfidence + scoreChange));
     setCurrentConfidence(newScore);
     setDamageValue(scoreChange);
     setShowDamageNumber(true);
-    
->>>>>>> Stashed changes
     
     // GA4 이벤트 추적: 문제 풀이 완료
     if (question) {
@@ -1019,18 +1003,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   return (
     <div className={`relative ${isImageQuestion ? 'space-y-2' : 'space-y-6'}`}>
-<<<<<<< Updated upstream
-      <ConfidencePopup
-        show={showConfidencePopup}
-        previousScore={confidenceBefore}
-        currentScore={confidenceAfter}
-        onComplete={() => setShowConfidencePopup(false)}
-=======
       <DamageNumber
         value={damageValue}
         show={showDamageNumber}
         onComplete={() => setShowDamageNumber(false)}
->>>>>>> Stashed changes
       />
       {isImageQuestion ? (
         /* 이미지 문제: 최소 상단 - 돌아가기 + 연습횟수를 한 줄에 작게 */
