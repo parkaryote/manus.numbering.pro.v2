@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -36,16 +36,25 @@ import { OCRUploader } from "@/components/OCRUploader";
 import { Table2 } from "lucide-react";
 import imageCompression from "browser-image-compression";
 import { trackQuestionCreate, trackQuestionUpdate, trackQuestionDelete } from "@/lib/ga4Events";
+import { CONFIDENCE_THRESHOLDS } from "@shared/examConfidence";
 
 interface QuestionsProps {
   subjectId: number;
   isDemo?: boolean;
 }
 
+interface ConfidenceData {
+  displayScore: number;
+  state: "green" | "yellow" | "red";
+  label: string;
+  isColdStart: boolean;
+}
+
 interface SortableQuestionCardProps {
   question: any;
   difficultyLabel: Record<string, string>;
   difficultyColor: Record<string, string>;
+  confidence?: ConfidenceData;
   onEdit: (question: any) => void;
   onDelete: (id: number) => void;
   onPractice: (id: number) => void;
@@ -58,6 +67,7 @@ function SortableQuestionCard({
   question,
   difficultyLabel,
   difficultyColor,
+  confidence,
   onEdit,
   onDelete,
   onPractice,
@@ -212,6 +222,24 @@ function SortableQuestionCard({
           )}
         </div>
 
+        {/* 시험 안정도 */}
+        {confidence && (
+          <div className="flex items-center px-2 border-l" title={`시험 안정도: ${confidence.displayScore}% - ${confidence.label}`}>
+            <div className="flex flex-col items-center gap-0.5">
+              <div
+                className={`w-2.5 h-2.5 rounded-full ${
+                  confidence.state === 'green' ? 'bg-emerald-500' :
+                  confidence.state === 'yellow' ? 'bg-amber-400' :
+                  'bg-red-400'
+                } ${confidence.isColdStart ? 'opacity-40' : ''}`}
+              />
+              <span className={`text-[9px] font-mono leading-none ${
+                confidence.isColdStart ? 'text-muted-foreground/50' : 'text-muted-foreground'
+              }`}>{confidence.displayScore}</span>
+            </div>
+          </div>
+        )}
+
         {/* 액션 버튼 */}
         <div className="flex items-center gap-0.5 px-1.5 border-l bg-muted/10">
           <Button
@@ -304,7 +332,21 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
   const { data: questions, isLoading } = trpc.questions.listBySubject.useQuery({ subjectId });
+  const { data: confidenceData } = trpc.confidence.getBySubject.useQuery(
+    { subjectId },
+    { enabled: !!user }
+  );
   const utils = trpc.useUtils();
+
+  // Build confidence lookup map
+  const confidenceMap = useMemo(() => {
+    if (!confidenceData?.questions) return new Map<number, ConfidenceData>();
+    const map = new Map<number, ConfidenceData>();
+    for (const q of confidenceData.questions) {
+      map.set(q.questionId, q);
+    }
+    return map;
+  }, [confidenceData]);
 
   const createMutation = trpc.questions.create.useMutation({
     onSuccess: (data: any) => {
@@ -906,6 +948,15 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             <span className="text-sm text-muted-foreground flex-shrink-0">
               {questions?.length || 0}문제
             </span>
+            {confidenceData?.aggregate && confidenceData.aggregate.totalQuestions > 0 && (
+              <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
+                confidenceData.aggregate.state === 'green' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                confidenceData.aggregate.state === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+              }`} title={`시험 안정도: ${confidenceData.aggregate.averageScore}% (${confidenceData.aggregate.label}) - 🟢${confidenceData.aggregate.greenCount} 🟡${confidenceData.aggregate.yellowCount} 🔴${confidenceData.aggregate.redCount}`}>
+                안정도 {confidenceData.aggregate.averageScore}%
+              </span>
+            )}
           </div>
         </div>
         <div className="flex gap-1.5 flex-shrink-0">
@@ -1024,6 +1075,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                       question={question}
                       difficultyLabel={difficultyLabel}
                       difficultyColor={difficultyColor}
+                      confidence={confidenceMap.get(question.id)}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
                       onPractice={(id) => setLocation(`/practice/${id}`)}

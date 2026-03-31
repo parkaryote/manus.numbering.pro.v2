@@ -11,6 +11,7 @@ import { transcribeAudio } from "./_core/voiceTranscription";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 import * as ocrModule from "./ocr";
+import { computeExamConfidence, aggregateConfidence, type PracticeSignal, type TestSignal, type ConfidenceResult } from "@shared/examConfidence";
 
 // 글자 단위 유사도 계산 (대소문자 무시, 띄어쓰기 무시)
 function calcCharSimilarity(userText: string, correctText: string): number {
@@ -1274,6 +1275,88 @@ ${input.userAnswer}
     cleanup: protectedProcedure.mutation(async () => {
       return db.deleteExpiredQuestions();
     }),
+  }),
+
+  // 시험 안정도 (Exam Confidence)
+  confidence: router({
+    // 과목별 문제 안정도 점수 조회
+    getBySubject: protectedProcedure
+      .input(z.object({ subjectId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
+        const questionIds = subjectQuestions.map(q => q.id);
+        if (questionIds.length === 0) return { questions: [], aggregate: aggregateConfidence([]) };
+
+        const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
+        const allTests = await db.getTestSessionsByUserId(ctx.user.id);
+        const now = new Date();
+
+        const results: { questionId: number; confidence: ConfidenceResult }[] = [];
+
+        for (const qId of questionIds) {
+          const qPractice = allPractice.filter(p => p.questionId === qId);
+          const qTests = allTests.filter(t => t.questionId === qId);
+
+          // Build practice signal
+          const practiceSignal: PracticeSignal = {
+            practiceCount: qPractice.length,
+            totalPracticeDuration: qPractice.reduce((sum, p) => sum + p.duration, 0),
+            mostRecentPracticeAt: qPractice.length > 0
+              ? new Date(Math.max(...qPractice.map(p => new Date(p.completedAt).getTime())))
+              : null,
+          };
+
+          // Build test signal
+          const correctTests = qTests.filter(t => t.isCorrect === 1);
+          const wrongTests = qTests.filter(t => t.isCorrect === 0);
+          const avgSimilarity = qTests.length > 0
+            ? qTests.reduce((sum, t) => sum + (t.similarityScore || 0), 0) / qTests.length
+            : 0;
+
+          // Calculate recent correct streak (from most recent test backward)
+          const sortedTests = [...qTests].sort((a, b) =>
+            new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+          );
+          let recentCorrectStreak = 0;
+          for (const t of sortedTests) {
+            if (t.isCorrect === 1) recentCorrectStreak++;
+            else break;
+          }
+
+          const mostRecentTest = sortedTests[0] || null;
+          const mostRecentTestWasPoor = mostRecentTest
+            ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50)
+            : false;
+
+          const testSignal: TestSignal = {
+            testCount: qTests.length,
+            correctCount: correctTests.length,
+            wrongCount: wrongTests.length,
+            averageSimilarityScore: Math.round(avgSimilarity),
+            mostRecentTestAt: sortedTests.length > 0
+              ? new Date(sortedTests[0].completedAt)
+              : null,
+            recentCorrectStreak,
+            mostRecentTestWasPoor,
+          };
+
+          const confidence = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
+          results.push({ questionId: qId, confidence });
+        }
+
+        const aggregate = aggregateConfidence(results.map(r => r.confidence));
+
+        return {
+          questions: results.map(r => ({
+            questionId: r.questionId,
+            displayScore: r.confidence.displayScore,
+            state: r.confidence.state,
+            label: r.confidence.label,
+            isColdStart: r.confidence.isColdStart,
+          })),
+          aggregate,
+        };
+      }),
   }),
 
   // Admin routes

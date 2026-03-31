@@ -1661,3 +1661,18 @@
 # 버그 수정 (v2.2.7) - Shift+Backspace 단축키
 - [x] Shift+Backspace가 Windows/Linux에서 작동하지 않음 (Alt+Backspace는 작동) - 수정 완료
 - [x] Mac에서 자동 문장 삭제 기능과 호환되도록 설계 (Option+Shift+Backspace 지원)
+
+# 기능 개선 (v2.3.0) - 크로스 플랫폼 단축키 시스템 개편
+- [ ] 단어 삭제(뒤로): Windows Ctrl+Backspace, macOS Option+Backspace
+- [ ] 단어 삭제(앞으로): Windows Ctrl+Delete, macOS Option+Delete
+- [ ] 줄 삭제: Windows Ctrl+Shift+Backspace, macOS Cmd+Shift+Backspace
+- [ ] 기존 비표준 단축키 제거: Alt+Backspace, Shift+Backspace
+- [ ] 단축키 안내 UI를 OS별로 동적 표시
+
+# 기능 구현 (v2.4.0) - 시험 안정도 MVP
+- [x] examConfidence.ts 점수 계산 유틸리티 모듈 구현 (shared/ 디렉토리)
+- [x] 서버 API: tRPC 프로시저로 문제별 안정도 점수 제공
+- [x] Questions 목록 UI에 시험 안정도 지표 표시 (숫자 + 신호등 색상)
+- [x] 과목별 집계 점수 표시
+- [ ] 툴팁/설명 UI 추가
+- [ ] vitest 테스트 작성
