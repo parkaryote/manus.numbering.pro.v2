@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
-import { Plus, BookOpen, Trash2, Edit, GripVertical, Star, TrendingUp } from "lucide-react";
+import { Plus, BookOpen, Trash2, Edit, GripVertical, Star } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
@@ -40,14 +40,66 @@ const colorOptions = [
   "#14B8A6", // Teal
 ];
 
+// 과목별 미니 그리드: 색상 점 + 별표만 표시
+function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
+  const { data: questions } = trpc.questions.listBySubject.useQuery({ subjectId });
+  const { data: confidenceData } = trpc.confidence.getBySubject.useQuery({ subjectId });
+
+  const confidenceMap = useMemo(() => {
+    const map = new Map<number, { state: string; displayScore: number }>();
+    if (confidenceData?.questions) {
+      for (const q of confidenceData.questions) {
+        map.set(q.questionId, { state: q.state, displayScore: q.displayScore });
+      }
+    }
+    return map;
+  }, [confidenceData]);
+
+  if (!questions || questions.length === 0) return null;
+
+  const sorted = [...questions].sort((a, b) => a.displayOrder - b.displayOrder);
+
+  const getDotColor = (questionId: number) => {
+    const d = confidenceMap.get(questionId);
+    if (!d) return 'bg-muted border border-border';
+    switch (d.state) {
+      case 'green': return 'bg-emerald-500';
+      case 'yellow': return 'bg-amber-400';
+      case 'red': return 'bg-red-500';
+      default: return 'bg-muted border border-border';
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap gap-1 mt-2">
+      {sorted.map((q) => {
+        const starred = q.isStarred === 1;
+        return (
+          <div key={q.id} className="relative">
+            <div
+              className={`w-4 h-4 rounded-sm ${getDotColor(q.id)} flex-shrink-0`}
+              title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${confidenceMap.get(q.id)!.displayScore}%` : ''}`}
+            />
+            {starred && (
+              <Star
+                size={7}
+                className="absolute -top-0.5 -right-0.5 fill-yellow-400 text-yellow-400"
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 interface SubjectCardProps {
   subject: any;
-  confidence?: any;
   onEdit: (subject: any) => void;
   onDelete: (id: number, name: string) => void;
 }
 
-function SortableSubjectCard({ subject, confidence, onEdit, onDelete }: SubjectCardProps) {
+function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
   const { data: subjectConfidence } = trpc.confidence.getBySubject.useQuery(
     { subjectId: subject.id },
     { enabled: !!subject.id }
@@ -74,20 +126,20 @@ function SortableSubjectCard({ subject, confidence, onEdit, onDelete }: SubjectC
       style={style}
       className="shadow-elegant hover:shadow-lg transition-all cursor-pointer"
     >
-      <CardHeader className="flex flex-row items-center gap-3">
+      <CardHeader className="flex flex-row items-start gap-3 pb-3">
         <div
           {...attributes}
           {...listeners}
-          className="cursor-grab active:cursor-grabbing touch-none"
+          className="cursor-grab active:cursor-grabbing touch-none mt-1"
         >
           <GripVertical className="h-5 w-5 text-muted-foreground" />
         </div>
         <div
-          className="w-4 h-4 rounded-full flex-shrink-0"
+          className="w-4 h-4 rounded-full flex-shrink-0 mt-1"
           style={{ backgroundColor: subject.color }}
         />
         <div className="flex-1 min-w-0" onClick={() => setLocation(`/questions/${subject.id}`)}>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-0.5">
             <CardTitle className="text-lg">{subject.name}</CardTitle>
             {subject.isDemo === 1 && (
               <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
@@ -97,28 +149,27 @@ function SortableSubjectCard({ subject, confidence, onEdit, onDelete }: SubjectC
             )}
           </div>
           {subject.description && (
-            <CardDescription className="line-clamp-1 mb-2">{subject.description}</CardDescription>
+            <CardDescription className="line-clamp-1 mb-1">{subject.description}</CardDescription>
           )}
-          {subjectConfidence?.aggregate && (
-            <div className="flex items-center gap-2 text-xs">
-              <div className="flex items-center gap-1.5">
-                <div
-                  className={`w-2 h-2 rounded-full ${
-                    subjectConfidence.aggregate.state === 'green' ? 'bg-emerald-500' :
-                    subjectConfidence.aggregate.state === 'yellow' ? 'bg-amber-400' :
-                    'bg-red-400'
-                  }`}
-                />
-                <span className="font-medium text-muted-foreground">{subjectConfidence.aggregate.averageScore}%</span>
-              </div>
-              <span className="text-muted-foreground/70">·</span>
-              <span className="text-muted-foreground/70">
-                🟢{subjectConfidence.aggregate.greenCount} 🟡{subjectConfidence.aggregate.yellowCount} 🔴{subjectConfidence.aggregate.redCount}
-              </span>
+          {/* 안정도 요약 */}
+          {subjectConfidence?.aggregate && subjectConfidence.aggregate.totalQuestions > 0 && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  subjectConfidence.aggregate.state === 'green' ? 'bg-emerald-500' :
+                  subjectConfidence.aggregate.state === 'yellow' ? 'bg-amber-400' :
+                  'bg-red-400'
+                }`}
+              />
+              <span className="font-medium">{subjectConfidence.aggregate.averageScore}%</span>
+              <span className="text-muted-foreground/60">·</span>
+              <span>🟢{subjectConfidence.aggregate.greenCount} 🟡{subjectConfidence.aggregate.yellowCount} 🔴{subjectConfidence.aggregate.redCount}</span>
             </div>
           )}
+          {/* 미니 그리드 */}
+          <SubjectMiniGrid subjectId={subject.id} />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1 flex-shrink-0">
           <Button
             variant="ghost"
             size="sm"
@@ -157,17 +208,12 @@ export default function Subjects() {
     name: "",
     description: "",
     color: colorOptions[0],
-    examEndDate: "", // YYYY-MM-DD format
+    examEndDate: "",
     isDemo: false,
   });
 
   const { data: subjects, isLoading } = trpc.subjects.list.useQuery();
   const utils = trpc.useUtils();
-
-  // Build confidence lookup map - 현재 각 과목별로 데이터를 개별 쿼리
-  const confidenceMap = useMemo(() => {
-    return new Map<number, any>();
-  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -276,21 +322,16 @@ export default function Subjects() {
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-
-    if (!over || active.id === over.id || !subjects) {
-      return;
-    }
+    if (!over || active.id === over.id || !subjects) return;
 
     const oldIndex = subjects.findIndex((s) => s.id === active.id);
     const newIndex = subjects.findIndex((s) => s.id === over.id);
-
     const reorderedSubjects = arrayMove(subjects, oldIndex, newIndex);
     const subjectOrders = reorderedSubjects.map((subject, index) => ({
       id: subject.id,
       displayOrder: index,
     }));
 
-    // Optimistic update
     utils.subjects.list.setData(undefined, reorderedSubjects.map((s, idx) => ({
       ...s,
       displayOrder: idx,
@@ -422,12 +463,12 @@ export default function Subjects() {
           >
             <div className="grid gap-4">
               {subjects.map((subject) => (
-                  <SortableSubjectCard
-                    key={subject.id}
-                    subject={subject}
-                    onEdit={handleEdit}
-                    onDelete={handleDelete}
-                  />
+                <SortableSubjectCard
+                  key={subject.id}
+                  subject={subject}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                />
               ))}
             </div>
           </SortableContext>

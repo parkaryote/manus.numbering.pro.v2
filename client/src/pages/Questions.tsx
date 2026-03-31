@@ -53,8 +53,6 @@ interface ConfidenceData {
 
 interface SortableQuestionCardProps {
   question: any;
-  difficultyLabel: Record<string, string>;
-  difficultyColor: Record<string, string>;
   confidence?: ConfidenceData;
   onEdit: (question: any) => void;
   onDelete: (id: number) => void;
@@ -66,8 +64,6 @@ interface SortableQuestionCardProps {
 
 function SortableQuestionCard({
   question,
-  difficultyLabel,
-  difficultyColor,
   confidence,
   onEdit,
   onDelete,
@@ -132,9 +128,6 @@ function SortableQuestionCard({
             {hasTable && (
               <Table2 className="h-3 w-3 text-purple-500 flex-shrink-0" />
             )}
-            <span className={`text-[10px] font-medium ${difficultyColor[question.difficulty || "medium"]}`}>
-              {difficultyLabel[question.difficulty || "medium"]}
-            </span>
             {question.isDemo === 1 && (
               <Star className="w-2.5 h-2.5 text-amber-500 flex-shrink-0" />
             )}
@@ -316,14 +309,14 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<"text" | "image" | "table" | "ocr">("text");
-  const [difficultyFilter, setDifficultyFilter] = useState<"all" | "easy" | "medium" | "hard">("all");
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const questionTextareaRef = useRef<HTMLTextAreaElement>(null);
   
   const [formData, setFormData] = useState({
     question: "",
     answer: "",
-    difficulty: "medium" as "easy" | "medium" | "hard",
+
     imageUrl: "",
     imageLabels: [] as ImageLabel[],
     autoNumbering: true, // 엔터 기준 자동 번호 생성
@@ -471,7 +464,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     setFormData({
       question: "",
       answer: "",
-      difficulty: "medium",
+
       imageUrl: "",
       imageLabels: [],
       autoNumbering: true,
@@ -546,9 +539,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     setFormData((prev) => ({ ...prev, answer: value }));
   }, []);
 
-  const handleDifficultyChange = useCallback((value: "easy" | "medium" | "hard") => {
-    setFormData((prev) => ({ ...prev, difficulty: value }));
-  }, []);
+
 
   const handleCreate = useCallback(() => {
     const question = formData.question;
@@ -574,8 +565,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         subjectId,
         question,
         answer: "",
-        difficulty: formData.difficulty,
-        tableData: JSON.stringify(formData.tableData),
+          tableData: JSON.stringify(formData.tableData),
         autoNumbering: 0,
         isDemo: isAdmin && formData.isDemo ? 1 : 0,
       } as any);
@@ -598,7 +588,6 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       subjectId,
       question,
       answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : answer,
-      difficulty: formData.difficulty,
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
@@ -612,7 +601,6 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     setFormData({
       question: question.question,
       answer: question.answer || "",
-      difficulty: question.difficulty || "medium",
       imageUrl: question.imageUrl || "",
       imageLabels: question.imageLabels ? JSON.parse(question.imageLabels) : [],
       autoNumbering: question.autoNumbering !== 0,
@@ -651,7 +639,6 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         id: editingQuestion.id,
         question: formData.question,
         answer: "",
-        difficulty: formData.difficulty,
         tableData: JSON.stringify(formData.tableData),
         imageUrl: undefined,
         imageLabels: undefined,
@@ -676,7 +663,6 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       id: editingQuestion.id,
       question: formData.question,
       answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : formData.answer,
-      difficulty: formData.difficulty,
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       tableData: undefined,
@@ -719,17 +705,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     }
   };
 
-  const difficultyLabel = {
-    easy: "쉬움",
-    medium: "보통",
-    hard: "어려움",
-  };
 
-  const difficultyColor = {
-    easy: "text-green-600",
-    medium: "text-yellow-600",
-    hard: "text-red-600",
-  };
 
   // QuestionForm을 useMemo로 감싸서 불필요한 리렌더링 방지
   const questionFormContent = (
@@ -766,22 +742,6 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             placeholder="모범 답안을 입력하세요"
             rows={6}
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="difficulty">난이도</Label>
-          <Select
-            value={formData.difficulty}
-            onValueChange={handleDifficultyChange}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="easy">쉬움</SelectItem>
-              <SelectItem value="medium">보통</SelectItem>
-              <SelectItem value="hard">어려움</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -858,22 +818,6 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           </div>
         )}
 
-        <div className="space-y-2">
-          <Label htmlFor="difficulty-image">난이도</Label>
-          <Select
-            value={formData.difficulty}
-            onValueChange={handleDifficultyChange}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="easy">쉬움</SelectItem>
-              <SelectItem value="medium">보통</SelectItem>
-              <SelectItem value="hard">어려움</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
         <div className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -905,22 +849,6 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             initialData={formData.tableData || undefined}
             onChange={(data) => setFormData((prev) => ({ ...prev, tableData: data }))}
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="difficulty-table">난이도</Label>
-          <Select
-            value={formData.difficulty}
-            onValueChange={handleDifficultyChange}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="easy">쉬움</SelectItem>
-              <SelectItem value="medium">보통</SelectItem>
-              <SelectItem value="hard">어려움</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
       </TabsContent>
 
@@ -1018,40 +946,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         />
       )}
 
-      {/* 난이도 필터 버튼 */}
-      <div className="flex gap-1.5 flex-wrap">
-        <Button
-          variant={difficultyFilter === "all" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setDifficultyFilter("all")}
-        >
-          전체
-        </Button>
-        <Button
-          variant={difficultyFilter === "easy" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setDifficultyFilter("easy")}
-          className={difficultyFilter === "easy" ? "bg-green-500 hover:bg-green-600" : "text-green-600 border-green-300 hover:bg-green-50"}
-        >
-          쉬움
-        </Button>
-        <Button
-          variant={difficultyFilter === "medium" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setDifficultyFilter("medium")}
-          className={difficultyFilter === "medium" ? "bg-yellow-500 hover:bg-yellow-600" : "text-yellow-600 border-yellow-300 hover:bg-yellow-50"}
-        >
-          보통
-        </Button>
-        <Button
-          variant={difficultyFilter === "hard" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setDifficultyFilter("hard")}
-          className={difficultyFilter === "hard" ? "bg-red-500 hover:bg-red-600" : "text-red-600 border-red-300 hover:bg-red-50"}
-        >
-          어려움
-        </Button>
-      </div>
+
 
       {isLoading ? (
         <div className="text-center py-12">
@@ -1072,21 +967,8 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         </Card>
       ) : (
         (() => {
-          const filteredQuestions = difficultyFilter === "all"
-            ? questions
-            : questions?.filter(q => q.difficulty === difficultyFilter);
-          
-          if (!filteredQuestions || filteredQuestions.length === 0) {
-            return (
-              <Card className="shadow-elegant">
-                <CardHeader>
-                  <CardTitle>해당 난이도의 문제가 없습니다</CardTitle>
-                  <CardDescription>다른 난이도를 선택하거나 새 문제를 추가하세요</CardDescription>
-                </CardHeader>
-              </Card>
-            );
-          }
-          
+          const filteredQuestions = questions;
+          if (!filteredQuestions || filteredQuestions.length === 0) return null;
           return (
             <DndContext
               sensors={sensors}
@@ -1102,8 +984,6 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                     <SortableQuestionCard
                       key={question.id}
                       question={question}
-                      difficultyLabel={difficultyLabel}
-                      difficultyColor={difficultyColor}
                       confidence={confidenceMap.get(question.id)}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
