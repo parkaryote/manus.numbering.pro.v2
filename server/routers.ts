@@ -345,6 +345,15 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         return db.moveQuestion(input.questionId, input.targetSubjectId);
       }),
+    
+    toggleStar: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const question = await db.getQuestionById(input.id);
+        if (!question) throw new TRPCError({ code: 'NOT_FOUND' });
+        if (question.userId !== ctx.user.id) throw new TRPCError({ code: 'FORBIDDEN' });
+        return db.updateQuestion(input.id, { isStarred: question.isStarred ? 0 : 1 });
+      }),
   }),
 
   // Practice session management

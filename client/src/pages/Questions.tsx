@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import { ImageLabelEditor, ImageLabel } from "@/components/ImageLabelEditor";
 import { TableEditor, TableData } from "@/components/TableEditor";
 import { OCRUploader } from "@/components/OCRUploader";
+import { QuestionGridView } from "@/components/QuestionGridView";
 import { Table2 } from "lucide-react";
 import imageCompression from "browser-image-compression";
 import { trackQuestionCreate, trackQuestionUpdate, trackQuestionDelete } from "@/lib/ga4Events";
@@ -988,6 +989,34 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           </Button>
         </div>
       </div>
+
+      {/* 문제 순서별 안정도 그리드 */}
+      {questions && questions.length > 0 && (
+        <QuestionGridView
+          questions={questions.map(q => ({
+            id: q.id,
+            displayOrder: q.displayOrder,
+            isStarred: q.isStarred || 0,
+          }))}
+          onSelectQuestion={(id) => setLocation(`/practice/${id}`)}
+          onToggleStar={(id) => {
+            // toggleStar 뮤테이션 호출
+            const toggleStarMutation = trpc.questions.toggleStar.useMutation({
+              onSuccess: () => {
+                utils.questions.listBySubject.invalidate({ subjectId });
+                toast.success("별표가 업데이트되었습니다");
+              },
+            });
+            toggleStarMutation.mutate({ id });
+          }}
+          confidenceData={Object.fromEntries(
+            Array.from(confidenceMap.entries()).map(([qId, conf]) => [
+              qId,
+              { state: conf.state, displayScore: conf.displayScore }
+            ])
+          )}
+        />
+      )}
 
       {/* 난이도 필터 버튼 */}
       <div className="flex gap-1.5 flex-wrap">
