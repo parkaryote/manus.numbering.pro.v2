@@ -1288,6 +1288,61 @@ ${input.userAnswer}
 
   // 시험 안정도 (Exam Confidence)
   confidence: router({
+    // 단일 문제 안정도 점수 조회
+    getByQuestion: protectedProcedure
+      .input(z.object({ questionId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
+        const allTests = await db.getTestSessionsByUserId(ctx.user.id);
+        const now = new Date();
+
+        const qPractice = allPractice.filter(p => p.questionId === input.questionId);
+        const qTests = allTests.filter(t => t.questionId === input.questionId);
+
+        const practiceSignal: PracticeSignal = {
+          practiceCount: qPractice.length,
+          totalPracticeDuration: qPractice.reduce((sum, p) => sum + p.duration, 0),
+          mostRecentPracticeAt: qPractice.length > 0
+            ? new Date(Math.max(...qPractice.map(p => new Date(p.completedAt).getTime())))
+            : null,
+        };
+
+        const correctTests = qTests.filter(t => t.isCorrect === 1);
+        const wrongTests = qTests.filter(t => t.isCorrect === 0);
+        const avgSimilarity = qTests.length > 0
+          ? qTests.reduce((sum, t) => sum + (t.similarityScore || 0), 0) / qTests.length
+          : 0;
+        const sortedTests = [...qTests].sort((a, b) =>
+          new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+        );
+        let recentCorrectStreak = 0;
+        for (const t of sortedTests) {
+          if (t.isCorrect === 1) recentCorrectStreak++;
+          else break;
+        }
+        const mostRecentTest = sortedTests[0] || null;
+        const mostRecentTestWasPoor = mostRecentTest
+          ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50)
+          : false;
+
+        const testSignal: TestSignal = {
+          testCount: qTests.length,
+          correctCount: correctTests.length,
+          wrongCount: wrongTests.length,
+          averageSimilarityScore: Math.round(avgSimilarity),
+          mostRecentTestAt: sortedTests.length > 0 ? new Date(sortedTests[0].completedAt) : null,
+          recentCorrectStreak,
+          mostRecentTestWasPoor,
+        };
+
+        const confidence = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
+        return {
+          displayScore: confidence.displayScore,
+          state: confidence.state,
+          label: confidence.label,
+          isColdStart: confidence.isColdStart,
+        };
+      }),
     // 과목별 문제 안정도 점수 조회
     getBySubject: protectedProcedure
       .input(z.object({ subjectId: z.number() }))

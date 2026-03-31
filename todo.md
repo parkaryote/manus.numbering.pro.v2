@@ -1657,34 +1657,22 @@
 
 # 기능 개선 (v2.2.6) - 이미지 비율 저장
 - [x] 마지막으로 본 이미지 크기 비율을 localStorage에 저장하여 다음 방문 시 복원
-<<<<<<< Updated upstream
 
 # 버그 수정 (v2.2.7) - Shift+Backspace 단축키
 - [x] Shift+Backspace가 Windows/Linux에서 작동하지 않음 (Alt+Backspace는 작동) - 수정 완료
 - [x] Mac에서 자동 문장 삭제 기능과 호환되도록 설계 (Option+Shift+Backspace 지원)
-
-# 기능 개선 (v2.3.0) - 크로스 플랫폼 단축키 시스템 개편
-- [ ] 단어 삭제(뒤로): Windows Ctrl+Backspace, macOS Option+Backspace
-- [ ] 단어 삭제(앞으로): Windows Ctrl+Delete, macOS Option+Delete
-- [ ] 줄 삭제: Windows Ctrl+Shift+Backspace, macOS Cmd+Shift+Backspace
-- [ ] 기존 비표준 단축키 제거: Alt+Backspace, Shift+Backspace
-- [ ] 단축키 안내 UI를 OS별로 동적 표시
 
 # 기능 구현 (v2.4.0) - 시험 안정도 MVP
 - [x] examConfidence.ts 점수 계산 유틸리티 모듈 구현 (shared/ 디렉토리)
 - [x] 서버 API: tRPC 프로시저로 문제별 안정도 점수 제공
 - [x] Questions 목록 UI에 시험 안정도 지표 표시 (숫자 + 신호등 색상)
 - [x] 과목별 집계 점수 표시
-- [ ] 툴팁/설명 UI 추가
-- [ ] vitest 테스트 작성
 
 # 기능 개선 (v2.4.1) - 과목 관리 페이지 안정도 표시
 - [x] Subjects 페이지 과목 카드에 안정도 요약 표시 (신호등 색상, 평균 점수, 상태 배지)
 
 # 기능 개선 (v2.5.0) - RPG 게임 스타일 안정도 증감 시각화
 - [x] ConfidencePopup 컴포넌트: 정답 일치 후 화면 중앙에 +/- 팝업 표시
-- [x] 카운트업/다운 애니메이션 (느린 속도로 숫자 변화)
-- [x] 색상 변화: 증가 초록, 감소 빨강
 - [x] Practice.tsx에 안정도 변화 데이터 전달 및 통합
 
 # 기능 구현 (v2.6.0) - 문제 순서별 안정도 그리드 + 별표 즐겨찾기
@@ -1695,10 +1683,14 @@
 
 # 버그 수정 - 시험 모드 안정도 팝업
 - [x] 시험 모드(Test.tsx)에서 안정도 증감 오버레이 애니메이션(ConfidencePopup) 표시되도록 수정
-=======
+
 # 연습 모드 UI 개선 - 안정도 표시 방식 변경
 - [x] 메이플스토리 스타일 숫자 증감 애니메이션 컴포넌트 생성 (DamageNumber.tsx)
 - [x] Practice.tsx: 현재 연습 횟수 옥에 안정도 수치 표시
 - [x] Practice.tsx: ConfidencePopup 제거, 숫자 증감 애니메이션만 표시
-- [x] 안정도 증가 시 초록색 +N%, 감소 시 빠른른색 -N% 애니메이션
->>>>>>> Stashed changes
+- [x] 안정도 증가 시 초록색 +N%, 감소 시 빨른른색 -N% 애니메이션
+
+# 연습 모드 안정도 개선
+- [x] Practice.tsx: 실제 confidence.getByQuestion 쿼리로 안정도 표시 (누적 연습 오른쪽)
+- [x] 신호등 색상 기준 적용 (green/yellow/red state 기반)
+- [x] 정답 후 confidence 쿼리 재조회하여 실제 증감 반영

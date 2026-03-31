@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Circle, Image as ImageIcon, Table2 } from "lucide-react";
-import { ConfidencePopup } from "@/components/ConfidencePopup";
 import { toast } from "sonner";
 import { splitGraphemes, isPartialMatch, isHangul, decomposeHangul } from "@/lib/hangul";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
@@ -58,7 +57,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showDamageNumber, setShowDamageNumber] = useState(false);
   const [damageValue, setDamageValue] = useState(0);
-  const [currentConfidence, setCurrentConfidence] = useState(0);
   // 이미지 컨테이너 높이 추적 (메모장 높이 동기화)
   useEffect(() => {
     if (!imageContainerRef.current) return;
@@ -82,6 +80,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const { data: practiceCountData } = trpc.practice.countByQuestion.useQuery(
+    { questionId },
+    { enabled: !!questionId && !isDemo }
+  );
+  const { data: confidenceData, refetch: refetchConfidence } = trpc.confidence.getByQuestion.useQuery(
     { questionId },
     { enabled: !!questionId && !isDemo }
   );
@@ -678,12 +680,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const handleCorrectAnswer = async (currentInputLength?: number) => {
     setPracticeCount(prev => prev + 1);
     
-    // 메이플스토리 스타일 안정도 증감 애니메이션
-    const scoreChange = 5; // 정답 시 +5%
-    const newScore = Math.max(0, Math.min(100, currentConfidence + scoreChange));
-    setCurrentConfidence(newScore);
-    setDamageValue(scoreChange);
-    setShowDamageNumber(true);
+    // 정답 후 confidence 재조회하여 실제 안정도 변화 표시
+    const prevScore = confidenceData?.displayScore ?? 0;
+    setTimeout(async () => {
+      const result = await refetchConfidence();
+      const newScore = result.data?.displayScore ?? prevScore;
+      const diff = newScore - prevScore;
+      if (diff !== 0) {
+        setDamageValue(diff);
+        setShowDamageNumber(true);
+      }
+    }, 800); // DB 저장 후 재조회
     
     // GA4 이벤트 추적: 문제 풀이 완료
     if (question) {
@@ -735,10 +742,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
     }
     
-    // 0.7초 delay 후 글자 색상 fade out 시작 (팝업 애니메이션 완료 후)
+    // 0.7초 delay 후 글자 색상 fade out 시작
     setTimeout(() => {
       setIsFadingOut(true);
-    }, 2200); // 팝업 애니메이션(1.5초) + 여유(0.7초)
+    }, 700);
        // 1.0초 후 (0.7초 delay + 0.3초 fade out) 입력창 제uac70 및 fade out 해제
     setTimeout(() => {
       setUserInput('');
@@ -1034,13 +1041,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               <p className="text-xs text-muted-foreground">현재 연습</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold" style={{ color: currentConfidence > 60 ? '#10b981' : currentConfidence > 30 ? '#f59e0b' : '#ef4444' }}>{currentConfidence}%</p>
-              <p className="text-xs text-muted-foreground">안정도</p>
-            </div>
-            <div className="text-center">
               <p className="text-2xl font-bold">{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)}</p>
               <p className="text-xs text-muted-foreground">누적 연습</p>
             </div>
+            {!isDemo && confidenceData && (
+              <div className="text-center">
+                <p className="text-2xl font-bold" style={{
+                  color: confidenceData.state === 'green' ? '#10b981' : confidenceData.state === 'yellow' ? '#f59e0b' : '#ef4444'
+                }}>{confidenceData.displayScore}%</p>
+                <p className="text-xs text-muted-foreground">안정도</p>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <Circle
                 className={`h-3 w-3 ${isActive ? "fill-green-500 text-green-500" : "fill-red-500 text-red-500"}`}
