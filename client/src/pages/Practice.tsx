@@ -484,8 +484,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
     }
     
-    // Shift+Backspace: 문장 삭제 (마지막 줄 삭제) - Alt+Backspace처럼 즉시 작동
-    if (e.shiftKey && !e.altKey && !e.ctrlKey && e.key === "Backspace") {
+    // Shift+Backspace: 문장 삭제 (마지막 줄 삭제)
+    // Windows/Linux: Shift+Backspace, Mac: Option+Shift+Backspace (자동 기능과 충돌 방지)
+    const isShiftBackspace = (e.shiftKey && !e.altKey && !e.ctrlKey && e.key === "Backspace") ||
+                            (e.shiftKey && e.altKey && !e.ctrlKey && e.key === "Backspace");
+    if (isShiftBackspace) {
       e.preventDefault();
       e.stopPropagation();
       

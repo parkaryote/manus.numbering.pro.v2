@@ -1657,3 +1657,7 @@
 
 # 기능 개선 (v2.2.6) - 이미지 비율 저장
 - [x] 마지막으로 본 이미지 크기 비율을 localStorage에 저장하여 다음 방문 시 복원
+
+# 버그 수정 (v2.2.7) - Shift+Backspace 단축키
+- [x] Shift+Backspace가 Windows/Linux에서 작동하지 않음 (Alt+Backspace는 작동) - 수정 완료
+- [x] Mac에서 자동 문장 삭제 기능과 호환되도록 설계 (Option+Shift+Backspace 지원)
