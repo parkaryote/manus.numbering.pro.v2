@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
 interface ConfidencePopupProps {
@@ -15,132 +15,178 @@ export function ConfidencePopup({
   onComplete,
 }: ConfidencePopupProps) {
   const [displayScore, setDisplayScore] = useState(previousScore);
-  const [isAnimating, setIsAnimating] = useState(false);
+  // 애니메이션 단계: hidden → entering → visible → exiting → hidden
+  const [phase, setPhase] = useState<"hidden" | "entering" | "visible" | "exiting">("hidden");
+  const rafRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scoreDiff = currentScore - previousScore;
   const isIncrease = scoreDiff >= 0;
   const absScoreDiff = Math.abs(scoreDiff);
 
+  // 클린업
+  const cleanup = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (timerRef.current) clearTimeout(timerRef.current);
+  };
+
   useEffect(() => {
     if (!show) {
+      cleanup();
+      setPhase("hidden");
       setDisplayScore(previousScore);
-      setIsAnimating(false);
       return;
     }
 
-    setIsAnimating(true);
-    const startTime = Date.now();
-    const duration = 1500; // 1.5초 동안 카운트업/다운
-    const startValue = previousScore;
-    const endValue = currentScore;
+    // 1) 진입 애니메이션 시작
+    setDisplayScore(previousScore);
+    setPhase("entering");
 
-    const animate = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
+    // 2) 300ms 후 숫자 카운트업/다운 시작
+    timerRef.current = setTimeout(() => {
+      setPhase("visible");
+      const startTime = Date.now();
+      const duration = 1200;
+      const startValue = previousScore;
+      const endValue = currentScore;
 
-      // Easing function for smooth animation
-      const easeOutQuad = 1 - Math.pow(1 - progress, 2);
-      const currentValue = Math.round(
-        startValue + (endValue - startValue) * easeOutQuad
-      );
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+        setDisplayScore(Math.round(startValue + (endValue - startValue) * easeOut));
 
-      setDisplayScore(currentValue);
+        if (progress < 1) {
+          rafRef.current = requestAnimationFrame(animate);
+        } else {
+          setDisplayScore(endValue);
+          // 3) 숫자 완료 후 0.8초 유지 → 페이드아웃
+          timerRef.current = setTimeout(() => {
+            setPhase("exiting");
+            // 4) 페이드아웃 완료(600ms) 후 숨김
+            timerRef.current = setTimeout(() => {
+              setPhase("hidden");
+              onComplete?.();
+            }, 600);
+          }, 800);
+        }
+      };
+      rafRef.current = requestAnimationFrame(animate);
+    }, 300);
 
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      } else {
-        setDisplayScore(endValue);
-        setIsAnimating(false);
-        // Call onComplete after animation finishes
-        setTimeout(() => {
-          onComplete?.();
-        }, 500);
-      }
-    };
+    return cleanup;
+  }, [show]);
 
-    requestAnimationFrame(animate);
-  }, [show, previousScore, currentScore, onComplete]);
+  if (phase === "hidden") return null;
 
-  if (!show) return null;
+  // 방향: 증가 → 위로 올라가며 등장, 감소 → 아래로 내려가며 등장
+  const enterTranslate = isIncrease ? "translateY(40px)" : "translateY(-40px)";
+  const exitTranslate = isIncrease ? "translateY(-60px)" : "translateY(60px)";
+
+  const isEntering = phase === "entering";
+  const isExiting = phase === "exiting";
+
+  const containerStyle: React.CSSProperties = {
+    opacity: isEntering ? 0 : isExiting ? 0 : 1,
+    transform: isEntering ? enterTranslate : isExiting ? exitTranslate : "translateY(0)",
+    transition: isEntering
+      ? "opacity 0.3s ease-out, transform 0.4s cubic-bezier(0.34,1.56,0.64,1)"
+      : isExiting
+      ? "opacity 0.5s ease-in, transform 0.5s ease-in"
+      : "none",
+  };
+
+  const overlayStyle: React.CSSProperties = {
+    opacity: isEntering ? 0 : isExiting ? 0 : 0.35,
+    transition: isEntering
+      ? "opacity 0.3s ease-out"
+      : isExiting
+      ? "opacity 0.5s ease-in"
+      : "none",
+  };
+
+  const glowColor = isIncrease
+    ? "rgba(16, 185, 129, 0.5)"
+    : "rgba(239, 68, 68, 0.5)";
+  const borderColor = isIncrease ? "#10b981" : "#ef4444";
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
-      {/* 배경 페이드 */}
+    <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-[100]">
+      {/* 배경 오버레이 */}
       <div
-        className="absolute inset-0 bg-black/20 animate-in fade-in duration-300"
-        style={{
-          animation: "fadeIn 0.3s ease-out",
-        }}
+        className="absolute inset-0 bg-black"
+        style={overlayStyle}
       />
 
-      {/* 팝업 컨테이너 */}
+      {/* 팝업 카드 */}
       <div
-        className="relative bg-gradient-to-b from-slate-900 to-slate-800 rounded-2xl border-2 px-8 py-6 shadow-2xl animate-in scale-in duration-300"
+        className="relative rounded-2xl border-2 px-10 py-8 shadow-2xl min-w-[220px] text-center"
         style={{
-          borderColor: isIncrease ? "#10b981" : "#ef4444",
-          animation: "scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)",
-          boxShadow: isIncrease
-            ? "0 0 40px rgba(16, 185, 129, 0.4)"
-            : "0 0 40px rgba(239, 68, 68, 0.4)",
+          ...containerStyle,
+          borderColor,
+          background: "linear-gradient(160deg, #1e293b 0%, #0f172a 100%)",
+          boxShadow: `0 0 60px ${glowColor}, 0 20px 60px rgba(0,0,0,0.6)`,
         }}
       >
-        {/* 상단: 증감 아이콘 */}
-        <div className="flex justify-center mb-4">
+        {/* 아이콘 - 증가면 위로, 감소면 아래로 바운스 */}
+        <div className="flex justify-center mb-5">
           {isIncrease ? (
-            <TrendingUp className="w-12 h-12 text-emerald-400 animate-bounce" />
+            <TrendingUp
+              className="text-emerald-400"
+              style={{
+                width: 52,
+                height: 52,
+                animation: "bounceUp 0.6s ease-out 0.3s both",
+              }}
+            />
           ) : (
-            <TrendingDown className="w-12 h-12 text-red-400 animate-bounce" />
+            <TrendingDown
+              className="text-red-400"
+              style={{
+                width: 52,
+                height: 52,
+                animation: "bounceDown 0.6s ease-out 0.3s both",
+              }}
+            />
           )}
         </div>
 
-        {/* 중앙: 점수 표시 */}
-        <div className="text-center mb-6">
-          <div className="text-5xl font-bold text-white mb-2">
-            {displayScore}%
+        {/* 점수 */}
+        <div className="mb-3">
+          <div className="text-6xl font-black text-white tracking-tight">
+            {displayScore}
+            <span className="text-3xl font-bold text-slate-300">%</span>
           </div>
           <div
-            className={`text-2xl font-bold ${
-              isIncrease ? "text-emerald-400" : "text-red-400"
-            }`}
+            className="text-2xl font-bold mt-1"
+            style={{ color: isIncrease ? "#34d399" : "#f87171" }}
           >
-            {isIncrease ? "+" : "-"}
-            {absScoreDiff}%
+            {isIncrease ? "▲" : "▼"}&nbsp;{absScoreDiff}%
           </div>
         </div>
 
-        {/* 하단: 상태 텍스트 */}
-        <div className="text-center text-sm text-slate-300">
+        {/* 상태 텍스트 */}
+        <div className="text-sm font-semibold mt-4">
           {isIncrease ? (
-            <p className="text-emerald-300 font-semibold">
-              🎉 안정도 상승! 계속 화이팅!
-            </p>
+            <span className="text-emerald-300">🎉 안정도 상승! 계속 화이팅!</span>
           ) : (
-            <p className="text-red-300 font-semibold">
-              📉 안정도 하락 - 다시 도전하세요!
-            </p>
+            <span className="text-red-300">📉 안정도 하락 — 다시 도전하세요!</span>
           )}
         </div>
       </div>
 
       <style>{`
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
+        @keyframes bounceUp {
+          0%   { transform: translateY(12px); opacity: 0; }
+          60%  { transform: translateY(-8px); opacity: 1; }
+          80%  { transform: translateY(4px); }
+          100% { transform: translateY(0); opacity: 1; }
         }
-
-        @keyframes scaleIn {
-          from {
-            opacity: 0;
-            transform: scale(0.5);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1);
-          }
+        @keyframes bounceDown {
+          0%   { transform: translateY(-12px); opacity: 0; }
+          60%  { transform: translateY(8px); opacity: 1; }
+          80%  { transform: translateY(-4px); }
+          100% { transform: translateY(0); opacity: 1; }
         }
       `}</style>
     </div>

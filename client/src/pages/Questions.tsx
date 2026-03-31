@@ -424,6 +424,15 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     },
   });
 
+  const toggleStarMutation = trpc.questions.toggleStar.useMutation({
+    onSuccess: () => {
+      utils.questions.listBySubject.invalidate({ subjectId });
+    },
+    onError: (error) => {
+      toast.error("별표 업데이트 실패: " + error.message);
+    },
+  });
+
   const { data: allSubjects } = trpc.subjects.list.useQuery();
 
   const sensors = useSensors(
@@ -999,16 +1008,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             isStarred: q.isStarred || 0,
           }))}
           onSelectQuestion={(id) => setLocation(`/practice/${id}`)}
-          onToggleStar={(id) => {
-            // toggleStar 뮤테이션 호출
-            const toggleStarMutation = trpc.questions.toggleStar.useMutation({
-              onSuccess: () => {
-                utils.questions.listBySubject.invalidate({ subjectId });
-                toast.success("별표가 업데이트되었습니다");
-              },
-            });
-            toggleStarMutation.mutate({ id });
-          }}
+          onToggleStar={(id) => toggleStarMutation.mutate({ id })}
           confidenceData={Object.fromEntries(
             Array.from(confidenceMap.entries()).map(([qId, conf]) => [
               qId,
