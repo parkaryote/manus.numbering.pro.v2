@@ -1657,6 +1657,7 @@
 
 # 기능 개선 (v2.2.6) - 이미지 비율 저장
 - [x] 마지막으로 본 이미지 크기 비율을 localStorage에 저장하여 다음 방문 시 복원
+<<<<<<< Updated upstream
 
 # 버그 수정 (v2.2.7) - Shift+Backspace 단축키
 - [x] Shift+Backspace가 Windows/Linux에서 작동하지 않음 (Alt+Backspace는 작동) - 수정 완료
@@ -1694,3 +1695,10 @@
 
 # 버그 수정 - 시험 모드 안정도 팝업
 - [x] 시험 모드(Test.tsx)에서 안정도 증감 오버레이 애니메이션(ConfidencePopup) 표시되도록 수정
+=======
+# 연습 모드 UI 개선 - 안정도 표시 방식 변경
+- [x] 메이플스토리 스타일 숫자 증감 애니메이션 컴포넌트 생성 (DamageNumber.tsx)
+- [x] Practice.tsx: 현재 연습 횟수 옥에 안정도 수치 표시
+- [x] Practice.tsx: ConfidencePopup 제거, 숫자 증감 애니메이션만 표시
+- [x] 안정도 증가 시 초록색 +N%, 감소 시 빠른른색 -N% 애니메이션
+>>>>>>> Stashed changes
