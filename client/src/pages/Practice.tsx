@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Circle, Image as ImageIcon, Table2 } from "lucide-react";
+import { ConfidencePopup } from "@/components/ConfidencePopup";
 import { toast } from "sonner";
 import { splitGraphemes, isPartialMatch, isHangul, decomposeHangul } from "@/lib/hangul";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
@@ -54,6 +55,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [showInactiveAlert, setShowInactiveAlert] = useState(false); // 입력 시간 알림
   const [currentCursorLineIndex, setCurrentCursorLineIndex] = useState(0); // 현재 커서 위치의 줄 인덱스
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [showConfidencePopup, setShowConfidencePopup] = useState(false);
+  const [confidenceBefore, setConfidenceBefore] = useState(0);
+  const [confidenceAfter, setConfidenceAfter] = useState(0);
   // 이미지 컨테이너 높이 추적 (메모장 높이 동기화)
   useEffect(() => {
     if (!imageContainerRef.current) return;
@@ -673,6 +677,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const handleCorrectAnswer = async (currentInputLength?: number) => {
     setPracticeCount(prev => prev + 1);
     
+    // 안정도 변화 계산 (임시: 정답 일치 시 +5, 오답 시 -3)
+    const scoreChange = 5; // 실제로는 examConfidence.ts의 계산 결과 사용
+    const newScore = Math.max(0, Math.min(100, confidenceBefore + scoreChange));
+    setConfidenceBefore(confidenceBefore);
+    setConfidenceAfter(newScore);
+    setShowConfidencePopup(true);
+    
     // GA4 이벤트 추적: 문제 풀이 완료
     if (question) {
       const questionType = question.imageUrl && question.imageLabels ? 'image' : 
@@ -723,10 +734,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
     }
     
-    // 0.7초 delay 후 글자 색상 fade out 시작
+    // 0.7초 delay 후 글자 색상 fade out 시작 (팝업 애니메이션 완료 후)
     setTimeout(() => {
       setIsFadingOut(true);
-    }, 700);
+    }, 2200); // 팝업 애니메이션(1.5초) + 여유(0.7초)
        // 1.0초 후 (0.7초 delay + 0.3초 fade out) 입력창 제uac70 및 fade out 해제
     setTimeout(() => {
       setUserInput('');
@@ -740,7 +751,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       setTimeout(() => {
         setIsFadingOut(false);
       }, 50);
-    }, 1000);
+    }, 2500); // 팝업 애니메이션 완료 후
   };
 
   const formatTime = (seconds: number) => {
@@ -991,6 +1002,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   return (
     <div className={`relative ${isImageQuestion ? 'space-y-2' : 'space-y-6'}`}>
+      <ConfidencePopup
+        show={showConfidencePopup}
+        previousScore={confidenceBefore}
+        currentScore={confidenceAfter}
+        onComplete={() => setShowConfidencePopup(false)}
+      />
       {isImageQuestion ? (
         /* 이미지 문제: 최소 상단 - 돌아가기 + 연습횟수를 한 줄에 작게 */
         <div className="flex items-center justify-between">
