@@ -6,9 +6,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
-import { Plus, BookOpen, Trash2, Edit, GripVertical, Star } from "lucide-react";
+import { Plus, BookOpen, Trash2, Edit, GripVertical, Star, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
@@ -40,7 +40,18 @@ const colorOptions = [
   "#14B8A6", // Teal
 ];
 
-function SortableSubjectCard({ subject, onEdit, onDelete }: any) {
+interface SubjectCardProps {
+  subject: any;
+  confidence?: any;
+  onEdit: (subject: any) => void;
+  onDelete: (id: number, name: string) => void;
+}
+
+function SortableSubjectCard({ subject, confidence, onEdit, onDelete }: SubjectCardProps) {
+  const { data: subjectConfidence } = trpc.confidence.getBySubject.useQuery(
+    { subjectId: subject.id },
+    { enabled: !!subject.id }
+  );
   const [, setLocation] = useLocation();
   const {
     attributes,
@@ -76,7 +87,7 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: any) {
           style={{ backgroundColor: subject.color }}
         />
         <div className="flex-1 min-w-0" onClick={() => setLocation(`/questions/${subject.id}`)}>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 mb-1">
             <CardTitle className="text-lg">{subject.name}</CardTitle>
             {subject.isDemo === 1 && (
               <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
@@ -86,7 +97,25 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: any) {
             )}
           </div>
           {subject.description && (
-            <CardDescription className="line-clamp-1">{subject.description}</CardDescription>
+            <CardDescription className="line-clamp-1 mb-2">{subject.description}</CardDescription>
+          )}
+          {subjectConfidence?.aggregate && (
+            <div className="flex items-center gap-2 text-xs">
+              <div className="flex items-center gap-1.5">
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    subjectConfidence.aggregate.state === 'green' ? 'bg-emerald-500' :
+                    subjectConfidence.aggregate.state === 'yellow' ? 'bg-amber-400' :
+                    'bg-red-400'
+                  }`}
+                />
+                <span className="font-medium text-muted-foreground">{subjectConfidence.aggregate.averageScore}%</span>
+              </div>
+              <span className="text-muted-foreground/70">·</span>
+              <span className="text-muted-foreground/70">
+                🟢{subjectConfidence.aggregate.greenCount} 🟡{subjectConfidence.aggregate.yellowCount} 🔴{subjectConfidence.aggregate.redCount}
+              </span>
+            </div>
           )}
         </div>
         <div className="flex gap-2">
@@ -134,6 +163,11 @@ export default function Subjects() {
 
   const { data: subjects, isLoading } = trpc.subjects.list.useQuery();
   const utils = trpc.useUtils();
+
+  // Build confidence lookup map - 현재 각 과목별로 데이터를 개별 쿼리
+  const confidenceMap = useMemo(() => {
+    return new Map<number, any>();
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -388,12 +422,12 @@ export default function Subjects() {
           >
             <div className="grid gap-4">
               {subjects.map((subject) => (
-                <SortableSubjectCard
-                  key={subject.id}
-                  subject={subject}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                />
+                  <SortableSubjectCard
+                    key={subject.id}
+                    subject={subject}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                  />
               ))}
             </div>
           </SortableContext>
