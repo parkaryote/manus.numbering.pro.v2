@@ -4,13 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { trackTestSubmit } from "@/lib/ga4Events";
+import { ConfidencePopup } from "@/components/ConfidencePopup";
 
 interface TestProps {
   questionId: number;
@@ -34,6 +35,9 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [showConfidencePopup, setShowConfidencePopup] = useState(false);
+  const [confidenceBefore, setConfidenceBefore] = useState(0);
+  const [confidenceAfter, setConfidenceAfter] = useState(0);
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
@@ -51,11 +55,21 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     },
   });
   
+  const triggerConfidencePopup = useCallback((data: any) => {
+    const prevScore = confidenceBefore;
+    // 정답이면 +5~+10, 오답이면 -3~-5
+    const scoreChange = data.isCorrect ? (5 + Math.floor((data.similarityScore || 0) / 20)) : -(3 + Math.floor((100 - (data.similarityScore || 0)) / 30));
+    const newScore = Math.max(0, Math.min(100, prevScore + scoreChange));
+    setConfidenceBefore(prevScore);
+    setConfidenceAfter(newScore);
+    setShowConfidencePopup(true);
+  }, [confidenceBefore]);
+
   const evaluateMutation = trpc.test.evaluate.useMutation({
     onSuccess: async (data: any) => {
       setResult(data);
       setIsSubmitted(true);
-      toast.success("답안이 제출되었습니다");
+      triggerConfidencePopup(data);
       
       // Update review schedule based on performance
       if (question) {
@@ -75,7 +89,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     onSuccess: (data: any) => {
       setResult(data);
       setIsSubmitted(true);
-      toast.success("답안이 제출되었습니다");
+      triggerConfidencePopup(data);
     },
     onError: (error: any) => {
       toast.error("평가 실패: " + error.message);
@@ -161,11 +175,9 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
         quality,
       });
 
-      if (score === total) {
-        toast.success(`🎉 모두 정답! (${score}/${total})`);
-      } else {
-        toast.error(`${score}/${total} 정답`);
-      }
+      // 표 문제 안정도 팝업
+      const tableScoreData = { isCorrect: score === total, similarityScore: Math.round((score / total) * 100) };
+      triggerConfidencePopup(tableScoreData);
       return;
     }
 
@@ -533,6 +545,12 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
 
   return (
     <div className="space-y-6">
+      <ConfidencePopup
+        show={showConfidencePopup}
+        previousScore={confidenceBefore}
+        currentScore={confidenceAfter}
+        onComplete={() => setShowConfidencePopup(false)}
+      />
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => setLocation(`/questions/${question.subjectId}`)}>
           <ArrowLeft className="h-5 w-5" />
