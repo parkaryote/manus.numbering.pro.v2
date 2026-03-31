@@ -9,14 +9,12 @@ interface Question {
 interface QuestionGridViewProps {
   questions: Question[];
   onSelectQuestion: (questionId: number) => void;
-  onToggleStar: (questionId: number) => void;
   confidenceData?: Record<number, { state: string; displayScore: number }>;
 }
 
 export function QuestionGridView({
   questions,
   onSelectQuestion,
-  onToggleStar,
   confidenceData = {},
 }: QuestionGridViewProps) {
   const getColors = (questionId: number) => {
@@ -74,7 +72,7 @@ export function QuestionGridView({
           const score = confidenceData[q.id]?.displayScore;
 
           return (
-            <div key={q.id} className="relative group">
+            <div key={q.id} className="relative">
               <button
                 onClick={() => onSelectQuestion(q.id)}
                 className={`
@@ -92,27 +90,12 @@ export function QuestionGridView({
                 )}
               </button>
 
-              {/* 별표 버튼 */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleStar(q.id);
-                }}
-                className={`
-                  absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center
-                  transition-all duration-150
-                  ${starred
-                    ? 'bg-yellow-400 hover:bg-yellow-500 opacity-100'
-                    : 'bg-muted border border-border opacity-0 group-hover:opacity-100 hover:bg-yellow-100'
-                  }
-                `}
-                title={starred ? '별표 제거' : '별표 추가'}
-              >
-                <Star
-                  size={9}
-                  className={starred ? 'fill-white text-white' : 'text-muted-foreground'}
-                />
-              </button>
+              {/* 별표 표시 (읽기 전용) */}
+              {starred && (
+                <div className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-yellow-400 flex items-center justify-center pointer-events-none">
+                  <Star size={9} className="fill-white text-white" />
+                </div>
+              )}
             </div>
           );
         })}

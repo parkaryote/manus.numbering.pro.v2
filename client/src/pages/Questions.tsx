@@ -60,6 +60,7 @@ interface SortableQuestionCardProps {
   onTest: (id: number) => void;
   onCopy: (question: any) => void;
   onMove: (question: any) => void;
+  onToggleStar: (id: number) => void;
 }
 
 function SortableQuestionCard({
@@ -71,6 +72,7 @@ function SortableQuestionCard({
   onTest,
   onCopy,
   onMove,
+  onToggleStar,
 }: SortableQuestionCardProps) {
   const {
     attributes,
@@ -119,9 +121,9 @@ function SortableQuestionCard({
           </div>
         )}
 
-        {/* 문제 정보 */}
+          {/* 문제 정보 */}
         <div className="flex-1 px-3 py-2 min-w-0">
-          <div className="flex items-center gap-1.5 mb-0.5">
+          <div className="flex items-center gap-1.5">
             {hasImage && (
               <ImageIcon className="h-3 w-3 text-blue-500 flex-shrink-0" />
             )}
@@ -129,10 +131,23 @@ function SortableQuestionCard({
               <Table2 className="h-3 w-3 text-purple-500 flex-shrink-0" />
             )}
             {question.isDemo === 1 && (
-              <Star className="w-2.5 h-2.5 text-amber-500 flex-shrink-0" />
+              <span className="text-[10px] text-amber-600 font-medium flex-shrink-0">데모</span>
             )}
+            <p className="text-sm font-medium truncate leading-tight flex-1">{question.question}</p>
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleStar(question.id); }}
+              className="flex-shrink-0 ml-1 p-0.5 rounded hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors"
+              title={question.isStarred ? '별표 제거' : '별표 추가'}
+            >
+              <Star
+                className={`w-3.5 h-3.5 transition-colors ${
+                  question.isStarred
+                    ? 'fill-amber-400 text-amber-400'
+                    : 'text-muted-foreground/40 hover:text-amber-400'
+                }`}
+              />
+            </button>
           </div>
-          <p className="text-sm font-medium truncate leading-tight">{question.question}</p>
           {!hasImage && !hasTable && question.answer && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">
               {question.answer.substring(0, 80).replace(/\n/g, ' / ')}
@@ -322,6 +337,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     autoNumbering: true, // 엔터 기준 자동 번호 생성
     tableData: null as TableData | null,
     isDemo: false,
+    isStarred: false,
   });
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
@@ -470,6 +486,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       autoNumbering: true,
       tableData: null,
       isDemo: false,
+      isStarred: false,
     });
     setActiveTab("text");
     // 포커스를 질문 입력 필드의 첫 줄로 리셋
@@ -568,6 +585,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           tableData: JSON.stringify(formData.tableData),
         autoNumbering: 0,
         isDemo: isAdmin && formData.isDemo ? 1 : 0,
+        isStarred: formData.isStarred ? 1 : 0,
       } as any);
       return;
     }
@@ -592,6 +610,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
       isDemo: isAdmin && formData.isDemo ? 1 : 0,
+      isStarred: formData.isStarred ? 1 : 0,
     } as any);
   }, [activeTab, formData, subjectId, createMutation, isAdmin]);
 
@@ -606,6 +625,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       autoNumbering: question.autoNumbering !== 0,
       tableData: parsedTableData,
       isDemo: question.isDemo === 1,
+      isStarred: question.isStarred === 1,
     });
     // 탭 자동 선택
     if (parsedTableData) {
@@ -644,6 +664,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         imageLabels: undefined,
         autoNumbering: 0,
         isDemo: isAdmin && formData.isDemo ? 1 : 0,
+        isStarred: formData.isStarred ? 1 : 0,
       } as any);
       return;
     }
@@ -668,6 +689,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       tableData: undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
       isDemo: isAdmin && formData.isDemo ? 1 : 0,
+      isStarred: formData.isStarred ? 1 : 0,
     } as any);
   };
 
@@ -892,7 +914,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 confidenceData.aggregate.state === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
                 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
               }`} title={`시험 안정도: ${confidenceData.aggregate.averageScore}% (${confidenceData.aggregate.label}) - 🟢${confidenceData.aggregate.greenCount} 🟡${confidenceData.aggregate.yellowCount} 🔴${confidenceData.aggregate.redCount}`}>
-                안정도 {confidenceData.aggregate.averageScore}%
+                과목 안정도 {confidenceData.aggregate.averageScore}%
               </span>
             )}
           </div>
@@ -936,7 +958,6 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             isStarred: q.isStarred || 0,
           }))}
           onSelectQuestion={(id) => setLocation(`/practice/${id}`)}
-          onToggleStar={(id) => toggleStarMutation.mutate({ id })}
           confidenceData={Object.fromEntries(
             Array.from(confidenceMap.entries()).map(([qId, conf]) => [
               qId,
@@ -991,6 +1012,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                       onTest={(id) => setLocation(`/test/${id}`)}
                       onCopy={handleCopy}
                       onMove={handleMove}
+                      onToggleStar={(id) => toggleStarMutation.mutate({ id })}
                     />
                   ))}
                 </div>
@@ -1018,22 +1040,38 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             </div>
             <div className="flex-1 px-6 py-6 max-w-4xl mx-auto w-full">
               {questionFormContent}
-              {isAdmin && (
-                <div className="mt-6 flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-3">
-                  <Star className="h-4 w-4 text-amber-500 flex-shrink-0" />
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-3">
+                  <Star className="h-4 w-4 text-amber-400 flex-shrink-0" />
                   <div className="flex-1">
-                    <label htmlFor="create-isDemo-q" className="text-sm font-medium cursor-pointer">데모 문제로 지정</label>
-                    <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                    <label htmlFor="create-isStarred-q" className="text-sm font-medium cursor-pointer">별표 문제로 지정</label>
+                    <p className="text-xs text-muted-foreground">중요하거나 자주 틀리는 문제를 표시합니다</p>
                   </div>
                   <input
-                    id="create-isDemo-q"
+                    id="create-isStarred-q"
                     type="checkbox"
-                    checked={formData.isDemo}
-                    onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                    checked={formData.isStarred}
+                    onChange={(e) => setFormData({ ...formData, isStarred: e.target.checked })}
                     className="h-4 w-4 accent-amber-500"
                   />
                 </div>
-              )}
+                {isAdmin && (
+                  <div className="flex items-center gap-3 rounded-md border border-border bg-muted/30 px-4 py-3">
+                    <span className="text-xs text-muted-foreground flex-shrink-0">데모</span>
+                    <div className="flex-1">
+                      <label htmlFor="create-isDemo-q" className="text-sm font-medium cursor-pointer">데모 문제로 지정</label>
+                      <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                    </div>
+                    <input
+                      id="create-isDemo-q"
+                      type="checkbox"
+                      checked={formData.isDemo}
+                      onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                      className="h-4 w-4 accent-amber-500"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1057,22 +1095,38 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             </div>
             <div className="flex-1 px-6 py-6 max-w-4xl mx-auto w-full">
               {questionFormContent}
-              {isAdmin && (
-                <div className="mt-6 flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-3">
-                  <Star className="h-4 w-4 text-amber-500 flex-shrink-0" />
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-3">
+                  <Star className="h-4 w-4 text-amber-400 flex-shrink-0" />
                   <div className="flex-1">
-                    <label htmlFor="edit-isDemo-q" className="text-sm font-medium cursor-pointer">데모 문제로 지정</label>
-                    <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                    <label htmlFor="edit-isStarred-q" className="text-sm font-medium cursor-pointer">별표 문제로 지정</label>
+                    <p className="text-xs text-muted-foreground">중요하거나 자주 틀리는 문제를 표시합니다</p>
                   </div>
                   <input
-                    id="edit-isDemo-q"
+                    id="edit-isStarred-q"
                     type="checkbox"
-                    checked={formData.isDemo}
-                    onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                    checked={formData.isStarred}
+                    onChange={(e) => setFormData({ ...formData, isStarred: e.target.checked })}
                     className="h-4 w-4 accent-amber-500"
                   />
                 </div>
-              )}
+                {isAdmin && (
+                  <div className="flex items-center gap-3 rounded-md border border-border bg-muted/30 px-4 py-3">
+                    <span className="text-xs text-muted-foreground flex-shrink-0">데모</span>
+                    <div className="flex-1">
+                      <label htmlFor="edit-isDemo-q" className="text-sm font-medium cursor-pointer">데모 문제로 지정</label>
+                      <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                    </div>
+                    <input
+                      id="edit-isDemo-q"
+                      type="checkbox"
+                      checked={formData.isDemo}
+                      onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                      className="h-4 w-4 accent-amber-500"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
