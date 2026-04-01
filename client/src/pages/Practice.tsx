@@ -100,32 +100,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const hasBeenSaved = useRef(false);
   const utils = trpc.useUtils();
   
+  // 매 정답 시 handleCorrectAnswer에서 즉시 DB 저장하므로 별도의 savePracticeSession 불필요
   const savePracticeSession = async () => {
-    if (!question || elapsedTime === 0 || practiceCount === 0 || hasBeenSaved.current) return;
-
-    hasBeenSaved.current = true;
-    const timeInMinutes = elapsedTime / 60;
-    const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
-
-    try {
-      await createSession.mutateAsync({
-        questionId: question.id,
-        duration: elapsedTime,
-        typingSpeed: speed,
-        accuracy: 100,
-        errorCount: 0,
-      });
-      // 저장 완료 후 누적 연습 수 실시간 갱신
-      const newData = await utils.practice.countByQuestion.fetch({ questionId: question.id });
-      if (newData) {
-        utils.practice.countByQuestion.setData({ questionId: question.id }, newData);
-      }
-      // 페이지 나갈 때만 토스트 표시
-      toast.success("연습 기록이 저장되었습니다");
-    } catch (error) {
-      console.error("연습 기록 저장 실패:", error);
-      hasBeenSaved.current = false; // 실패 시 다시 시도
-    }
+    // 이제 매 정답 시 즉시 저장하므로 페이지 나갈 때 추가 저장 불필요
+    return;
   };
 
   // 이미지 문제: 상호작용 시 practiceCount를 최소 1로 설정
@@ -680,17 +658,36 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const handleCorrectAnswer = async (currentInputLength?: number) => {
     setPracticeCount(prev => prev + 1);
     
-    // 정답 후 confidence 재조회하여 실제 안정도 변화 표시
+    // 매 정답 시 practiceSession을 즉시 DB에 저장하여 confidence에 반영
     const prevScore = confidenceData?.displayScore ?? 0;
-    setTimeout(async () => {
-      const result = await refetchConfidence();
-      const newScore = result.data?.displayScore ?? prevScore;
-      const diff = newScore - prevScore;
-      if (diff !== 0) {
-        setDamageValue(diff);
-        setShowDamageNumber(true);
+    if (question && !isDemo) {
+      try {
+        const timeInMinutes = elapsedTime / 60;
+        const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
+        await createSession.mutateAsync({
+          questionId: question.id,
+          duration: Math.max(elapsedTime, 1),
+          typingSpeed: speed,
+          accuracy: 100,
+          errorCount: 0,
+        });
+        // 저장 완료 후 confidence 재조회
+        const result = await refetchConfidence();
+        const newScore = result.data?.displayScore ?? prevScore;
+        const diff = newScore - prevScore;
+        if (diff !== 0) {
+          setDamageValue(diff);
+          setShowDamageNumber(true);
+        }
+        // 누적 연습 수도 갱신
+        const newCount = await utils.practice.countByQuestion.fetch({ questionId: question.id });
+        if (newCount) {
+          utils.practice.countByQuestion.setData({ questionId: question.id }, newCount);
+        }
+      } catch (error) {
+        console.error('연습 기록 즉시 저장 실패:', error);
       }
-    }, 800); // DB 저장 후 재조회
+    }
     
     // GA4 이벤트 추적: 문제 풀이 완료
     if (question) {
