@@ -450,6 +450,23 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
     // Auto-complete when normalized text matches
     const normalized = normalizeText(newValue);
+    
+    // 반복 연습 모드: 현재 체크된 줄만 비교
+    if (isRepeatMode && currentRepeatTarget) {
+      const normalizedRepeatTarget = normalizeText(currentRepeatTarget.text);
+      if (normalizedRepeatTarget.length > 0 && normalized === normalizedRepeatTarget) {
+        setRepeatCount(prev => prev + 1);
+        setRepeatTotalCount(prev => prev + 1);
+        setRepeatCurrentIdx(prev => (prev + 1) % repeatLinesSorted.length);
+        setTimeout(() => {
+          setUserInput('');
+          textareaRef.current?.focus();
+        }, 300);
+        return;
+      }
+      return;
+    }
+    
     const normalizedTarget = normalizeText(targetText);
     if (normalized === normalizedTarget) {
       // 완료 처리 - fade out 후 입력 초기화는 handleCorrectAnswer 내부에서 처리
@@ -457,7 +474,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return; // 이후 코드 실행 중단
     }
     
-    // 뷰포트 실시간 이동
+    // 듷포트 실시간 이동
     if (question?.autoNumbering === 1 && answerDisplayRef.current) {
       const currentLineIndex = newValue.split('\n').length - 1;
       const lineHeight = 28;
@@ -938,7 +955,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const completionInfo = useMemo(() => {
     // 줄 단위로 분리
     const userLines = userInput.split('\n');
-    const targetLines = targetText.split('\n');
+    // 반복 모드에서는 현재 체크된 줄의 텍스트만 단일 줄로 비교
+    const effectiveTargetText = isRepeatMode && currentRepeatTarget ? currentRepeatTarget.text : targetText;
+    const targetLines = effectiveTargetText.split('\n');
     
     // 각 줄별 채점 정보
     const lineResults: Array<{
@@ -1005,7 +1024,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const currentLineIndex = currentCursorLineIndex;
     
     return { lineResults, currentLineIndex, userLines, targetLines };
-  }, [userInput, targetText, renderTrigger, currentCursorLineIndex]);
+  }, [userInput, targetText, renderTrigger, currentCursorLineIndex, isRepeatMode, currentRepeatTarget]);
 
   // 실시간 단어 뷰: 줄 단위 opacity 계산
   const calculateLineOpacity = useMemo(() => {
@@ -1025,9 +1044,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 한컴타자연습 스타일 렌더링 (줄 단위 비교)
   const renderTextWithFeedback = useMemo(() => {
     const { lineResults, currentLineIndex: activeLineIdx } = completionInfo;
-    const targetLines = targetText.split('\n');
+    // 반복 모드에서는 현재 체크된 줄만 표시
+    const effectiveTargetText = isRepeatMode && currentRepeatTarget ? currentRepeatTarget.text : targetText;
+    const targetLines = effectiveTargetText.split('\n');
+    
+    // 반복 모드에서 체크박스 표시를 위한 원래 전체 줄 목록
+    const allTargetLines = targetText.split('\n');
     
     return targetLines.map((line, lineIdx) => {
+      // 반복 모드에서는 체크박스용 실제 줄 인덱스 (currentRepeatTarget.lineIdx)
+      const actualLineIdx = isRepeatMode && currentRepeatTarget ? currentRepeatTarget.lineIdx : lineIdx;
       const lineResult = lineResults[lineIdx];
       const lineOpacity = calculateLineOpacity[lineIdx] || 1;
       const isActiveLine = lineIdx === activeLineIdx;
@@ -1161,16 +1187,19 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         ? (isFadingOut ? "text-gray-600 transition-colors duration-300" : "text-foreground")
         : (isFadingOut ? "text-gray-300 transition-colors duration-300" : "text-foreground");
       
-      const isChecked = repeatCheckedLines.has(lineIdx);
-      const isCurrentRepeat = isRepeatMode && currentRepeatTarget?.lineIdx === lineIdx;
+      // 반복 모드에서는 actualLineIdx 기준으로 체크박스 표시
+      const isChecked = repeatCheckedLines.has(actualLineIdx);
+      const isCurrentRepeat = isRepeatMode && currentRepeatTarget?.lineIdx === actualLineIdx;
       const lineHighlight = isCurrentRepeat ? 'bg-purple-100/50 dark:bg-purple-900/30 rounded px-1 -mx-1' : '';
+      // 체크박스는 원래 전체 줄 수가 2줄 이상일 때만 표시
+      const showCheckbox = allTargetLines.length > 1 && hideMode === 'none';
 
        if (lineIdx < targetLines.length - 1) {
         return (
           <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlight} group/line relative`}>
-            {targetLines.length > 1 && hideMode === 'none' && (
+            {showCheckbox && (
               <button
-                onClick={(e) => { e.stopPropagation(); toggleRepeatLine(lineIdx); }}
+                onClick={(e) => { e.stopPropagation(); toggleRepeatLine(actualLineIdx); }}
                 className={`inline-flex items-center mr-1.5 transition-opacity ${
                   isChecked ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
                 }`}
@@ -1189,24 +1218,20 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         );
       }
       
-      const isCheckedLast = repeatCheckedLines.has(lineIdx);
-      const isCurrentRepeatLast = isRepeatMode && currentRepeatTarget?.lineIdx === lineIdx;
-      const lineHighlightLast = isCurrentRepeatLast ? 'bg-purple-100/50 dark:bg-purple-900/30 rounded px-1 -mx-1' : '';
-      
       return (
-        <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlightLast} group/line relative`}>
-          {targetLines.length > 1 && hideMode === 'none' && (
+        <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlight} group/line relative`}>
+          {showCheckbox && (
             <button
-              onClick={(e) => { e.stopPropagation(); toggleRepeatLine(lineIdx); }}
+              onClick={(e) => { e.stopPropagation(); toggleRepeatLine(actualLineIdx); }}
               className={`inline-flex items-center mr-1.5 transition-opacity ${
-                isCheckedLast ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
+                isChecked ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
               }`}
-              title={isCheckedLast ? '반복 연습에서 제외' : '반복 연습에 추가'}
+              title={isChecked ? '반복 연습에서 제외' : '반복 연습에 추가'}
             >
               <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center text-[8px] ${
-                isCheckedLast ? 'bg-purple-500 border-purple-500 text-white' : 'border-current'
+                isChecked ? 'bg-purple-500 border-purple-500 text-white' : 'border-current'
               }`}>
-                {isCheckedLast && '✓'}
+                {isChecked && '✓'}
               </span>
             </button>
           )}
