@@ -340,6 +340,32 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   useEffect(() => {
     const handleGlobalKeyDown = async (e: KeyboardEvent) => {
+      // Tab: 답 가리기 토글 (입력창 포커스 여부 관계없이 전역에서 작동)
+      if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) {
+          // Shift+Tab: 문장별 가리기 모드 토글
+          if (hideMode === 'line') {
+            setHideMode('none');
+            setHiddenLines(new Set());
+          } else {
+            setHideMode('line');
+            const lines = targetText.split('\n');
+            setHiddenLines(new Set(lines.map((_, i) => i)));
+          }
+        } else {
+          // Tab: 전체 가리기/보이기 토글
+          if (hideMode === 'all') {
+            setHideMode('none');
+            setHiddenLines(new Set());
+          } else {
+            setHideMode('all');
+          }
+        }
+        return;
+      }
+      
       if (e.key === "Escape" || (e.ctrlKey && e.key === "Enter")) {
         e.preventDefault();
         await handleComplete();
@@ -349,11 +375,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
     };
 
-    window.addEventListener("keydown", handleGlobalKeyDown);
+    window.addEventListener("keydown", handleGlobalKeyDown, true);
     return () => {
-      window.removeEventListener("keydown", handleGlobalKeyDown);
+      window.removeEventListener("keydown", handleGlobalKeyDown, true);
     };
-  }, [question, userInput, imageLabelAnswers, revealedLabels, elapsedTime, createSession, isDemo, setLocation]);
+  }, [question, userInput, imageLabelAnswers, revealedLabels, elapsedTime, createSession, isDemo, setLocation, hideMode, targetText]);
 
   const handleCompositionStart = () => {
     setIsComposing(true);
@@ -561,32 +587,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return;
     }
     
-    // Tab: 답 가리기 토글 (입력창에서도 동작, 기본 Tab 동작 차단)
-    if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.shiftKey) {
-        // Shift+Tab: 문장별 가리기 모드 토글
-        if (hideMode === 'line') {
-          setHideMode('none');
-          setHiddenLines(new Set());
-        } else {
-          setHideMode('line');
-          // 모든 줄 가리기로 시작
-          const lines = targetText.split('\n');
-          setHiddenLines(new Set(lines.map((_, i) => i)));
-        }
-      } else {
-        // Tab: 전체 가리기/보이기 토글
-        if (hideMode === 'all') {
-          setHideMode('none');
-          setHiddenLines(new Set());
-        } else {
-          setHideMode('all');
-        }
-      }
-      return;
-    }
+    // Tab 키는 이미 전역 이벤트에서 처리됨 - 입력창에서는 처리하지 않음
     
     // Ctrl+Enter or Esc: Complete and save
     if ((e.ctrlKey && e.key === "Enter") || e.key === "Escape") {
