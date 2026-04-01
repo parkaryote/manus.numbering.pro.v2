@@ -69,11 +69,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [memoOpen, setMemoOpen] = useState(false);
   const [memoSaving, setMemoSaving] = useState(false);
   const [memoSaved, setMemoSaved] = useState(false);
-  // 줄 반복 연습
-  const [repeatLineIdx, setRepeatLineIdx] = useState<number | null>(null);
-  const [repeatCount, setRepeatCount] = useState(0);
-  const [repeatInput, setRepeatInput] = useState('');
-  const repeatTextareaRef = useRef<HTMLTextAreaElement>(null);
+  // 줄 반복 연습 (체크박스 다중 선택 방식)
+  const [repeatCheckedLines, setRepeatCheckedLines] = useState<Set<number>>(new Set());
+  const [repeatCurrentIdx, setRepeatCurrentIdx] = useState(0); // 체크된 줄 중 현재 순서 (0-based)
+  const [repeatCount, setRepeatCount] = useState(0); // 현재 줄 완료 횟수
+  const [repeatTotalCount, setRepeatTotalCount] = useState(0); // 전체 완료 횟수
+  const isRepeatMode = repeatCheckedLines.size > 0;
   // 문제 수정 모드
   const [editMode, setEditMode] = useState(false);
   const [editQuestion, setEditQuestion] = useState('');
@@ -169,6 +170,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   useEffect(() => {
     hasBeenSaved.current = false;
     setHasInteracted(false);
+    // 반복 연습 상태도 초기화
+    setRepeatCheckedLines(new Set());
+    setRepeatCurrentIdx(0);
+    setRepeatCount(0);
+    setRepeatTotalCount(0);
   }, [questionId]);
 
   const targetText = question?.answer || "";
@@ -191,20 +197,43 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     saveMemoMutation.mutate({ id: question.id, memo: memo || null });
   };
 
-  // 줄 반복 연습 시작
-  const startRepeatLine = (lineIdx: number) => {
-    setRepeatLineIdx(lineIdx);
+  // 줄 체크박스 토글
+  const toggleRepeatLine = (lineIdx: number) => {
+    setRepeatCheckedLines(prev => {
+      const next = new Set(prev);
+      if (next.has(lineIdx)) {
+        next.delete(lineIdx);
+      } else {
+        next.add(lineIdx);
+      }
+      return next;
+    });
+    setRepeatCurrentIdx(0);
     setRepeatCount(0);
-    setRepeatInput('');
-    setTimeout(() => repeatTextareaRef.current?.focus(), 100);
   };
 
   // 줄 반복 연습 종료
-  const stopRepeatLine = () => {
-    setRepeatLineIdx(null);
+  const stopRepeatMode = () => {
+    setRepeatCheckedLines(new Set());
+    setRepeatCurrentIdx(0);
     setRepeatCount(0);
-    setRepeatInput('');
+    setRepeatTotalCount(0);
+    // 입력창 전체 정답으로 복원
+    setUserInput('');
+    setTimeout(() => textareaRef.current?.focus(), 50);
   };
+
+  // 체크된 줄 목록
+  const repeatLinesSorted = useMemo(() => {
+    return Array.from(repeatCheckedLines).sort((a, b) => a - b);
+  }, [repeatCheckedLines]);
+
+  // 현재 반복 중인 줄의 대상 텍스트
+  const currentRepeatTarget = useMemo(() => {
+    if (!isRepeatMode || repeatLinesSorted.length === 0) return null;
+    const lineIdx = repeatLinesSorted[repeatCurrentIdx % repeatLinesSorted.length];
+    return { lineIdx, text: targetText.split('\n')[lineIdx] || '' };
+  }, [isRepeatMode, repeatLinesSorted, repeatCurrentIdx, targetText]);
 
   // 문제 수정 모드 시작
   const startEditMode = () => {
@@ -490,6 +519,26 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
     // Auto-complete when normalized text matches
     const normalized = normalizeText(newValue);
+    
+    // 반복 연습 모드: 현재 체크된 줄만 비교
+    if (isRepeatMode && currentRepeatTarget) {
+      const normalizedRepeatTarget = normalizeText(currentRepeatTarget.text);
+      if (normalizedRepeatTarget.length > 0 && normalized === normalizedRepeatTarget) {
+        // 현재 줄 완료
+        setRepeatCount(prev => prev + 1);
+        setRepeatTotalCount(prev => prev + 1);
+        // 다음 체크된 줄로 이동
+        setRepeatCurrentIdx(prev => (prev + 1) % repeatLinesSorted.length);
+        // 입력창 초기화
+        setTimeout(() => {
+          setUserInput('');
+          textareaRef.current?.focus();
+        }, 300);
+        return;
+      }
+      return; // 반복 모드에서는 전체 정답 일치 체크 안 함
+    }
+    
     const normalizedTarget = normalizeText(targetText);
     if (normalized === normalizedTarget) {
       // 완료 처리 - fade out 후 입력 초기화는 handleCorrectAnswer 내부에서 처리
@@ -497,7 +546,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return; // 이후 코드 실행 중단
     }
     
-    // 뷰포트 실시간 이동: 사용자 입력의 현재 줄 번호에 따라 스크롤
+    // 듷포트 실시간 이동: 사용자 입력의 현재 줄 번호에 따라 스크롤
     if (question?.autoNumbering === 1 && answerDisplayRef.current) {
       const currentLineIndex = newValue.split('\n').length - 1;
       const lineHeight = 28; // 대략적인 줄 높이 (px)
@@ -1112,40 +1161,60 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         ? (isFadingOut ? "text-gray-600 transition-colors duration-300" : "text-foreground")
         : (isFadingOut ? "text-gray-300 transition-colors duration-300" : "text-foreground");
       
+      const isChecked = repeatCheckedLines.has(lineIdx);
+      const isCurrentRepeat = isRepeatMode && currentRepeatTarget?.lineIdx === lineIdx;
+      const lineHighlight = isCurrentRepeat ? 'bg-purple-100/50 dark:bg-purple-900/30 rounded px-1 -mx-1' : '';
+
        if (lineIdx < targetLines.length - 1) {
         return (
-          <span key={`line-${lineIdx}`} className={`${lineClass} group/line relative`}>
-            {renderedChars}
+          <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlight} group/line relative`}>
             {targetLines.length > 1 && hideMode === 'none' && (
               <button
-                onClick={(e) => { e.stopPropagation(); startRepeatLine(lineIdx); }}
-                className="inline-flex items-center ml-1 opacity-0 group-hover/line:opacity-100 transition-opacity text-purple-400 hover:text-purple-600"
-                title={`${lineIdx + 1}번째 줄 반복 연습`}
+                onClick={(e) => { e.stopPropagation(); toggleRepeatLine(lineIdx); }}
+                className={`inline-flex items-center mr-1.5 transition-opacity ${
+                  isChecked ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
+                }`}
+                title={isChecked ? '반복 연습에서 제외' : '반복 연습에 추가'}
               >
-                <Repeat className="h-3 w-3" />
+                <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center text-[8px] ${
+                  isChecked ? 'bg-purple-500 border-purple-500 text-white' : 'border-current'
+                }`}>
+                  {isChecked && '✓'}
+                </span>
               </button>
             )}
+            {renderedChars}
             <span className="text-muted-foreground">{"\n"}</span>
           </span>
         );
       }
       
+      const isCheckedLast = repeatCheckedLines.has(lineIdx);
+      const isCurrentRepeatLast = isRepeatMode && currentRepeatTarget?.lineIdx === lineIdx;
+      const lineHighlightLast = isCurrentRepeatLast ? 'bg-purple-100/50 dark:bg-purple-900/30 rounded px-1 -mx-1' : '';
+      
       return (
-        <span key={`line-${lineIdx}`} className={`${lineClass} group/line relative`}>
-          {renderedChars}
+        <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlightLast} group/line relative`}>
           {targetLines.length > 1 && hideMode === 'none' && (
             <button
-              onClick={(e) => { e.stopPropagation(); startRepeatLine(lineIdx); }}
-              className="inline-flex items-center ml-1 opacity-0 group-hover/line:opacity-100 transition-opacity text-purple-400 hover:text-purple-600"
-              title={`${lineIdx + 1}번째 줄 반복 연습`}
+              onClick={(e) => { e.stopPropagation(); toggleRepeatLine(lineIdx); }}
+              className={`inline-flex items-center mr-1.5 transition-opacity ${
+                isCheckedLast ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
+              }`}
+              title={isCheckedLast ? '반복 연습에서 제외' : '반복 연습에 추가'}
             >
-              <Repeat className="h-3 w-3" />
+              <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center text-[8px] ${
+                isCheckedLast ? 'bg-purple-500 border-purple-500 text-white' : 'border-current'
+              }`}>
+                {isCheckedLast && '✓'}
+              </span>
             </button>
           )}
+          {renderedChars}
         </span>
       );
     });
-  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines, repeatLineIdx]);
+  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines, repeatCheckedLines, currentRepeatTarget, isRepeatMode, toggleRepeatLine]);
 
   if (isLoading) {
     return (
@@ -1452,58 +1521,29 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             </div>
           )}
 
-          {/* 줄 반복 연습 패널 */}
-          {repeatLineIdx !== null && !isImageQuestion && (
-            <div className="rounded-lg border-2 border-purple-300 bg-purple-50/50 dark:bg-purple-950/20 dark:border-purple-700 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Repeat className="h-4 w-4 text-purple-600" />
-                  <span className="text-sm font-semibold text-purple-700 dark:text-purple-400">
-                    {repeatLineIdx + 1}번째 줄 반복 연습
-                  </span>
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-purple-200/60 dark:bg-purple-800/40 text-purple-600 dark:text-purple-400 font-bold">
-                    {repeatCount}회 완료
-                  </span>
-                </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 w-7 p-0"
-                  onClick={stopRepeatLine}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-              <div className="text-sm p-2 rounded bg-purple-100/50 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 font-medium">
-                {targetText.split('\n')[repeatLineIdx]}
-              </div>
-              <textarea
-                ref={repeatTextareaRef}
-                value={repeatInput}
-                onChange={(e) => {
-                  const newVal = e.target.value;
-                  setRepeatInput(newVal);
-                  // 정답 일치 확인
-                  const targetLine = targetText.split('\n')[repeatLineIdx!] || '';
-                  const normalizedInput = newVal.replace(/\s/g, '');
-                  const normalizedTarget = targetLine.replace(/\s/g, '');
-                  if (normalizedInput === normalizedTarget && normalizedInput.length > 0) {
-                    setRepeatCount(prev => prev + 1);
-                    setTimeout(() => {
-                      setRepeatInput('');
-                      repeatTextareaRef.current?.focus();
-                    }, 300);
-                  }
-                }}
-                placeholder="위 문장을 따라 입력하세요..."
-                className="w-full min-h-[48px] p-3 rounded-md border border-purple-200 dark:border-purple-700 bg-white dark:bg-purple-950/30 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-400"
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    e.preventDefault();
-                    stopRepeatLine();
-                  }
-                }}
-              />
+          {/* 줄 반복 연습 상태 배지 */}
+          {isRepeatMode && !isImageQuestion && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-100/60 dark:bg-purple-900/30 border border-purple-300 dark:border-purple-700">
+              <Repeat className="h-3.5 w-3.5 text-purple-600 shrink-0" />
+              <span className="text-xs font-semibold text-purple-700 dark:text-purple-400">
+                반복 연습 중
+              </span>
+              <span className="text-xs text-purple-600 dark:text-purple-400">
+                {repeatCheckedLines.size}줄 선택
+              </span>
+              {currentRepeatTarget && (
+                <span className="text-xs text-purple-500 dark:text-purple-400 truncate max-w-[200px]">
+                  → {currentRepeatTarget.lineIdx + 1}번째 줄 ({repeatCount}회 / 전체 {repeatTotalCount}회)
+                </span>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs ml-auto text-purple-600 hover:text-purple-800 hover:bg-purple-200"
+                onClick={stopRepeatMode}
+              >
+                종료
+              </Button>
             </div>
           )}
 
