@@ -987,13 +987,22 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const isLineHidden = hideMode === 'all' || (hideMode === 'line' && hiddenLines.has(lineIdx));
       
       if (isLineHidden) {
-        // 가려진 줄: 클릭하면 해당 줄만 보이기 (문장별 모드에서)
+        // 가려진 줄: 클릭하면 해당 줄만 보이기
         return (
           <span
             key={`line-${lineIdx}`}
             className="inline-block cursor-pointer select-none group"
             onClick={() => {
-              if (hideMode === 'line') {
+              if (hideMode === 'all') {
+                // 전체 가리기 모드: 클릭한 줄만 임시로 보이기 (hiddenLines에 추가)
+                setHiddenLines(prev => {
+                  const next = new Set(prev);
+                  if (next.has(lineIdx)) next.delete(lineIdx);
+                  else next.add(lineIdx);
+                  return next;
+                });
+              } else if (hideMode === 'line') {
+                // 문장별 가리기 모드: 줄 토글
                 setHiddenLines(prev => {
                   const next = new Set(prev);
                   if (next.has(lineIdx)) next.delete(lineIdx);
@@ -1007,7 +1016,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               <EyeOff className="h-3 w-3" />
               {lineIdx + 1}번째 줄 (클릭하여 보기)
             </span>
-            {lineIdx < targetLines.length - 1 && <span>{"\n"}</span>}
+            <span>{"\n"}</span>
           </span>
         );
       }
