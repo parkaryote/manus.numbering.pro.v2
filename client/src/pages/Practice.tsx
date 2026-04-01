@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
-import { ArrowLeft, Circle, Image as ImageIcon, Table2 } from "lucide-react";
+import { ArrowLeft, Circle, Image as ImageIcon, Table2, Eye, EyeOff, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { splitGraphemes, isPartialMatch, isHangul, decomposeHangul } from "@/lib/hangul";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
@@ -57,6 +57,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showDamageNumber, setShowDamageNumber] = useState(false);
   const [damageValue, setDamageValue] = useState(0);
+  // 답 가리기 상태: 'none' | 'all' | 'line' (문장별)
+  const [hideMode, setHideMode] = useState<'none' | 'all' | 'line'>('none');
+  const [hiddenLines, setHiddenLines] = useState<Set<number>>(new Set());
+  // 학습 제안 상태
+  const [showStudySuggestion, setShowStudySuggestion] = useState(false);
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
   // 이미지 컨테이너 높이 추적 (메모장 높이 동기화)
   useEffect(() => {
     if (!imageContainerRef.current) return;
@@ -400,6 +406,30 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return practiceCount;
   }, [practiceCount]);
 
+  // 학습 제안 로직: 연습 횟수에 따라 시험 추천
+  const totalPracticeCount = (practiceCountData?.count || 0) + practiceCount;
+  const studySuggestion = useMemo(() => {
+    const conf = confidenceData?.displayScore ?? 0;
+    const total = totalPracticeCount;
+    
+    // 아직 연습 안 함
+    if (total === 0) return null;
+    
+    // 안정도 80% 이상: 완벽 암기
+    if (conf >= 80) return { type: 'mastered' as const, message: '완벽하게 암기했습니다! 테스트로 확인해보세요.' };
+    
+    // 연습 3회 이상 + 안정도 50% 이상: 시험 추천
+    if (total >= 3 && conf >= 50) return { type: 'test_ready' as const, message: `${total}회 연습 완료! 백지복습 시험으로 확인해보세요.` };
+    
+    // 연습 5회 이상 + 안정도 낮음: 답 가리고 연습 추천
+    if (total >= 5 && conf < 50) return { type: 'hide_practice' as const, message: '답을 가리고 연습해보세요! Tab을 누르면 답이 가려집니다.' };
+    
+    // 연습 2회: 답 가리기 안내
+    if (total >= 2 && total < 5) return { type: 'hint' as const, message: `${5 - total}회 더 연습하면 시험을 추천해드립니다. Tab으로 답 가리기도 시도해보세요!` };
+    
+    return null;
+  }, [totalPracticeCount, confidenceData?.displayScore]);
+
   const toggleShortcutHelp = () => {
     const newValue = !showShortcutHelp;
     setShowShortcutHelp(newValue);
@@ -441,6 +471,33 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             textareaRef.current.setSelectionRange(inputHistory[newIndex].length, inputHistory[newIndex].length);
           }
         }, 0);
+      }
+      return;
+    }
+    
+    // Tab: 답 가리기 토글 (입력창에서도 동작, 기본 Tab 동작 차단)
+    if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.shiftKey) {
+        // Shift+Tab: 문장별 가리기 모드 토글
+        if (hideMode === 'line') {
+          setHideMode('none');
+          setHiddenLines(new Set());
+        } else {
+          setHideMode('line');
+          // 모든 줄 가리기로 시작
+          const lines = targetText.split('\n');
+          setHiddenLines(new Set(lines.map((_, i) => i)));
+        }
+      } else {
+        // Tab: 전체 가리기/보이기 토글
+        if (hideMode === 'all') {
+          setHideMode('none');
+          setHiddenLines(new Set());
+        } else {
+          setHideMode('all');
+        }
       }
       return;
     }
@@ -869,6 +926,35 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const lineOpacity = calculateLineOpacity[lineIdx] || 1;
       const isActiveLine = lineIdx === activeLineIdx;
       
+      // 답 가리기 체크
+      const isLineHidden = hideMode === 'all' || (hideMode === 'line' && hiddenLines.has(lineIdx));
+      
+      if (isLineHidden) {
+        // 가려진 줄: 클릭하면 해당 줄만 보이기 (문장별 모드에서)
+        return (
+          <span
+            key={`line-${lineIdx}`}
+            className="inline-block cursor-pointer select-none group"
+            onClick={() => {
+              if (hideMode === 'line') {
+                setHiddenLines(prev => {
+                  const next = new Set(prev);
+                  if (next.has(lineIdx)) next.delete(lineIdx);
+                  else next.add(lineIdx);
+                  return next;
+                });
+              }
+            }}
+          >
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted/60 rounded text-muted-foreground/50 text-sm hover:bg-muted transition-colors">
+              <EyeOff className="h-3 w-3" />
+              {lineIdx + 1}번째 줄 (클릭하여 보기)
+            </span>
+            {lineIdx < targetLines.length - 1 && <span>{"\n"}</span>}
+          </span>
+        );
+      }
+      
       const chars = line.split('');
       let charIdx = 0; // 띄어쓰기 제외한 글자 인덱스
       
@@ -971,7 +1057,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       
       return <span key={`line-${lineIdx}`} className={lineClass}>{renderedChars}</span>;
     });
-  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity]);
+  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines]);
 
   if (isLoading) {
     return (
@@ -1061,13 +1147,105 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </div>
       )}
 
+      {/* 학습 제안 배너 */}
+      {studySuggestion && !isImageQuestion && (
+        <div className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg text-sm ${
+          studySuggestion.type === 'mastered' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20' :
+          studySuggestion.type === 'test_ready' ? 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/20' :
+          studySuggestion.type === 'hide_practice' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' :
+          'bg-muted/50 text-muted-foreground border border-border'
+        }`}>
+          <div className="flex items-center gap-2">
+            <Zap className="h-4 w-4 flex-shrink-0" />
+            <span>{studySuggestion.message}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {(studySuggestion.type === 'test_ready' || studySuggestion.type === 'mastered') && question && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1"
+                onClick={() => setLocation(`/test/${question.id}`)}
+              >
+                백지복습 시험
+              </Button>
+            )}
+            {studySuggestion.type === 'hide_practice' && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1"
+                onClick={() => {
+                  setHideMode('all');
+                }}
+              >
+                <EyeOff className="h-3 w-3" />
+                답 가리기
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       <Card className={isImageQuestion ? 'shadow-none border-0' : 'shadow-elegant'}>
         {!isImageQuestion && (
           <CardHeader>
-            <CardTitle>{question.question}</CardTitle>
-            <CardDescription>
-              {isTableQuestion ? "표의 연습 셀을 타이핑하세요 (Tab/Enter로 다음 칸으로 이동)" : "정답을 따라 입력하세요 (띄어쓰기 무시)"}
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>{question.question}</CardTitle>
+                <CardDescription>
+                  {isTableQuestion ? "표의 연습 셀을 타이핑하세요 (Tab/Enter로 다음 칸으로 이동)" : "정답을 따라 입력하세요 (띄어쓰기 무시)"}
+                </CardDescription>
+              </div>
+              {!isTableQuestion && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`h-8 gap-1.5 text-xs ${hideMode !== 'none' ? 'bg-amber-500/10 text-amber-600' : ''}`}
+                    onClick={() => {
+                      if (hideMode === 'all') {
+                        setHideMode('none');
+                        setHiddenLines(new Set());
+                      } else {
+                        setHideMode('all');
+                      }
+                    }}
+                    title="Tab으로도 토글 가능"
+                  >
+                    {hideMode !== 'none' ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                    {hideMode !== 'none' ? '답 보기' : '답 가리기'}
+                  </Button>
+                  {hideMode === 'none' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5 text-xs"
+                      onClick={() => {
+                        setHideMode('line');
+                        const lines = targetText.split('\n');
+                        setHiddenLines(new Set(lines.map((_, i) => i)));
+                      }}
+                      title="Shift+Tab으로도 토글 가능"
+                    >
+                      <EyeOff className="h-3.5 w-3.5" />
+                      문장별
+                    </Button>
+                  )}
+                  {question && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5 text-xs"
+                      onClick={() => setLocation(`/test/${question.id}`)}
+                    >
+                      <Zap className="h-3.5 w-3.5" />
+                      백지시험
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
           </CardHeader>
         )}
         <CardContent className={isImageQuestion ? 'p-0 space-y-2' : 'space-y-6'}>
@@ -1359,7 +1537,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Alt</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 단어 삭제</span>
                 <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 문장 삭제</span>
                 <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">A</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 전체 삭제</span>
-                {isImageQuestion && <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Tab</kbd> 가림막 전체 표시/제거</span>}
+                <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Tab</kbd> 답 가리기/보기</span>
+                <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Tab</kbd> 문장별 가리기</span>
                 <button onClick={toggleShortcutHelp} className="text-muted-foreground/50 hover:text-muted-foreground underline">숨기기</button>
               </div>
             )}
