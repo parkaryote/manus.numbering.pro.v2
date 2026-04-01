@@ -955,9 +955,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const completionInfo = useMemo(() => {
     // 줄 단위로 분리
     const userLines = userInput.split('\n');
-    // 반복 모드에서는 현재 체크된 줄의 텍스트만 단일 줄로 비교
-    const effectiveTargetText = isRepeatMode && currentRepeatTarget ? currentRepeatTarget.text : targetText;
-    const targetLines = effectiveTargetText.split('\n');
+    // 반복 모드에서도 전체 정답을 다 보여주되, 체크된 줄만 따로 체점
+    const targetLines = targetText.split('\n');
     
     // 각 줄별 채점 정보
     const lineResults: Array<{
@@ -1024,7 +1023,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const currentLineIndex = currentCursorLineIndex;
     
     return { lineResults, currentLineIndex, userLines, targetLines };
-  }, [userInput, targetText, renderTrigger, currentCursorLineIndex, isRepeatMode, currentRepeatTarget]);
+  }, [userInput, targetText, renderTrigger, currentCursorLineIndex]);
 
   // 실시간 단어 뷰: 줄 단위 opacity 계산
   const calculateLineOpacity = useMemo(() => {
@@ -1044,16 +1043,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 한컴타자연습 스타일 렌더링 (줄 단위 비교)
   const renderTextWithFeedback = useMemo(() => {
     const { lineResults, currentLineIndex: activeLineIdx } = completionInfo;
-    // 반복 모드에서는 현재 체크된 줄만 표시
-    const effectiveTargetText = isRepeatMode && currentRepeatTarget ? currentRepeatTarget.text : targetText;
-    const targetLines = effectiveTargetText.split('\n');
-    
-    // 반복 모드에서 체크박스 표시를 위한 원래 전체 줄 목록
-    const allTargetLines = targetText.split('\n');
+    // 전체 정답을 항상 표시 (반복 모드에서도 동일)
+    const targetLines = targetText.split('\n');
     
     return targetLines.map((line, lineIdx) => {
-      // 반복 모드에서는 체크박스용 실제 줄 인덱스 (currentRepeatTarget.lineIdx)
-      const actualLineIdx = isRepeatMode && currentRepeatTarget ? currentRepeatTarget.lineIdx : lineIdx;
+      const actualLineIdx = lineIdx;
       const lineResult = lineResults[lineIdx];
       const lineOpacity = calculateLineOpacity[lineIdx] || 1;
       const isActiveLine = lineIdx === activeLineIdx;
@@ -1187,12 +1181,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         ? (isFadingOut ? "text-gray-600 transition-colors duration-300" : "text-foreground")
         : (isFadingOut ? "text-gray-300 transition-colors duration-300" : "text-foreground");
       
-      // 반복 모드에서는 actualLineIdx 기준으로 체크박스 표시
+      // 체크된 줄 하이라이트
       const isChecked = repeatCheckedLines.has(actualLineIdx);
       const isCurrentRepeat = isRepeatMode && currentRepeatTarget?.lineIdx === actualLineIdx;
-      const lineHighlight = isCurrentRepeat ? 'bg-purple-100/50 dark:bg-purple-900/30 rounded px-1 -mx-1' : '';
-      // 체크박스는 원래 전체 줄 수가 2줄 이상일 때만 표시
-      const showCheckbox = allTargetLines.length > 1 && hideMode === 'none';
+      // 체크된 줄: 연한 노란 하이라이트 / 현재 반복 중인 줄: 진한 노란
+      const lineHighlight = isCurrentRepeat
+        ? 'bg-yellow-200/80 dark:bg-yellow-700/50 rounded px-1 -mx-1'
+        : isChecked
+        ? 'bg-yellow-100/60 dark:bg-yellow-900/30 rounded px-1 -mx-1'
+        : '';
+      // 체크박스는 전체 줄 수가 2줄 이상일 때만 표시
+      const showCheckbox = targetLines.length > 1 && hideMode === 'none';
 
        if (lineIdx < targetLines.length - 1) {
         return (
