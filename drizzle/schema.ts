@@ -63,6 +63,7 @@ export const questions = mysqlTable("questions", {
   displayOrder: int("displayOrder").default(0).notNull(),
   isDemo: int("isDemo").default(0).notNull(), // 0: 일반 문제, 1: 데모 문제
   isStarred: int("isStarred").default(0).notNull(), // 0: 미표시, 1: 별표 표시 (중요문제/빈출문제)
+  memo: text("memo"), // 암기법, 설명 등 사용자 메모 (연습장과 별도, DB에 영구 저장)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

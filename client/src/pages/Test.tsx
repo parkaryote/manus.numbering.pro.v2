@@ -58,12 +58,21 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const triggerConfidencePopup = useCallback((data: any) => {
     const prevScore = confidenceBefore;
     // 정답이면 +5~+10, 오답이면 -3~-5
-    const scoreChange = data.isCorrect ? (5 + Math.floor((data.similarityScore || 0) / 20)) : -(3 + Math.floor((100 - (data.similarityScore || 0)) / 30));
+    let scoreChange = data.isCorrect ? (5 + Math.floor((data.similarityScore || 0) / 20)) : -(3 + Math.floor((100 - (data.similarityScore || 0)) / 30));
+    
+    // 속도 보너스: 빠르게 입력하면 추가 점수
+    if (data.isCorrect && recallTime > 0) {
+      if (recallTime <= 10) scoreChange += 5;
+      else if (recallTime <= 20) scoreChange += 3;
+      else if (recallTime <= 30) scoreChange += 2;
+      else if (recallTime <= 45) scoreChange += 1;
+    }
+    
     const newScore = Math.max(0, Math.min(100, prevScore + scoreChange));
     setConfidenceBefore(prevScore);
     setConfidenceAfter(newScore);
     setShowConfidencePopup(true);
-  }, [confidenceBefore]);
+  }, [confidenceBefore, recallTime]);
 
   const evaluateMutation = trpc.test.evaluate.useMutation({
     onSuccess: async (data: any) => {
@@ -853,6 +862,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                     <div className="text-center p-4 bg-muted/30 rounded-lg">
                       <p className="text-3xl font-bold">{formatTime(recallTime)}</p>
                       <p className="text-sm text-muted-foreground mt-1">회상 시간</p>
+                      {tableScore && tableScore.score === tableScore.total && recallTime > 0 && recallTime <= 45 && (
+                        <p className="text-xs font-bold text-emerald-500 mt-1">
+                          ⚡ 속도 보너스 +{recallTime <= 10 ? 5 : recallTime <= 20 ? 3 : recallTime <= 30 ? 2 : 1}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="space-y-3">
@@ -888,6 +902,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-3xl font-bold">{formatTime(recallTime)}</p>
                   <p className="text-sm text-muted-foreground mt-1">회상 시간</p>
+                  {result?.isCorrect && recallTime > 0 && recallTime <= 45 && (
+                    <p className="text-xs font-bold text-emerald-500 mt-1">
+                      ⚡ 속도 보너스 +{recallTime <= 10 ? 5 : recallTime <= 20 ? 3 : recallTime <= 30 ? 2 : 1}
+                    </p>
+                  )}
                 </div>
               </div>
 

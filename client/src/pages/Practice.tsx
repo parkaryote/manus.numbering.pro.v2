@@ -3,7 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
-import { ArrowLeft, Circle, Image as ImageIcon, Table2, Eye, EyeOff, Zap } from "lucide-react";
+import { ArrowLeft, Circle, Image as ImageIcon, Table2, Eye, EyeOff, Zap, StickyNote, Pencil, Repeat, Save, X, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { splitGraphemes, isPartialMatch, isHangul, decomposeHangul } from "@/lib/hangul";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
@@ -63,6 +64,20 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 학습 제안 상태
   const [showStudySuggestion, setShowStudySuggestion] = useState(false);
   const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+  // 메모 (암기법/설명 - 영구 저장, 연습장과 구분)
+  const [memo, setMemo] = useState('');
+  const [memoOpen, setMemoOpen] = useState(false);
+  const [memoSaving, setMemoSaving] = useState(false);
+  const [memoSaved, setMemoSaved] = useState(false);
+  // 줄 반복 연습
+  const [repeatLineIdx, setRepeatLineIdx] = useState<number | null>(null);
+  const [repeatCount, setRepeatCount] = useState(0);
+  const [repeatInput, setRepeatInput] = useState('');
+  const repeatTextareaRef = useRef<HTMLTextAreaElement>(null);
+  // 문제 수정 모드
+  const [editMode, setEditMode] = useState(false);
+  const [editQuestion, setEditQuestion] = useState('');
+  const [editAnswer, setEditAnswer] = useState('');
   // 이미지 컨테이너 높이 추적 (메모장 높이 동기화)
   useEffect(() => {
     if (!imageContainerRef.current) return;
@@ -93,6 +108,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     { questionId },
     { enabled: !!questionId && !isDemo }
   );
+  const utils = trpc.useUtils();
   const createSession = trpc.practice.create.useMutation({
     onError: (error) => {
       // Silently ignore errors in demo mode
@@ -101,10 +117,31 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
     },
   });
+  const saveMemoMutation = trpc.questions.saveMemo.useMutation({
+    onSuccess: () => {
+      setMemoSaved(true);
+      setMemoSaving(false);
+      setTimeout(() => setMemoSaved(false), 2000);
+      utils.questions.getById.invalidate({ id: questionId });
+    },
+    onError: (error) => {
+      setMemoSaving(false);
+      toast.error('메모 저장 실패: ' + error.message);
+    },
+  });
+  const updateQuestionMutation = trpc.questions.update.useMutation({
+    onSuccess: () => {
+      toast.success('문제가 수정되었습니다');
+      setEditMode(false);
+      utils.questions.getById.invalidate({ id: questionId });
+    },
+    onError: (error) => {
+      toast.error('수정 실패: ' + error.message);
+    },
+  });
 
   // 페이지 언마운트 또는 돌아가기 시 자동으로 연습 기록 저장 (1회만)
   const hasBeenSaved = useRef(false);
-  const utils = trpc.useUtils();
   
   // 매 정답 시 handleCorrectAnswer에서 즉시 DB 저장하므로 별도의 savePracticeSession 불필요
   const savePracticeSession = async () => {
@@ -137,6 +174,55 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const targetText = question?.answer || "";
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+
+  // 메모 초기화: question 로드 시 DB에서 가져오기
+  useEffect(() => {
+    if (question?.memo) {
+      setMemo(question.memo);
+    } else {
+      setMemo('');
+    }
+  }, [question?.id, question?.memo]);
+
+  // 메모 저장 핸들러
+  const handleSaveMemo = () => {
+    if (!question || isDemo) return;
+    setMemoSaving(true);
+    saveMemoMutation.mutate({ id: question.id, memo: memo || null });
+  };
+
+  // 줄 반복 연습 시작
+  const startRepeatLine = (lineIdx: number) => {
+    setRepeatLineIdx(lineIdx);
+    setRepeatCount(0);
+    setRepeatInput('');
+    setTimeout(() => repeatTextareaRef.current?.focus(), 100);
+  };
+
+  // 줄 반복 연습 종료
+  const stopRepeatLine = () => {
+    setRepeatLineIdx(null);
+    setRepeatCount(0);
+    setRepeatInput('');
+  };
+
+  // 문제 수정 모드 시작
+  const startEditMode = () => {
+    if (!question) return;
+    setEditQuestion(question.question);
+    setEditAnswer(question.answer || '');
+    setEditMode(true);
+  };
+
+  // 문제 수정 저장
+  const handleSaveEdit = () => {
+    if (!question || isDemo) return;
+    updateQuestionMutation.mutate({
+      id: question.id,
+      question: editQuestion,
+      answer: editAnswer,
+    });
+  };
 
   // 메모장에 미리 줄바꿈 채워넣기 (줄이 그어진 연습장처럼 어디서나 클릭 시 바로 입력 가능)
   useEffect(() => {
@@ -766,36 +852,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       localStorage.setItem(storageKey, String(currentCount + 1));
     }
     
-    // 정답 일치 시 즉시 DB에 저장하여 누적 연습 수 실시간 갱신 (매번 저장)
-    if (question && elapsedTime > 0) {
-      try {
-        const timeInMinutes = elapsedTime / 60;
-        const inputLength = currentInputLength !== undefined ? currentInputLength : userInput.length;
-        const speed = timeInMinutes > 0 ? Math.round(inputLength / timeInMinutes) : 0;
-        
-        // 정답 일치 시 즉시 세션 저장 (비동기로 백그라운드에서 진행)
-        if (!isDemo) {
-          createSession.mutateAsync({
-            questionId: question.id,
-            duration: elapsedTime,
-            typingSpeed: speed,
-            accuracy: 100,
-            errorCount: 0,
-          }).then(() => {
-            // 저장 완료 후 누적 연습 수 직접 증가 (fetch 없이 즉시 반영)
-            utils.practice.countByQuestion.setData(
-              { questionId: question.id },
-              (old) => old ? { count: old.count + 1 } : { count: 1 }
-            );
-            // 저장 완료 표시 (페이지 나갈 때 중복 저장 방지)
-            hasBeenSaved.current = true;
-          });
-        }
-      } catch (error) {
-        console.error("정답 기록 저장 실패:", error);
-      }
-    }
-    
     // 0.7초 delay 후 글자 색상 fade out 시작
     setTimeout(() => {
       setIsFadingOut(true);
@@ -1048,16 +1104,38 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       
        if (lineIdx < targetLines.length - 1) {
         return (
-          <span key={`line-${lineIdx}`} className={lineClass}>
+          <span key={`line-${lineIdx}`} className={`${lineClass} group/line relative`}>
             {renderedChars}
+            {targetLines.length > 1 && hideMode === 'none' && (
+              <button
+                onClick={(e) => { e.stopPropagation(); startRepeatLine(lineIdx); }}
+                className="inline-flex items-center ml-1 opacity-0 group-hover/line:opacity-100 transition-opacity text-purple-400 hover:text-purple-600"
+                title={`${lineIdx + 1}번째 줄 반복 연습`}
+              >
+                <Repeat className="h-3 w-3" />
+              </button>
+            )}
             <span className="text-muted-foreground">{"\n"}</span>
           </span>
         );
       }
       
-      return <span key={`line-${lineIdx}`} className={lineClass}>{renderedChars}</span>;
+      return (
+        <span key={`line-${lineIdx}`} className={`${lineClass} group/line relative`}>
+          {renderedChars}
+          {targetLines.length > 1 && hideMode === 'none' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); startRepeatLine(lineIdx); }}
+              className="inline-flex items-center ml-1 opacity-0 group-hover/line:opacity-100 transition-opacity text-purple-400 hover:text-purple-600"
+              title={`${lineIdx + 1}번째 줄 반복 연습`}
+            >
+              <Repeat className="h-3 w-3" />
+            </button>
+          )}
+        </span>
+      );
     });
-  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines]);
+  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines, repeatLineIdx]);
 
   if (isLoading) {
     return (
@@ -1243,12 +1321,182 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       백지시험
                     </Button>
                   )}
+                  {!isDemo && question && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`h-8 gap-1.5 text-xs ${memoOpen ? 'bg-blue-500/10 text-blue-600' : ''}`}
+                      onClick={() => setMemoOpen(!memoOpen)}
+                      title="암기법/설명 메모 (영구 저장)"
+                    >
+                      <StickyNote className="h-3.5 w-3.5" />
+                      메모
+                    </Button>
+                  )}
+                  {!isDemo && question && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`h-8 gap-1.5 text-xs ${editMode ? 'bg-orange-500/10 text-orange-600' : ''}`}
+                      onClick={() => editMode ? setEditMode(false) : startEditMode()}
+                      title="문제/답안 수정"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      수정
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
           </CardHeader>
         )}
         <CardContent className={isImageQuestion ? 'p-0 space-y-2' : 'space-y-6'}>
+          {/* 메모 패널 - 연습장과 명확히 구분 */}
+          {memoOpen && !isImageQuestion && (
+            <div className="rounded-lg border-2 border-blue-300 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-700 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <StickyNote className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">암기법 / 설명 메모</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-200/60 dark:bg-blue-800/40 text-blue-600 dark:text-blue-400">영구 저장</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {memoSaved && <span className="text-xs text-emerald-600">✓ 저장됨</span>}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1 border-blue-300 text-blue-700 hover:bg-blue-100"
+                    onClick={handleSaveMemo}
+                    disabled={memoSaving}
+                  >
+                    <Save className="h-3 w-3" />
+                    {memoSaving ? '저장 중...' : '저장'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0"
+                    onClick={() => setMemoOpen(false)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+              <textarea
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                placeholder="암기법, 연상 기억법, 설명 등을 적어두세요. 연습장과 달리 이 내용은 영구적으로 저장됩니다."
+                className="w-full min-h-[80px] p-3 rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-950/30 resize-y text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+          )}
+
+          {/* 인라인 문제 편집 모드 */}
+          {editMode && !isImageQuestion && (
+            <div className="rounded-lg border-2 border-orange-300 bg-orange-50/50 dark:bg-orange-950/20 dark:border-orange-700 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Pencil className="h-4 w-4 text-orange-600" />
+                  <span className="text-sm font-semibold text-orange-700 dark:text-orange-400">문제 수정</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1 border-orange-300 text-orange-700 hover:bg-orange-100"
+                    onClick={handleSaveEdit}
+                    disabled={updateQuestionMutation.isPending}
+                  >
+                    <Check className="h-3 w-3" />
+                    {updateQuestionMutation.isPending ? '저장 중...' : '저장'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0"
+                    onClick={() => setEditMode(false)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div>
+                  <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">문제</label>
+                  <input
+                    type="text"
+                    value={editQuestion}
+                    onChange={(e) => setEditQuestion(e.target.value)}
+                    className="w-full p-2 rounded-md border border-orange-200 dark:border-orange-700 bg-white dark:bg-orange-950/30 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">답안</label>
+                  <textarea
+                    value={editAnswer}
+                    onChange={(e) => setEditAnswer(e.target.value)}
+                    className="w-full min-h-[120px] p-2 rounded-md border border-orange-200 dark:border-orange-700 bg-white dark:bg-orange-950/30 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-orange-400 font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 줄 반복 연습 패널 */}
+          {repeatLineIdx !== null && !isImageQuestion && (
+            <div className="rounded-lg border-2 border-purple-300 bg-purple-50/50 dark:bg-purple-950/20 dark:border-purple-700 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Repeat className="h-4 w-4 text-purple-600" />
+                  <span className="text-sm font-semibold text-purple-700 dark:text-purple-400">
+                    {repeatLineIdx + 1}번째 줄 반복 연습
+                  </span>
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-purple-200/60 dark:bg-purple-800/40 text-purple-600 dark:text-purple-400 font-bold">
+                    {repeatCount}회 완료
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0"
+                  onClick={stopRepeatLine}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <div className="text-sm p-2 rounded bg-purple-100/50 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 font-medium">
+                {targetText.split('\n')[repeatLineIdx]}
+              </div>
+              <textarea
+                ref={repeatTextareaRef}
+                value={repeatInput}
+                onChange={(e) => {
+                  const newVal = e.target.value;
+                  setRepeatInput(newVal);
+                  // 정답 일치 확인
+                  const targetLine = targetText.split('\n')[repeatLineIdx!] || '';
+                  const normalizedInput = newVal.replace(/\s/g, '');
+                  const normalizedTarget = targetLine.replace(/\s/g, '');
+                  if (normalizedInput === normalizedTarget && normalizedInput.length > 0) {
+                    setRepeatCount(prev => prev + 1);
+                    setTimeout(() => {
+                      setRepeatInput('');
+                      repeatTextareaRef.current?.focus();
+                    }, 300);
+                  }
+                }}
+                placeholder="위 문장을 따라 입력하세요..."
+                className="w-full min-h-[48px] p-3 rounded-md border border-purple-200 dark:border-purple-700 bg-white dark:bg-purple-950/30 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-400"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    stopRepeatLine();
+                  }
+                }}
+              />
+            </div>
+          )}
+
           {isTableQuestion && tableData ? (
             /* Table question */
             <div className="space-y-4">

@@ -42,6 +42,7 @@ export interface TestSignal {
   mostRecentTestAt: Date | null;
   recentCorrectStreak: number;
   mostRecentTestWasPoor: boolean; // similarityScore < 50 or isCorrect === 0
+  averageRecallTime?: number; // 평균 회상 시간(초) - 빠른 입력 보너스용
 }
 
 export interface ConfidenceInput {
@@ -72,6 +73,7 @@ export interface ScoreBreakdown {
   testAccuracyScore: number;
   testCorrectnessBonus: number;
   recentStreakScore: number;
+  speedBonus: number;
   forgettingPenalty: number;
   wrongPenalty: number;
   recentPoorPenalty: number;
@@ -132,6 +134,7 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
         testAccuracyScore: 0,
         testCorrectnessBonus: 0,
         recentStreakScore: 0,
+        speedBonus: 0,
         forgettingPenalty: 0,
         wrongPenalty: 0,
         recentPoorPenalty: 0,
@@ -154,6 +157,17 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
   const testCorrectnessBonus = Math.min(test.correctCount * 4, 12);
   const recentStreakScore = Math.min(test.recentCorrectStreak * 4, 8);
 
+  // Speed bonus: fast recall earns extra points (max 8)
+  // Under 10s = 8pts, under 20s = 5pts, under 30s = 3pts, under 45s = 1pt
+  let speedBonus = 0;
+  if (test.testCount > 0 && test.averageRecallTime !== undefined) {
+    const avgTime = test.averageRecallTime;
+    if (avgTime <= 10) speedBonus = 8;
+    else if (avgTime <= 20) speedBonus = 5;
+    else if (avgTime <= 30) speedBonus = 3;
+    else if (avgTime <= 45) speedBonus = 1;
+  }
+
   // C. Forgetting penalty
   const forgettingPenalty = computeForgettingPenalty(
     practice.mostRecentPracticeAt,
@@ -172,7 +186,8 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
     testExposureScore +
     testAccuracyScore +
     testCorrectnessBonus +
-    recentStreakScore -
+    recentStreakScore +
+    speedBonus -
     forgettingPenalty -
     wrongPenalty -
     recentPoorPenalty,
@@ -214,6 +229,7 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
       testAccuracyScore,
       testCorrectnessBonus,
       recentStreakScore,
+      speedBonus,
       forgettingPenalty,
       wrongPenalty,
       recentPoorPenalty,

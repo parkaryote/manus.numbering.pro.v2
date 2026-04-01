@@ -305,6 +305,8 @@ export const appRouter = router({
         autoNumbering: z.number().optional(),
         tableData: z.string().optional(),
         isDemo: z.number().optional(), // 0 or 1
+        isStarred: z.number().optional(), // 0 or 1
+        memo: z.string().nullable().optional(), // 암기법/설명 메모
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
@@ -346,6 +348,18 @@ export const appRouter = router({
         return db.moveQuestion(input.questionId, input.targetSubjectId);
       }),
     
+    saveMemo: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        memo: z.string().nullable(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const question = await db.getQuestionById(input.id);
+        if (!question) throw new TRPCError({ code: 'NOT_FOUND' });
+        if (question.userId !== ctx.user.id) throw new TRPCError({ code: 'FORBIDDEN' });
+        return db.updateQuestion(input.id, { memo: input.memo });
+      }),
+
     toggleStar: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -1325,6 +1339,10 @@ ${input.userAnswer}
           ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50)
           : false;
 
+        const avgRecallTime = qTests.length > 0
+          ? qTests.reduce((sum, t) => sum + (t.recallTime || 0), 0) / qTests.length
+          : undefined;
+
         const testSignal: TestSignal = {
           testCount: qTests.length,
           correctCount: correctTests.length,
@@ -1333,6 +1351,7 @@ ${input.userAnswer}
           mostRecentTestAt: sortedTests.length > 0 ? new Date(sortedTests[0].completedAt) : null,
           recentCorrectStreak,
           mostRecentTestWasPoor,
+          averageRecallTime: avgRecallTime,
         };
 
         const confidence = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
@@ -1341,6 +1360,7 @@ ${input.userAnswer}
           state: confidence.state,
           label: confidence.label,
           isColdStart: confidence.isColdStart,
+          breakdown: confidence.breakdown,
         };
       }),
     // 과목별 문제 안정도 점수 조회
@@ -1392,6 +1412,9 @@ ${input.userAnswer}
             ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50)
             : false;
 
+           const avgRecallTime = qTests.length > 0
+            ? qTests.reduce((sum, t) => sum + (t.recallTime || 0), 0) / qTests.length
+            : undefined;
           const testSignal: TestSignal = {
             testCount: qTests.length,
             correctCount: correctTests.length,
@@ -1402,8 +1425,8 @@ ${input.userAnswer}
               : null,
             recentCorrectStreak,
             mostRecentTestWasPoor,
+            averageRecallTime: avgRecallTime,
           };
-
           const confidence = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
           results.push({ questionId: qId, confidence });
         }
