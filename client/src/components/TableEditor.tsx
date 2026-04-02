@@ -591,6 +591,7 @@ interface TableViewProps {
   onCellActivate?: (key: string) => void; // 셀 클릭 시 활성화
   onCellCheck?: (key: string) => void; // 셀 체크박스 토글
   partialInput?: string; // 현재 입력 중인 텍스트 (채점 시각화용)
+  cellSubmittedResult?: 'correct' | 'wrong' | null; // 입력 제출 후 채점 결과 (null이면 채점 표시 안 함)
 }
 
 export function TableView({
@@ -609,6 +610,7 @@ export function TableView({
   onCellCheck,
   onCellActivate,
   partialInput = '',
+  cellSubmittedResult = null,
 }: TableViewProps) {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const blankCells = getBlankCells(tableData);
@@ -686,7 +688,6 @@ export function TableView({
                       overflowWrap: 'break-word',
                       whiteSpace: 'pre-wrap',
                       verticalAlign: 'top',
-                      backgroundColor: isFocusCell ? 'oklch(0.55 0.2 290 / 0.07)' : undefined,
                     }}
                   >
                     {/* 하단 입력창 모드: 빈칸 셀에 코너 플래그 + 채점 시각화 */}
@@ -704,46 +705,52 @@ export function TableView({
                             title="집중 연습 선택됨"
                           />
                         )}
-                        {/* 채점 시각화: 활성 셀 - 텍스트 문제와 동일한 방식 */}
+                        {/* 채점 시각화: 활성 셀 - 제출(Enter) 후에만 색상 표시 */}
                         {isActiveCell && !isCompleted && (
                           <div className="text-sm font-semibold cursor-text">
-                            {(() => {
-                              const norm = (s: string) => s.replace(/\s+/g, '');
-                              const target = cell.content;
-                              const input = norm(partialInput);
-                              let inputIdx = 0;
-                              return target.split('').map((ch, i) => {
-                                if (ch === ' ' || ch === '\n') {
-                                  return <span key={i}>{ch}</span>;
-                                }
-                                if (inputIdx < input.length) {
-                                  const correct = input[inputIdx] === norm(ch);
+                            {cellSubmittedResult === 'correct' ? (
+                              // 정답: 초록색
+                              <span className="text-emerald-600">{cell.content}</span>
+                            ) : cellSubmittedResult === 'wrong' ? (
+                              // 오답: 제출된 입력값을 문자별로 비교해서 표시
+                              (() => {
+                                const norm = (s: string) => s.replace(/\s+/g, '');
+                                const target = cell.content;
+                                const input = norm(partialInput);
+                                let inputIdx = 0;
+                                return target.split('').map((ch, i) => {
+                                  if (ch === ' ' || ch === '\n') {
+                                    return <span key={i}>{ch}</span>;
+                                  }
+                                  if (inputIdx < input.length) {
+                                    const correct = input[inputIdx] === norm(ch);
+                                    inputIdx++;
+                                    return <span key={i} className={correct ? 'text-foreground' : 'text-red-500'}>{ch}</span>;
+                                  }
                                   inputIdx++;
-                                  return <span key={i} className={correct ? 'text-foreground' : 'text-red-500'}>{ch}</span>;
-                                }
-                                inputIdx++;
-                                return <span key={i} className="text-slate-300">{ch}</span>;
-                              });
-                            })()}
+                                  return <span key={i} className="text-slate-300">{ch}</span>;
+                                });
+                              })()
+                            ) : (
+                              // 입력 중: 색상 변화 없이 회색으로 표시
+                              <span className="text-slate-300">{cell.content}</span>
+                            )}
                           </div>
                         )}
                         {/* 완성 셀 - 텍스트 문제처럼 검정색 */}
                         {isCompleted && (
                           <div className="text-sm font-semibold text-foreground">{cell.content}</div>
                         )}
-                        {/* 미입력 셀 - 클릭으로 활성화 + 집중 연습 선택/해제 */}
+                        {/* 미입력 셀 - 단일 클릭으로 셀 이동, 더블 클릭으로 집중 연습 토글 */}
                         {!isActiveCell && !isCompleted && (
                           <div
-                            className={`text-sm cursor-pointer transition-colors ${
-                              isCellChecked
-                                ? 'text-slate-500 hover:text-slate-600'
-                                : 'text-slate-300 hover:text-slate-400'
-                            }`}
+                            className="text-sm cursor-pointer text-slate-300 hover:text-slate-400 transition-colors"
                             onClick={(e) => {
-                              // 연속 클릭: 더블 클릭은 집중 연습 토글
                               if (e.detail === 2) {
+                                // 더블 클릭: 집중 연습 토글
                                 onCellCheck?.(cellKey);
                               } else {
+                                // 단일 클릭: 해당 셀로 이동
                                 onCellActivate?.(cellKey);
                               }
                             }}
@@ -751,7 +758,7 @@ export function TableView({
                               e.preventDefault();
                               onCellCheck?.(cellKey);
                             }}
-                            title={isCellChecked ? '더블클릭: 집중 연습 해제 / 단일클릭: 이 셀 연습' : '더블클릭: 집중 연습 선택 / 단일클릭: 이 셀 연습'}
+                            title="클릭: 이 셀 연습 / 더블클릭: 집중 연습 토글"
                           >{cell.content}</div>
                         )}
                       </>
