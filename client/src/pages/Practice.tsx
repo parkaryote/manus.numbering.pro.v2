@@ -1152,36 +1152,37 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       
       if (isLineHidden) {
         // 가려진 줄: 클릭하면 해당 줄만 보이기
+        const revealLine = (e: React.MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (hideMode === 'all') {
+            setHiddenLines(prev => {
+              const next = new Set(prev);
+              if (next.has(lineIdx)) next.delete(lineIdx);
+              else next.add(lineIdx);
+              return next;
+            });
+          } else if (hideMode === 'line') {
+            setHiddenLines(prev => {
+              const next = new Set(prev);
+              if (next.has(lineIdx)) next.delete(lineIdx);
+              else next.add(lineIdx);
+              return next;
+            });
+          }
+        };
         return (
-          <span
+          <div
             key={`line-${lineIdx}`}
-            className="inline-block cursor-pointer select-none group"
-            onClick={() => {
-              if (hideMode === 'all') {
-                // 전체 가리기 모드: 클릭한 줄만 임시로 보이기 (hiddenLines에 추가)
-                setHiddenLines(prev => {
-                  const next = new Set(prev);
-                  if (next.has(lineIdx)) next.delete(lineIdx);
-                  else next.add(lineIdx);
-                  return next;
-                });
-              } else if (hideMode === 'line') {
-                // 문장별 가리기 모드: 줄 토글
-                setHiddenLines(prev => {
-                  const next = new Set(prev);
-                  if (next.has(lineIdx)) next.delete(lineIdx);
-                  else next.add(lineIdx);
-                  return next;
-                });
-              }
-            }}
+            className="block cursor-pointer select-none group my-0.5"
+            onClick={revealLine}
+            onMouseDown={(e) => e.preventDefault()} // 포커스 이동 방지
           >
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted/60 rounded text-muted-foreground/50 text-sm hover:bg-muted transition-colors">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted/60 rounded text-muted-foreground/50 text-sm hover:bg-muted hover:text-muted-foreground transition-colors">
               <EyeOff className="h-3 w-3" />
               {lineIdx + 1}번째 줄 (클릭하여 보기)
             </span>
-            <span>{"\n"}</span>
-          </span>
+          </div>
         );
       }
       
@@ -1553,45 +1554,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           </CardHeader>
         )}
         <CardContent className={isImageQuestion ? 'p-0 space-y-2' : 'space-y-6'}>
-          {/* 메모 패널 - 연습장과 명확히 구분 */}
-          {memoOpen && !isImageQuestion && (
-            <div className="rounded-lg border-2 border-blue-300 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-700 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <StickyNote className="h-4 w-4 text-blue-600" />
-                  <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">암기법 / 설명 메모</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-200/60 dark:bg-blue-800/40 text-blue-600 dark:text-blue-400">영구 저장</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {memoSaved && <span className="text-xs text-emerald-600">✓ 저장됨</span>}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs gap-1 border-blue-300 text-blue-700 hover:bg-blue-100"
-                    onClick={handleSaveMemo}
-                    disabled={memoSaving}
-                  >
-                    <Save className="h-3 w-3" />
-                    {memoSaving ? '저장 중...' : '저장'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0"
-                    onClick={() => setMemoOpen(false)}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-              <textarea
-                value={memo}
-                onChange={(e) => setMemo(e.target.value)}
-                placeholder="암기법, 연상 기억법, 설명 등을 적어두세요. 연습장과 달리 이 내용은 영구적으로 저장됩니다."
-                className="w-full min-h-[80px] p-3 rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-950/30 resize-y text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
-            </div>
-          )}
+          {/* 메모 패널 - 정답 표시 영역과 2단 레이아웃으로 표시됨 (memoOpen 시) */}
 
           {/* 인라인 문제 편집 모드 */}
           {editMode && !isImageQuestion && (
@@ -1926,13 +1889,57 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           ) : (
             /* Text question with visual feedback */
             <>
-              <div 
-                ref={answerDisplayRef}
-                className="p-6 bg-muted/30 rounded-lg border-2 border-border max-h-[400px] overflow-y-auto"
-              >
-                <div className="leading-relaxed whitespace-pre-wrap">
-                  {renderTextWithFeedback}
+              {/* 메모 열린 경우: 정답 좌 / 메모 우 2단 레이아웃 */}
+              <div className={memoOpen ? "flex gap-4 items-stretch" : ""}>
+                <div
+                  ref={answerDisplayRef}
+                  className={`p-6 bg-muted/30 rounded-lg border-2 border-border overflow-y-auto ${memoOpen ? 'flex-1 max-h-[500px]' : 'max-h-[400px]'}`}
+                >
+                  <div className="leading-relaxed whitespace-pre-wrap">
+                    {renderTextWithFeedback}
+                  </div>
                 </div>
+
+                {/* 메모 패널 - 정답과 나란히 */}
+                {memoOpen && (
+                  <div className="flex-1 rounded-lg border-2 border-blue-300 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-700 p-4 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <StickyNote className="h-4 w-4 text-blue-600" />
+                        <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">암기법 / 설명 메모</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-200/60 dark:bg-blue-800/40 text-blue-600 dark:text-blue-400">영구 저장</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {memoSaved && <span className="text-xs text-emerald-600">✓ 저장됨</span>}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs gap-1 border-blue-300 text-blue-700 hover:bg-blue-100"
+                          onClick={handleSaveMemo}
+                          disabled={memoSaving}
+                        >
+                          <Save className="h-3 w-3" />
+                          {memoSaving ? '저장 중...' : '저장'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          onClick={() => setMemoOpen(false)}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <textarea
+                      value={memo}
+                      onChange={(e) => setMemo(e.target.value)}
+                      placeholder="암기법, 연상 기억법, 설명 등을 적어두세요. 연습장과 달리 이 내용은 영구적으로 저장됩니다."
+                      className="flex-1 w-full p-3 rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-950/30 resize-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      style={{ minHeight: '200px' }}
+                    />
+                  </div>
+                )}
               </div>
 
               <textarea

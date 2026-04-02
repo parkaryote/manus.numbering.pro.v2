@@ -40,6 +40,17 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [confidenceAfter, setConfidenceAfter] = useState(0);
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
+  const { data: confidenceData, refetch: refetchConfidence } = trpc.confidence.getByQuestion.useQuery(
+    { questionId },
+    { enabled: !!questionId && !isDemo }
+  );
+
+  // confidenceData가 로드되면 confidenceBefore 초기화
+  useEffect(() => {
+    if (confidenceData && !isSubmitted) {
+      setConfidenceBefore(Math.round(confidenceData.displayScore));
+    }
+  }, [confidenceData, isSubmitted]);
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
   const tableData: TableData | null = question?.tableData ? JSON.parse(question.tableData) : null;
@@ -55,24 +66,44 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     },
   });
   
-  const triggerConfidencePopup = useCallback((data: any) => {
+  const triggerConfidencePopup = useCallback(async (data: any) => {
     const prevScore = confidenceBefore;
-    // 정답이면 +5~+10, 오답이면 -3~-5
-    let scoreChange = data.isCorrect ? (5 + Math.floor((data.similarityScore || 0) / 20)) : -(3 + Math.floor((100 - (data.similarityScore || 0)) / 30));
-    
-    // 속도 보너스: 빠르게 입력하면 추가 점수
-    if (data.isCorrect && recallTime > 0) {
-      if (recallTime <= 10) scoreChange += 5;
-      else if (recallTime <= 20) scoreChange += 3;
-      else if (recallTime <= 30) scoreChange += 2;
-      else if (recallTime <= 45) scoreChange += 1;
+    // DB에서 최신 점수 가져와서 실제 변화량 계산
+    let newScore = prevScore;
+    if (!isDemo) {
+      try {
+        const result = await refetchConfidence();
+        newScore = Math.round(result.data?.displayScore ?? prevScore);
+      } catch {
+        // refetch 실패 시 로컬 계산으로 fallback
+        let scoreChange = data.isCorrect
+          ? (5 + Math.floor((data.similarityScore || 0) / 20))
+          : -(8 + Math.floor((100 - (data.similarityScore || 0)) / 15));
+        if (data.isCorrect && recallTime > 0) {
+          if (recallTime <= 10) scoreChange += 5;
+          else if (recallTime <= 20) scoreChange += 3;
+          else if (recallTime <= 30) scoreChange += 2;
+          else if (recallTime <= 45) scoreChange += 1;
+        }
+        newScore = Math.max(0, Math.min(100, prevScore + scoreChange));
+      }
+    } else {
+      // 데모 모드: 로컬 계산
+      let scoreChange = data.isCorrect
+        ? (5 + Math.floor((data.similarityScore || 0) / 20))
+        : -(8 + Math.floor((100 - (data.similarityScore || 0)) / 15));
+      if (data.isCorrect && recallTime > 0) {
+        if (recallTime <= 10) scoreChange += 5;
+        else if (recallTime <= 20) scoreChange += 3;
+        else if (recallTime <= 30) scoreChange += 2;
+        else if (recallTime <= 45) scoreChange += 1;
+      }
+      newScore = Math.max(0, Math.min(100, prevScore + scoreChange));
     }
-    
-    const newScore = Math.max(0, Math.min(100, prevScore + scoreChange));
     setConfidenceBefore(prevScore);
     setConfidenceAfter(newScore);
     setShowConfidencePopup(true);
-  }, [confidenceBefore, recallTime]);
+  }, [confidenceBefore, recallTime, isDemo, refetchConfidence]);
 
   const evaluateMutation = trpc.test.evaluate.useMutation({
     onSuccess: async (data: any) => {

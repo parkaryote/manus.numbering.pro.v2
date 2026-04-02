@@ -27,12 +27,14 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
     setVisible(true);
     setAnimKey(prev => prev + 1); // 새 key로 애니메이션 재시작
 
-    // 1.7초 후 숨김 + onComplete 호출
+    // 1% 미만이면 더 짧게 표시
+    const duration = Math.abs(value) < 1 ? 1400 : 1700;
+
     timerRef.current = setTimeout(() => {
       setVisible(false);
       onCompleteRef.current?.();
       timerRef.current = null;
-    }, 1700);
+    }, duration);
 
     return () => {
       if (timerRef.current) {
@@ -46,8 +48,70 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
 
   const isPositive = displayValue >= 0;
   const absValue = Math.abs(displayValue);
-  // 소수점 첫째자리까지 표시, 정수면 정수로
-  const displayStr = absValue % 1 === 0 ? String(Math.round(absValue)) : absValue.toFixed(1);
+  const isSmall = absValue < 1; // 1% 미만
+
+  // 정수 반올림 표시 (소수점 제거)
+  const displayStr = String(Math.round(absValue));
+
+  if (isSmall) {
+    // 1% 미만 전용 애니메이션: 작은 반짝임 + 물결 효과
+    return (
+      <div
+        key={animKey}
+        style={{
+          position: "fixed",
+          top: "45%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          pointerEvents: "none",
+          zIndex: 50,
+          animation: "dmgTinyPulse 1.4s ease-out forwards",
+        }}
+      >
+        <div
+          style={{
+            fontSize: "2rem",
+            fontWeight: "700",
+            lineHeight: 1,
+            color: isPositive ? "#10b981" : "#ef4444",
+            textShadow: isPositive
+              ? "0 0 12px rgba(16, 185, 129, 0.6)"
+              : "0 0 12px rgba(239, 68, 68, 0.6)",
+            opacity: 0.85,
+          }}
+        >
+          {isPositive ? "▲" : "▼"}
+          <span style={{ fontSize: "1.5rem", marginLeft: "4px" }}>
+            {isPositive ? "+1" : "-1"}%
+          </span>
+          <span style={{ fontSize: "1rem", marginLeft: "6px", opacity: 0.7 }}>
+            미만
+          </span>
+        </div>
+
+        <style>{`
+          @keyframes dmgTinyPulse {
+            0% {
+              transform: translate(-50%, -50%) scale(0.8);
+              opacity: 0;
+            }
+            20% {
+              transform: translate(-50%, -50%) scale(1.1);
+              opacity: 1;
+            }
+            50% {
+              transform: translate(-50%, -50%) scale(1);
+              opacity: 1;
+            }
+            100% {
+              transform: translate(-50%, -50%) scale(0.9) translateY(${isPositive ? '-30px' : '30px'});
+              opacity: 0;
+            }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div

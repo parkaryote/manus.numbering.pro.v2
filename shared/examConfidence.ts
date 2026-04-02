@@ -177,8 +177,12 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
   );
 
   // D. Error / instability penalty
-  const wrongPenalty = Math.min(test.wrongCount * 6, 18);
-  const recentPoorPenalty = test.mostRecentTestWasPoor ? 5 : 0;
+  // 오답 1회: -12점, 2회: -22점, 3회: -30점, 4회+: -36점 (max 36)
+  // 이전: wrongCount * 6, max 18 → 3회 틀려도 18점밖에 감소 안 됨
+  const wrongPenalty = test.wrongCount > 0
+    ? Math.min(8 + (test.wrongCount - 1) * 10, 36)
+    : 0;
+  const recentPoorPenalty = test.mostRecentTestWasPoor ? 10 : 0;
 
   // E. Final formula
   const rawScore = clamp(
