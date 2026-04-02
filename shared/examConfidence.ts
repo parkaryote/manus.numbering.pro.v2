@@ -21,15 +21,15 @@
 // ─── Configurable Thresholds ───────────────────────────────────────
 
 export const CONFIDENCE_THRESHOLDS = {
-  green: 80,   // 80~100: 거의 기억
-  yellow: 50,  // 50~79: 헷갈릴 수 있음
-  // 0~49: 다시 볼 것 (red)
+  green: 70,   // 70~100: 안정
+  yellow: 40,  // 40~69: 학습중
+  // 0~39: 취약 (red)
 } as const;
 
 export const TRAFFIC_LIGHT_LABELS = {
-  green: "거의 기억",
-  yellow: "헷갈릴 수 있음",
-  red: "다시 볼 것",
+  green: "안정",
+  yellow: "학습중",
+  red: "취약",
 } as const;
 
 // ─── Input Types ───────────────────────────────────────────────────
