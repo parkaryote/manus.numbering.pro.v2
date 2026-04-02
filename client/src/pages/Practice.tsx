@@ -316,6 +316,82 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // Normalize text: remove spaces and newlines for completion check
   const normalizeText = (text: string) => text.replace(/\s+/g, "");
 
+  // 표 모드: 코어 함수들 (컨포넌트 레벨)
+  const tableNorm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
+  const tableBlankCells = tableData ? getBlankCells(tableData) : [];
+  const tableActiveCellKey = tableBlankCells[tableActiveCellIdx] ?? null;
+  const tableTargetCells = tableCheckedCells.size > 0
+    ? tableBlankCells.filter(k => tableCheckedCells.has(k))
+    : tableBlankCells;
+
+  const tableMoveToCell = (direction: 'next' | 'prev') => {
+    if (!tableActiveCellKey) return;
+    const currentTargetIdx = tableTargetCells.indexOf(tableActiveCellKey);
+    if (currentTargetIdx < 0) return;
+    const nextTargetIdx = direction === 'next'
+      ? (currentTargetIdx + 1) % tableTargetCells.length
+      : (currentTargetIdx - 1 + tableTargetCells.length) % tableTargetCells.length;
+    const nextKey = tableTargetCells[nextTargetIdx];
+    const nextBlankIdx = tableBlankCells.indexOf(nextKey);
+    setTableActiveCellIdx(nextBlankIdx >= 0 ? nextBlankIdx : 0);
+    setTableCellInput('');
+  };
+
+  const tableCorrectAnswerRef = useRef<((n?: number) => void) | null>(null);
+  const tableSubmitCurrentCell = () => {
+    if (!tableActiveCellKey || !tableData) return;
+    const ri = parseInt(tableActiveCellKey.split('-')[0]);
+    const ci = parseInt(tableActiveCellKey.split('-')[1]);
+    const cell = tableData.cells[ri]?.[ci];
+    if (!cell) return;
+    if (tableNorm(tableCellInput) === tableNorm(cell.content)) {
+      setTableCompletedCells(prev => new Set(Array.from(prev).concat(tableActiveCellKey)));
+      const newCompleted = new Set(Array.from(tableCompletedCells).concat(tableActiveCellKey));
+      const allDone = tableTargetCells.every(k => newCompleted.has(k));
+      if (allDone) {
+        tableCorrectAnswerRef.current?.(tableTargetCells.length);
+        setTimeout(() => {
+          setTableCompletedCells(new Set());
+          setTableActiveCellIdx(0);
+          setTableCellInput('');
+        }, 400);
+      } else {
+        tableMoveToCell('next');
+      }
+    }
+  };
+
+  const handleTableInputChange = (value: string) => {
+    setTableCellInput(value);
+    if (!startTime) setStartTime(Date.now());
+    setLastInputTime(Date.now());
+    setIsActive(true);
+  };
+
+  const handleTableKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      tableMoveToCell(e.shiftKey ? 'prev' : 'next');
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      tableSubmitCurrentCell();
+    }
+  };
+
+  const getTableActiveCellResult = (): 'correct' | 'typing' | 'wrong' | null => {
+    if (!tableActiveCellKey || !tableCellInput || isTableComposing || !tableData) return null;
+    const ri = parseInt(tableActiveCellKey.split('-')[0]);
+    const ci = parseInt(tableActiveCellKey.split('-')[1]);
+    const cell = tableData.cells[ri]?.[ci];
+    if (!cell) return null;
+    const target = tableNorm(cell.content);
+    const input = tableNorm(tableCellInput);
+    if (input.length === 0) return null;
+    const prefix = target.slice(0, input.length);
+    if (input === prefix) return input.length === target.length ? 'correct' : 'typing';
+    return 'wrong';
+  };
+
   // Auto-start on mount
   useEffect(() => {
     if (question && !startTime) {
@@ -1034,6 +1110,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
   };
 
+  // tableCorrectAnswerRef에 handleCorrectAnswer 연결
+  tableCorrectAnswerRef.current = handleCorrectAnswer;
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -1444,12 +1523,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }
 
   return (
-    <div className={`relative ${isImageQuestion ? 'space-y-2' : 'space-y-6'}`}>
+    <div className="flex flex-col h-full overflow-hidden">
       <DamageNumber
         value={damageValue}
         show={showDamageNumber}
         onComplete={() => setShowDamageNumber(false)}
       />
+      {/* 스크롤 가능한 콘텐츠 영역 */}
+      <div className={`flex-1 overflow-y-auto ${isImageQuestion ? 'space-y-2' : 'space-y-4'} p-4 pb-2`}>
       {isImageQuestion ? (
         /* 이미지 문제: 최소 상단 - 돌아가기 + 연습횟수를 한 줄에 작게 */
         <div className="flex items-center justify-between">
@@ -1614,7 +1695,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             </div>
           </CardHeader>
         )}
-        <CardContent className={isImageQuestion ? 'p-0 space-y-2' : isTableQuestion ? 'space-y-4 overflow-y-auto' : 'space-y-6'}>
+        <CardContent className={isImageQuestion ? 'p-0 space-y-2' : isTableQuestion ? 'space-y-4' : 'space-y-6'}>
           {/* 메모 패널 - 정답 표시 영역과 2단 레이아웃으로 표시됨 (memoOpen 시) */}
 
           {/* 인라인 문제 편집 모드 */}
@@ -1695,220 +1776,41 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           )}
 
           {isTableQuestion && tableData ? (
-            /* Table question - 하단 입력창 연습 모드 */
-            (() => {
-              const blankCells = getBlankCells(tableData);
-              const activeCellKey = blankCells[tableActiveCellIdx] ?? null;
-              // 체크된 셀만 연습 중이면 해당 셀만 순환
-              const targetCells = tableCheckedCells.size > 0
-                ? blankCells.filter(k => tableCheckedCells.has(k))
-                : blankCells;
-
-              const handleTableInput = (value: string) => {
-                setTableCellInput(value);
-                if (!startTime) setStartTime(Date.now());
-                setLastInputTime(Date.now());
-                setIsActive(true);
-              };
-
-              const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
-
-              const moveToCell = (direction: 'next' | 'prev') => {
-                if (!activeCellKey) return;
-                const currentTargetIdx = targetCells.indexOf(activeCellKey);
-                if (currentTargetIdx < 0) return;
-                const nextTargetIdx = direction === 'next'
-                  ? (currentTargetIdx + 1) % targetCells.length
-                  : (currentTargetIdx - 1 + targetCells.length) % targetCells.length;
-                const nextKey = targetCells[nextTargetIdx];
-                const nextBlankIdx = blankCells.indexOf(nextKey);
-                setTableActiveCellIdx(nextBlankIdx >= 0 ? nextBlankIdx : 0);
-                setTableCellInput('');
-              };
-
-              const submitCurrentCell = () => {
-                if (!activeCellKey) return;
-                const ri = parseInt(activeCellKey.split('-')[0]);
-                const ci = parseInt(activeCellKey.split('-')[1]);
-                const cell = tableData.cells[ri]?.[ci];
-                if (!cell) return;
-                if (norm(tableCellInput) === norm(cell.content)) {
-                  // 정답: 완성 셀에 추가
-                  setTableCompletedCells(prev => new Set(Array.from(prev).concat(activeCellKey)));
-                  // 모든 셀 완성 체크
-                  const newCompleted = new Set(Array.from(tableCompletedCells).concat(activeCellKey));
-                  const allDone = targetCells.every(k => newCompleted.has(k));
-                  if (allDone) {
-                    handleCorrectAnswer(targetCells.length);
-                    setTimeout(() => {
-                      setTableCompletedCells(new Set());
-                      setTableActiveCellIdx(0);
-                      setTableCellInput('');
-                    }, 400);
-                  } else {
-                    // 다음 셀로 자동 이동
-                    moveToCell('next');
+            /* Table question - 코어 함수는 컨포넌트 레벨에 정의됨 */
+            <div>
+              <TableView
+                tableData={tableData}
+                activeCellKey={tableActiveCellKey}
+                completedCells={tableCompletedCells}
+                checkedCells={tableCheckedCells}
+                cellSubmittedResult={getTableActiveCellResult()}
+                onCellCheck={(key) => {
+                  setTableCheckedCells(prev => {
+                    const next = new Set(prev);
+                    if (next.has(key)) next.delete(key); else next.add(key);
+                    return next;
+                  });
+                }}
+                partialInput={tableCellInput}
+                onCellActivate={(key) => {
+                  const idx = tableBlankCells.indexOf(key);
+                  if (idx >= 0) {
+                    setTableActiveCellIdx(idx);
+                    setTableCellInput('');
+                    setTimeout(() => tableCellInputRef.current?.focus(), 50);
                   }
+                }}
+              />
+              <style>{`
+                @keyframes shake {
+                  0%, 100% { transform: translateX(0); }
+                  20% { transform: translateX(-6px); }
+                  40% { transform: translateX(6px); }
+                  60% { transform: translateX(-4px); }
+                  80% { transform: translateX(4px); }
                 }
-                // 오답이면 그 자리에 머물러 입력 계속
-              };
-
-              const handleTableKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-                if (e.key === 'Tab') {
-                  e.preventDefault();
-                  // Tab: 정답 여부 관계없이 다음 셀로 자유 이동 (Shift+Tab: 이전 셀)
-                  moveToCell(e.shiftKey ? 'prev' : 'next');
-                } else if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  // Enter: 현재 셀 채점 후 정답이면 다음 셀로 이동
-                  submitCurrentCell();
-                }
-              };
-
-              // 현재 활성 셀 실시간 채점 (한글 조합 중에는 null)
-              const getActiveCellResult = () => {
-                if (!activeCellKey || !tableCellInput || isTableComposing) return null;
-                const ri = parseInt(activeCellKey.split('-')[0]);
-                const ci = parseInt(activeCellKey.split('-')[1]);
-                const cell = tableData.cells[ri]?.[ci];
-                if (!cell) return null;
-                const target = norm(cell.content);
-                const input = norm(tableCellInput);
-                if (input.length === 0) return null;
-                // 입력 중인 글자수만큼만 비교 (prefix 매칭)
-                const prefix = target.slice(0, input.length);
-                if (input === prefix) return input.length === target.length ? 'correct' : 'typing';
-                return 'wrong';
-              };
-              const activeCellResult = getActiveCellResult();
-
-              return (
-                <div className="flex flex-col" style={{ minHeight: 0 }}>
-                  {/* 표 영역 - 스크롤 가능 */}
-                  <div className="overflow-auto">
-                    <TableView
-                      tableData={tableData}
-                      activeCellKey={activeCellKey}
-                      completedCells={tableCompletedCells}
-                      checkedCells={tableCheckedCells}
-                      cellSubmittedResult={activeCellResult}
-                      onCellCheck={(key) => {
-                        setTableCheckedCells(prev => {
-                          const next = new Set(prev);
-                          if (next.has(key)) next.delete(key); else next.add(key);
-                          return next;
-                        });
-                      }}
-                      partialInput={tableCellInput}
-                      onCellActivate={(key) => {
-                        const idx = blankCells.indexOf(key);
-                        if (idx >= 0) {
-                          setTableActiveCellIdx(idx);
-                          setTableCellInput('');
-                          setTimeout(() => tableCellInputRef.current?.focus(), 50);
-                        }
-                      }}
-                    />
-                  </div>
-                  {/* 하단 고정 입력창 - 표가 길어도 항상 보임 */}
-                  <div className="sticky bottom-0 bg-background border-t border-border pt-3 pb-2 space-y-2 mt-3">
-                    {/* 상태 표시 행 */}
-                    <div className="flex items-center gap-2 text-xs">
-                      {activeCellKey && (() => {
-                        const ri = parseInt(activeCellKey.split('-')[0]);
-                        const ci = parseInt(activeCellKey.split('-')[1]);
-                        const cell = tableData.cells[ri]?.[ci];
-                        const targetCellIdx = targetCells.indexOf(activeCellKey) + 1;
-                        return cell ? (
-                          <>
-                            <span className="text-muted-foreground">셀 {targetCellIdx}/{targetCells.length}</span>
-                            {activeCellResult === 'correct' && (
-                              <span className="text-emerald-600 font-semibold">✓ 정답 — Enter로 다음 셀</span>
-                            )}
-                            {activeCellResult === 'typing' && (
-                              <span className="text-blue-500">...</span>
-                            )}
-                            {activeCellResult === 'wrong' && (
-                              <span className="text-red-500 font-semibold">✗ 오답</span>
-                            )}
-                            {!activeCellResult && (
-                              <span className="text-muted-foreground/60">Enter: 제출 · Tab: 셀 이동</span>
-                            )}
-                            {tableCheckedCells.size > 0 && (
-                              <span className="text-purple-600 ml-auto">◣ {tableCheckedCells.size}셀 집중 연습</span>
-                            )}
-                          </>
-                        ) : null;
-                      })()}
-                    </div>
-                    {/* 입력창 */}
-                    <textarea
-                      ref={tableCellInputRef}
-                      value={tableCellInput}
-                      onChange={(e) => handleTableInput(e.target.value)}
-                      onKeyDown={handleTableKeyDown}
-                      onCompositionStart={() => setIsTableComposing(true)}
-                      onCompositionEnd={(e) => { setIsTableComposing(false); handleTableInput((e.target as HTMLTextAreaElement).value); }}
-                      rows={1}
-                      className={`w-full min-h-[44px] max-h-[120px] p-3 rounded-lg border-2 bg-background resize-none focus:outline-none focus:ring-2 caret-foreground overflow-y-auto ${
-                        activeCellResult === 'correct'
-                          ? 'border-emerald-500 focus:ring-emerald-400'
-                          : activeCellResult === 'wrong'
-                          ? 'border-red-400 focus:ring-red-300'
-                          : 'border-border focus:ring-ring'
-                      }`}
-                      style={{ fieldSizing: 'content' } as React.CSSProperties}
-                      placeholder="여기에 입력 후 Enter..."
-                      autoFocus
-                    />
-                    {/* 연습 횟수 + 초기화 + 완료 */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground">연습 {practiceCount}회</span>
-                        <span className="text-xs text-muted-foreground/50">
-                          <kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>
-                          +<kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Enter</kbd>
-                          {' '}또는{' '}
-                          <kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Esc</kbd>
-                          {' '}완료
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => {
-                            setTableCompletedCells(new Set());
-                            setTableActiveCellIdx(0);
-                            setTableCellInput('');
-                          }}
-                        >
-                          초기화
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={handleComplete}
-                          disabled={createSession.isPending}
-                        >
-                          {createSession.isPending ? "저장 중..." : "완료"}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                  <style>{`
-                    @keyframes shake {
-                      0%, 100% { transform: translateX(0); }
-                      20% { transform: translateX(-6px); }
-                      40% { transform: translateX(6px); }
-                      60% { transform: translateX(-4px); }
-                      80% { transform: translateX(4px); }
-                    }
-                  `}</style>
-                </div>
-              );
-            })()
+              `}</style>
+            </div>
           ) : isImageQuestion ? (
             /* Image question with label boxes - resizable 2 column layout */
             <div>
@@ -2144,50 +2046,138 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 )}
               </div>
 
-              <textarea
-                ref={textareaRef}
-                value={userInput}
-                onCompositionStart={handleCompositionStart}
-                onCompositionEnd={handleCompositionEnd}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                onKeyUp={handleKeyUp}
-
-                className="w-full min-h-[120px] p-4 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground"
-                placeholder="여기에 입력하세요..."
-
-              />
             </>
-          )}
-
-          {!isTableQuestion && (
-            <div className="flex flex-col gap-2">
-              {showShortcutHelp && (
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 실행 취소</span>
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Alt</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 단어 삭제</span>
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 문장 삭제</span>
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">A</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 전체 삭제</span>
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Tab</kbd> 답 가리기/보기 · 줄 클릭으로 개별 토글</span>
-                  <button onClick={toggleShortcutHelp} className="text-muted-foreground/50 hover:text-muted-foreground underline">숨기기</button>
-                </div>
-              )}
-              {!showShortcutHelp && (
-                <button onClick={toggleShortcutHelp} className="text-xs text-muted-foreground/50 hover:text-muted-foreground underline self-start">단축키 안내 보기</button>
-              )}
-              <div className="flex justify-between items-center text-sm text-muted-foreground">
-                <div><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Enter</kbd> 또는 <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Esc</kbd> 연습 완료</div>
-                <Button onClick={handleComplete} disabled={createSession.isPending}>
-                  {createSession.isPending ? "저장 중..." : "완료"}
-                </Button>
-              </div>
-            </div>
           )}
         </CardContent>
       </Card>
-      
+      </div>{/* 스크롤 영역 끝 */}
+
+      {/* 하단 고정 입력 패널 - 표 모드 전용 */}
+      {isTableQuestion && tableData && (
+        <div className="shrink-0 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 space-y-2">
+          {/* 상태 표시 행 */}
+          <div className="flex items-center gap-2 text-xs">
+            {tableActiveCellKey && (() => {
+              const ri = parseInt(tableActiveCellKey.split('-')[0]);
+              const ci = parseInt(tableActiveCellKey.split('-')[1]);
+              const cell = tableData.cells[ri]?.[ci];
+              const targetCellIdx = tableTargetCells.indexOf(tableActiveCellKey) + 1;
+              const cellResult = getTableActiveCellResult();
+              return cell ? (
+                <>
+                  <span className="text-muted-foreground">셀 {targetCellIdx}/{tableTargetCells.length}</span>
+                  {cellResult === 'correct' && <span className="text-emerald-600 font-semibold">✓ 정답 — Enter로 다음 셀</span>}
+                  {cellResult === 'typing' && <span className="text-blue-500">...</span>}
+                  {cellResult === 'wrong' && <span className="text-red-500 font-semibold">✗ 오답</span>}
+                  {!cellResult && <span className="text-muted-foreground/60">Enter: 제출 · Tab: 셀 이동</span>}
+                  {tableCheckedCells.size > 0 && <span className="text-purple-600 ml-auto">◣ {tableCheckedCells.size}셀 집중 연습</span>}
+                </>
+              ) : null;
+            })()}
+          </div>
+          {/* 입력창 */}
+          {(() => {
+            const cellResult = getTableActiveCellResult();
+            return (
+              <textarea
+                ref={tableCellInputRef}
+                value={tableCellInput}
+                onChange={(e) => handleTableInputChange(e.target.value)}
+                onKeyDown={handleTableKeyDown}
+                onCompositionStart={() => setIsTableComposing(true)}
+                onCompositionEnd={(e) => { setIsTableComposing(false); handleTableInputChange((e.target as HTMLTextAreaElement).value); }}
+                rows={1}
+                className={`w-full min-h-[44px] max-h-[120px] p-3 rounded-lg border-2 bg-background resize-none focus:outline-none focus:ring-2 caret-foreground overflow-y-auto ${
+                  cellResult === 'correct'
+                    ? 'border-emerald-500 focus:ring-emerald-400'
+                    : cellResult === 'wrong'
+                    ? 'border-red-400 focus:ring-red-300'
+                    : 'border-border focus:ring-ring'
+                }`}
+                style={{ fieldSizing: 'content' } as React.CSSProperties}
+                placeholder="여기에 입력 후 Enter..."
+                autoFocus
+              />
+            );
+          })()}
+          {/* 연습 횟수 + 초기화 + 완료 */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground">연습 {practiceCount}회</span>
+              <span className="text-xs text-muted-foreground/50">
+                <kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>
+                +<kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Enter</kbd>
+                {' '}또는{' '}
+                <kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Esc</kbd>
+                {' '}완료
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => {
+                  setTableCompletedCells(new Set());
+                  setTableActiveCellIdx(0);
+                  setTableCellInput('');
+                }}
+              >
+                초기화
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                onClick={handleComplete}
+                disabled={createSession.isPending}
+              >
+                {createSession.isPending ? "저장 중..." : "완료"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 하단 고정 입력 패널 - 텍스트 모드 전용 */}
+      {!isImageQuestion && !isTableQuestion && (
+        <div className="shrink-0 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 space-y-2">
+          <textarea
+            ref={textareaRef}
+            value={userInput}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onKeyUp={handleKeyUp}
+            className="w-full min-h-[80px] max-h-[200px] p-3 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm"
+            placeholder="여기에 입력하세요..."
+          />
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-col gap-0.5">
+              {showShortcutHelp ? (
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                  <span><kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 취소</span>
+                  <span><kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Alt</kbd>+<kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">⌫</kbd> 단어</span>
+                  <span><kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">⌫</kbd> 문장</span>
+                  <span><kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Tab</kbd> 답 가리기</span>
+                  <button onClick={toggleShortcutHelp} className="text-muted-foreground/50 hover:text-muted-foreground underline">숨기기</button>
+                </div>
+              ) : (
+                <button onClick={toggleShortcutHelp} className="text-xs text-muted-foreground/50 hover:text-muted-foreground underline self-start">단축키</button>
+              )}
+              <div className="text-xs text-muted-foreground/60">
+                <kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Enter</kbd> 또는 <kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Esc</kbd> 완료
+              </div>
+            </div>
+            <Button onClick={handleComplete} disabled={createSession.isPending} className="shrink-0">
+              {createSession.isPending ? "저장 중..." : "완료"}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {showInactiveAlert && (
-        <div className="fixed bottom-6 right-6 bg-slate-100 border border-slate-300 rounded-lg p-4 shadow-lg max-w-sm animate-in fade-in duration-300">
+        <div className="fixed bottom-6 right-6 bg-slate-100 border border-slate-300 rounded-lg p-4 shadow-lg max-w-sm animate-in fade-in duration-300 z-50">
           <p className="text-sm text-slate-700 leading-relaxed">
             입력이 없어 연습 시간 기록이 일시 정지되었습니다.
             <br />
