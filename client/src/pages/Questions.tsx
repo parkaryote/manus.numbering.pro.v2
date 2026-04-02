@@ -239,7 +239,11 @@ function SortableQuestionCard({
         {confidence && (
           <button
             className="flex items-center px-2 border-l hover:bg-muted/50 transition-colors cursor-pointer"
-            title={`안정도: ${Math.round(confidence.displayScore)}점 — 클릭하여 변화 그래프 보기`}
+            title={`안정도: ${Math.round(confidence.displayScore)}% — ${
+              confidence.state === 'green' ? '초록(안정): 70% 이상' :
+              confidence.state === 'yellow' ? '노랑(학습중): 40~70%' :
+              '빨강(취약): 40% 미만'
+            } — 클릭하여 변화 그래프 보기`}
             onClick={() => onConfidenceClick(question.id, question.question)}
           >
             <div className="flex flex-col items-center gap-0.5">
@@ -927,7 +931,11 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                   confidenceData.aggregate.state === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
                   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                 }`}
-                title="클릭하여 과목 안정도 추이 보기"
+                title={`클릭하여 과목 안정도 추이 보기 — ${
+                  confidenceData.aggregate.state === 'green' ? '초록(안정): 70% 이상' :
+                  confidenceData.aggregate.state === 'yellow' ? '노랑(학습중): 40~70%' :
+                  '빨강(취약): 40% 미만'
+                }`}
               >
                 과목 안정도 {confidenceData.aggregate.averageScore}%
               </button>
