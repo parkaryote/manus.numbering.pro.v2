@@ -926,11 +926,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           const result = await refetchConfidence();
           const newScore = result.data?.displayScore ?? prevScore;
           const diff = Math.round((newScore - prevScore) * 10) / 10;
-          // 초기화 완료(800ms) 후 최소 300ms 지연하여 순차 표시
-          // 네트워크 응답이 빠를 경우에도 초기화 후 여유를 두고 등장
+          // 입력창 초기화(800ms)와 동시에 표시: 경과 시간 기준으로 800ms 시점에 맞춤
           const elapsed = Date.now() - startTs;
-          const minDelay = 1100; // 800ms(초기화) + 300ms(여유)
-          const remaining = Math.max(0, minDelay - elapsed);
+          const remaining = Math.max(0, 800 - elapsed);
           setTimeout(() => {
             setShowDamageNumber(false);
             requestAnimationFrame(() => {
