@@ -1,15 +1,21 @@
 /**
- * 시험 안정도 (Exam Confidence) - MVP Heuristic Scoring Module
- *
- * 사용자가 "지금 시험 보면 기억할 가능성"을 직관적으로 파악할 수 있도록
- * 연습/시험 기록을 기반으로 0~100 점수를 산출합니다.
+ * 시험 안정도 (Exam Confidence) - Realistic Learning Curve Module
  *
  * 설계 원칙:
- * - 연습(answer-visible)보다 시험(recall) 성공이 더 큰 가중치
- * - 최근성(recency)이 중요 - 오래된 기록은 감점
- * - 오답/불안정 패턴은 감점
- * - 데이터 없는 문제는 중립-낮은 점수(35%)
- * - 연습만으로는 녹색(안전) 상태에 도달 불가
+ * - cold-start = 0% (아무것도 안 했으면 0%)
+ * - 연습만으로는 최대 25% (연습은 보조 수단)
+ * - 시험 통과가 핵심 점수 상승 요인
+ * - 연속 정답 streak이 높을수록 급격히 상승
+ * - 망각 패널티는 시간 경과에 따라 점진적 감소
+ * - 오답은 강한 패널티 (특히 최근 오답)
+ *
+ * 현실적 기대값:
+ *   cold-start          → 0%
+ *   연습 1회             → ~6%
+ *   연습 3회             → ~15%
+ *   시험 1회 통과         → ~40%
+ *   시험 2회 연속 통과    → ~65%
+ *   시험 3회+ 연속 통과   → ~85~95%
  */
 
 // ─── Configurable Thresholds ───────────────────────────────────────
@@ -54,7 +60,7 @@ export interface ConfidenceInput {
 export interface ConfidenceResult {
   /** Raw score 0~100 before display transform */
   rawScore: number;
-  /** Display score 0~100 after transform (min floor 10) */
+  /** Display score 0~100 (정수) */
   displayScore: number;
   /** Traffic light state */
   state: "green" | "yellow" | "red";
@@ -91,25 +97,31 @@ function hoursSince(date: Date | null, now: Date): number {
 }
 
 // ─── Forgetting Penalty ────────────────────────────────────────────
+// 시험 경험이 없으면 망각 패널티 없음 (연습만 한 경우 패널티 적용 안 함)
+// 시험 경험이 있을 때만 망각 패널티 적용
 
 function computeForgettingPenalty(
   lastPracticeAt: Date | null,
   lastTestAt: Date | null,
+  testCount: number,
   now: Date
 ): number {
+  // 시험 경험이 없으면 망각 패널티 없음
+  if (testCount === 0) return 0;
+
   // Use the most recent meaningful interaction
   const candidates = [lastPracticeAt, lastTestAt].filter(Boolean) as Date[];
-  if (candidates.length === 0) return 55; // no interaction at all
+  if (candidates.length === 0) return 0;
 
   const mostRecent = new Date(Math.max(...candidates.map(d => d.getTime())));
   const hours = hoursSince(mostRecent, now);
 
-  if (hours < 6) return 0;
-  if (hours < 24) return 8;
-  if (hours < 72) return 15;   // 1~3 days
-  if (hours < 168) return 25;  // 3~7 days
-  if (hours < 336) return 40;  // 7~14 days
-  return 55;                    // 14+ days
+  if (hours < 12) return 0;
+  if (hours < 24) return 5;
+  if (hours < 72) return 12;   // 1~3 days
+  if (hours < 168) return 22;  // 3~7 days
+  if (hours < 336) return 35;  // 7~14 days
+  return 50;                    // 14+ days
 }
 
 // ─── Main Scoring Function ─────────────────────────────────────────
@@ -118,12 +130,12 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
   const now = input.now ?? new Date();
   const { practice, test } = input;
 
-  // Cold-start detection
+  // Cold-start: 아무것도 안 했으면 0%
   const hasAnyData = practice.practiceCount > 0 || test.testCount > 0;
   if (!hasAnyData) {
     return {
       rawScore: 0,
-      displayScore: 35,
+      displayScore: 0,
       state: "red",
       label: TRAFFIC_LIGHT_LABELS.red,
       isColdStart: true,
@@ -142,49 +154,68 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
     };
   }
 
-  // A. Practice contribution (max ~40)
-  // 1회: 12점, 2회: 20점, 3회: 26점, 5회+: 35점 수렴
-  const practiceVolumeScore = Math.min(practice.practiceCount * 10, 35);
-  // Small bonus for total duration (up to 5 points)
+  // ── A. 연습 기여 (최대 25점) ──────────────────────────────────────
+  // 연습은 보조 수단 - 많이 해도 25%를 넘을 수 없음
+  // 1회: 6점, 2회: 11점, 3회: 15점, 5회: 20점, 10회+: 25점
+  const practiceVolumeScore = Math.min(
+    Math.round(25 * (1 - Math.exp(-practice.practiceCount * 0.25))),
+    25
+  );
+
+  // 연습 시간 보너스 (최대 3점)
   const practiceBonus = practice.totalPracticeDuration > 0
-    ? Math.min(Math.floor(practice.totalPracticeDuration / 60) * 1, 5) // 1 point per minute, max 5
+    ? Math.min(Math.floor(practice.totalPracticeDuration / 120), 3) // 2분당 1점, 최대 3점
     : 0;
 
-  // B. Test contribution (max ~70)
-  const testExposureScore = Math.min(test.testCount * 5, 20);
+  // ── B. 시험 기여 (최대 80점) ──────────────────────────────────────
+  // 시험 노출 횟수 (최대 10점)
+  const testExposureScore = Math.min(test.testCount * 3, 10);
+
+  // 시험 정확도 (최대 25점)
   const testAccuracyScore = test.testCount > 0
-    ? Math.min((test.averageSimilarityScore / 100) * 30, 30)
+    ? Math.min((test.averageSimilarityScore / 100) * 25, 25)
     : 0;
-  const testCorrectnessBonus = Math.min(test.correctCount * 4, 12);
-  const recentStreakScore = Math.min(test.recentCorrectStreak * 4, 8);
 
-  // Speed bonus: fast recall earns extra points (max 8)
-  // Under 10s = 8pts, under 20s = 5pts, under 30s = 3pts, under 45s = 1pt
+  // 정답 횟수 보너스 (최대 15점)
+  const testCorrectnessBonus = Math.min(test.correctCount * 5, 15);
+
+  // ── 연속 정답 streak - 핵심 점수 ──────────────────────────────────
+  // streak 1: +10, streak 2: +25, streak 3: +40, streak 4+: +55
+  // 연속 정답이 쌓일수록 급격히 상승 (시험을 반복해서 통과해야 안정)
+  let recentStreakScore = 0;
+  if (test.recentCorrectStreak >= 4) recentStreakScore = 55;
+  else if (test.recentCorrectStreak === 3) recentStreakScore = 40;
+  else if (test.recentCorrectStreak === 2) recentStreakScore = 25;
+  else if (test.recentCorrectStreak === 1) recentStreakScore = 10;
+
+  // 빠른 회상 보너스 (최대 5점)
   let speedBonus = 0;
   if (test.testCount > 0 && test.averageRecallTime !== undefined) {
     const avgTime = test.averageRecallTime;
-    if (avgTime <= 10) speedBonus = 8;
-    else if (avgTime <= 20) speedBonus = 5;
-    else if (avgTime <= 30) speedBonus = 3;
-    else if (avgTime <= 45) speedBonus = 1;
+    if (avgTime <= 10) speedBonus = 5;
+    else if (avgTime <= 20) speedBonus = 3;
+    else if (avgTime <= 30) speedBonus = 1;
   }
 
-  // C. Forgetting penalty
+  // ── C. 망각 패널티 ────────────────────────────────────────────────
   const forgettingPenalty = computeForgettingPenalty(
     practice.mostRecentPracticeAt,
     test.mostRecentTestAt,
+    test.testCount,
     now
   );
 
-  // D. Error / instability penalty
-  // 오답 1회: -12점, 2회: -22점, 3회: -30점, 4회+: -36점 (max 36)
-  // 이전: wrongCount * 6, max 18 → 3회 틀려도 18점밖에 감소 안 됨
+  // ── D. 오답 패널티 ────────────────────────────────────────────────
+  // 오답 1회: -15, 2회: -28, 3회: -40, 4회+: -50
+  // 연속 오답은 streak을 0으로 만들어 recentStreakScore도 0이 되므로 이중 패널티
   const wrongPenalty = test.wrongCount > 0
-    ? Math.min(8 + (test.wrongCount - 1) * 10, 36)
+    ? Math.min(15 + (test.wrongCount - 1) * 13, 50)
     : 0;
-  const recentPoorPenalty = test.mostRecentTestWasPoor ? 10 : 0;
 
-  // E. Final formula
+  // 최근 시험이 나빴으면 추가 패널티
+  const recentPoorPenalty = test.mostRecentTestWasPoor ? 15 : 0;
+
+  // ── E. 최종 점수 ──────────────────────────────────────────────────
   const rawScore = clamp(
     practiceVolumeScore +
     practiceBonus +
@@ -200,9 +231,9 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
     100
   );
 
-  // Display transform: floor at 10 to avoid brutally hopeless numbers
-  // 정수 단위로 반올림
-  const displayScore = clamp(Math.round(rawScore * 0.9 + 10), 0, 100);
+  // 정수 반올림, 연습만 한 경우 최대 28점으로 캡
+  const practiceOnlyCap = test.testCount === 0 ? 28 : 100;
+  const displayScore = Math.min(Math.round(rawScore), practiceOnlyCap);
 
   // Traffic light
   let state: "green" | "yellow" | "red";
@@ -214,17 +245,11 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
     state = "red";
   }
 
-  // Practice-only cap: if no test data, cap at yellow (max 65 display)
-  // This prevents pure practice from pushing into misleading green
-  if (test.testCount === 0 && state === "green") {
-    state = "yellow";
-  }
-
   const label = TRAFFIC_LIGHT_LABELS[state];
 
   return {
     rawScore,
-    displayScore: test.testCount === 0 ? Math.min(displayScore, 65) : displayScore,
+    displayScore,
     state,
     label,
     isColdStart: false,

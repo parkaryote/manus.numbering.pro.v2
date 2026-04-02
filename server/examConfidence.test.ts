@@ -29,10 +29,10 @@ function makeTest(overrides: Partial<TestSignal> = {}): TestSignal {
   };
 }
 
-const now = new Date("2026-04-01T00:00:00Z");
+const now = new Date("2026-04-02T12:00:00Z");
 
-describe("computeExamConfidence", () => {
-  it("returns cold-start result when no data", () => {
+describe("computeExamConfidence - 현실적 기대값", () => {
+  it("cold-start: 아무것도 안 했으면 0%", () => {
     const result = computeExamConfidence({
       practice: makePractice(),
       test: makeTest(),
@@ -40,102 +40,184 @@ describe("computeExamConfidence", () => {
     });
     expect(result.isColdStart).toBe(true);
     expect(result.state).toBe("red");
-    expect(result.displayScore).toBe(35);
+    expect(result.displayScore).toBe(0);
   });
 
-  it("returns red state for low scores", () => {
+  it("연습 1회: 4~12% 사이 (cold-start보다 높음)", () => {
     const result = computeExamConfidence({
-      practice: makePractice({ practiceCount: 1, totalPracticeDuration: 30, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 1,
+        mostRecentPracticeAt: new Date(now.getTime() - 1 * 60 * 60 * 1000),
+      }),
       test: makeTest(),
       now,
     });
-    expect(result.state).toBe("red");
-    expect(result.displayScore).toBeLessThan(CONFIDENCE_THRESHOLDS.yellow);
+    expect(result.displayScore).toBeGreaterThan(0);
+    expect(result.displayScore).toBeLessThanOrEqual(15);
+    expect(result.isColdStart).toBe(false);
   });
 
-  it("returns yellow state for medium scores (practice only caps at yellow)", () => {
+  it("연습 3회: 12~22% 사이", () => {
     const result = computeExamConfidence({
-      practice: makePractice({ practiceCount: 5, totalPracticeDuration: 600, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 3,
+        mostRecentPracticeAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+      }),
       test: makeTest(),
       now,
     });
-    // Practice only should cap at yellow
-    expect(result.state).not.toBe("green");
-    expect(result.displayScore).toBeLessThanOrEqual(65);
+    expect(result.displayScore).toBeGreaterThanOrEqual(10);
+    expect(result.displayScore).toBeLessThanOrEqual(22);
   });
 
-  it("returns green state for high scores with test data", () => {
+  it("연습만으로는 최대 28%를 넘을 수 없음", () => {
     const result = computeExamConfidence({
-      practice: makePractice({ practiceCount: 5, totalPracticeDuration: 600, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 100,
+        totalPracticeDuration: 7200,
+        mostRecentPracticeAt: new Date(now.getTime() - 1 * 60 * 60 * 1000),
+      }),
+      test: makeTest(),
+      now,
+    });
+    expect(result.displayScore).toBeLessThanOrEqual(28);
+  });
+
+  it("시험 1회 통과: 35~55% 사이", () => {
+    const result = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 1,
+        mostRecentPracticeAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+      }),
       test: makeTest({
-        testCount: 5,
-        correctCount: 5,
-        averageSimilarityScore: 95,
-        mostRecentTestAt: now,
-        recentCorrectStreak: 5,
-        averageRecallTime: 8,
+        testCount: 1,
+        correctCount: 1,
+        wrongCount: 0,
+        averageSimilarityScore: 90,
+        mostRecentTestAt: new Date(now.getTime() - 1 * 60 * 60 * 1000),
+        recentCorrectStreak: 1,
       }),
       now,
     });
+    expect(result.displayScore).toBeGreaterThanOrEqual(35);
+    expect(result.displayScore).toBeLessThanOrEqual(58);
+  });
+
+  it("시험 2회 연속 통과: 55~78% 사이", () => {
+    const result = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 2,
+        mostRecentPracticeAt: new Date(now.getTime() - 3 * 60 * 60 * 1000),
+      }),
+      test: makeTest({
+        testCount: 2,
+        correctCount: 2,
+        wrongCount: 0,
+        averageSimilarityScore: 90,
+        mostRecentTestAt: new Date(now.getTime() - 1 * 60 * 60 * 1000),
+        recentCorrectStreak: 2,
+      }),
+      now,
+    });
+    expect(result.displayScore).toBeGreaterThanOrEqual(55);
+    expect(result.displayScore).toBeLessThanOrEqual(78);
+  });
+
+  it("시험 3회+ 연속 통과: 80% 이상 (green)", () => {
+    const result = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 3,
+        mostRecentPracticeAt: new Date(now.getTime() - 3 * 60 * 60 * 1000),
+      }),
+      test: makeTest({
+        testCount: 3,
+        correctCount: 3,
+        wrongCount: 0,
+        averageSimilarityScore: 92,
+        mostRecentTestAt: new Date(now.getTime() - 1 * 60 * 60 * 1000),
+        recentCorrectStreak: 3,
+      }),
+      now,
+    });
+    expect(result.displayScore).toBeGreaterThanOrEqual(78);
     expect(result.state).toBe("green");
-    expect(result.displayScore).toBeGreaterThanOrEqual(CONFIDENCE_THRESHOLDS.green);
   });
 
-  it("applies speed bonus for fast recall", () => {
-    const slow = computeExamConfidence({
-      practice: makePractice({ practiceCount: 3, totalPracticeDuration: 300, mostRecentPracticeAt: now }),
+  it("3번 틀린 후 점수가 크게 감소 (45% 이하)", () => {
+    const after = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 5,
+        mostRecentPracticeAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+      }),
       test: makeTest({
-        testCount: 3,
-        correctCount: 3,
-        averageSimilarityScore: 90,
-        mostRecentTestAt: now,
-        recentCorrectStreak: 3,
-        averageRecallTime: 60, // slow - no bonus
+        testCount: 8,
+        correctCount: 5,
+        wrongCount: 3,
+        averageSimilarityScore: 60,
+        mostRecentTestAt: new Date(now.getTime() - 30 * 60 * 1000),
+        recentCorrectStreak: 0,
+        mostRecentTestWasPoor: true,
       }),
       now,
     });
-    const fast = computeExamConfidence({
-      practice: makePractice({ practiceCount: 3, totalPracticeDuration: 300, mostRecentPracticeAt: now }),
+    expect(after.displayScore).toBeLessThan(45);
+  });
+
+  it("연습 후 점수가 cold-start(0%)보다 높아야 함", () => {
+    const cold = computeExamConfidence({ practice: makePractice(), test: makeTest(), now });
+    const after = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 1,
+        mostRecentPracticeAt: new Date(now.getTime() - 30 * 60 * 1000),
+      }),
+      test: makeTest(),
+      now,
+    });
+    expect(after.displayScore).toBeGreaterThan(cold.displayScore);
+  });
+
+  it("시험 후 점수가 연습만 한 것보다 높아야 함", () => {
+    const practiceOnly = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 3,
+        mostRecentPracticeAt: new Date(now.getTime() - 1 * 60 * 60 * 1000),
+      }),
+      test: makeTest(),
+      now,
+    });
+    const withTest = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 3,
+        mostRecentPracticeAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+      }),
       test: makeTest({
-        testCount: 3,
-        correctCount: 3,
-        averageSimilarityScore: 90,
-        mostRecentTestAt: now,
-        recentCorrectStreak: 3,
-        averageRecallTime: 8, // fast - max bonus
+        testCount: 1,
+        correctCount: 1,
+        wrongCount: 0,
+        averageSimilarityScore: 85,
+        mostRecentTestAt: new Date(now.getTime() - 1 * 60 * 60 * 1000),
+        recentCorrectStreak: 1,
       }),
       now,
     });
-    expect(fast.displayScore).toBeGreaterThan(slow.displayScore);
-    expect(fast.breakdown.speedBonus).toBe(8);
-    expect(slow.breakdown.speedBonus).toBe(0);
+    expect(withTest.displayScore).toBeGreaterThan(practiceOnly.displayScore);
   });
 
-  it("applies speed bonus tiers correctly", () => {
-    const makeWithSpeed = (avgTime: number) =>
-      computeExamConfidence({
-        practice: makePractice({ practiceCount: 3, totalPracticeDuration: 300, mostRecentPracticeAt: now }),
-        test: makeTest({
-          testCount: 3,
-          correctCount: 3,
-          averageSimilarityScore: 90,
-          mostRecentTestAt: now,
-          recentCorrectStreak: 3,
-          averageRecallTime: avgTime,
-        }),
-        now,
-      });
-
-    expect(makeWithSpeed(5).breakdown.speedBonus).toBe(8);   // <= 10s
-    expect(makeWithSpeed(15).breakdown.speedBonus).toBe(5);  // <= 20s
-    expect(makeWithSpeed(25).breakdown.speedBonus).toBe(3);  // <= 30s
-    expect(makeWithSpeed(40).breakdown.speedBonus).toBe(1);  // <= 45s
-    expect(makeWithSpeed(60).breakdown.speedBonus).toBe(0);  // > 45s
+  it("시험 경험 없으면 망각 패널티 없음", () => {
+    const result = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 3,
+        mostRecentPracticeAt: new Date("2026-01-01T00:00:00Z"), // 3개월 전
+      }),
+      test: makeTest(),
+      now,
+    });
+    expect(result.breakdown.forgettingPenalty).toBe(0);
   });
 
-  it("applies forgetting penalty for old data", () => {
+  it("시험 경험 있으면 오래된 기록에 망각 패널티 적용", () => {
     const recent = computeExamConfidence({
-      practice: makePractice({ practiceCount: 5, totalPracticeDuration: 600, mostRecentPracticeAt: now }),
+      practice: makePractice({ practiceCount: 3, mostRecentPracticeAt: now }),
       test: makeTest({
         testCount: 3,
         correctCount: 3,
@@ -147,8 +229,7 @@ describe("computeExamConfidence", () => {
     });
     const old = computeExamConfidence({
       practice: makePractice({
-        practiceCount: 5,
-        totalPracticeDuration: 600,
+        practiceCount: 3,
         mostRecentPracticeAt: new Date("2026-03-01T00:00:00Z"),
       }),
       test: makeTest({
@@ -161,47 +242,49 @@ describe("computeExamConfidence", () => {
       now,
     });
     expect(recent.displayScore).toBeGreaterThan(old.displayScore);
-    expect(old.breakdown.forgettingPenalty).toBeGreaterThan(recent.breakdown.forgettingPenalty);
+    expect(old.breakdown.forgettingPenalty).toBeGreaterThan(0);
   });
 
-  it("applies wrong answer penalty", () => {
-    const noWrong = computeExamConfidence({
-      practice: makePractice({ practiceCount: 3, totalPracticeDuration: 300, mostRecentPracticeAt: now }),
+  it("빠른 회상 보너스 적용", () => {
+    // streak 1 (낮은 점수)에서 speedBonus 차이 확인
+    const slow = computeExamConfidence({
+      practice: makePractice({ practiceCount: 1, mostRecentPracticeAt: now }),
       test: makeTest({
-        testCount: 3,
-        correctCount: 3,
-        wrongCount: 0,
-        averageSimilarityScore: 90,
-        mostRecentTestAt: now,
-        recentCorrectStreak: 3,
-      }),
-      now,
-    });
-    const withWrong = computeExamConfidence({
-      practice: makePractice({ practiceCount: 3, totalPracticeDuration: 300, mostRecentPracticeAt: now }),
-      test: makeTest({
-        testCount: 5,
-        correctCount: 3,
-        wrongCount: 2,
+        testCount: 1,
+        correctCount: 1,
         averageSimilarityScore: 70,
         mostRecentTestAt: now,
-        recentCorrectStreak: 0,
-        mostRecentTestWasPoor: true,
+        recentCorrectStreak: 1,
+        averageRecallTime: 60,
       }),
       now,
     });
-    expect(noWrong.displayScore).toBeGreaterThan(withWrong.displayScore);
+    const fast = computeExamConfidence({
+      practice: makePractice({ practiceCount: 1, mostRecentPracticeAt: now }),
+      test: makeTest({
+        testCount: 1,
+        correctCount: 1,
+        averageSimilarityScore: 70,
+        mostRecentTestAt: now,
+        recentCorrectStreak: 1,
+        averageRecallTime: 8,
+      }),
+      now,
+    });
+    expect(fast.displayScore).toBeGreaterThan(slow.displayScore);
+    expect(fast.breakdown.speedBonus).toBe(5);
+    expect(slow.breakdown.speedBonus).toBe(0);
   });
 });
 
 describe("aggregateConfidence", () => {
-  it("returns red for empty results", () => {
+  it("빈 결과에서 red 반환", () => {
     const result = aggregateConfidence([]);
     expect(result.state).toBe("red");
     expect(result.totalQuestions).toBe(0);
   });
 
-  it("aggregates multiple results correctly", () => {
+  it("여러 결과 집계 정상 동작", () => {
     const green = computeExamConfidence({
       practice: makePractice({ practiceCount: 5, totalPracticeDuration: 600, mostRecentPracticeAt: now }),
       test: makeTest({
@@ -215,7 +298,7 @@ describe("aggregateConfidence", () => {
       now,
     });
     const red = computeExamConfidence({
-      practice: makePractice({ practiceCount: 1, totalPracticeDuration: 30, mostRecentPracticeAt: now }),
+      practice: makePractice({ practiceCount: 1, mostRecentPracticeAt: now }),
       test: makeTest(),
       now,
     });
@@ -229,7 +312,7 @@ describe("aggregateConfidence", () => {
 });
 
 describe("CONFIDENCE_THRESHOLDS", () => {
-  it("has correct threshold values", () => {
+  it("임계값 확인", () => {
     expect(CONFIDENCE_THRESHOLDS.green).toBe(80);
     expect(CONFIDENCE_THRESHOLDS.yellow).toBe(50);
   });
