@@ -667,11 +667,12 @@ export function TableView({
                 if (!practiceMode && isBlank && !showAnswers) bgColor = "bg-yellow-50";
                 if (isCorrect === true) bgColor = "bg-green-50";
                 if (isCorrect === false) bgColor = "bg-red-50";
-                // 하단 입력창 모드: 완성 셀은 배경 변경 없음 (텍스트 문제와 동일)
+                // 하단 입력창 모드: 집중 연습 선택된 셀은 연한 보라 배경 tint (인라인 스타일로 적용)
+                const isFocusCell = activeCellKey !== null && isBlank && isCellChecked && !isActiveCell;
 
-                // 하단 입력창 모드에서 활성 셀 테두리 강조
+                // 하단 입력창 모드에서 활성 셀 테두리 강조 (active: 두꺼운 보라 + glow)
                 const cellBorderClass = isActiveCell
-                  ? 'border-2 border-blue-500'
+                  ? 'border-2 border-purple-500 shadow-[0_0_0_2px_oklch(0.55_0.2_290_/_0.2)]'
                   : 'border border-slate-300';
 
                 return (
@@ -680,22 +681,28 @@ export function TableView({
                     rowSpan={cell.rowSpan || 1}
                     colSpan={cell.colSpan || 1}
                     className={`${bgColor} ${cellBorderClass} px-2 py-1.5 text-sm min-w-[60px] align-top relative`}
-                    style={{ wordBreak: 'keep-all', overflowWrap: 'break-word', whiteSpace: 'pre-wrap', verticalAlign: 'top' }}
+                    style={{
+                      wordBreak: 'keep-all',
+                      overflowWrap: 'break-word',
+                      whiteSpace: 'pre-wrap',
+                      verticalAlign: 'top',
+                      backgroundColor: isFocusCell ? 'oklch(0.55 0.2 290 / 0.07)' : undefined,
+                    }}
                   >
-                    {/* 하단 입력창 모드: 빈칸 셀에 체크박스 + 채점 시각화 */}
+                    {/* 하단 입력창 모드: 빈칸 셀에 코너 플래그 + 채점 시각화 */}
                     {activeCellKey !== null && isBlank && (
                       <>
-                        {/* 체크박스 */}
-                        {onCellCheck && (
-                          <button
-                            onClick={() => onCellCheck(cellKey)}
-                            className={`absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded border-2 flex items-center justify-center text-[8px] z-10 transition-colors ${
-                              isCellChecked ? 'bg-purple-500 border-purple-500 text-white' : 'border-slate-300 bg-white hover:border-purple-400'
-                            }`}
-                            title={isCellChecked ? '집중 연습 해제' : '집중 연습 선택'}
-                          >
-                            {isCellChecked && '✓'}
-                          </button>
+                        {/* 코너 플래그: 셀 클릭으로 집중 연습 선택/해제 */}
+                        {onCellCheck && isCellChecked && (
+                          <div
+                            className="absolute top-0 right-0 w-0 h-0 z-10 pointer-events-none"
+                            style={{
+                              borderStyle: 'solid',
+                              borderWidth: '0 10px 10px 0',
+                              borderColor: 'transparent oklch(0.55 0.2 290) transparent transparent',
+                            }}
+                            title="집중 연습 선택됨"
+                          />
                         )}
                         {/* 채점 시각화: 활성 셀 - 텍스트 문제와 동일한 방식 */}
                         {isActiveCell && !isCompleted && (
@@ -724,12 +731,27 @@ export function TableView({
                         {isCompleted && (
                           <div className="text-sm font-semibold text-foreground">{cell.content}</div>
                         )}
-                        {/* 미입력 셀 - 클릭 가능 */}
+                        {/* 미입력 셀 - 클릭으로 활성화 + 집중 연습 선택/해제 */}
                         {!isActiveCell && !isCompleted && (
                           <div
-                            className="text-sm text-slate-300 cursor-pointer hover:text-slate-400 transition-colors"
-                            onClick={() => onCellActivate?.(cellKey)}
-                            title="클릭하여 이 셀 연습"
+                            className={`text-sm cursor-pointer transition-colors ${
+                              isCellChecked
+                                ? 'text-slate-500 hover:text-slate-600'
+                                : 'text-slate-300 hover:text-slate-400'
+                            }`}
+                            onClick={(e) => {
+                              // 연속 클릭: 더블 클릭은 집중 연습 토글
+                              if (e.detail === 2) {
+                                onCellCheck?.(cellKey);
+                              } else {
+                                onCellActivate?.(cellKey);
+                              }
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              onCellCheck?.(cellKey);
+                            }}
+                            title={isCellChecked ? '더블클릭: 집중 연습 해제 / 단일클릭: 이 셀 연습' : '더블클릭: 집중 연습 선택 / 단일클릭: 이 셀 연습'}
                           >{cell.content}</div>
                         )}
                       </>

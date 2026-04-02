@@ -1283,45 +1283,60 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         ? (isFadingOut ? "text-gray-600 transition-colors duration-300" : "text-foreground")
         : (isFadingOut ? "text-gray-300 transition-colors duration-300" : "text-foreground");
       
-      // 체크된 줄 하이라이트
+      // 체크된 줄 상태
       const isChecked = repeatCheckedLines.has(actualLineIdx);
       const isCurrentRepeat = isRepeatMode && currentRepeatTarget?.lineIdx === actualLineIdx;
-      // 체크된 줄: 연한 노란 하이라이트 / 현재 반복 중인 줄: 진한 노란
-      const lineHighlight = isCurrentRepeat
-        ? 'bg-yellow-200/80 dark:bg-yellow-700/50 rounded px-1 -mx-1'
-        : isChecked
-        ? 'bg-yellow-100/60 dark:bg-yellow-900/30 rounded px-1 -mx-1'
-        : '';
-      // 체크박스는 전체 줄 수가 2줄 이상일 때만 표시
-      const showCheckbox = targetLines.length > 1 && hideMode === 'none';
+      // 집중 연습 선택 가능 여부: 2줄 이상이고 답 가리기 모드가 아닐 때
+      const canSelectLine = targetLines.length > 1 && hideMode === 'none';
 
-      // 체크박스 버튼 공통 컴포넌트
-      const checkboxBtn = showCheckbox ? (
-        <button
-          onClick={(e) => { e.stopPropagation(); toggleRepeatLine(actualLineIdx); }}
-          className={`inline-flex items-center justify-center flex-shrink-0 mr-1.5 transition-opacity select-none ${
-            isChecked ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
-          }`}
-          style={{ width: '14px', height: '14px', verticalAlign: 'middle' }}
-          title={isChecked ? '반복 연습에서 제외' : '반복 연습에 추가'}
-          aria-hidden="true"
-          tabIndex={-1}
-        >
-          <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center text-[8px] ${
-            isChecked ? 'bg-purple-500 border-purple-500 text-white' : 'border-current'
-          }`}>
-            {isChecked && '✓'}
-          </span>
-        </button>
-      ) : null;
+      // 집중 연습 선택된 줄: 좌측 컬러 바 + 연한 배경 tint
+      // active 줄: 더 강한 강조 (기존 opacity 1)
+      // 클릭 핸들러: 문장 자체를 클릭하여 선택/해제
+      const handleLineClick = canSelectLine ? (e: React.MouseEvent) => {
+        // 텍스트 선택 중이면 무시
+        if (window.getSelection()?.toString()) return;
+        e.preventDefault();
+        toggleRepeatLine(actualLineIdx);
+        // 포커스 유지
+        setTimeout(() => textareaRef.current?.focus(), 10);
+      } : undefined;
 
-      // 체크박스 공간 placeholder (체크박스 없을 때도 들여쓰기 유지 불필요, 체크박스 있을 때만 pl 적용)
+      const lineStyle: React.CSSProperties = {
+        display: 'block',
+        position: 'relative',
+        paddingLeft: canSelectLine ? '10px' : '0',
+        cursor: canSelectLine ? 'pointer' : 'default',
+        userSelect: 'text',
+        borderLeft: isChecked
+          ? '3px solid oklch(0.55 0.2 290)'
+          : isCurrentRepeat
+          ? '3px solid oklch(0.55 0.2 290)'
+          : canSelectLine
+          ? '3px solid transparent'
+          : 'none',
+        backgroundColor: isCurrentRepeat
+          ? 'oklch(0.55 0.2 290 / 0.12)'
+          : isChecked
+          ? 'oklch(0.55 0.2 290 / 0.07)'
+          : 'transparent',
+        borderRadius: '2px',
+        marginLeft: canSelectLine ? '-10px' : '0',
+        paddingRight: '4px',
+        transition: 'background-color 0.15s, border-color 0.15s',
+      };
+
       if (lineIdx < targetLines.length - 1) {
         return (
-          <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlight} group/line`}
-            style={showCheckbox ? { display: 'block', paddingLeft: '20px', textIndent: '-20px' } : { display: 'block' }}
+          <span
+            key={`line-${lineIdx}`}
+            className={`${lineClass} group/line`}
+            style={lineStyle}
+            onClick={handleLineClick}
+            onMouseDown={canSelectLine ? (e) => {
+              // 텍스트 선택 허용, 단 단순 클릭은 preventDefault 안 함
+            } : undefined}
+            title={canSelectLine ? (isChecked ? '클릭하여 집중 연습 해제' : '클릭하여 집중 연습 선택') : undefined}
           >
-            {checkboxBtn}
             {renderedChars}
             <span aria-hidden="true" className="text-muted-foreground select-none">{"\n"}</span>
           </span>
@@ -1329,10 +1344,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
       
       return (
-        <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlight} group/line`}
-          style={showCheckbox ? { display: 'block', paddingLeft: '20px', textIndent: '-20px' } : { display: 'block' }}
+        <span
+          key={`line-${lineIdx}`}
+          className={`${lineClass} group/line`}
+          style={lineStyle}
+          onClick={handleLineClick}
+          title={canSelectLine ? (isChecked ? '클릭하여 집중 연습 해제' : '클릭하여 집중 연습 선택') : undefined}
         >
-          {checkboxBtn}
           {renderedChars}
         </span>
       );
@@ -1726,9 +1744,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       const cell = tableData.cells[ri]?.[ci];
                       const targetCellIdx = targetCells.indexOf(activeCellKey) + 1;
                       return cell ? (
-                        <div className="text-xs text-muted-foreground">
-                          셀 {targetCellIdx}/{targetCells.length} • 정답 입력 후 Tab
-                          {tableCheckedCells.size > 0 && <span className="ml-2 text-purple-600">(집중 연습 모드)</span>}
+                        <div className="text-xs text-muted-foreground flex items-center gap-2">
+                          <span>셀 {targetCellIdx}/{targetCells.length} • 정답 입력 후 Tab</span>
+                          {tableCheckedCells.size > 0 && (
+                            <span className="text-purple-600">◣ {tableCheckedCells.size}셀 집중 연습 중</span>
+                          )}
+                          {tableCheckedCells.size === 0 && (
+                            <span className="text-muted-foreground/60">셀 더블클릭: 집중 연습 선택</span>
+                          )}
                         </div>
                       ) : null;
                     })()}
