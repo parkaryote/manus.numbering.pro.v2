@@ -28,7 +28,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
     setAnimKey(prev => prev + 1); // 새 key로 애니메이션 재시작
 
     // 1% 미만이면 더 짧게 표시
-    const duration = Math.abs(value) < 1 ? 1400 : 1700;
+    const duration = Math.abs(value) < 1 ? 700 : 850;
 
     timerRef.current = setTimeout(() => {
       setVisible(false);
@@ -65,7 +65,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
           transform: "translate(-50%, -50%)",
           pointerEvents: "none",
           zIndex: 50,
-          animation: "dmgTinyPulse 1.4s ease-out forwards",
+          animation: "dmgTinyPulse 0.7s ease-out forwards",
         }}
       >
         <div
@@ -104,7 +104,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
               opacity: 1;
             }
             100% {
-              transform: translate(-50%, -50%) scale(0.9) translateY(${isPositive ? '-30px' : '30px'});
+              transform: translate(-50%, -50%) scale(0.9) translateY(${isPositive ? '-20px' : '20px'});
               opacity: 0;
             }
           }
@@ -124,8 +124,8 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
         pointerEvents: "none",
         zIndex: 50,
         animation: isPositive
-          ? "dmgFloatUp 1.7s ease-out forwards"
-          : "dmgFloatDown 1.7s ease-out forwards",
+          ? "dmgFloatUp 0.85s ease-out forwards"
+          : "dmgFloatDown 0.85s ease-out forwards",
       }}
     >
       <div
@@ -149,11 +149,11 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
             transform: translate(-50%, -50%) translateY(0);
             opacity: 1;
           }
-          60% {
+          50% {
             opacity: 1;
           }
           100% {
-            transform: translate(-50%, -50%) translateY(-80px);
+            transform: translate(-50%, -50%) translateY(-50px);
             opacity: 0;
           }
         }
@@ -163,11 +163,11 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
             transform: translate(-50%, -50%) translateY(0);
             opacity: 1;
           }
-          60% {
+          50% {
             opacity: 1;
           }
           100% {
-            transform: translate(-50%, -50%) translateY(80px);
+            transform: translate(-50%, -50%) translateY(50px);
             opacity: 0;
           }
         }

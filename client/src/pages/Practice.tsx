@@ -273,6 +273,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [tableAnswers, setTableAnswers] = useState<Record<string, string>>({});
   const [tableResults, setTableResults] = useState<Record<string, boolean> | null>(null);
   const [tablePracticeCount, setTablePracticeCount] = useState(0);
+  // 표 문제 하단 입력창 연습 모드
+  const [tableActiveCellIdx, setTableActiveCellIdx] = useState(0); // 현재 입력 중인 셀 인덱스
+  const [tableCompletedCells, setTableCompletedCells] = useState<Set<string>>(new Set());
+  const [tableCheckedCells, setTableCheckedCells] = useState<Set<string>>(new Set());
+  const [tableCellInput, setTableCellInput] = useState(''); // 하단 입력창 현재 입력값
+  const tableCellInputRef = useRef<HTMLTextAreaElement>(null);
   
 
 
@@ -1289,26 +1295,33 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       // 체크박스는 전체 줄 수가 2줄 이상일 때만 표시
       const showCheckbox = targetLines.length > 1 && hideMode === 'none';
 
-       if (lineIdx < targetLines.length - 1) {
+      // 체크박스 버튼 공통 컴포넌트
+      const checkboxBtn = showCheckbox ? (
+        <button
+          onClick={(e) => { e.stopPropagation(); toggleRepeatLine(actualLineIdx); }}
+          className={`inline-flex items-center justify-center flex-shrink-0 mr-1.5 transition-opacity select-none ${
+            isChecked ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
+          }`}
+          style={{ width: '14px', height: '14px', verticalAlign: 'middle' }}
+          title={isChecked ? '반복 연습에서 제외' : '반복 연습에 추가'}
+          aria-hidden="true"
+          tabIndex={-1}
+        >
+          <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center text-[8px] ${
+            isChecked ? 'bg-purple-500 border-purple-500 text-white' : 'border-current'
+          }`}>
+            {isChecked && '✓'}
+          </span>
+        </button>
+      ) : null;
+
+      // 체크박스 공간 placeholder (체크박스 없을 때도 들여쓰기 유지 불필요, 체크박스 있을 때만 pl 적용)
+      if (lineIdx < targetLines.length - 1) {
         return (
-          <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlight} group/line relative`}>
-            {showCheckbox && (
-              <button
-                onClick={(e) => { e.stopPropagation(); toggleRepeatLine(actualLineIdx); }}
-                className={`inline-flex items-center mr-1.5 transition-opacity select-none ${
-                  isChecked ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
-                }`}
-                title={isChecked ? '반복 연습에서 제외' : '반복 연습에 추가'}
-                aria-hidden="true"
-                tabIndex={-1}
-              >
-                <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center text-[8px] ${
-                  isChecked ? 'bg-purple-500 border-purple-500 text-white' : 'border-current'
-                }`}>
-                  {isChecked && '✓'}
-                </span>
-              </button>
-            )}
+          <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlight} group/line`}
+            style={showCheckbox ? { display: 'block', paddingLeft: '20px', textIndent: '-20px' } : { display: 'block' }}
+          >
+            {checkboxBtn}
             {renderedChars}
             <span aria-hidden="true" className="text-muted-foreground select-none">{"\n"}</span>
           </span>
@@ -1316,24 +1329,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
       
       return (
-        <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlight} group/line relative`}>
-          {showCheckbox && (
-              <button
-              onClick={(e) => { e.stopPropagation(); toggleRepeatLine(actualLineIdx); }}
-                className={`inline-flex items-center mr-1.5 transition-opacity select-none ${
-                  isChecked ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
-                }`}
-                title={isChecked ? '반복 연습에서 제외' : '반복 연습에 추가'}
-                aria-hidden="true"
-                tabIndex={-1}
-              >
-              <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center text-[8px] ${
-                isChecked ? 'bg-purple-500 border-purple-500 text-white' : 'border-current'
-              }`}>
-                {isChecked && '✓'}
-              </span>
-            </button>
-          )}
+        <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlight} group/line`}
+          style={showCheckbox ? { display: 'block', paddingLeft: '20px', textIndent: '-20px' } : { display: 'block' }}
+        >
+          {checkboxBtn}
           {renderedChars}
         </span>
       );
@@ -1634,79 +1633,135 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           )}
 
           {isTableQuestion && tableData ? (
-            /* Table question */
-            <div className="space-y-4">
-              <TableView
-                tableData={tableData}
-                answers={tableAnswers}
-                practiceMode={true}
-                onAnswerChange={(key, value) => {
-                  setTableAnswers((prev) => ({ ...prev, [key]: value }));
-                  // 시간 추적
-                  if (!startTime) setStartTime(Date.now());
-                  setLastInputTime(Date.now());
-                  setIsActive(true);
-                }}
-                onCorrectAnswer={(key) => {
-                  // 모든 빈칸이 완성되었는지 확인
-                  const blankCells = getBlankCells(tableData);
-                  const allCorrect = blankCells.every((cellKey) => {
-                    const cell = tableData.cells.flat().find((c: any) => c.key === cellKey);
-                    if (!cell) return false;
-                    const userAnswer = tableAnswers[cellKey] || "";
-                    return userAnswer.trim().toLowerCase() === cell.content.trim().toLowerCase();
-                  });
-                  
-                  if (allCorrect) {
-                    setPracticeCount((prev) => prev + 1);
-                    if (isDemo && question) {
-                      const storageKey = `demo_practice_count_${question.id}`;
-                      const currentCount = parseInt(localStorage.getItem(storageKey) || "0", 10);
-                      localStorage.setItem(storageKey, String(currentCount + 1));
+            /* Table question - 하단 입력창 연습 모드 */
+            (() => {
+              const blankCells = getBlankCells(tableData);
+              const activeCellKey = blankCells[tableActiveCellIdx] ?? null;
+              // 체크된 셀만 연습 중이면 해당 셀만 순환
+              const targetCells = tableCheckedCells.size > 0
+                ? blankCells.filter(k => tableCheckedCells.has(k))
+                : blankCells;
+
+              const handleTableInput = (value: string) => {
+                setTableCellInput(value);
+                if (!startTime) setStartTime(Date.now());
+                setLastInputTime(Date.now());
+                setIsActive(true);
+              };
+
+              const handleTableKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  // 현재 셀 정답 체크
+                  if (!activeCellKey) return;
+                  const ri = parseInt(activeCellKey.split('-')[0]);
+                  const ci = parseInt(activeCellKey.split('-')[1]);
+                  const cell = tableData.cells[ri]?.[ci];
+                  if (!cell) return;
+                  const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
+                  if (norm(tableCellInput) === norm(cell.content)) {
+                    // 정답: 완성 셀에 추가
+                    setTableCompletedCells(prev => new Set(Array.from(prev).concat(activeCellKey)));
+                    setTableCellInput('');
+                    // 다음 셀로 이동
+                    const nextIdx = (tableActiveCellIdx + 1) % targetCells.length;
+                    const nextKey = targetCells[nextIdx];
+                    const nextBlankIdx = blankCells.indexOf(nextKey);
+                    setTableActiveCellIdx(nextBlankIdx >= 0 ? nextBlankIdx : 0);
+                    // 모든 셀 완성 체크
+                    const newCompleted = new Set(Array.from(tableCompletedCells).concat(activeCellKey));
+                    const allDone = targetCells.every(k => newCompleted.has(k));
+                    if (allDone) {
+                      // 연습 완료
+                      handleCorrectAnswer(targetCells.length);
+                      setTimeout(() => {
+                        setTableCompletedCells(new Set());
+                        setTableActiveCellIdx(0);
+                        setTableCellInput('');
+                      }, 400);
+                    }
+                  } else {
+                    // 오답: 입력창 말담말담 애니메이션
+                    if (tableCellInputRef.current) {
+                      tableCellInputRef.current.style.animation = 'none';
+                      setTimeout(() => {
+                        if (tableCellInputRef.current) {
+                          tableCellInputRef.current.style.animation = 'shake 0.3s ease-out';
+                        }
+                      }, 10);
                     }
                   }
-                }}
-              />
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setTableAnswers({});
-                  }}
-                >
-                  초기화
-                </Button>
-                <Button
-                  onClick={async () => {
-                    const blankCells = getBlankCells(tableData);
-                    const allCorrect = blankCells.every((cellKey) => {
-                      const cell = tableData.cells.flat().find((c: any) => c.key === cellKey);
-                      if (!cell) return false;
-                      const userAnswer = tableAnswers[cellKey] || "";
-                      return userAnswer.trim().toLowerCase() === cell.content.trim().toLowerCase();
-                    });
+                }
+              };
 
-                    if (!allCorrect) {
-                      toast.error("모든 빈칸을 올바르게 입력해주세요");
-                      return;
+              return (
+                <div className="space-y-3">
+                  <TableView
+                    tableData={tableData}
+                    activeCellKey={activeCellKey}
+                    completedCells={tableCompletedCells}
+                    checkedCells={tableCheckedCells}
+                    onCellCheck={(key) => {
+                      setTableCheckedCells(prev => {
+                        const next = new Set(prev);
+                        if (next.has(key)) next.delete(key); else next.add(key);
+                        return next;
+                      });
+                    }}
+                    partialInput={tableCellInput}
+                  />
+                  {/* 하단 입력창 */}
+                  <div className="space-y-1">
+                    {activeCellKey && (() => {
+                      const ri = parseInt(activeCellKey.split('-')[0]);
+                      const ci = parseInt(activeCellKey.split('-')[1]);
+                      const cell = tableData.cells[ri]?.[ci];
+                      const targetCellIdx = targetCells.indexOf(activeCellKey) + 1;
+                      return cell ? (
+                        <div className="text-xs text-muted-foreground">
+                          셀 {targetCellIdx}/{targetCells.length} • 정답 입력 후 Enter
+                          {tableCheckedCells.size > 0 && <span className="ml-2 text-purple-600">(집중 연습 모드)</span>}
+                        </div>
+                      ) : null;
+                    })()}
+                    <textarea
+                      ref={tableCellInputRef}
+                      value={tableCellInput}
+                      onChange={(e) => handleTableInput(e.target.value)}
+                      onKeyDown={handleTableKeyDown}
+                      rows={1}
+                      className="w-full min-h-[44px] max-h-[120px] p-3 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground overflow-y-auto"
+                      style={{ fieldSizing: 'content' } as React.CSSProperties}
+                      placeholder="여기에 입력 후 Enter..."
+                      autoFocus
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                    <div>연습 횟수: {practiceCount}회</div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setTableCompletedCells(new Set());
+                        setTableActiveCellIdx(0);
+                        setTableCellInput('');
+                      }}
+                    >
+                      초기화
+                    </Button>
+                  </div>
+                  <style>{`
+                    @keyframes shake {
+                      0%, 100% { transform: translateX(0); }
+                      20% { transform: translateX(-6px); }
+                      40% { transform: translateX(6px); }
+                      60% { transform: translateX(-4px); }
+                      80% { transform: translateX(4px); }
                     }
-
-                    // 텍스트 문제와 동일한 처리
-                    handleCorrectAnswer(Object.keys(tableAnswers).length);
-                    // 표 답안 초기화
-                    setTimeout(() => {
-                      setTableAnswers({});
-                    }, 1000);
-                  }}
-                  disabled={createSession.isPending}
-                >
-                  {createSession.isPending ? "저장 중..." : "완료"}
-                </Button>
-              </div>
-              <div className="text-sm text-muted-foreground">
-                연습 횟수: {practiceCount}회
-              </div>
-            </div>
+                  `}</style>
+                </div>
+              );
+            })()
           ) : isImageQuestion ? (
             /* Image question with label boxes - resizable 2 column layout */
             <div>

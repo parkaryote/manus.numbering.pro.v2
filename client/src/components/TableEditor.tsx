@@ -584,6 +584,12 @@ interface TableViewProps {
   practiceMode?: boolean; // 연습 모드 (정답 표시 + 실시간 타이핑 피드백)
   onCellFocus?: (key: string) => void;
   onCorrectAnswer?: (key: string) => void; // 정답 완성 시 콜백
+  // 하단 입력창 연습 모드 전용
+  activeCellKey?: string | null; // 현재 입력 중인 셀 키
+  completedCells?: Set<string>; // 완성된 셀 키 목록
+  checkedCells?: Set<string>; // 체크박스 선택된 셀 키 목록
+  onCellCheck?: (key: string) => void; // 셀 체크박스 토글
+  partialInput?: string; // 현재 입력 중인 텍스트 (채점 시각화용)
 }
 
 export function TableView({
@@ -596,6 +602,11 @@ export function TableView({
   practiceMode = false,
   onCellFocus,
   onCorrectAnswer,
+  activeCellKey = null,
+  completedCells = new Set(),
+  checkedCells = new Set(),
+  onCellCheck,
+  partialInput = '',
 }: TableViewProps) {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const blankCells = getBlankCells(tableData);
@@ -643,21 +654,76 @@ export function TableView({
                   ? normalizeText(userAnswer) === normalizeText(cell.content.slice(0, userAnswer.length))
                   : undefined;
 
+                // 하단 입력창 연습 모드 셀 상태
+                const isActiveCell = activeCellKey === cellKey;
+                const isCompleted = completedCells.has(cellKey);
+                const isCellChecked = checkedCells.has(cellKey);
+
                 let bgColor = "bg-white";
                 if (isHeader) bgColor = "bg-slate-100";
                 if (practiceMode && isBlank) bgColor = "bg-slate-50";
                 if (!practiceMode && isBlank && !showAnswers) bgColor = "bg-yellow-50";
                 if (isCorrect === true) bgColor = "bg-green-50";
                 if (isCorrect === false) bgColor = "bg-red-50";
+                // 하단 입력창 모드: 완성 셀은 연한 초록색
+                if (activeCellKey !== null && isBlank && isCompleted) bgColor = "bg-green-100";
+
+                // 하단 입력창 모드에서 활성 셀 테두리 강조
+                const cellBorderClass = isActiveCell
+                  ? 'border-2 border-blue-500'
+                  : 'border border-slate-300';
 
                 return (
                   <CellTag
                     key={ci}
                     rowSpan={cell.rowSpan || 1}
                     colSpan={cell.colSpan || 1}
-                    className={`${bgColor} border border-slate-300 px-2 py-1.5 text-sm min-w-[60px]`}
+                    className={`${bgColor} ${cellBorderClass} px-2 py-1.5 text-sm min-w-[60px] align-top relative`}
+                    style={{ wordBreak: 'keep-all', overflowWrap: 'break-word', whiteSpace: 'pre-wrap', verticalAlign: 'top' }}
                   >
-                    {practiceMode && isBlank ? (
+                    {/* 하단 입력창 모드: 빈칸 셀에 체크박스 + 채점 시각화 */}
+                    {activeCellKey !== null && isBlank && (
+                      <>
+                        {/* 체크박스 */}
+                        {onCellCheck && (
+                          <button
+                            onClick={() => onCellCheck(cellKey)}
+                            className={`absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded border-2 flex items-center justify-center text-[8px] z-10 transition-colors ${
+                              isCellChecked ? 'bg-purple-500 border-purple-500 text-white' : 'border-slate-300 bg-white hover:border-purple-400'
+                            }`}
+                            title={isCellChecked ? '집중 연습 해제' : '집중 연습 선택'}
+                          >
+                            {isCellChecked && '✓'}
+                          </button>
+                        )}
+                        {/* 채점 시각화: 활성 셀 */}
+                        {isActiveCell && !isCompleted && (
+                          <div className="text-sm">
+                            {(() => {
+                              const norm = (s: string) => s.replace(/\s+/g, '');
+                              const target = norm(cell.content);
+                              const input = norm(partialInput);
+                              return target.split('').map((ch, i) => {
+                                if (i < input.length) {
+                                  const correct = input[i] === ch;
+                                  return <span key={i} className={correct ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'}>{ch}</span>;
+                                }
+                                return <span key={i} className="text-slate-300">{ch}</span>;
+                              });
+                            })()}
+                          </div>
+                        )}
+                        {/* 완성 셀 */}
+                        {isCompleted && (
+                          <div className="text-sm text-green-700 font-semibold">{cell.content}</div>
+                        )}
+                        {/* 미입력 셀 */}
+                        {!isActiveCell && !isCompleted && (
+                          <div className="text-sm text-slate-400">{cell.content}</div>
+                        )}
+                      </>
+                    )}
+                    {activeCellKey !== null && isBlank ? null : practiceMode && isBlank ? (
                       <div className="relative min-h-[28px]">
                         {!userAnswer && (
                           <div className="absolute inset-0 text-slate-400 text-sm whitespace-pre-wrap px-2 py-1.5 pointer-events-none">
@@ -714,7 +780,9 @@ export function TableView({
                         )}
                       </div>
                     ) : (
-                      <span className={`block ${isHeader ? "font-semibold text-slate-700 text-center" : "text-slate-600"}`}>
+                      <span className={`block ${isHeader ? "font-semibold text-slate-700 text-center" : "text-slate-600"}`}
+                        style={{ whiteSpace: 'pre-wrap', wordBreak: 'keep-all', overflowWrap: 'break-word' }}
+                      >
                         {showAnswers && isBlank ? (
                           <span className="text-green-600 font-medium">{cell.content}</span>
                         ) : (
