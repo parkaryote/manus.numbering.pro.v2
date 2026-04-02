@@ -72,6 +72,17 @@ const CustomDot = (props: any) => {
   return null;
 };
 
+// 커스텀 활성 점 렌더러 (호버 시)
+const CustomActiveDot = (props: any) => {
+  const { cx, cy, payload } = props;
+  if (!cx || !cy) return null;
+  const color = STATE_COLORS[payload.state as keyof typeof STATE_COLORS] || "#6b7280";
+  if (payload.eventType === "practice") {
+    return <circle cx={cx} cy={cy} r={5} fill={color} stroke="white" strokeWidth={2} />;
+  }
+  return <circle cx={cx} cy={cy} r={6} fill={color} stroke="white" strokeWidth={2} />;
+};
+
 // 커스텀 툴팁
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
@@ -198,19 +209,7 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                     stroke={currentColor}
                     strokeWidth={2.5}
                     dot={<CustomDot />}
-                    activeDot={((props: any) => {
-                      const { cx, cy, payload } = props;
-                      if (!cx || !cy) return null;
-                      const color = STATE_COLORS[payload.state as keyof typeof STATE_COLORS] || "#6b7280";
-                      
-                      // 호버 시 연습도 표시
-                      if (payload.eventType === "practice") {
-                        return (
-                          <circle key={`active-dot-${cx}-${cy}`} cx={cx} cy={cy} r={5} fill={color} stroke="white" strokeWidth={2} />
-                        );
-                      }
-                      return <circle cx={cx} cy={cy} r={6} fill={color} stroke="white" strokeWidth={2} />;
-                    }) as any}
+                    activeDot={<CustomActiveDot />}
                     isAnimationActive={true}
                     animationDuration={600}
                   />

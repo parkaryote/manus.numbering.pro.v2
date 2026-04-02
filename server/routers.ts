@@ -1433,6 +1433,20 @@ ${input.userAnswer}
 
         const aggregate = aggregateConfidence(results.map(r => r.confidence));
 
+        // 배지 계산
+        const allTestsForSubject = allTests.filter(t => questionIds.includes(t.questionId));
+        const badgeMap: Record<number, { lastTestWrong: boolean; frequentlyWrong: boolean; hasWarnZone: boolean }> = {};
+        for (const qId of questionIds) {
+          const qTests = allTestsForSubject.filter(t => t.questionId === qId);
+          const sortedQTests = [...qTests].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+          const lastTest = sortedQTests[0];
+          const lastTestWrong = !!lastTest && lastTest.isCorrect === 0;
+          const wrongCount = qTests.filter(t => t.isCorrect === 0).length;
+          const frequentlyWrong = qTests.length >= 3 && wrongCount / qTests.length >= 0.5;
+          const hasWarnZone = qTests.some(t => t.mistakeHighlights && t.mistakeHighlights.length > 2);
+          badgeMap[qId] = { lastTestWrong, frequentlyWrong, hasWarnZone };
+        }
+
         return {
           questions: results.map(r => ({
             questionId: r.questionId,
@@ -1440,6 +1454,7 @@ ${input.userAnswer}
             state: r.confidence.state,
             label: r.confidence.label,
             isColdStart: r.confidence.isColdStart,
+            badges: badgeMap[r.questionId] ?? { lastTestWrong: false, frequentlyWrong: false, hasWarnZone: false },
           })),
           aggregate,
         };

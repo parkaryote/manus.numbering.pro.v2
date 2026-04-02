@@ -51,6 +51,11 @@ interface ConfidenceData {
   state: "green" | "yellow" | "red";
   label: string;
   isColdStart: boolean;
+  badges?: {
+    lastTestWrong: boolean;
+    frequentlyWrong: boolean;
+    hasWarnZone: boolean;
+  };
 }
 
 interface SortableQuestionCardProps {
@@ -156,6 +161,26 @@ function SortableQuestionCard({
             <p className="text-xs text-muted-foreground truncate mt-0.5">
               {question.answer.substring(0, 80).replace(/\n/g, ' / ')}
             </p>
+          )}
+          {/* 학습 계획 추천 배지 */}
+          {confidence?.badges && (confidence.badges.lastTestWrong || confidence.badges.frequentlyWrong || confidence.badges.hasWarnZone) && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {confidence.badges.lastTestWrong && (
+                <span className="inline-flex items-center text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 leading-none">
+                  이번 시험 오답
+                </span>
+              )}
+              {confidence.badges.frequentlyWrong && (
+                <span className="inline-flex items-center text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 leading-none">
+                  자주 틀림
+                </span>
+              )}
+              {confidence.badges.hasWarnZone && (
+                <span className="inline-flex items-center text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 leading-none">
+                  주의 구간 있음
+                </span>
+              )}
+            </div>
           )}
           {hasTable && (
             <div className="text-[10px] text-muted-foreground mt-0.5 space-y-0">

@@ -86,6 +86,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const isRepeatMode = repeatCheckedLines.size > 0;
   // 안정도 그래프 모달
   const [showConfidenceHistory, setShowConfidenceHistory] = useState(false);
+  // 연속 완료 카운트 (세션 내, 3회마다 백지시험 유도)
+  const [sessionCompleteCount, setSessionCompleteCount] = useState(0);
+  const [showTestNudge, setShowTestNudge] = useState(false);
   // 문제 수정 모드
   const [editMode, setEditMode] = useState(false);
   const [editQuestion, setEditQuestion] = useState('');
@@ -1004,6 +1007,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         errorCount: 0, // Not tracking errors anymore
       });
     }
+
+    // 세션 완료 카운트 증가, 3회마다 백지시험 유도
+    setSessionCompleteCount(prev => {
+      const next = prev + 1;
+      if (next % 3 === 0) {
+        setShowTestNudge(true);
+      }
+      return next;
+    });
   };
 
   // 돌아가기 버튼 클릭 핸들러
@@ -2183,6 +2195,41 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             <br />
             입력을 시작하면 자동으로 다시 기록됩니다.
           </p>
+        </div>
+      )}
+
+      {/* 백지시험 유도 배너 (연속 3회 완료 후) */}
+      {showTestNudge && question && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 animate-in slide-in-from-bottom duration-300">
+          <div className="mx-auto max-w-2xl px-4 pb-4">
+            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-2xl shadow-2xl p-4 flex items-center gap-4">
+              <div className="text-3xl">🎯</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm">연습 {sessionCompleteCount}회 완료!</p>
+                <p className="text-xs text-white/80 mt-0.5">이제 백지시험으로 실력을 확인해볼까요?</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 text-xs bg-white/20 hover:bg-white/30 text-white border-0"
+                  onClick={() => setShowTestNudge(false)}
+                >
+                  나중에
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 text-xs bg-white text-violet-700 hover:bg-white/90 font-bold"
+                  onClick={() => {
+                    setShowTestNudge(false);
+                    setLocation(`/test/${question.id}`);
+                  }}
+                >
+                  시험 시작 →
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
