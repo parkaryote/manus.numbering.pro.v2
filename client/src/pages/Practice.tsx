@@ -1650,9 +1650,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               };
 
               const handleTableKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-                if (e.key === 'Enter') {
+                if (e.key === 'Tab') {
                   e.preventDefault();
-                  // 현재 셀 정답 체크
+                  // Tab: 현재 셀 정답 체크 후 다음 셀로 이동
                   if (!activeCellKey) return;
                   const ri = parseInt(activeCellKey.split('-')[0]);
                   const ci = parseInt(activeCellKey.split('-')[1]);
@@ -1709,6 +1709,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       });
                     }}
                     partialInput={tableCellInput}
+                    onCellActivate={(key) => {
+                      const idx = blankCells.indexOf(key);
+                      if (idx >= 0) {
+                        setTableActiveCellIdx(idx);
+                        setTableCellInput('');
+                        setTimeout(() => tableCellInputRef.current?.focus(), 50);
+                      }
+                    }}
                   />
                   {/* 하단 입력창 */}
                   <div className="space-y-1">
@@ -1719,7 +1727,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       const targetCellIdx = targetCells.indexOf(activeCellKey) + 1;
                       return cell ? (
                         <div className="text-xs text-muted-foreground">
-                          셀 {targetCellIdx}/{targetCells.length} • 정답 입력 후 Enter
+                          셀 {targetCellIdx}/{targetCells.length} • 정답 입력 후 Tab
                           {tableCheckedCells.size > 0 && <span className="ml-2 text-purple-600">(집중 연습 모드)</span>}
                         </div>
                       ) : null;

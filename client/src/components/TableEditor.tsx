@@ -588,6 +588,7 @@ interface TableViewProps {
   activeCellKey?: string | null; // 현재 입력 중인 셀 키
   completedCells?: Set<string>; // 완성된 셀 키 목록
   checkedCells?: Set<string>; // 체크박스 선택된 셀 키 목록
+  onCellActivate?: (key: string) => void; // 셀 클릭 시 활성화
   onCellCheck?: (key: string) => void; // 셀 체크박스 토글
   partialInput?: string; // 현재 입력 중인 텍스트 (채점 시각화용)
 }
@@ -606,6 +607,7 @@ export function TableView({
   completedCells = new Set(),
   checkedCells = new Set(),
   onCellCheck,
+  onCellActivate,
   partialInput = '',
 }: TableViewProps) {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -665,8 +667,7 @@ export function TableView({
                 if (!practiceMode && isBlank && !showAnswers) bgColor = "bg-yellow-50";
                 if (isCorrect === true) bgColor = "bg-green-50";
                 if (isCorrect === false) bgColor = "bg-red-50";
-                // 하단 입력창 모드: 완성 셀은 연한 초록색
-                if (activeCellKey !== null && isBlank && isCompleted) bgColor = "bg-green-100";
+                // 하단 입력창 모드: 완성 셀은 배경 변경 없음 (텍스트 문제와 동일)
 
                 // 하단 입력창 모드에서 활성 셀 테두리 강조
                 const cellBorderClass = isActiveCell
@@ -696,30 +697,40 @@ export function TableView({
                             {isCellChecked && '✓'}
                           </button>
                         )}
-                        {/* 채점 시각화: 활성 셀 */}
+                        {/* 채점 시각화: 활성 셀 - 텍스트 문제와 동일한 방식 */}
                         {isActiveCell && !isCompleted && (
-                          <div className="text-sm">
+                          <div className="text-sm font-semibold cursor-text">
                             {(() => {
                               const norm = (s: string) => s.replace(/\s+/g, '');
-                              const target = norm(cell.content);
+                              const target = cell.content;
                               const input = norm(partialInput);
+                              let inputIdx = 0;
                               return target.split('').map((ch, i) => {
-                                if (i < input.length) {
-                                  const correct = input[i] === ch;
-                                  return <span key={i} className={correct ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'}>{ch}</span>;
+                                if (ch === ' ' || ch === '\n') {
+                                  return <span key={i}>{ch}</span>;
                                 }
+                                if (inputIdx < input.length) {
+                                  const correct = input[inputIdx] === norm(ch);
+                                  inputIdx++;
+                                  return <span key={i} className={correct ? 'text-foreground' : 'text-red-500'}>{ch}</span>;
+                                }
+                                inputIdx++;
                                 return <span key={i} className="text-slate-300">{ch}</span>;
                               });
                             })()}
                           </div>
                         )}
-                        {/* 완성 셀 */}
+                        {/* 완성 셀 - 텍스트 문제처럼 검정색 */}
                         {isCompleted && (
-                          <div className="text-sm text-green-700 font-semibold">{cell.content}</div>
+                          <div className="text-sm font-semibold text-foreground">{cell.content}</div>
                         )}
-                        {/* 미입력 셀 */}
+                        {/* 미입력 셀 - 클릭 가능 */}
                         {!isActiveCell && !isCompleted && (
-                          <div className="text-sm text-slate-400">{cell.content}</div>
+                          <div
+                            className="text-sm text-slate-300 cursor-pointer hover:text-slate-400 transition-colors"
+                            onClick={() => onCellActivate?.(cellKey)}
+                            title="클릭하여 이 셀 연습"
+                          >{cell.content}</div>
                         )}
                       </>
                     )}
