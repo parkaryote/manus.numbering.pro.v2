@@ -46,6 +46,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const notepadRef = useRef<HTMLTextAreaElement>(null);
   const [hasInteracted, setHasInteracted] = useState(false); // 이미지 문제: 클릭 또는 입력 여부
   const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
+  const isResettingRef = useRef(false); // 초기화 진행 중 플래그 (compositionend 잔류 방지)
   const [practiceCount, setPracticeCount] = useState(0); // 현재 연습 횟수 (세션 동안만 유지)
   const [showShortcutHelp, setShowShortcutHelp] = useState(() => {
     const saved = localStorage.getItem("showShortcutHelp");
@@ -422,6 +423,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
     setIsComposing(false);
+    // 초기화 진행 중이면 compositionend 무시 (잔류 글자 방지)
+    if (isResettingRef.current) {
+      e.currentTarget.value = '';
+      return;
+    }
     // 조합 완료 후 입력값 처리
     const newValue = e.currentTarget.value;
     setUserInput(newValue);
@@ -895,16 +901,22 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }, 500);
     // 0.8초 후 입력창 초기화 및 fade out 해제
     setTimeout(() => {
+      isResettingRef.current = true; // 초기화 시작 플래그
+      setIsComposing(false); // 한글 조합 강제 종료
       setUserInput('');
+      lastInputRef.current = '';
       setInputHistory(['']);
       setStartTime(null);
       if (textareaRef.current) {
+        // blur → value 초기화 → focus: 조합 중인 IME 세션을 완전히 종료
+        textareaRef.current.blur();
         textareaRef.current.value = '';
         textareaRef.current.setSelectionRange(0, 0);
-        textareaRef.current.focus();
       }
       setTimeout(() => {
         setIsFadingOut(false);
+        isResettingRef.current = false; // 초기화 완료
+        textareaRef.current?.focus();
       }, 50);
     }, 800);
     
