@@ -910,7 +910,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     
     // 네트워크 요청은 백그라운드로 실행 (페이드아웃과 독립적)
     const startTs = Date.now(); // 정답 인식 시점 기록
-    const prevScore = confidenceData?.displayScore ?? 0;
+    // cold-start(데이터 없음)인 경우 prevScore를 0으로 처리하여 첫 연습 후 항상 증가로 표시
+    const prevScore = confidenceData?.isColdStart ? 0 : Math.round(confidenceData?.displayScore ?? 0);
     if (question && !isDemo) {
       (async () => {
         try {
@@ -925,7 +926,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           });
           const result = await refetchConfidence();
           const newScore = result.data?.displayScore ?? prevScore;
-          const diff = Math.round((newScore - prevScore) * 10) / 10;
+          // 정수 반올림, 연습 후 감소 방지 (연습은 항상 증가 또는 유지)
+          const diff = Math.max(0, Math.round(newScore) - prevScore);
           // 입력창 초기화(800ms)와 동시에 표시: 경과 시간 기준으로 800ms 시점에 맞춤
           const elapsed = Date.now() - startTs;
           const remaining = Math.max(0, 800 - elapsed);

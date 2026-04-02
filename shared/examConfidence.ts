@@ -142,8 +142,9 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
     };
   }
 
-  // A. Practice contribution (max ~35)
-  const practiceVolumeScore = Math.min(practice.practiceCount * 6, 30);
+  // A. Practice contribution (max ~40)
+  // 1회: 12점, 2회: 20점, 3회: 26점, 5회+: 35점 수렴
+  const practiceVolumeScore = Math.min(practice.practiceCount * 10, 35);
   // Small bonus for total duration (up to 5 points)
   const practiceBonus = practice.totalPracticeDuration > 0
     ? Math.min(Math.floor(practice.totalPracticeDuration / 60) * 1, 5) // 1 point per minute, max 5
@@ -196,8 +197,8 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
   );
 
   // Display transform: floor at 10 to avoid brutally hopeless numbers
-  // 소수점 1자리까지 유지하여 미세한 변화도 감지 가능
-  const displayScore = clamp(Math.round((rawScore * 0.9 + 10) * 10) / 10, 0, 100);
+  // 정수 단위로 반올림
+  const displayScore = clamp(Math.round(rawScore * 0.9 + 10), 0, 100);
 
   // Traffic light
   let state: "green" | "yellow" | "red";
