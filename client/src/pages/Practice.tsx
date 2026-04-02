@@ -1215,15 +1215,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         
         // 아직 입력하지 않은 글자
         if (currentCharIdx >= userChars.length) {
-          // 현재 입력 위치 (다음에 입력할 글자) - 언더바 표시
+          // 현재 입력 위치 (다음에 입력할 글자) - 언더바 표시 (현재 비활성화)
           // 단, 현재 커서 위치의 줄에만 언더바 표시
-          if (lineIdx === activeLineIdx && currentCharIdx === completedCount) {
-            return (
-              <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl animate-pulse" style={{ opacity: 1 }}>
-                {char}
-              </span>
-            );
-          }
+          // if (lineIdx === activeLineIdx && currentCharIdx === completedCount) {
+          //   return (
+          //     <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl animate-pulse" style={{ opacity: 1 }}>
+          //       {char}
+          //     </span>
+          //   );
+          // }
           // 미입력 글자
           return (
             <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
@@ -1257,8 +1257,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               </span>
             );
           }
+          // partial 상태 언더바 표시 (현재 비활성화)
+          // return (
+          //   <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl" style={{ opacity: 1 }}>
+          //     {char}
+          //   </span>
+          // );
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl" style={{ opacity: 1 }}>
+            <span key={`${lineIdx}-${charIndex}`} className="text-gray-600 relative font-semibold text-xl" style={{ opacity: 1 }}>
               {char}
             </span>
           );
