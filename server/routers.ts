@@ -1444,10 +1444,113 @@ ${input.userAnswer}
           aggregate,
         };
       }),
-  }),
+    // 문제 안정도 시간별 변화 이력 조회
+    getHistory: protectedProcedure
+      .input(z.object({ questionId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
+        const allTests = await db.getTestSessionsByUserId(ctx.user.id);
+        const qPractice = allPractice
+          .filter(p => p.questionId === input.questionId)
+          .sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
+        const qTests = allTests
+          .filter(t => t.questionId === input.questionId)
+          .sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
 
+        // 모든 이벤트를 시간순으로 합치기
+        type Ev = { at: Date; type: 'practice' | 'test'; idx: number };
+        const events: Ev[] = [
+          ...qPractice.map((p, i) => ({ at: new Date(p.completedAt), type: 'practice' as const, idx: i })),
+          ...qTests.map((t, i) => ({ at: new Date(t.completedAt), type: 'test' as const, idx: i })),
+        ].sort((a, b) => a.at.getTime() - b.at.getTime());
+
+        if (events.length === 0) return { points: [] };
+
+        // 각 이벤트 시점에서 안정도 계산 (누적 방식)
+        const points: { at: string; score: number; state: string; eventType: string; isCorrect?: boolean }[] = [];
+        let pCount = 0, pDuration = 0;
+        let mostRecentPracticeAt: Date | null = null;
+        const cumTests: typeof qTests = [];
+
+        for (const ev of events) {
+          if (ev.type === 'practice') {
+            const p = qPractice[ev.idx];
+            pCount++;
+            pDuration += p.duration;
+            mostRecentPracticeAt = new Date(p.completedAt);
+          } else {
+            cumTests.push(qTests[ev.idx]);
+          }
+
+          const practiceSignal: PracticeSignal = {
+            practiceCount: pCount,
+            totalPracticeDuration: pDuration,
+            mostRecentPracticeAt,
+          };
+
+          const sortedCumTests = [...cumTests].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+          let streak = 0;
+          for (const t of sortedCumTests) { if (t.isCorrect === 1) streak++; else break; }
+          const mostRecentTest = sortedCumTests[0] || null;
+          const avgSimilarity = cumTests.length > 0 ? cumTests.reduce((s, t) => s + (t.similarityScore || 0), 0) / cumTests.length : 0;
+          const avgRecallTime = cumTests.length > 0 ? cumTests.reduce((s, t) => s + (t.recallTime || 0), 0) / cumTests.length : undefined;
+
+          const testSignal: TestSignal = {
+            testCount: cumTests.length,
+            correctCount: cumTests.filter(t => t.isCorrect === 1).length,
+            wrongCount: cumTests.filter(t => t.isCorrect === 0).length,
+            averageSimilarityScore: Math.round(avgSimilarity),
+            mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
+            recentCorrectStreak: streak,
+            mostRecentTestWasPoor: mostRecentTest ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50) : false,
+            averageRecallTime: avgRecallTime,
+          };
+
+          const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now: ev.at });
+          const lastTest = ev.type === 'test' ? qTests[ev.idx] : undefined;
+          points.push({
+            at: ev.at.toISOString(),
+            score: result.displayScore,
+            state: result.state,
+            eventType: ev.type,
+            ...(ev.type === 'test' ? { isCorrect: lastTest?.isCorrect === 1 } : {}),
+          });
+        }
+
+        // 현재 시점 안정도도 추가 (마지막 이벤트 이후 망각 반영)
+        const now = new Date();
+        const lastEvent = events[events.length - 1];
+        if (now.getTime() - lastEvent.at.getTime() > 3600_000) {
+          const practiceSignal: PracticeSignal = {
+            practiceCount: qPractice.length,
+            totalPracticeDuration: qPractice.reduce((s, p) => s + p.duration, 0),
+            mostRecentPracticeAt: qPractice.length > 0 ? new Date(qPractice[qPractice.length - 1].completedAt) : null,
+          };
+          const sortedTests = [...qTests].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+          let streak = 0;
+          for (const t of sortedTests) { if (t.isCorrect === 1) streak++; else break; }
+          const mostRecentTest = sortedTests[0] || null;
+          const avgSimilarity = qTests.length > 0 ? qTests.reduce((s, t) => s + (t.similarityScore || 0), 0) / qTests.length : 0;
+          const avgRecallTime = qTests.length > 0 ? qTests.reduce((s, t) => s + (t.recallTime || 0), 0) / qTests.length : undefined;
+          const testSignal: TestSignal = {
+            testCount: qTests.length,
+            correctCount: qTests.filter(t => t.isCorrect === 1).length,
+            wrongCount: qTests.filter(t => t.isCorrect === 0).length,
+            averageSimilarityScore: Math.round(avgSimilarity),
+            mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
+            recentCorrectStreak: streak,
+            mostRecentTestWasPoor: mostRecentTest ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50) : false,
+            averageRecallTime: avgRecallTime,
+          };
+          const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
+          points.push({ at: now.toISOString(), score: result.displayScore, state: result.state, eventType: 'now' });
+        }
+
+        return { points };
+      }),
+  }),
   // Admin routes
   admin: adminRouter,
-});
+});;
 
 export type AppRouter = typeof appRouter;

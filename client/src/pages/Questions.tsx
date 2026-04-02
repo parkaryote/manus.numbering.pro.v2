@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,6 +62,7 @@ interface SortableQuestionCardProps {
   onCopy: (question: any) => void;
   onMove: (question: any) => void;
   onToggleStar: (id: number) => void;
+  onConfidenceClick: (id: number, title: string) => void;
 }
 
 function SortableQuestionCard({
@@ -73,6 +75,7 @@ function SortableQuestionCard({
   onCopy,
   onMove,
   onToggleStar,
+  onConfidenceClick,
 }: SortableQuestionCardProps) {
   const {
     attributes,
@@ -231,9 +234,13 @@ function SortableQuestionCard({
           )}
         </div>
 
-        {/* 시험 안정도 */}
+        {/* 시험 안정도 (클릭 시 그래프 모달) */}
         {confidence && (
-          <div className="flex items-center px-2 border-l" title={`시험 안정도: ${Math.round(confidence.displayScore)}% - ${confidence.label}`}>
+          <button
+            className="flex items-center px-2 border-l hover:bg-muted/50 transition-colors cursor-pointer"
+            title={`안정도: ${Math.round(confidence.displayScore)}점 — 클릭하여 변화 그래프 보기`}
+            onClick={() => onConfidenceClick(question.id, question.question)}
+          >
             <div className="flex flex-col items-center gap-0.5">
               <div
                 className={`w-2.5 h-2.5 rounded-full ${
@@ -246,7 +253,7 @@ function SortableQuestionCard({
                 confidence.isColdStart ? 'text-muted-foreground/50' : 'text-muted-foreground'
               }`}>{Math.round(confidence.displayScore)}</span>
             </div>
-          </div>
+          </button>
         )}
 
         {/* 액션 버튼 */}
@@ -316,6 +323,8 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const [confidenceHistoryId, setConfidenceHistoryId] = useState<number | null>(null);
+  const [confidenceHistoryTitle, setConfidenceHistoryTitle] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isCopyMoveOpen, setIsCopyMoveOpen] = useState(false);
@@ -1013,6 +1022,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                       onCopy={handleCopy}
                       onMove={handleMove}
                       onToggleStar={(id) => toggleStarMutation.mutate({ id })}
+                      onConfidenceClick={(id, title) => { setConfidenceHistoryId(id); setConfidenceHistoryTitle(title); }}
                     />
                   ))}
                 </div>
@@ -1172,6 +1182,14 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 안정도 변화 그래프 모달 */}
+      <ConfidenceHistoryModal
+        questionId={confidenceHistoryId}
+        questionTitle={confidenceHistoryTitle}
+        open={confidenceHistoryId !== null}
+        onClose={() => setConfidenceHistoryId(null)}
+      />
     </div>
   );
 }

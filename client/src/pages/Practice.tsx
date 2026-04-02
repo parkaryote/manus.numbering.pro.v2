@@ -10,6 +10,7 @@ import { splitGraphemes, isPartialMatch, isHangul, decomposeHangul } from "@/lib
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { trackQuestionAttempt, trackPracticeComplete } from "@/lib/ga4Events";
 import { DamageNumber } from "@/components/DamageNumber";
+import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
 
 interface PracticeProps {
   questionId: number;
@@ -82,6 +83,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [repeatCount, setRepeatCount] = useState(0); // 현재 줄 완료 횟수
   const [repeatTotalCount, setRepeatTotalCount] = useState(0); // 전체 완료 횟수
   const isRepeatMode = repeatCheckedLines.size > 0;
+  // 안정도 그래프 모달
+  const [showConfidenceHistory, setShowConfidenceHistory] = useState(false);
   // 문제 수정 모드
   const [editMode, setEditMode] = useState(false);
   const [editQuestion, setEditQuestion] = useState('');
@@ -1495,12 +1498,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               <p className="text-xs text-muted-foreground">누적 연습</p>
             </div>
             {!isDemo && confidenceData && (
-              <div className="text-center">
+              <button
+                className="text-center hover:opacity-70 transition-opacity cursor-pointer"
+                title="안정도 변화 그래프 보기"
+                onClick={() => setShowConfidenceHistory(true)}
+              >
                 <p className="text-2xl font-bold" style={{
                   color: confidenceData.state === 'green' ? '#10b981' : confidenceData.state === 'yellow' ? '#f59e0b' : '#ef4444'
                 }}>{Math.round(confidenceData.displayScore)}%</p>
-                <p className="text-xs text-muted-foreground">안정도</p>
-              </div>
+                <p className="text-xs text-muted-foreground">안정도 ▲</p>
+              </button>
             )}
             <div className="flex items-center gap-2">
               <Circle
@@ -2221,6 +2228,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             입력을 시작하면 자동으로 다시 기록됩니다.
           </p>
         </div>
+      )}
+
+      {/* 안정도 변화 그래프 모달 */}
+      {!isDemo && question && (
+        <ConfidenceHistoryModal
+          questionId={question.id}
+          questionTitle={question.question}
+          open={showConfidenceHistory}
+          onClose={() => setShowConfidenceHistory(false)}
+        />
       )}
     </div>
   );

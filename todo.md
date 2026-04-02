@@ -1847,3 +1847,9 @@
 # 안정도 버그 수정 (v2.8.0)
 - [x] 안정도 DB 반영 버그 수정 (캐시 invalidate 방식으로 변경)
 - [x] 안정도 증가량 로직 수정 (practiceVolumeScore 차분 기반 가변 증가)
+
+# 안정도 시간별 변화 그래프 (v2.9.0)
+- [x] 안정도 이력 API 구현 (confidence.getHistory 프로시저)
+- [x] ConfidenceHistoryModal 컴포넌트 구현 (Recharts 기반 망각곡선 스타일)
+- [x] 문제 목록 안정도 버튼 클릭 시 그래프 모달 표시
+- [x] Practice 페이지 안정도 클릭 시 그래프 모달 표시
