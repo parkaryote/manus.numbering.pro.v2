@@ -995,6 +995,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       lastCharMatchResult: string | null;
     }> = [];
     
+    // 엔터 없이 입력 시 초과분을 다음 줄로 이월하기 위한 변수
+    let carryOverChars: string[] = [];
+    
     for (let lineIdx = 0; lineIdx < targetLines.length; lineIdx++) {
       // 반복 모드: 현재 체크된 줄에만 사용자 입력을 매핑
       let userLine = '';
@@ -1011,6 +1014,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       // 각 줄의 글자를 분리 (띄어쓰기 제거)
       let userChars = splitGraphemes(userLine.replace(/\s+/g, ''));
       const targetChars = splitGraphemes(targetLine.replace(/\s+/g, ''));
+      
+      // 이전 줄에서 이월된 초과 입력을 현재 줄 앞에 추가
+      if (!isInRepeatMode && carryOverChars.length > 0) {
+        userChars = [...carryOverChars, ...userChars];
+        carryOverChars = [];
+      }
       
       // 조합 중인 마지막 글자는 제외하지 않음
       // (isComposing 상태가 정확하지 않을 수 있으므로)
@@ -1037,6 +1046,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       
       if (userChars.length > targetChars.length) {
         completedCount = targetChars.length;
+        // 초과 입력을 다음 줄로 이월 (엔터 없이 계속 입력하는 경우)
+        if (!isInRepeatMode && lineIdx < targetLines.length - 1) {
+          carryOverChars = userChars.slice(targetChars.length);
+          userChars = userChars.slice(0, targetChars.length);
+        }
       }
       
       const lastUserChar = userChars[userChars.length - 1];
