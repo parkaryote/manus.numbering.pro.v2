@@ -1757,3 +1757,6 @@
 - [x] 반복 연습: 입력창 초기화 느림 - textarea DOM 직접 초기화 추가
 - [x] 안정도 증감: 틀려도 빨간색 마이너스 안 뜨고 초록색 0% 표시 - requestAnimationFrame으로 항상 표시
 - [x] 안정도 증감: 1% 올라도 0% 표시 - displayScore 소수점 1자리 유지 + UI는 Math.round로 정수 표시
+
+## 2026-04-02 드래그 복사 버그
+- [x] 정답 드래그 복사 시 체크박스 요소가 포함되어 줄바꾸이 추가되는 문제 수정 - 체크박스 버튼에 select-none + aria-hidden + tabIndex=-1 추가

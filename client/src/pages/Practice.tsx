@@ -1246,10 +1246,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             {showCheckbox && (
               <button
                 onClick={(e) => { e.stopPropagation(); toggleRepeatLine(actualLineIdx); }}
-                className={`inline-flex items-center mr-1.5 transition-opacity ${
+                className={`inline-flex items-center mr-1.5 transition-opacity select-none ${
                   isChecked ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
                 }`}
                 title={isChecked ? '반복 연습에서 제외' : '반복 연습에 추가'}
+                aria-hidden="true"
+                tabIndex={-1}
               >
                 <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center text-[8px] ${
                   isChecked ? 'bg-purple-500 border-purple-500 text-white' : 'border-current'
@@ -1259,7 +1261,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               </button>
             )}
             {renderedChars}
-            <span className="text-muted-foreground">{"\n"}</span>
+            <span aria-hidden="true" className="text-muted-foreground select-none">{"\n"}</span>
           </span>
         );
       }
@@ -1267,13 +1269,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return (
         <span key={`line-${lineIdx}`} className={`${lineClass} ${lineHighlight} group/line relative`}>
           {showCheckbox && (
-            <button
+              <button
               onClick={(e) => { e.stopPropagation(); toggleRepeatLine(actualLineIdx); }}
-              className={`inline-flex items-center mr-1.5 transition-opacity ${
-                isChecked ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
-              }`}
-              title={isChecked ? '반복 연습에서 제외' : '반복 연습에 추가'}
-            >
+                className={`inline-flex items-center mr-1.5 transition-opacity select-none ${
+                  isChecked ? 'opacity-100 text-purple-600' : 'opacity-0 group-hover/line:opacity-60 text-muted-foreground'
+                }`}
+                title={isChecked ? '반복 연습에서 제외' : '반복 연습에 추가'}
+                aria-hidden="true"
+                tabIndex={-1}
+              >
               <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center text-[8px] ${
                 isChecked ? 'bg-purple-500 border-purple-500 text-white' : 'border-current'
               }`}>
