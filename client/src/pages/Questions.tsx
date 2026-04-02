@@ -233,7 +233,7 @@ function SortableQuestionCard({
 
         {/* 시험 안정도 */}
         {confidence && (
-          <div className="flex items-center px-2 border-l" title={`시험 안정도: ${confidence.displayScore}% - ${confidence.label}`}>
+          <div className="flex items-center px-2 border-l" title={`시험 안정도: ${Math.round(confidence.displayScore)}% - ${confidence.label}`}>
             <div className="flex flex-col items-center gap-0.5">
               <div
                 className={`w-2.5 h-2.5 rounded-full ${
@@ -244,7 +244,7 @@ function SortableQuestionCard({
               />
               <span className={`text-[9px] font-mono leading-none ${
                 confidence.isColdStart ? 'text-muted-foreground/50' : 'text-muted-foreground'
-              }`}>{confidence.displayScore}</span>
+              }`}>{Math.round(confidence.displayScore)}</span>
             </div>
           </div>
         )}

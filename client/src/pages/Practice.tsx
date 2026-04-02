@@ -470,27 +470,22 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         setRepeatTotalCount(prev => prev + 1);
         const newIdx = isLastLine ? 0 : nextIdx;
         setRepeatCurrentIdx(newIdx);
-        // ref를 즉시 수동 업데이트 (useEffect 기다리지 않음)
         repeatStateRef.current = { ...repeatStateRef.current, repeatCurrentIdx: newIdx };
-        if (isLastLine) {
-          // 모든 체크된 줄 완료 → 입력창 초기화
-          setUserInput('');
-          lastInputRef.current = '';
-        } else {
-          // 다음 체크된 줄로 이동 - 입력창 초기화
-          setUserInput('');
-          lastInputRef.current = '';
+        // 입력창 즉시 초기화 (React state + DOM 직접)
+        setUserInput('');
+        lastInputRef.current = '';
+        if (textareaRef.current) {
+          textareaRef.current.value = '';
         }
         return;
       }
-      return; // 반복 모드에서는 전체 정답 일치 체크 안 함
+      return;
     }
     
     const normalizedTarget = normalizeText(targetText);
     if (normalized === normalizedTarget) {
-      // 완료 처리 - fade out 후 입력 초기화는 handleCorrectAnswer 내부에서 처리
       handleCorrectAnswer(newValue.length);
-      return; // 이후 코드 실행 중단
+      return;
     }
     
     // 듷포트 실시간 이동: 사용자 입력의 현재 줄 번호에 따라 스크롤
@@ -569,20 +564,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         setRepeatTotalCount(prev => prev + 1);
         const newIdx2 = isLastLine2 ? 0 : nextIdx2;
         setRepeatCurrentIdx(newIdx2);
-        // ref를 즉시 수동 업데이트 (useEffect 기다리지 않음)
         repeatStateRef.current = { ...repeatStateRef.current, repeatCurrentIdx: newIdx2 };
-        if (isLastLine2) {
-          // 모든 체크된 줄 완료 → 입력창 초기화
-          setUserInput('');
-          lastInputRef.current = '';
-        } else {
-          // 다음 체크된 줄로 이동 - 입력창 초기화
-          setUserInput('');
-          lastInputRef.current = '';
+        // 입력창 즉시 초기화 (React state + DOM 직접)
+        setUserInput('');
+        lastInputRef.current = '';
+        if (textareaRef.current) {
+          textareaRef.current.value = '';
         }
         return;
       }
-      return; // 반복 모드에서는 전체 정답 일치 체크 안 함
+      return;
     }
     
     const normalizedTarget = normalizeText(targetText);
@@ -913,11 +904,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         // 저장 완료 후 confidence 재조회
         const result = await refetchConfidence();
         const newScore = result.data?.displayScore ?? prevScore;
-        const diff = newScore - prevScore;
-        if (diff !== 0) {
+        const diff = Math.round((newScore - prevScore) * 10) / 10; // 소수점 1자리까지
+        // 항상 증감 표시 (변화가 0이라도 표시)
+        setShowDamageNumber(false); // 먼저 false로 리셋하여 새 트리거 보장
+        requestAnimationFrame(() => {
           setDamageValue(diff);
           setShowDamageNumber(true);
-        }
+        });
         // 누적 연습 수도 갱신
         const newCount = await utils.practice.countByQuestion.fetch({ questionId: question.id });
         if (newCount) {
@@ -1366,7 +1359,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               <div className="text-center">
                 <p className="text-2xl font-bold" style={{
                   color: confidenceData.state === 'green' ? '#10b981' : confidenceData.state === 'yellow' ? '#f59e0b' : '#ef4444'
-                }}>{confidenceData.displayScore}%</p>
+                }}>{Math.round(confidenceData.displayScore)}%</p>
                 <p className="text-xs text-muted-foreground">안정도</p>
               </div>
             )}

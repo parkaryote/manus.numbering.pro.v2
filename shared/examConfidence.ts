@@ -196,7 +196,8 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
   );
 
   // Display transform: floor at 10 to avoid brutally hopeless numbers
-  const displayScore = clamp(Math.round(rawScore * 0.9 + 10), 0, 100);
+  // 소수점 1자리까지 유지하여 미세한 변화도 감지 가능
+  const displayScore = clamp(Math.round((rawScore * 0.9 + 10) * 10) / 10, 0, 100);
 
   // Traffic light
   let state: "green" | "yellow" | "red";

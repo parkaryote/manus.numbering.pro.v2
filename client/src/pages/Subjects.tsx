@@ -78,7 +78,7 @@ function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
           <div key={q.id} className="relative">
             <div
               className={`w-4 h-4 rounded-sm ${getDotColor(q.id)} flex-shrink-0`}
-              title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${confidenceMap.get(q.id)!.displayScore}%` : ''}`}
+              title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}%` : ''}`}
             />
             {starred && (
               <Star

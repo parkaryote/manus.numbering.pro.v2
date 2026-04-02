@@ -82,11 +82,11 @@ export function QuestionGridView({
                   ${bg} ${text} ${ring ? `hover:${ring}` : ''}
                   text-[11px] leading-none
                 `}
-                title={score !== undefined ? `문제 ${q.displayOrder} — 안정도 ${score}%` : `문제 ${q.displayOrder}`}
+                title={score !== undefined ? `문제 ${q.displayOrder} — 안정도 ${Math.round(score)}%` : `문제 ${q.displayOrder}`}
               >
                 <span>{q.displayOrder}</span>
                 {score !== undefined && (
-                  <span className="text-[9px] opacity-80 leading-none mt-0.5">{score}%</span>
+                  <span className="text-[9px] opacity-80 leading-none mt-0.5">{Math.round(score)}%</span>
                 )}
               </button>
 

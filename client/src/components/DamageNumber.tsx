@@ -1,101 +1,109 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface DamageNumberProps {
-  value: number; // +5, -3 등
+  value: number; // +5.2, -3.1 등
   show: boolean;
   onComplete?: () => void;
 }
 
 export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
-  const [phase, setPhase] = useState<"hidden" | "visible" | "exiting">("hidden");
+  const [visible, setVisible] = useState(false);
   const [displayValue, setDisplayValue] = useState(value);
-
-  const isPositive = value >= 0;
-  const absValue = Math.abs(value);
+  const [animKey, setAnimKey] = useState(0); // 매번 새 애니메이션 트리거
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   useEffect(() => {
-    if (!show) {
-      setPhase("hidden");
-      return;
+    if (!show) return;
+
+    // 이전 타이머 정리
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
 
     setDisplayValue(value);
-    setPhase("visible");
+    setVisible(true);
+    setAnimKey(prev => prev + 1); // 새 key로 애니메이션 재시작
 
-    // 1.2초 후 페이드아웃 시작
-    const timer = setTimeout(() => {
-      setPhase("exiting");
-      // 0.5초 후 숨김
-      const exitTimer = setTimeout(() => {
-        setPhase("hidden");
-        onComplete?.();
-      }, 500);
-      return () => clearTimeout(exitTimer);
-    }, 1200);
+    // 1.7초 후 숨김 + onComplete 호출
+    timerRef.current = setTimeout(() => {
+      setVisible(false);
+      onCompleteRef.current?.();
+      timerRef.current = null;
+    }, 1700);
 
-    return () => clearTimeout(timer);
-  }, [show, value, onComplete]);
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [show, value]);
 
-  if (phase === "hidden") return null;
+  if (!visible) return null;
 
-  const containerStyle: React.CSSProperties = {
-    position: "fixed",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    pointerEvents: "none",
-    zIndex: 50,
-    opacity: phase === "exiting" ? 0 : 1,
-    transition: phase === "exiting" ? "opacity 0.5s ease-in" : "none",
-  };
-
-  const numberStyle: React.CSSProperties = {
-    fontSize: "4rem",
-    fontWeight: "900",
-    lineHeight: 1,
-    color: isPositive ? "#10b981" : "#ef4444",
-    textShadow: isPositive
-      ? "0 0 20px rgba(16, 185, 129, 0.8), 2px 2px 4px rgba(0,0,0,0.5)"
-      : "0 0 20px rgba(239, 68, 68, 0.8), 2px 2px 4px rgba(0,0,0,0.5)",
-    animation: phase === "visible"
-      ? isPositive
-        ? "floatUp 1.2s ease-out forwards"
-        : "floatDown 1.2s ease-out forwards"
-      : "none",
-  };
+  const isPositive = displayValue >= 0;
+  const absValue = Math.abs(displayValue);
+  // 소수점 첫째자리까지 표시, 정수면 정수로
+  const displayStr = absValue % 1 === 0 ? String(Math.round(absValue)) : absValue.toFixed(1);
 
   return (
-    <div style={containerStyle}>
-      <div style={numberStyle}>
+    <div
+      key={animKey}
+      style={{
+        position: "fixed",
+        top: "45%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        pointerEvents: "none",
+        zIndex: 50,
+        animation: isPositive
+          ? "dmgFloatUp 1.7s ease-out forwards"
+          : "dmgFloatDown 1.7s ease-out forwards",
+      }}
+    >
+      <div
+        style={{
+          fontSize: "4rem",
+          fontWeight: "900",
+          lineHeight: 1,
+          color: isPositive ? "#10b981" : "#ef4444",
+          textShadow: isPositive
+            ? "0 0 20px rgba(16, 185, 129, 0.8), 2px 2px 4px rgba(0,0,0,0.5)"
+            : "0 0 20px rgba(239, 68, 68, 0.8), 2px 2px 4px rgba(0,0,0,0.5)",
+        }}
+      >
         {isPositive ? "+" : "-"}
-        {absValue}%
+        {displayStr}%
       </div>
 
       <style>{`
-        @keyframes floatUp {
+        @keyframes dmgFloatUp {
           0% {
-            transform: translateY(0);
+            transform: translate(-50%, -50%) translateY(0);
             opacity: 1;
           }
-          50% {
+          60% {
             opacity: 1;
           }
           100% {
-            transform: translateY(-80px);
+            transform: translate(-50%, -50%) translateY(-80px);
             opacity: 0;
           }
         }
 
-        @keyframes floatDown {
+        @keyframes dmgFloatDown {
           0% {
-            transform: translateY(0);
+            transform: translate(-50%, -50%) translateY(0);
             opacity: 1;
           }
-          50% {
+          60% {
             opacity: 1;
           }
           100% {
-            transform: translateY(80px);
+            transform: translate(-50%, -50%) translateY(80px);
             opacity: 0;
           }
         }
