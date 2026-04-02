@@ -895,11 +895,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setPracticeCount(prev => prev + 1);
     
     // 페이드아웃 애니메이션을 즉시 시작 (네트워크 요청 기다리지 않음)
-    // 0.5초 delay 후 글자 색상 fade out 시작
+    // 0.15초 delay 후 글자 색상 fade out 시작
     setTimeout(() => {
       setIsFadingOut(true);
-    }, 500);
-    // 0.8초 후 입력창 초기화 및 fade out 해제
+    }, 150);
+    // 0.4초 후 입력창 초기화 및 fade out 해제
     setTimeout(() => {
       isResettingRef.current = true; // 초기화 시작 플래그
       setIsComposing(false); // 한글 조합 강제 종료
@@ -918,7 +918,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         isResettingRef.current = false; // 초기화 완료
         textareaRef.current?.focus();
       }, 50);
-    }, 800);
+    }, 400);
     
     // 네트워크 요청은 백그라운드로 실행 (페이드아웃과 독립적)
     const startTs = Date.now(); // 정답 인식 시점 기록
@@ -942,7 +942,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           const diff = Math.max(0, Math.round(newScore) - prevScore);
           // 입력창 초기화(800ms)와 동시에 표시: 경과 시간 기준으로 800ms 시점에 맞춤
           const elapsed = Date.now() - startTs;
-          const remaining = Math.max(0, 800 - elapsed);
+          const remaining = Math.max(0, 400 - elapsed);
           setTimeout(() => {
             setShowDamageNumber(false);
             requestAnimationFrame(() => {
