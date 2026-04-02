@@ -885,43 +885,62 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   };
 
   // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
-  const handleCorrectAnswer = async (currentInputLength?: number) => {
+  const handleCorrectAnswer = (currentInputLength?: number) => {
     setPracticeCount(prev => prev + 1);
     
-    // 매 정답 시 practiceSession을 즉시 DB에 저장하여 confidence에 반영
+    // 페이드아웃 애니메이션을 즉시 시작 (네트워크 요청 기다리지 않음)
+    // 0.5초 delay 후 글자 색상 fade out 시작
+    setTimeout(() => {
+      setIsFadingOut(true);
+    }, 500);
+    // 0.8초 후 입력창 초기화 및 fade out 해제
+    setTimeout(() => {
+      setUserInput('');
+      setInputHistory(['']);
+      setStartTime(null);
+      if (textareaRef.current) {
+        textareaRef.current.value = '';
+        textareaRef.current.setSelectionRange(0, 0);
+        textareaRef.current.focus();
+      }
+      setTimeout(() => {
+        setIsFadingOut(false);
+      }, 50);
+    }, 800);
+    
+    // 네트워크 요청은 백그라운드로 실행 (페이드아웃과 독립적)
     const prevScore = confidenceData?.displayScore ?? 0;
     if (question && !isDemo) {
-      try {
-        const timeInMinutes = elapsedTime / 60;
-        const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
-        await createSession.mutateAsync({
-          questionId: question.id,
-          duration: Math.max(elapsedTime, 1),
-          typingSpeed: speed,
-          accuracy: 100,
-          errorCount: 0,
-        });
-        // 저장 완료 후 confidence 재조회
-        const result = await refetchConfidence();
-        const newScore = result.data?.displayScore ?? prevScore;
-        const diff = Math.round((newScore - prevScore) * 10) / 10; // 소수점 1자리까지
-        // 항상 증감 표시 (변화가 0이라도 표시)
-        setShowDamageNumber(false); // 먼저 false로 리셋하여 새 트리거 보장
-        requestAnimationFrame(() => {
-          setDamageValue(diff);
-          setShowDamageNumber(true);
-        });
-        // 누적 연습 수도 갱신
-        const newCount = await utils.practice.countByQuestion.fetch({ questionId: question.id });
-        if (newCount) {
-          utils.practice.countByQuestion.setData({ questionId: question.id }, newCount);
+      (async () => {
+        try {
+          const timeInMinutes = elapsedTime / 60;
+          const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
+          await createSession.mutateAsync({
+            questionId: question.id,
+            duration: Math.max(elapsedTime, 1),
+            typingSpeed: speed,
+            accuracy: 100,
+            errorCount: 0,
+          });
+          const result = await refetchConfidence();
+          const newScore = result.data?.displayScore ?? prevScore;
+          const diff = Math.round((newScore - prevScore) * 10) / 10;
+          setShowDamageNumber(false);
+          requestAnimationFrame(() => {
+            setDamageValue(diff);
+            setShowDamageNumber(true);
+          });
+          const newCount = await utils.practice.countByQuestion.fetch({ questionId: question.id });
+          if (newCount) {
+            utils.practice.countByQuestion.setData({ questionId: question.id }, newCount);
+          }
+        } catch (error) {
+          console.error('연습 기록 저장 실패:', error);
         }
-      } catch (error) {
-        console.error('연습 기록 즉시 저장 실패:', error);
-      }
+      })();
     }
     
-    // GA4 이벤트 추적: 문제 풀이 완료
+    // GA4 이벤트 추적
     if (question) {
       const questionType = question.imageUrl && question.imageLabels ? 'image' : 
                           (question.answer?.includes('|') ? 'table' : 'text');
@@ -929,7 +948,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         question.id,
         question.subjectId,
         questionType as 'text' | 'image' | 'table',
-        true, // isCorrect
+        true,
         elapsedTime
       );
     }
@@ -940,25 +959,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const currentCount = parseInt(localStorage.getItem(storageKey) || "0", 10);
       localStorage.setItem(storageKey, String(currentCount + 1));
     }
-    
-    // 0.7초 delay 후 글자 색상 fade out 시작
-    setTimeout(() => {
-      setIsFadingOut(true);
-    }, 700);
-       // 1.0초 후 (0.7초 delay + 0.3초 fade out) 입력창 제uac70 및 fade out 해제
-    setTimeout(() => {
-      setUserInput('');
-      setInputHistory(['']); // inputHistory 초기화
-      setStartTime(null); // startTime 초기화 - 다음 문제를 위한 useEffect 실행
-      if (textareaRef.current) {
-        textareaRef.current.value = '';
-        textareaRef.current.setSelectionRange(0, 0);
-        textareaRef.current.focus();
-      }
-      setTimeout(() => {
-        setIsFadingOut(false);
-      }, 50);
-    }, 1000); // 페이드아웃 애니메이션 완료 후 (700ms delay + 300ms duration)
   };
 
   const formatTime = (seconds: number) => {
@@ -1058,7 +1058,18 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     
     // 현재 입력 중인 줄 인덱스
     // 반복 모드에서는 현재 체크된 줄 인덱스를 사용
-    const currentLineIndex = isInRepeatMode ? currentRepeatLineIdx : currentCursorLineIndex;
+    let currentLineIndex = isInRepeatMode ? currentRepeatLineIdx : currentCursorLineIndex;
+    
+    // 엔터 없이도 다음 줄 자동 인식:
+    // 현재 줄의 모든 글자가 완성(completedCount === targetChars.length)이면
+    // 다음 줄의 첫 글자에 언더바를 표시하기 위해 activeLineIdx를 다음 줄로 이동
+    if (!isInRepeatMode && currentLineIndex < targetLines.length - 1) {
+      const currentResult = lineResults[currentLineIndex];
+      if (currentResult && currentResult.completedCount >= currentResult.targetChars.length && currentResult.targetChars.length > 0) {
+        // 현재 줄 입력 완료 → 다음 줄로 이동
+        currentLineIndex = currentLineIndex + 1;
+      }
+    }
     
     return { lineResults, currentLineIndex, userLines, targetLines };
   }, [userInput, targetText, renderTrigger, currentCursorLineIndex, repeatCheckedLines, repeatCurrentIdx]);
@@ -1072,20 +1083,23 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       ? rs.repeatLinesSorted[rs.repeatCurrentIdx % rs.repeatLinesSorted.length]
       : -1;
     
+    // completionInfo의 currentLineIndex를 사용 (다음 줄 자동 인식 반영)
+    const activeIdx = completionInfo.currentLineIndex;
+    
     // 각 줄의 opacity 계산
     return lines.map((_, lineIndex) => {
       if (inRepeat) {
         // 반복 모드: 현재 체크된 줄만 진하게
         return lineIndex === repeatLineIdx ? 1 : 0.4;
       }
-      // 현재 커서 위치의 줄만 opacity 1 (진한 회색)
-      if (lineIndex === currentCursorLineIndex) {
+      // 현재 활성 줄만 opacity 1 (진한 회색)
+      if (lineIndex === activeIdx) {
         return 1;
       } else {
         return 0.4;
       }
     });
-  }, [currentCursorLineIndex, targetText, repeatCheckedLines, repeatCurrentIdx]);
+  }, [completionInfo, targetText, repeatCheckedLines, repeatCurrentIdx]);
 
   // 한컴타자연습 스타일 렌더링 (줄 단위 비교)
   const renderTextWithFeedback = useMemo(() => {
@@ -1681,7 +1695,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     }
 
                     // 텍스트 문제와 동일한 처리
-                    await handleCorrectAnswer(Object.keys(tableAnswers).length);
+                    handleCorrectAnswer(Object.keys(tableAnswers).length);
                     // 표 답안 초기화
                     setTimeout(() => {
                       setTableAnswers({});
