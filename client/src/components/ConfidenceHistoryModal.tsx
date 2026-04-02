@@ -45,23 +45,17 @@ const STATE_COLORS = {
   red: "#ef4444",
 };
 
-// 커스텀 점 렌더러 (연습=원, 시험=다이아몬드)
+// 커스텀 점 렌더러 (시험=원, 연습=호버 시에만 표시)
 const CustomDot = (props: any) => {
   const { cx, cy, payload } = props;
   if (!cx || !cy) return null;
   const color = STATE_COLORS[payload.state as keyof typeof STATE_COLORS] || "#6b7280";
 
   if (payload.eventType === "test") {
-    // 다이아몬드 (시험)
-    const size = 7;
+    // 시험 - 원
     return (
       <g key={`dot-${cx}-${cy}`}>
-        <polygon
-          points={`${cx},${cy - size} ${cx + size},${cy} ${cx},${cy + size} ${cx - size},${cy}`}
-          fill={payload.isCorrect ? "#22c55e" : "#ef4444"}
-          stroke="white"
-          strokeWidth={1.5}
-        />
+        <circle cx={cx} cy={cy} r={5} fill={payload.isCorrect ? "#22c55e" : "#ef4444"} stroke="white" strokeWidth={1.5} />
       </g>
     );
   }
@@ -74,8 +68,8 @@ const CustomDot = (props: any) => {
       </g>
     );
   }
-  // 연습 - 작은 원
-  return <circle key={`dot-${cx}-${cy}`} cx={cx} cy={cy} r={4} fill={color} stroke="white" strokeWidth={1.5} />;
+  // 연습 - 호버 시에만 표시하므로 여기서는 null 반환
+  return null;
 };
 
 // 커스텀 툴팁
@@ -154,9 +148,9 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
           <>
             {/* 범례 */}
             <div className="flex items-center gap-4 text-xs text-muted-foreground px-1">
-              <span className="flex items-center gap-1.5">
+              <span className="flex items-center gap-1.5 text-muted-foreground/50">
                 <span className="inline-block w-3 h-3 rounded-full bg-blue-400" />
-                연습
+                연습 (호버 시만 표시)
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rotate-45 bg-green-500" />
@@ -204,7 +198,19 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                     stroke={currentColor}
                     strokeWidth={2.5}
                     dot={<CustomDot />}
-                    activeDot={{ r: 6, strokeWidth: 2, stroke: "white" }}
+                    activeDot={((props: any) => {
+                      const { cx, cy, payload } = props;
+                      if (!cx || !cy) return null;
+                      const color = STATE_COLORS[payload.state as keyof typeof STATE_COLORS] || "#6b7280";
+                      
+                      // 호버 시 연습도 표시
+                      if (payload.eventType === "practice") {
+                        return (
+                          <circle key={`active-dot-${cx}-${cy}`} cx={cx} cy={cy} r={5} fill={color} stroke="white" strokeWidth={2} />
+                        );
+                      }
+                      return <circle cx={cx} cy={cy} r={6} fill={color} stroke="white" strokeWidth={2} />;
+                    }) as any}
                     isAnimationActive={true}
                     animationDuration={600}
                   />
