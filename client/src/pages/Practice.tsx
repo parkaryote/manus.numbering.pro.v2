@@ -984,8 +984,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const completionInfo = useMemo(() => {
     // 줄 단위로 분리
     const userLines = userInput.split('\n');
-    // 반복 모드에서도 전체 정답을 다 보여주되, 체크된 줄만 따로 체점
     const targetLines = targetText.split('\n');
+    
+    // 반복 모드: 사용자 입력을 현재 체크된 줄의 target과 비교
+    const repeatState = repeatStateRef.current;
+    const isInRepeatMode = repeatState.isRepeatMode && repeatState.repeatLinesSorted.length > 0;
+    const currentRepeatLineIdx = isInRepeatMode
+      ? repeatState.repeatLinesSorted[repeatState.repeatCurrentIdx % repeatState.repeatLinesSorted.length]
+      : -1;
     
     // 각 줄별 채점 정보
     const lineResults: Array<{
@@ -997,7 +1003,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }> = [];
     
     for (let lineIdx = 0; lineIdx < targetLines.length; lineIdx++) {
-      const userLine = userLines[lineIdx] || '';
+      // 반복 모드: 현재 체크된 줄에만 사용자 입력을 매핑
+      let userLine = '';
+      if (isInRepeatMode) {
+        if (lineIdx === currentRepeatLineIdx) {
+          userLine = userLines[0] || ''; // 입력창의 첫 줄을 현재 체크된 줄에 매핑
+        }
+        // 다른 줄은 빈 문자열 (채점 안 함)
+      } else {
+        userLine = userLines[lineIdx] || '';
+      }
       const targetLine = targetLines[lineIdx] || '';
       
       // 각 줄의 글자를 분리 (띄어쓰기 제거)
@@ -1048,26 +1063,36 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       });
     }
     
-    // 현재 입력 중인 줄 인덱스 (커서 위치 기반)
-    const currentLineIndex = currentCursorLineIndex;
+    // 현재 입력 중인 줄 인덱스
+    // 반복 모드에서는 현재 체크된 줄 인덱스를 사용
+    const currentLineIndex = isInRepeatMode ? currentRepeatLineIdx : currentCursorLineIndex;
     
     return { lineResults, currentLineIndex, userLines, targetLines };
-  }, [userInput, targetText, renderTrigger, currentCursorLineIndex]);
+  }, [userInput, targetText, renderTrigger, currentCursorLineIndex, repeatCheckedLines, repeatCurrentIdx]);
 
   // 실시간 단어 뷰: 줄 단위 opacity 계산
   const calculateLineOpacity = useMemo(() => {
     const lines = targetText.split('\n');
+    const rs = repeatStateRef.current;
+    const inRepeat = rs.isRepeatMode && rs.repeatLinesSorted.length > 0;
+    const repeatLineIdx = inRepeat
+      ? rs.repeatLinesSorted[rs.repeatCurrentIdx % rs.repeatLinesSorted.length]
+      : -1;
     
     // 각 줄의 opacity 계산
     return lines.map((_, lineIndex) => {
+      if (inRepeat) {
+        // 반복 모드: 현재 체크된 줄만 진하게
+        return lineIndex === repeatLineIdx ? 1 : 0.4;
+      }
       // 현재 커서 위치의 줄만 opacity 1 (진한 회색)
       if (lineIndex === currentCursorLineIndex) {
-        return 1; // 현재 커서 위치의 줄: opacity 1 (진한 회색)
+        return 1;
       } else {
-        return 0.4; // 다른 줄: opacity 0.4 (연한 회색)
+        return 0.4;
       }
     });
-  }, [currentCursorLineIndex, targetText]);
+  }, [currentCursorLineIndex, targetText, repeatCheckedLines, repeatCurrentIdx]);
 
   // 한컴타자연습 스타일 렌더링 (줄 단위 비교)
   const renderTextWithFeedback = useMemo(() => {
