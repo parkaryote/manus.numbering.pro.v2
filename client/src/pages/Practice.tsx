@@ -468,18 +468,18 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const isLastLine = nextIdx >= rls.length;
         setRepeatCount(prev => prev + 1);
         setRepeatTotalCount(prev => prev + 1);
+        const newIdx = isLastLine ? 0 : nextIdx;
+        setRepeatCurrentIdx(newIdx);
+        // ref를 즉시 수동 업데이트 (useEffect 기다리지 않음)
+        repeatStateRef.current = { ...repeatStateRef.current, repeatCurrentIdx: newIdx };
         if (isLastLine) {
-          // 모든 체크된 줄 완료 → 입력창 초기화 후 첫 번째 줄에서 다시 시작
-          setRepeatCurrentIdx(0);
-          setTimeout(() => {
-            setUserInput('');
-            textareaRef.current?.focus();
-          }, 300);
-        } else {
-          // 다음 체크된 줄로 이동 (입력창 유지)
-          setRepeatCurrentIdx(nextIdx);
+          // 모든 체크된 줄 완료 → 입력창 초기화
           setUserInput('');
-          textareaRef.current?.focus();
+          lastInputRef.current = '';
+        } else {
+          // 다음 체크된 줄로 이동 - 입력창 초기화
+          setUserInput('');
+          lastInputRef.current = '';
         }
         return;
       }
@@ -567,18 +567,18 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const isLastLine2 = nextIdx2 >= rls2.length;
         setRepeatCount(prev => prev + 1);
         setRepeatTotalCount(prev => prev + 1);
+        const newIdx2 = isLastLine2 ? 0 : nextIdx2;
+        setRepeatCurrentIdx(newIdx2);
+        // ref를 즉시 수동 업데이트 (useEffect 기다리지 않음)
+        repeatStateRef.current = { ...repeatStateRef.current, repeatCurrentIdx: newIdx2 };
         if (isLastLine2) {
-          // 모든 체크된 줄 완료 → 입력창 초기화 후 첫 번째 줄에서 다시 시작
-          setRepeatCurrentIdx(0);
-          setTimeout(() => {
-            setUserInput('');
-            textareaRef.current?.focus();
-          }, 300);
-        } else {
-          // 다음 체크된 줄로 이동 (입력창 유지)
-          setRepeatCurrentIdx(nextIdx2);
+          // 모든 체크된 줄 완료 → 입력창 초기화
           setUserInput('');
-          textareaRef.current?.focus();
+          lastInputRef.current = '';
+        } else {
+          // 다음 체크된 줄로 이동 - 입력창 초기화
+          setUserInput('');
+          lastInputRef.current = '';
         }
         return;
       }
