@@ -1548,6 +1548,115 @@ ${input.userAnswer}
 
         return { points };
       }),
+
+    // 과목 전체 시간별 평균 안정도 추이
+    getHistoryBySubject: protectedProcedure
+      .input(z.object({ subjectId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
+        const questionIds = subjectQuestions.map(q => q.id);
+        if (questionIds.length === 0) return { points: [] };
+        const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
+        const allTests = await db.getTestSessionsByUserId(ctx.user.id);
+        const qPractice = allPractice.filter(p => questionIds.includes(p.questionId));
+        const qTests = allTests.filter(t => questionIds.includes(t.questionId));
+        // 모든 이벤트를 시간순으로 합치기
+        type Ev = { at: Date; type: 'practice' | 'test'; questionId: number; sessionIdx: number };
+        const events: Ev[] = [
+          ...qPractice.map((p, i) => ({ at: new Date(p.completedAt), type: 'practice' as const, questionId: p.questionId, sessionIdx: i })),
+          ...qTests.map((t, i) => ({ at: new Date(t.completedAt), type: 'test' as const, questionId: t.questionId, sessionIdx: i })),
+        ].sort((a, b) => a.at.getTime() - b.at.getTime());
+        if (events.length === 0) return { points: [] };
+        // 문제별 누적 상태 추적
+        const cumPractice: Map<number, typeof qPractice> = new Map();
+        const cumTests: Map<number, typeof qTests> = new Map();
+        for (const qId of questionIds) {
+          cumPractice.set(qId, []);
+          cumTests.set(qId, []);
+        }
+        // 이벤트 간격 축소 (같은 시간대 이벤트 묶기)
+        const BUCKET_MS = 60_000;
+        let lastBucketAt = -Infinity;
+        const points: { at: string; score: number; eventType: string; questionCount: number }[] = [];
+        for (const ev of events) {
+          if (ev.type === 'practice') {
+            cumPractice.get(ev.questionId)!.push(qPractice[ev.sessionIdx]);
+          } else {
+            cumTests.get(ev.questionId)!.push(qTests[ev.sessionIdx]);
+          }
+          if (ev.at.getTime() - lastBucketAt < BUCKET_MS) continue;
+          lastBucketAt = ev.at.getTime();
+          let totalScore = 0;
+          let activeCount = 0;
+          for (const qId of questionIds) {
+            const pList = cumPractice.get(qId)!;
+            const tList = cumTests.get(qId)!;
+            if (pList.length === 0 && tList.length === 0) continue;
+            activeCount++;
+            const practiceSignal: PracticeSignal = {
+              practiceCount: pList.length,
+              totalPracticeDuration: pList.reduce((s, p) => s + p.duration, 0),
+              mostRecentPracticeAt: pList.length > 0 ? new Date(pList[pList.length - 1].completedAt) : null,
+            };
+            const sortedT = [...tList].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+            let streak = 0;
+            for (const t of sortedT) { if (t.isCorrect === 1) streak++; else break; }
+            const mostRecentTest = sortedT[0] || null;
+            const avgSim = tList.length > 0 ? tList.reduce((s, t) => s + (t.similarityScore || 0), 0) / tList.length : 0;
+            const testSignal: TestSignal = {
+              testCount: tList.length,
+              correctCount: tList.filter(t => t.isCorrect === 1).length,
+              wrongCount: tList.filter(t => t.isCorrect === 0).length,
+              averageSimilarityScore: Math.round(avgSim),
+              mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
+              recentCorrectStreak: streak,
+              mostRecentTestWasPoor: mostRecentTest ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50) : false,
+            };
+            const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now: ev.at });
+            totalScore += result.displayScore;
+          }
+          if (activeCount === 0) continue;
+          points.push({ at: ev.at.toISOString(), score: Math.round(totalScore / activeCount), eventType: ev.type, questionCount: activeCount });
+        }
+        // 현재 시점 안정도 추가
+        const nowDate = new Date();
+        const lastEvent = events[events.length - 1];
+        if (nowDate.getTime() - lastEvent.at.getTime() > 3600_000) {
+          let totalScore = 0;
+          let activeCount = 0;
+          for (const qId of questionIds) {
+            const pList = cumPractice.get(qId)!;
+            const tList = cumTests.get(qId)!;
+            if (pList.length === 0 && tList.length === 0) continue;
+            activeCount++;
+            const practiceSignal: PracticeSignal = {
+              practiceCount: pList.length,
+              totalPracticeDuration: pList.reduce((s, p) => s + p.duration, 0),
+              mostRecentPracticeAt: pList.length > 0 ? new Date(pList[pList.length - 1].completedAt) : null,
+            };
+            const sortedT = [...tList].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+            let streak = 0;
+            for (const t of sortedT) { if (t.isCorrect === 1) streak++; else break; }
+            const mostRecentTest = sortedT[0] || null;
+            const avgSim = tList.length > 0 ? tList.reduce((s, t) => s + (t.similarityScore || 0), 0) / tList.length : 0;
+            const testSignal: TestSignal = {
+              testCount: tList.length,
+              correctCount: tList.filter(t => t.isCorrect === 1).length,
+              wrongCount: tList.filter(t => t.isCorrect === 0).length,
+              averageSimilarityScore: Math.round(avgSim),
+              mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
+              recentCorrectStreak: streak,
+              mostRecentTestWasPoor: mostRecentTest ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50) : false,
+            };
+            const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now: nowDate });
+            totalScore += result.displayScore;
+          }
+          if (activeCount > 0) {
+            points.push({ at: nowDate.toISOString(), score: Math.round(totalScore / activeCount), eventType: 'now', questionCount: activeCount });
+          }
+        }
+        return { points };
+      }),
   }),
   // Admin routes
   admin: adminRouter,

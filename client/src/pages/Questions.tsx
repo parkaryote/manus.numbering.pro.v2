@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
+import { SubjectConfidenceHistoryModal } from "@/components/SubjectConfidenceHistoryModal";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -325,6 +326,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   const isAdmin = user?.role === "admin";
   const [confidenceHistoryId, setConfidenceHistoryId] = useState<number | null>(null);
   const [confidenceHistoryTitle, setConfidenceHistoryTitle] = useState("");
+  const [subjectConfidenceOpen, setSubjectConfidenceOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isCopyMoveOpen, setIsCopyMoveOpen] = useState(false);
@@ -918,13 +920,17 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
               {questions?.length || 0}문제
             </span>
             {confidenceData?.aggregate && confidenceData.aggregate.totalQuestions > 0 && (
-              <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
-                confidenceData.aggregate.state === 'green' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                confidenceData.aggregate.state === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
-                'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-              }`} title={`시험 안정도: ${confidenceData.aggregate.averageScore}% (${confidenceData.aggregate.label}) - 🟢${confidenceData.aggregate.greenCount} 🟡${confidenceData.aggregate.yellowCount} 🔴${confidenceData.aggregate.redCount}`}>
+              <button
+                onClick={() => setSubjectConfidenceOpen(true)}
+                className={`text-xs font-medium px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${
+                  confidenceData.aggregate.state === 'green' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                  confidenceData.aggregate.state === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                  'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                }`}
+                title="클릭하여 과목 안정도 추이 보기"
+              >
                 과목 안정도 {confidenceData.aggregate.averageScore}%
-              </span>
+              </button>
             )}
           </div>
         </div>
@@ -1189,6 +1195,14 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         questionTitle={confidenceHistoryTitle}
         open={confidenceHistoryId !== null}
         onClose={() => setConfidenceHistoryId(null)}
+      />
+
+      {/* 과목 안정도 추이 그래프 모달 */}
+      <SubjectConfidenceHistoryModal
+        subjectId={subjectId}
+        subjectName={subject?.name}
+        open={subjectConfidenceOpen}
+        onClose={() => setSubjectConfidenceOpen(false)}
       />
     </div>
   );

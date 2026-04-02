@@ -60,8 +60,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showDamageNumber, setShowDamageNumber] = useState(false);
   const [damageValue, setDamageValue] = useState(0);
-  // 답 가리기 상태: 'none' | 'all' | 'line' (문장별)
-  const [hideMode, setHideMode] = useState<'none' | 'all' | 'line'>('none');
+  // 답 가리기 상태: 'none' | 'all'
+  // hiddenLines: 개별 줄 가리기/보이기 토글 (hideMode와 독립적으로 동작)
+  const [hideMode, setHideMode] = useState<'none' | 'all'>('none');
   const [hiddenLines, setHiddenLines] = useState<Set<number>>(new Set());
   // 학습 제안 상태
   const [showStudySuggestion, setShowStudySuggestion] = useState(false);
@@ -300,7 +301,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return new Set();
   });
   const [tableCellInput, setTableCellInput] = useState(''); // 하단 입력창 현재 입력값
-  const [tableCellSubmitted, setTableCellSubmitted] = useState(false); // 입력 완료(Tab/Enter) 후 채점 표시 여부
+  const [isTableComposing, setIsTableComposing] = useState(false); // 표 입력창 한글 조합 중 여부
 
   // 표 문제 집중 연습 선택 상태 localStorage 저장
   useEffect(() => {
@@ -416,25 +417,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         e.stopPropagation();
-        if (e.shiftKey) {
-          // Shift+Tab: 문장별 가리기 모드 토글
-          if (hideMode === 'line') {
-            setHideMode('none');
-            setHiddenLines(new Set());
-          } else {
-            setHideMode('line');
-            const lines = targetText.split('\n');
-            setHiddenLines(new Set(lines.map((_, i) => i)));
-          }
-        } else {
-          // Tab: 전체 가리기/보이기 토글
+        // Tab: 전체 가리기/보이기 토글 (Shift+Tab도 동일하게 처리)
           if (hideMode === 'all') {
             setHideMode('none');
             setHiddenLines(new Set());
           } else {
             setHideMode('all');
+            setHiddenLines(new Set());
           }
-        }
         return;
       }
       
@@ -1210,29 +1200,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const lineOpacity = calculateLineOpacity[lineIdx] || 1;
       const isActiveLine = lineIdx === activeLineIdx;
       
-      // 답 가리기 체크
-      const isLineHidden = hideMode === 'all' || (hideMode === 'line' && hiddenLines.has(lineIdx));
+      // 답 가리기 체크: 전체 가리기 모드이면서 개별 보이기(hiddenLines에 없음)가 아닌 경우
+      // 또는 개별 가리기(hiddenLines에 있음)인 경우
+      const isLineHidden = (hideMode === 'all' && !hiddenLines.has(lineIdx)) || (hideMode === 'none' && hiddenLines.has(lineIdx));
       
       if (isLineHidden) {
         // 가려진 줄: 클릭하면 해당 줄만 보이기
         const revealLine = (e: React.MouseEvent) => {
           e.preventDefault();
           e.stopPropagation();
-          if (hideMode === 'all') {
-            setHiddenLines(prev => {
-              const next = new Set(prev);
-              if (next.has(lineIdx)) next.delete(lineIdx);
-              else next.add(lineIdx);
-              return next;
-            });
-          } else if (hideMode === 'line') {
-            setHiddenLines(prev => {
-              const next = new Set(prev);
-              if (next.has(lineIdx)) next.delete(lineIdx);
-              else next.add(lineIdx);
-              return next;
-            });
-          }
+          setHiddenLines(prev => {
+            const next = new Set(prev);
+            if (next.has(lineIdx)) next.delete(lineIdx);
+            else next.add(lineIdx);
+            return next;
+          });
         };
         return (
           <div
@@ -1349,35 +1331,35 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       // 체크된 줄 상태
       const isChecked = repeatCheckedLines.has(actualLineIdx);
       const isCurrentRepeat = isRepeatMode && currentRepeatTarget?.lineIdx === actualLineIdx;
-      // 집중 연습 선택 가능 여부: 2줄 이상이고 답 가리기 모드가 아닐 때
-      const canSelectLine = targetLines.length > 1 && hideMode === 'none';
-      // 답 가리기 모드에서 보이는 줄 클릭 → 다시 가리기
-      const canHideLine = hideMode !== 'none';
+      // 집중 연습 선택 가능 여부: 2줄 이상
+      const canSelectLine = targetLines.length > 1;
+      // 문장 클릭: 항상 해당 줄 개별 가리기/보이기 토글 가능 (hideMode 무관)
+      // - 가려진 줄 클릭 → 보이기
+      // - 보이는 줄 클릭 → 가리기 (답 가리기 모드일 때) 또는 집중 연습 선택 (일반 모드)
 
-      // 클릭 핸들러: 답 가리기 모드에서는 가리기/보이기 토글, 일반 모드에서는 집중 연습 선택
-      const handleLineClick = canHideLine ? (e: React.MouseEvent) => {
+      // 클릭 핸들러
+      const handleLineClick = (e: React.MouseEvent) => {
         if (window.getSelection()?.toString()) return;
         e.preventDefault();
-        setHiddenLines(prev => {
-          const next = new Set(prev);
-          if (next.has(lineIdx)) next.delete(lineIdx); else next.add(lineIdx);
-          return next;
-        });
+        if (hideMode === 'all' || hiddenLines.has(lineIdx)) {
+          // 답 가리기 모드이거나 이미 가려진 줄: 개별 토글
+          setHiddenLines(prev => {
+            const next = new Set(prev);
+            if (next.has(lineIdx)) next.delete(lineIdx); else next.add(lineIdx);
+            return next;
+          });
+        } else if (canSelectLine) {
+          // 일반 모드: 집중 연습 선택
+          toggleRepeatLine(actualLineIdx);
+        }
         setTimeout(() => textareaRef.current?.focus(), 10);
-      } : canSelectLine ? (e: React.MouseEvent) => {
-        // 텍스트 선택 중이면 무시
-        if (window.getSelection()?.toString()) return;
-        e.preventDefault();
-        toggleRepeatLine(actualLineIdx);
-        // 포커스 유지
-        setTimeout(() => textareaRef.current?.focus(), 10);
-      } : undefined;
+      };
 
       const lineStyle: React.CSSProperties = {
         display: 'block',
         position: 'relative',
-        paddingLeft: (canSelectLine || canHideLine) ? '10px' : '0',
-        cursor: (canSelectLine || canHideLine) ? 'pointer' : 'default',
+        paddingLeft: canSelectLine ? '10px' : '0',
+        cursor: canSelectLine ? 'pointer' : 'default',
         userSelect: 'text',
         borderLeft: isChecked
           ? '3px solid oklch(0.55 0.2 290)'
@@ -1587,30 +1569,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         setHiddenLines(new Set());
                       }
                     }}
-                    title="Tab으로도 토글 가능"
+                    title="Tab으로도 토글 가능 · 각 줄 클릭으로 개별 토글"
                   >
                     {hideMode === 'all' ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                     {hideMode === 'all' ? '답 보기' : '답 가리기'}
-                  </Button>
-                  {/* 문장별 가리기 토글 */}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`h-8 gap-1.5 text-xs ${hideMode === 'line' ? 'bg-amber-500/10 text-amber-600' : ''}`}
-                    onClick={() => {
-                      if (hideMode === 'line') {
-                        setHideMode('none');
-                        setHiddenLines(new Set());
-                      } else {
-                        setHideMode('line');
-                        const lines = targetText.split('\n');
-                        setHiddenLines(new Set(lines.map((_, i) => i)));
-                      }
-                    }}
-                    title="Shift+Tab으로도 토글 가능"
-                  >
-                    {hideMode === 'line' ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                    문장별
                   </Button>
                   {question && (
                     <Button
@@ -1744,7 +1706,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
               const handleTableInput = (value: string) => {
                 setTableCellInput(value);
-                setTableCellSubmitted(false); // 입력 중에는 채점 표시 안 함
                 if (!startTime) setStartTime(Date.now());
                 setLastInputTime(Date.now());
                 setIsActive(true);
@@ -1763,7 +1724,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 const nextBlankIdx = blankCells.indexOf(nextKey);
                 setTableActiveCellIdx(nextBlankIdx >= 0 ? nextBlankIdx : 0);
                 setTableCellInput('');
-                setTableCellSubmitted(false);
               };
 
               const submitCurrentCell = () => {
@@ -1772,7 +1732,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 const ci = parseInt(activeCellKey.split('-')[1]);
                 const cell = tableData.cells[ri]?.[ci];
                 if (!cell) return;
-                setTableCellSubmitted(true);
                 if (norm(tableCellInput) === norm(cell.content)) {
                   // 정답: 완성 셀에 추가
                   setTableCompletedCells(prev => new Set(Array.from(prev).concat(activeCellKey)));
@@ -1785,14 +1744,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       setTableCompletedCells(new Set());
                       setTableActiveCellIdx(0);
                       setTableCellInput('');
-                      setTableCellSubmitted(false);
                     }, 400);
                   } else {
                     // 다음 셀로 자동 이동
                     moveToCell('next');
                   }
                 }
-                // 오답이면 그 자리에 머물며 채점 결과 표시 (tableCellSubmitted=true)
+                // 오답이면 그 자리에 머물러 입력 계속
               };
 
               const handleTableKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1807,14 +1765,20 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 }
               };
 
-              // 현재 활성 셀 정답 여부 (제출 후에만 표시)
+              // 현재 활성 셀 실시간 채점 (한글 조합 중에는 null)
               const getActiveCellResult = () => {
-                if (!activeCellKey || !tableCellSubmitted) return null;
+                if (!activeCellKey || !tableCellInput || isTableComposing) return null;
                 const ri = parseInt(activeCellKey.split('-')[0]);
                 const ci = parseInt(activeCellKey.split('-')[1]);
                 const cell = tableData.cells[ri]?.[ci];
                 if (!cell) return null;
-                return norm(tableCellInput) === norm(cell.content) ? 'correct' : 'wrong';
+                const target = norm(cell.content);
+                const input = norm(tableCellInput);
+                if (input.length === 0) return null;
+                // 입력 중인 글자수만큼만 비교 (prefix 매칭)
+                const prefix = target.slice(0, input.length);
+                if (input === prefix) return input.length === target.length ? 'correct' : 'typing';
+                return 'wrong';
               };
               const activeCellResult = getActiveCellResult();
 
@@ -1827,7 +1791,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       activeCellKey={activeCellKey}
                       completedCells={tableCompletedCells}
                       checkedCells={tableCheckedCells}
-                      cellSubmittedResult={tableCellSubmitted ? activeCellResult : null}
+                      cellSubmittedResult={activeCellResult}
                       onCellCheck={(key) => {
                         setTableCheckedCells(prev => {
                           const next = new Set(prev);
@@ -1835,13 +1799,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                           return next;
                         });
                       }}
-                      partialInput={tableCellSubmitted ? tableCellInput : ''}
+                      partialInput={tableCellInput}
                       onCellActivate={(key) => {
                         const idx = blankCells.indexOf(key);
                         if (idx >= 0) {
                           setTableActiveCellIdx(idx);
                           setTableCellInput('');
-                          setTableCellSubmitted(false);
                           setTimeout(() => tableCellInputRef.current?.focus(), 50);
                         }
                       }}
@@ -1859,14 +1822,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         return cell ? (
                           <>
                             <span className="text-muted-foreground">셀 {targetCellIdx}/{targetCells.length}</span>
-                            {tableCellSubmitted && activeCellResult === 'correct' && (
-                              <span className="text-emerald-600 font-semibold">✓ 정답</span>
+                            {activeCellResult === 'correct' && (
+                              <span className="text-emerald-600 font-semibold">✓ 정답 — Enter로 다음 셀</span>
                             )}
-                            {tableCellSubmitted && activeCellResult === 'wrong' && (
-                              <span className="text-red-500 font-semibold">✗ 오답 — Enter로 제출하세요</span>
+                            {activeCellResult === 'typing' && (
+                              <span className="text-blue-500">...</span>
                             )}
-                            {!tableCellSubmitted && (
-                              <span className="text-muted-foreground/60">Enter: 제출 · Tab: 다음 셀 · Shift+Tab: 이전 셀</span>
+                            {activeCellResult === 'wrong' && (
+                              <span className="text-red-500 font-semibold">✗ 오답</span>
+                            )}
+                            {!activeCellResult && (
+                              <span className="text-muted-foreground/60">Enter: 제출 · Tab: 셀 이동</span>
                             )}
                             {tableCheckedCells.size > 0 && (
                               <span className="text-purple-600 ml-auto">◣ {tableCheckedCells.size}셀 집중 연습</span>
@@ -1881,11 +1847,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       value={tableCellInput}
                       onChange={(e) => handleTableInput(e.target.value)}
                       onKeyDown={handleTableKeyDown}
+                      onCompositionStart={() => setIsTableComposing(true)}
+                      onCompositionEnd={(e) => { setIsTableComposing(false); handleTableInput((e.target as HTMLTextAreaElement).value); }}
                       rows={1}
                       className={`w-full min-h-[44px] max-h-[120px] p-3 rounded-lg border-2 bg-background resize-none focus:outline-none focus:ring-2 caret-foreground overflow-y-auto ${
-                        tableCellSubmitted && activeCellResult === 'correct'
+                        activeCellResult === 'correct'
                           ? 'border-emerald-500 focus:ring-emerald-400'
-                          : tableCellSubmitted && activeCellResult === 'wrong'
+                          : activeCellResult === 'wrong'
                           ? 'border-red-400 focus:ring-red-300'
                           : 'border-border focus:ring-ring'
                       }`}
@@ -1914,7 +1882,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                             setTableCompletedCells(new Set());
                             setTableActiveCellIdx(0);
                             setTableCellInput('');
-                            setTableCellSubmitted(false);
                           }}
                         >
                           초기화
@@ -2201,8 +2168,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Alt</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 단어 삭제</span>
                   <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 문장 삭제</span>
                   <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">A</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 전체 삭제</span>
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Tab</kbd> 답 가리기/보기</span>
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Tab</kbd> 문장별 가리기</span>
+                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Tab</kbd> 답 가리기/보기 · 줄 클릭으로 개별 토글</span>
                   <button onClick={toggleShortcutHelp} className="text-muted-foreground/50 hover:text-muted-foreground underline">숨기기</button>
                 </div>
               )}

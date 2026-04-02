@@ -90,10 +90,10 @@ export function QuestionGridView({
                 )}
               </button>
 
-              {/* 별표 표시: 셀 정중앙 오버레이 */}
+              {/* 별표 표시: 우측 상단 (안정도 %와 겹치지 않게) */}
               {starred && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <Star size={14} className="fill-white/80 text-white/80 drop-shadow-sm" />
+                <div className="absolute -top-1 -right-1 pointer-events-none z-10">
+                  <Star size={10} className="fill-yellow-400 text-yellow-400 drop-shadow-sm" />
                 </div>
               )}
             </div>

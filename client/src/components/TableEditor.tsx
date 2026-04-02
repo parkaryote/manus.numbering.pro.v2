@@ -591,7 +591,7 @@ interface TableViewProps {
   onCellActivate?: (key: string) => void; // 셀 클릭 시 활성화
   onCellCheck?: (key: string) => void; // 셀 체크박스 토글
   partialInput?: string; // 현재 입력 중인 텍스트 (채점 시각화용)
-  cellSubmittedResult?: 'correct' | 'wrong' | null; // 입력 제출 후 채점 결과 (null이면 채점 표시 안 함)
+  cellSubmittedResult?: 'correct' | 'wrong' | 'typing' | null; // 실시간 채점 결과 (null: 미입력, typing: 입력중, correct: 정답, wrong: 오답)
 }
 
 export function TableView({
@@ -705,14 +705,14 @@ export function TableView({
                             title="집중 연습 선택됨"
                           />
                         )}
-                        {/* 채점 시각화: 활성 셀 - 제출(Enter) 후에만 색상 표시 */}
+                        {/* 채점 시각화: 활성 셀 - 실시간 글자별 색상 표시 */}
                         {isActiveCell && !isCompleted && (
                           <div className="text-sm font-semibold cursor-text">
                             {cellSubmittedResult === 'correct' ? (
-                              // 정답: 초록색
+                              // 정답: 전체 초록
                               <span className="text-emerald-600">{cell.content}</span>
-                            ) : cellSubmittedResult === 'wrong' ? (
-                              // 오답: 제출된 입력값을 문자별로 비교해서 표시
+                            ) : (cellSubmittedResult === 'wrong' || cellSubmittedResult === 'typing') ? (
+                              // 입력 중 / 오답: 글자별 실시간 색상
                               (() => {
                                 const norm = (s: string) => s.replace(/\s+/g, '');
                                 const target = cell.content;
@@ -722,17 +722,18 @@ export function TableView({
                                   if (ch === ' ' || ch === '\n') {
                                     return <span key={i}>{ch}</span>;
                                   }
+                                  const normCh = norm(ch);
                                   if (inputIdx < input.length) {
-                                    const correct = input[inputIdx] === norm(ch);
+                                    const isOk = input[inputIdx] === normCh;
                                     inputIdx++;
-                                    return <span key={i} className={correct ? 'text-foreground' : 'text-red-500'}>{ch}</span>;
+                                    return <span key={i} className={isOk ? 'text-foreground' : 'text-red-500'}>{ch}</span>;
                                   }
                                   inputIdx++;
                                   return <span key={i} className="text-slate-300">{ch}</span>;
                                 });
                               })()
                             ) : (
-                              // 입력 중: 색상 변화 없이 회색으로 표시
+                              // 미입력: 회색
                               <span className="text-slate-300">{cell.content}</span>
                             )}
                           </div>

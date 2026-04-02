@@ -81,10 +81,9 @@ function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
               title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}%` : ''}`}
             />
             {starred && (
-              <Star
-                size={7}
-                className="absolute -top-0.5 -right-0.5 fill-yellow-400 text-yellow-400"
-              />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <Star size={7} className="fill-yellow-400 text-yellow-400" />
+              </div>
             )}
           </div>
         );
