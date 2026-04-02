@@ -235,6 +235,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return { lineIdx, text: targetText.split('\n')[lineIdx] || '' };
   }, [isRepeatMode, repeatLinesSorted, repeatCurrentIdx, targetText]);
 
+  // stale closure 방지: 항상 최신 반복 연습 상태를 ref에 동기화
+  const repeatStateRef = useRef({ isRepeatMode, repeatLinesSorted, repeatCurrentIdx, targetText });
+  useEffect(() => {
+    repeatStateRef.current = { isRepeatMode, repeatLinesSorted, repeatCurrentIdx, targetText };
+  }, [isRepeatMode, repeatLinesSorted, repeatCurrentIdx, targetText]);
+
   // 문제 수정 모드 시작
   const startEditMode = () => {
     if (!question) return;
@@ -451,20 +457,33 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // Auto-complete when normalized text matches
     const normalized = normalizeText(newValue);
     
-    // 반복 연습 모드: 현재 체크된 줄만 비교
-    if (isRepeatMode && currentRepeatTarget) {
-      const normalizedRepeatTarget = normalizeText(currentRepeatTarget.text);
+    // 반복 연습 모드: ref를 통해 항상 최신 상태 사용 (stale closure 방지)
+    const { isRepeatMode: rm, repeatLinesSorted: rls, repeatCurrentIdx: rci, targetText: tt } = repeatStateRef.current;
+    if (rm && rls.length > 0) {
+      const lineIdx = rls[rci % rls.length];
+      const currentLineText = tt.split('\n')[lineIdx] || '';
+      const normalizedRepeatTarget = normalizeText(currentLineText);
       if (normalizedRepeatTarget.length > 0 && normalized === normalizedRepeatTarget) {
+        const nextIdx = rci + 1;
+        const isLastLine = nextIdx >= rls.length;
         setRepeatCount(prev => prev + 1);
         setRepeatTotalCount(prev => prev + 1);
-        setRepeatCurrentIdx(prev => (prev + 1) % repeatLinesSorted.length);
-        setTimeout(() => {
+        if (isLastLine) {
+          // 모든 체크된 줄 완료 → 입력창 초기화 후 첫 번째 줄에서 다시 시작
+          setRepeatCurrentIdx(0);
+          setTimeout(() => {
+            setUserInput('');
+            textareaRef.current?.focus();
+          }, 300);
+        } else {
+          // 다음 체크된 줄로 이동 (입력창 유지)
+          setRepeatCurrentIdx(nextIdx);
           setUserInput('');
           textareaRef.current?.focus();
-        }, 300);
+        }
         return;
       }
-      return;
+      return; // 반복 모드에서는 전체 정답 일치 체크 안 함
     }
     
     const normalizedTarget = normalizeText(targetText);
@@ -474,10 +493,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return; // 이후 코드 실행 중단
     }
     
-    // 듷포트 실시간 이동
+    // 듷포트 실시간 이동: 사용자 입력의 현재 줄 번호에 따라 스크롤
     if (question?.autoNumbering === 1 && answerDisplayRef.current) {
       const currentLineIndex = newValue.split('\n').length - 1;
-      const lineHeight = 28;
+      const lineHeight = 28; // 대략적인 줄 높이 (px)
       const scrollTarget = currentLineIndex * lineHeight;
       answerDisplayRef.current.scrollTo({
         top: scrollTarget,
@@ -537,20 +556,30 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // Auto-complete when normalized text matches
     const normalized = normalizeText(newValue);
     
-    // 반복 연습 모드: 현재 체크된 줄만 비교
-    if (isRepeatMode && currentRepeatTarget) {
-      const normalizedRepeatTarget = normalizeText(currentRepeatTarget.text);
+    // 반복 연습 모드: ref를 통해 항상 최신 상태 사용 (stale closure 방지)
+    const { isRepeatMode: rm2, repeatLinesSorted: rls2, repeatCurrentIdx: rci2, targetText: tt2 } = repeatStateRef.current;
+    if (rm2 && rls2.length > 0) {
+      const lineIdx2 = rls2[rci2 % rls2.length];
+      const currentLineText2 = tt2.split('\n')[lineIdx2] || '';
+      const normalizedRepeatTarget = normalizeText(currentLineText2);
       if (normalizedRepeatTarget.length > 0 && normalized === normalizedRepeatTarget) {
-        // 현재 줄 완료
+        const nextIdx2 = rci2 + 1;
+        const isLastLine2 = nextIdx2 >= rls2.length;
         setRepeatCount(prev => prev + 1);
         setRepeatTotalCount(prev => prev + 1);
-        // 다음 체크된 줄로 이동
-        setRepeatCurrentIdx(prev => (prev + 1) % repeatLinesSorted.length);
-        // 입력창 초기화
-        setTimeout(() => {
+        if (isLastLine2) {
+          // 모든 체크된 줄 완료 → 입력창 초기화 후 첫 번째 줄에서 다시 시작
+          setRepeatCurrentIdx(0);
+          setTimeout(() => {
+            setUserInput('');
+            textareaRef.current?.focus();
+          }, 300);
+        } else {
+          // 다음 체크된 줄로 이동 (입력창 유지)
+          setRepeatCurrentIdx(nextIdx2);
           setUserInput('');
           textareaRef.current?.focus();
-        }, 300);
+        }
         return;
       }
       return; // 반복 모드에서는 전체 정답 일치 체크 안 함
