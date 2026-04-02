@@ -899,7 +899,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setTimeout(() => {
       setIsFadingOut(true);
     }, 150);
-    // 0.4초 후 입력창 초기화 및 fade out 해제
+    // 0.4초 후 입력창 초기화 및 fade out 해제 + 증감 애니메이션 즉시 표시
     setTimeout(() => {
       isResettingRef.current = true; // 초기화 시작 플래그
       setIsComposing(false); // 한글 조합 강제 종료
@@ -913,6 +913,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         textareaRef.current.value = '';
         textareaRef.current.setSelectionRange(0, 0);
       }
+      // 초기화와 동시에 예상 증감값으로 애니메이션 즉시 표시 (네트워크 대기 X)
+      if (!isDemo) {
+        setShowDamageNumber(false);
+        requestAnimationFrame(() => {
+          // 예상 증감값: 연습 1회당 약 1~3% 상승 (실제 값은 나중에 네트워크 응답으로 업데이트)
+          const estimatedDiff = confidenceData?.isColdStart ? 10 : Math.max(1, Math.round(10 / Math.max(1, practiceCount + 1)));
+          setDamageValue(estimatedDiff);
+          setShowDamageNumber(true);
+        });
+      }
       setTimeout(() => {
         setIsFadingOut(false);
         isResettingRef.current = false; // 초기화 완료
@@ -920,10 +930,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }, 50);
     }, 400);
     
-    // 네트워크 요청은 백그라운드로 실행 (페이드아웃과 독립적)
-    const startTs = Date.now(); // 정답 인식 시점 기록
-    // cold-start(데이터 없음)인 경우 prevScore를 0으로 처리하여 첫 연습 후 항상 증가로 표시
-    const prevScore = confidenceData?.isColdStart ? 0 : Math.round(confidenceData?.displayScore ?? 0);
+    // 네트워크 요청은 백그라운드로 실행 (애니메이션과 독립적, 실제 값은 나중에 캐시 업데이트)
     if (question && !isDemo) {
       (async () => {
         try {
@@ -936,20 +943,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             accuracy: 100,
             errorCount: 0,
           });
-          const result = await refetchConfidence();
-          const newScore = result.data?.displayScore ?? prevScore;
-          // 정수 반올림, 연습 후 감소 방지 (연습은 항상 증가 또는 유지)
-          const diff = Math.max(0, Math.round(newScore) - prevScore);
-          // 입력창 초기화(800ms)와 동시에 표시: 경과 시간 기준으로 800ms 시점에 맞춤
-          const elapsed = Date.now() - startTs;
-          const remaining = Math.max(0, 400 - elapsed);
-          setTimeout(() => {
-            setShowDamageNumber(false);
-            requestAnimationFrame(() => {
-              setDamageValue(diff);
-              setShowDamageNumber(true);
-            });
-          }, remaining);
+          await refetchConfidence();
           const newCount = await utils.practice.countByQuestion.fetch({ questionId: question.id });
           if (newCount) {
             utils.practice.countByQuestion.setData({ questionId: question.id }, newCount);
