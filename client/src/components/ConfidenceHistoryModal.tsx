@@ -38,8 +38,9 @@ function formatTimeLabel(isoStr: string, allPoints: { at: string }[]): string {
   return format(date, "M/d", { locale: ko });
 }
 
-// 성공 기준: 안정도 ≥ 80
-const SUCCESS_THRESHOLD = 80;
+// 성공 기준: 시험 정답률 ≥ 80% (accuracyRate 기준)
+// accuracyRate가 없으면 isCorrect 기준으로 fallback
+const SUCCESS_ACCURACY_THRESHOLD = 80;
 
 // 브랜드 컬러 (보라 계열) - 선에만 사용
 const BRAND_COLOR = "#8b5cf6";
@@ -50,7 +51,11 @@ const CustomDot = (props: any) => {
   if (!cx || !cy) return null;
 
   if (payload.eventType === "test") {
-    const isSuccess = payload.score >= SUCCESS_THRESHOLD;
+    // 점 색깔: 시험 자체 정답률(accuracyRate) 기준
+    // accuracyRate가 있으면 80% 이상이면 성공, 없으면 isCorrect 기준
+    const isSuccess = payload.accuracyRate !== undefined
+      ? payload.accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
+      : payload.isCorrect === true;
     const color = isSuccess ? "#22c55e" : "#ef4444";
     const isLatest = payload.isLatest;
     return (
@@ -84,7 +89,9 @@ const CustomActiveDot = (props: any) => {
     return <circle cx={cx} cy={cy} r={4.5} fill="#9ca3af" stroke="white" strokeWidth={1.5} />;
   }
   if (payload.eventType === "test") {
-    const isSuccess = payload.score >= SUCCESS_THRESHOLD;
+    const isSuccess = payload.accuracyRate !== undefined
+      ? payload.accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
+      : payload.isCorrect === true;
     const color = isSuccess ? "#22c55e" : "#ef4444";
     return <circle cx={cx} cy={cy} r={7} fill={color} stroke="white" strokeWidth={2} />;
   }
@@ -113,7 +120,9 @@ const CustomTooltip = ({ active, payload }: any) => {
   }
 
   if (d.eventType === "test") {
-    const isSuccess = d.score >= SUCCESS_THRESHOLD;
+    const isSuccess = d.accuracyRate !== undefined
+      ? d.accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
+      : d.isCorrect === true;
     const color = isSuccess ? "#22c55e" : "#ef4444";
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[150px]">
@@ -126,6 +135,9 @@ const CustomTooltip = ({ active, payload }: any) => {
             시험: {isSuccess ? "성공" : "실패"}
           </span>
         </div>
+        {d.accuracyRate !== undefined && (
+          <div className="text-xs text-muted-foreground">정답률 {d.accuracyRate}%</div>
+        )}
         <div className="text-xs text-muted-foreground">안정도 {d.score}%</div>
       </div>
     );
@@ -293,7 +305,11 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                 { label: "시험 성공률", value: (() => {
                   const tests = chartData.filter(p => p.eventType === "test");
                   if (tests.length === 0) return "-";
-                  const success = tests.filter(p => p.score >= SUCCESS_THRESHOLD).length;
+                  const success = tests.filter(p =>
+                    (p as any).accuracyRate !== undefined
+                      ? (p as any).accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
+                      : (p as any).isCorrect === true
+                  ).length;
                   return `${Math.round((success / tests.length) * 100)}%`;
                 })() },
               ].map(stat => (

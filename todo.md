@@ -1943,3 +1943,11 @@
 - [x] 시험 안정도 계산 로직 수정 - 정답률 80% 이상이면 초록불 (5/5→4/5 맞추면 안정), wrongPenalty 정답률 기반 완화
 - [ ] 연습 모드에 시험 오답/주의 구간 배지 표시 (기존 Practice.tsx)
 - [ ] 연습 모드 본문 최우선 표시 - 단축키 안내 등 불필요 UI 최소화
+
+## 신규 기능 요청 (2026-04-03)
+- [x] 연습 모드 시험 오답 표시 - 이전 시험에서 틀린 줄을 Practice.tsx에서 배경색 강조 표시
+- [x] 모의고사 페이지(SubjectExam.tsx) 생성 + SubjectPractice 모의고사 버튼 연결
+- [x] Recall Speed Bonus 알고리즘 - 개별 문제(max +12) vs 모의고사(max +6) 분리
+- [x] 시험일 예측 UI - Practice.tsx에 시험일까지 남은 기간 + 망각 곡선 기반 예상 안정도 표시
+- [x] 망각 곡선 기반 안정도 예측 - predictExamDayConfidence 함수 구현, confidence.getByQuestion에 포함
+- [x] 그래프 점 색깔 변경 - accuracyRate >= 80% 기준으로 초록/빨강 표시 (안정도 수준과 독립적)

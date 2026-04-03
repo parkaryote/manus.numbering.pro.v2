@@ -1549,6 +1549,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         setTimeout(() => textareaRef.current?.focus(), 10);
       };
 
+      // 마지막 시험 오답 줄 여부
+      const isWrongLine = (confidenceData as any)?.lastTestWrongLines?.includes(lineIdx) ?? false;
+
       const lineStyle: React.CSSProperties = {
         display: 'block',
         position: 'relative',
@@ -1559,6 +1562,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           ? '3px solid oklch(0.55 0.2 290)'
           : isCurrentRepeat
           ? '3px solid oklch(0.55 0.2 290)'
+          : isWrongLine
+          ? '3px solid oklch(0.55 0.22 25)'
           : canSelectLine
           ? '3px solid transparent'
           : 'none',
@@ -1566,6 +1571,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           ? 'oklch(0.55 0.2 290 / 0.12)'
           : isChecked
           ? 'oklch(0.55 0.2 290 / 0.07)'
+          : isWrongLine
+          ? 'oklch(0.97 0.02 25 / 0.6)'
           : 'transparent',
         borderRadius: '2px',
         marginLeft: canSelectLine ? '-10px' : '0',
@@ -1603,7 +1610,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </span>
       );
     });
-  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines, repeatCheckedLines, currentRepeatTarget, isRepeatMode, toggleRepeatLine]);
+  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines, repeatCheckedLines, currentRepeatTarget, isRepeatMode, toggleRepeatLine, confidenceData]);
 
   if (isLoading) {
     return (
@@ -1696,6 +1703,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               </span>
             </div>
           </div>
+          {/* 시험일 예측 */}
+          {!isDemo && (confidenceData as any)?.examDatePrediction && (() => {
+            const pred = (confidenceData as any).examDatePrediction;
+            const stateColor = pred.predictedState === 'green' ? '#10b981' : pred.predictedState === 'yellow' ? '#f59e0b' : '#ef4444';
+            return (
+              <div className="flex items-center gap-2 mt-1.5 px-2 py-1 rounded-md bg-muted/40 text-xs">
+                <span className="text-muted-foreground">시험일({pred.daysUntilExam}일 후) 예상:</span>
+                <span className="font-semibold" style={{ color: stateColor }}>{pred.predictedScore}%</span>
+                {pred.scoreDelta < 0 && (
+                  <span className="text-red-500 font-medium">{pred.scoreDelta}점</span>
+                )}
+                <span className="text-muted-foreground">{pred.predictedLabel}</span>
+              </div>
+            );
+          })()}
           {/* 학습 추천 배지 */}
           {!isDemo && confidenceData?.badges && (
             <div className="flex flex-wrap gap-1.5 mt-2">

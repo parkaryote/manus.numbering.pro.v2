@@ -546,7 +546,7 @@ export default function SubjectPractice({ subjectId }: SubjectPracticeProps) {
             variant="outline"
             size="sm"
             className="gap-1.5 h-8 flex-shrink-0"
-            onClick={() => toast.info("모의고사 기능은 준비 중입니다.")}
+            onClick={() => setLocation(`/subject-exam/${subjectId}`)}
           >
             <BookOpen className="h-3.5 w-3.5" />
             모의고사

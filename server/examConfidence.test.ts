@@ -272,7 +272,7 @@ describe("computeExamConfidence - 현실적 기대값", () => {
       now,
     });
     expect(fast.displayScore).toBeGreaterThan(slow.displayScore);
-    expect(fast.breakdown.speedBonus).toBe(5);
+    expect(fast.breakdown.speedBonus).toBe(12); // 개별 시험(기본값) max +12
     expect(slow.breakdown.speedBonus).toBe(0);
   });
 });
@@ -406,5 +406,77 @@ describe("정답률 80% 이상이면 초록불", () => {
       now,
     });
     expect(highRate.breakdown.wrongPenalty).toBeLessThan(lowRate.breakdown.wrongPenalty);
+  });
+});
+
+describe("Recall Speed Bonus - 개별 vs 모의고사 분리", () => {
+  it("개별 시험 빠른 회상: max +12", () => {
+    const result = computeExamConfidence({
+      practice: makePractice({ practiceCount: 3, mostRecentPracticeAt: now }),
+      test: makeTest({
+        testCount: 3,
+        correctCount: 3,
+        averageSimilarityScore: 90,
+        mostRecentTestAt: now,
+        recentCorrectStreak: 3,
+        averageRecallTime: 8, // <= 10초
+        testType: "individual",
+      }),
+      now,
+    });
+    expect(result.breakdown.speedBonus).toBe(12);
+  });
+
+  it("모의고사 빠른 회상: max +6", () => {
+    const result = computeExamConfidence({
+      practice: makePractice({ practiceCount: 3, mostRecentPracticeAt: now }),
+      test: makeTest({
+        testCount: 3,
+        correctCount: 3,
+        averageSimilarityScore: 90,
+        mostRecentTestAt: now,
+        recentCorrectStreak: 3,
+        averageRecallTime: 8, // <= 10초
+        testType: "exam",
+      }),
+      now,
+    });
+    expect(result.breakdown.speedBonus).toBe(6);
+  });
+
+  it("개별 시험이 모의고사보다 speedBonus가 높음", () => {
+    const individual = computeExamConfidence({
+      practice: makePractice({ practiceCount: 3, mostRecentPracticeAt: now }),
+      test: makeTest({
+        testCount: 3, correctCount: 3, averageSimilarityScore: 90,
+        mostRecentTestAt: now, recentCorrectStreak: 3,
+        averageRecallTime: 8, testType: "individual",
+      }),
+      now,
+    });
+    const exam = computeExamConfidence({
+      practice: makePractice({ practiceCount: 3, mostRecentPracticeAt: now }),
+      test: makeTest({
+        testCount: 3, correctCount: 3, averageSimilarityScore: 90,
+        mostRecentTestAt: now, recentCorrectStreak: 3,
+        averageRecallTime: 8, testType: "exam",
+      }),
+      now,
+    });
+    expect(individual.breakdown.speedBonus).toBeGreaterThan(exam.breakdown.speedBonus);
+  });
+
+  it("testType 미지정 시 기본값(개별 시험)으로 동작", () => {
+    const result = computeExamConfidence({
+      practice: makePractice({ practiceCount: 3, mostRecentPracticeAt: now }),
+      test: makeTest({
+        testCount: 3, correctCount: 3, averageSimilarityScore: 90,
+        mostRecentTestAt: now, recentCorrectStreak: 3,
+        averageRecallTime: 8, // testType 미지정
+      }),
+      now,
+    });
+    // 미지정 시 개별 시험(max +12)으로 동작
+    expect(result.breakdown.speedBonus).toBe(12);
   });
 });

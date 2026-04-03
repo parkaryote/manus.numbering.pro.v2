@@ -11,7 +11,7 @@ import { transcribeAudio } from "./_core/voiceTranscription";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 import * as ocrModule from "./ocr";
-import { computeExamConfidence, aggregateConfidence, type PracticeSignal, type TestSignal, type ConfidenceResult } from "@shared/examConfidence";
+import { computeExamConfidence, aggregateConfidence, predictExamDayConfidence, type PracticeSignal, type TestSignal, type ConfidenceResult } from "@shared/examConfidence";
 
 // 글자 단위 유사도 계산 (대소문자 무시, 띄어쓰기 무시)
 function calcCharSimilarity(userText: string, correctText: string): number {
@@ -1355,12 +1355,38 @@ ${input.userAnswer}
 
         const confidence = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
 
+        // 시험일 예측: question의 subjectId를 통해 과목의 examEndDate 조회
+        const question = await db.getQuestionById(input.questionId);
+        let examDatePrediction: ReturnType<typeof predictExamDayConfidence> | null = null;
+        if (question?.subjectId) {
+          const subject = await db.getSubjectById(question.subjectId);
+          if (subject?.examEndDate) {
+            const examDate = new Date(subject.examEndDate);
+            if (examDate > now) {
+              examDatePrediction = predictExamDayConfidence(confidence, examDate, now);
+            }
+          }
+        }
+
         // 배지 계산
         const lastTest = sortedTests[0];
         const lastTestWrong = !!lastTest && lastTest.isCorrect === 0;
         const wrongCount = wrongTests.length;
         const frequentlyWrong = qTests.length >= 3 && wrongCount / qTests.length >= 0.5;
         const hasWarnZone = qTests.some(t => (t as any).mistakeHighlights && (t as any).mistakeHighlights.length > 2);
+
+        // 마지막 시험의 오답 줄 정보 파싱
+        let lastTestWrongLines: number[] = [];
+        if (lastTest?.mistakeHighlights) {
+          try {
+            const highlights = JSON.parse(lastTest.mistakeHighlights as string);
+            if (Array.isArray(highlights)) {
+              lastTestWrongLines = highlights
+                .filter((h: any) => h.isCorrect === false)
+                .map((h: any) => (h.lineIndex ?? h.labelIndex ?? 1) - 1);
+            }
+          } catch {}
+        }
 
         return {
           displayScore: confidence.displayScore,
@@ -1369,6 +1395,9 @@ ${input.userAnswer}
           isColdStart: confidence.isColdStart,
           breakdown: confidence.breakdown,
           badges: { lastTestWrong, frequentlyWrong, hasWarnZone },
+          lastTestWrongLines,
+          lastTestAccuracyRate: lastTest ? (lastTest.similarityScore ?? null) : null,
+          examDatePrediction,
         };
       }),
     // 과목별 문제 안정도 점수 조회
@@ -1490,7 +1519,7 @@ ${input.userAnswer}
         if (events.length === 0) return { points: [] };
 
         // 각 이벤트 시점에서 안정도 계산 (누적 방식)
-        const points: { at: string; score: number; state: string; eventType: string; isCorrect?: boolean }[] = [];
+        const points: { at: string; score: number; state: string; eventType: string; isCorrect?: boolean; accuracyRate?: number }[] = [];
         let pCount = 0, pDuration = 0;
         let mostRecentPracticeAt: Date | null = null;
         const cumTests: typeof qTests = [];
@@ -1531,12 +1560,17 @@ ${input.userAnswer}
 
           const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now: ev.at });
           const lastTest = ev.type === 'test' ? qTests[ev.idx] : undefined;
+          // 시험 정답률: similarityScore를 accuracyRate로 사용 (evaluate 시 저장됨)
+          const testAccuracyRate = lastTest?.similarityScore ?? undefined;
           points.push({
             at: ev.at.toISOString(),
             score: result.displayScore,
             state: result.state,
             eventType: ev.type,
-            ...(ev.type === 'test' ? { isCorrect: lastTest?.isCorrect === 1 } : {}),
+            ...(ev.type === 'test' ? {
+              isCorrect: lastTest?.isCorrect === 1,
+              accuracyRate: testAccuracyRate,
+            } : {}),
           });
         }
 

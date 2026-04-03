@@ -52,6 +52,8 @@ export interface TestSignal {
   recentCorrectStreak: number;
   mostRecentTestWasPoor: boolean; // similarityScore < 50
   averageRecallTime?: number; // 평균 회상 시간(초) - 빠른 입력 보너스용
+  /** 시험 유형: 'individual' = 개별 문제 시험(max +12), 'exam' = 모의고사(max +6) */
+  testType?: 'individual' | 'exam';
 }
 
 export interface ConfidenceInput {
@@ -197,13 +199,26 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
   else if (test.recentCorrectStreak === 2) recentStreakScore = 25;
   else if (test.recentCorrectStreak === 1) recentStreakScore = 10;
 
-  // 빠른 회상 보너스 (최대 5점)
+  // 빠른 회상 보너스 (개별 시험: max +12, 모의고사: max +6)
+  // 개별 문제 시험은 더 높은 보너스 (집중적 반복 학습 보상)
+  // 모의고사는 전체 흐름 파악이 목적이므로 보너스 절반
+  const isExamMode = test.testType === 'exam';
   let speedBonus = 0;
   if (test.testCount > 0 && test.averageRecallTime !== undefined) {
     const avgTime = test.averageRecallTime;
-    if (avgTime <= 10) speedBonus = 5;
-    else if (avgTime <= 20) speedBonus = 3;
-    else if (avgTime <= 30) speedBonus = 1;
+    if (isExamMode) {
+      // 모의고사: max +6
+      if (avgTime <= 10) speedBonus = 6;
+      else if (avgTime <= 20) speedBonus = 4;
+      else if (avgTime <= 30) speedBonus = 2;
+      else if (avgTime <= 45) speedBonus = 1;
+    } else {
+      // 개별 시험: max +12
+      if (avgTime <= 10) speedBonus = 12;
+      else if (avgTime <= 20) speedBonus = 8;
+      else if (avgTime <= 30) speedBonus = 5;
+      else if (avgTime <= 45) speedBonus = 2;
+    }
   }
 
   // ── C. 망각 패널티 ────────────────────────────────────────────────
@@ -292,6 +307,89 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
       wrongPenalty,
       recentPoorPenalty,
     },
+  };
+}
+
+// ─── Exam Date Prediction ─────────────────────────────────────────
+// 시험일까지 남은 기간과 망각 곡선을 고려하여 시험 당일 예상 안정도를 계산
+// 에빙하우스 망각 곡선 기반: 복습 없이 시간이 지나면 안정도가 감소
+
+export interface ExamDatePrediction {
+  /** 시험 당일 예상 안정도 (0~100) */
+  predictedScore: number;
+  /** 예상 상태 */
+  predictedState: "green" | "yellow" | "red";
+  /** 예상 상태 라벨 */
+  predictedLabel: string;
+  /** 시험까지 남은 일수 */
+  daysUntilExam: number;
+  /** 현재 안정도 */
+  currentScore: number;
+  /** 예상 변화량 (음수면 감소) */
+  scoreDelta: number;
+  /** 안정 도달 가능 여부 */
+  canReachGreen: boolean;
+}
+
+export function predictExamDayConfidence(
+  currentResult: ConfidenceResult,
+  examDate: Date,
+  now?: Date
+): ExamDatePrediction {
+  const nowDate = now ?? new Date();
+  const daysUntilExam = Math.max(0, Math.round((examDate.getTime() - nowDate.getTime()) / (1000 * 60 * 60 * 24)));
+  const currentScore = currentResult.displayScore;
+
+  // 시험일까지 복습 없이 망각만 적용했을 때의 패널티
+  // 에빙하우스 망각 곡선 근사: 시험 경험이 있을 때만 적용
+  const hoursUntilExam = daysUntilExam * 24;
+  let forgettingAtExam = 0;
+
+  if (currentResult.isColdStart) {
+    // cold-start: 변화 없음
+    forgettingAtExam = 0;
+  } else if (hoursUntilExam < 12) {
+    forgettingAtExam = 0;
+  } else if (hoursUntilExam < 24) {
+    forgettingAtExam = 5;
+  } else if (hoursUntilExam < 72) {
+    forgettingAtExam = 12;
+  } else if (hoursUntilExam < 168) {
+    forgettingAtExam = 22;
+  } else if (hoursUntilExam < 336) {
+    forgettingAtExam = 35;
+  } else {
+    forgettingAtExam = 50;
+  }
+
+  // 현재 망각 패널티와의 차이 (추가 감소분)
+  const currentForgetting = currentResult.breakdown.forgettingPenalty;
+  const additionalForgetting = Math.max(0, forgettingAtExam - currentForgetting);
+
+  const predictedScore = Math.max(0, Math.min(100, currentScore - additionalForgetting));
+  const scoreDelta = predictedScore - currentScore;
+
+  let predictedState: "green" | "yellow" | "red";
+  if (predictedScore >= CONFIDENCE_THRESHOLDS.green) {
+    predictedState = "green";
+  } else if (predictedScore >= CONFIDENCE_THRESHOLDS.yellow) {
+    predictedState = "yellow";
+  } else {
+    predictedState = "red";
+  }
+
+  // 지금 안정도가 초록이면 시험일에도 초록 가능성 높음
+  // 지금 노란색이면 복습 없이는 빨간색으로 떨어질 수 있음
+  const canReachGreen = currentScore >= CONFIDENCE_THRESHOLDS.green;
+
+  return {
+    predictedScore,
+    predictedState,
+    predictedLabel: TRAFFIC_LIGHT_LABELS[predictedState],
+    daysUntilExam,
+    currentScore,
+    scoreDelta,
+    canReachGreen,
   };
 }
 
