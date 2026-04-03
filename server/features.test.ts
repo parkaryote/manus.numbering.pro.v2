@@ -1,15 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterAll } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import { getDb } from "./db";
+import { subjects, questions, practiceSessions, testSessions, reviewSchedules } from "../drizzle/schema";
+import { eq } from "drizzle-orm";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
+// 테스트 전용 userId - 실제 사용자(1번)와 충돌하지 않는 값 사용
+const TEST_USER_ID = 99999;
+
 function createAuthContext(): { ctx: TrpcContext } {
   const user: AuthenticatedUser = {
-    id: 1,
-    openId: "test-user",
-    email: "test@example.com",
-    name: "Test User",
+    id: TEST_USER_ID,
+    openId: "test-user-isolated",
+    email: "test-isolated@example.com",
+    name: "Test User Isolated",
     loginMethod: "manus",
     role: "user",
     createdAt: new Date(),
@@ -31,18 +37,38 @@ function createAuthContext(): { ctx: TrpcContext } {
   return { ctx };
 }
 
+// 테스트 종료 후 테스트 데이터 정리
+afterAll(async () => {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    // 테스트 사용자가 생성한 데이터 모두 삭제 (외래키 순서 고려)
+    await db.delete(reviewSchedules).where(eq(reviewSchedules.userId, TEST_USER_ID));
+    await db.delete(testSessions).where(eq(testSessions.userId, TEST_USER_ID));
+    await db.delete(practiceSessions).where(eq(practiceSessions.userId, TEST_USER_ID));
+    // questions는 subjectId로 연결되어 있으므로 subjects 삭제 전에 처리
+    const testSubjects = await db.select().from(subjects).where(eq(subjects.userId, TEST_USER_ID));
+    for (const s of testSubjects) {
+      await db.delete(questions).where(eq(questions.subjectId, s.id));
+    }
+    await db.delete(subjects).where(eq(subjects.userId, TEST_USER_ID));
+  } catch {
+    // DB 연결 실패 시 무시
+  }
+});
+
 describe("Subject Management", () => {
   it("should create a subject", async () => {
     const { ctx } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
 
     const subject = await caller.subjects.create({
-      name: "테스트 과목",
+      name: "[TEST] 과목",
       color: "#3B82F6",
     });
 
     expect(subject).toBeDefined();
-    expect(subject.name).toBe("테스트 과목");
+    expect(subject.name).toBe("[TEST] 과목");
     expect(subject.color).toBe("#3B82F6");
   });
 
@@ -62,7 +88,7 @@ describe("Question Management", () => {
 
     // First create a subject
     const subject = await caller.subjects.create({
-      name: "수학",
+      name: "[TEST] 수학",
       color: "#10B981",
     });
 
@@ -94,7 +120,7 @@ describe("Practice Session", () => {
 
     // Create subject and question first
     const subject = await caller.subjects.create({
-      name: "영어",
+      name: "[TEST] 영어",
       color: "#8B5CF6",
     });
 
@@ -134,7 +160,7 @@ describe("Test Session and Evaluation", () => {
 
     // Create subject and question
     const subject = await caller.subjects.create({
-      name: "과학",
+      name: "[TEST] 과학",
       color: "#EF4444",
     });
 
@@ -172,7 +198,7 @@ describe("Review Schedule", () => {
 
     // Create subject and question
     const subject = await caller.subjects.create({
-      name: "역사",
+      name: "[TEST] 역사",
       color: "#F59E0B",
     });
 
