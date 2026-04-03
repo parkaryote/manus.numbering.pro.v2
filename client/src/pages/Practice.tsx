@@ -1154,10 +1154,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           setShowDamageNumber(true);
         });
       }
+      setCurrentCursorLineIndex(0); // 커서 줄 인덱스 첫 줄로 리셋
       setTimeout(() => {
         setIsFadingOut(false);
         isResettingRef.current = false; // 초기화 완료
-        textareaRef.current?.focus();
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(0, 0); // 커서를 첫 줄 첫 글자로
+        }
       }, 50);
     }, 400);
     
