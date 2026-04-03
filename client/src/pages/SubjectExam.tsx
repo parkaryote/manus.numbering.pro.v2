@@ -78,11 +78,22 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
   const { data: questions } = trpc.questions.listBySubject.useQuery({ subjectId });
+  const utils = trpc.useUtils();
+  // 결과 화면에서 안정도 확인용 - phase가 result일 때만 페치
+  const { data: confidenceData } = trpc.confidence.getBySubject.useQuery(
+    { subjectId },
+    { enabled: phase === "result" }
+  );
 
   // 텍스트 문제만 필터링 (이미지/표 제외)
   const textQuestions = questions?.filter(q => !q.imageUrl && !q.tableData) || [];
 
-  const evaluateMutation = trpc.test.evaluate.useMutation();
+  const evaluateMutation = trpc.test.evaluate.useMutation({
+    onSuccess: () => {
+      // 채점 후 안정도 캐시 무효화
+      utils.confidence.getBySubject.invalidate({ subjectId });
+    },
+  });
 
   // 타이머
   useEffect(() => {
@@ -399,6 +410,24 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
               </div>
             </div>
 
+            {/* 안정도 표시 */}
+            {(() => {
+              const conf = confidenceData?.questions?.find(q => q.questionId === r.questionId);
+              if (!conf) return null;
+              const stateColor = conf.state === 'green' ? 'text-emerald-600' : conf.state === 'yellow' ? 'text-amber-600' : 'text-red-600';
+              const stateBg = conf.state === 'green' ? 'bg-emerald-500/10' : conf.state === 'yellow' ? 'bg-amber-500/10' : 'bg-red-500/10';
+              return (
+                <div className={`mt-1.5 pl-7 flex items-center gap-1.5`}>
+                  <span className="text-xs text-muted-foreground">안정도:</span>
+                  <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${stateBg} ${stateColor}`}>
+                    {conf.displayScore}%
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    ({conf.state === 'green' ? '안정' : conf.state === 'yellow' ? '주의' : '위험'})
+                  </span>
+                </div>
+              );
+            })()}
             {!r.isCorrect && (
               <div className="mt-2 space-y-1.5 pl-7">
                 <div className="text-xs text-muted-foreground font-medium">정답:</div>

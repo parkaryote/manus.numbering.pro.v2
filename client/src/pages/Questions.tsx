@@ -12,7 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
-import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star, ScrollText } from "lucide-react";
+import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star, ScrollText, Settings, Calendar } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
   DndContext,
@@ -353,6 +354,8 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   const [confidenceHistoryTitle, setConfidenceHistoryTitle] = useState("");
   const [subjectConfidenceOpen, setSubjectConfidenceOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isSubjectSettingOpen, setIsSubjectSettingOpen] = useState(false);
+  const [examDateInput, setExamDateInput] = useState("");
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isCopyMoveOpen, setIsCopyMoveOpen] = useState(false);
   const [copyMoveMode, setCopyMoveMode] = useState<"copy" | "move">("copy");
@@ -378,6 +381,17 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
   const { data: questions, isLoading } = trpc.questions.listBySubject.useQuery({ subjectId });
+  const updateSubjectMutation = trpc.subjects.update.useMutation({
+    onSuccess: () => {
+      utils.subjects.getById.invalidate({ id: subjectId });
+      utils.subjects.list.invalidate();
+      setIsSubjectSettingOpen(false);
+      toast.success("시험일이 저장되었습니다");
+    },
+    onError: (error) => {
+      toast.error("저장 실패: " + error.message);
+    },
+  });
   const { data: confidenceData } = trpc.confidence.getBySubject.useQuery(
     { subjectId },
     { enabled: !!user }
@@ -959,7 +973,70 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             )}
           </div>
         </div>
-        <div className="flex gap-1.5 flex-shrink-0">
+        <div className="flex gap-1.5 flex-shrink-0 items-center">
+          {/* 과목 설정 버튼 (시험일 설정) */}
+          {!isDemo && (
+            <Popover open={isSubjectSettingOpen} onOpenChange={(open) => {
+              setIsSubjectSettingOpen(open);
+              if (open) {
+                setExamDateInput(subject?.examEndDate ? new Date(subject.examEndDate).toISOString().split('T')[0] : "");
+              }
+            }}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" title="과목 설정">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72" align="end">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <h4 className="font-medium text-sm">시험일 설정</h4>
+                  </div>
+                  {subject?.examEndDate && (
+                    <p className="text-xs text-muted-foreground">
+                      현재: {new Date(subject.examEndDate).toLocaleDateString('ko-KR')}
+                      {' '}(D-{Math.max(0, Math.ceil((new Date(subject.examEndDate).getTime() - Date.now()) / 86400000))})
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <Input
+                      type="date"
+                      value={examDateInput}
+                      onChange={(e) => setExamDateInput(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                    <Button
+                      size="sm"
+                      className="h-8 px-3"
+                      disabled={updateSubjectMutation.isPending}
+                      onClick={() => {
+                        updateSubjectMutation.mutate({
+                          id: subjectId,
+                          examEndDate: examDateInput || null,
+                        });
+                      }}
+                    >
+                      저장
+                    </Button>
+                  </div>
+                  {examDateInput && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-muted-foreground w-full"
+                      onClick={() => {
+                        setExamDateInput("");
+                        updateSubjectMutation.mutate({ id: subjectId, examEndDate: null });
+                      }}
+                    >
+                      시험일 삭제
+                    </Button>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
           {questions && questions.length > 0 && (
             <>
               <Button

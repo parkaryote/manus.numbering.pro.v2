@@ -1951,3 +1951,7 @@
 - [x] 시험일 예측 UI - Practice.tsx에 시험일까지 남은 기간 + 망각 곡선 기반 예상 안정도 표시
 - [x] 망각 곡선 기반 안정도 예측 - predictExamDayConfidence 함수 구현, confidence.getByQuestion에 포함
 - [x] 그래프 점 색깔 변경 - accuracyRate >= 80% 기준으로 초록/빨강 표시 (안정도 수준과 독립적)
+
+## 신규 기능 요청 (2026-04-03 2차)
+- [x] 과목 설정에 시험일 설정 UI - Questions.tsx 헤더에 설정 아이콘 버튼 + 팝오버로 시험일 날짜 선택기 추가
+- [x] 모의고사 결과 안정도 반영 - SubjectExam 결과 화면에서 각 문제 안정도 표시, evaluateMutation onSuccess에서 캐시 무효화
