@@ -880,13 +880,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
     
     // 연습 5회 이상 + 안정도 낮음: 답 가리고 연습 추천
-    if (total >= 5 && conf < 50) return { type: 'hide_practice' as const, message: '슬슬 안 보고 해볼 차례 (Tab 답 가리기)' };
+    if (total >= 5 && conf < 50) return { type: 'hide_practice' as const, message: '슬슬 안 보고 해볼 차례' };
     
-    // 연습 3회: 답 가리기 유도
-    if (total >= 3 && total < 5) return { type: 'hide_practice' as const, message: `${total}번 했으면… 이제 눈 감고 가야지 😏 (Tab 답 가리기)` };
-    
-    // 연습 2회: 가볍게 안내
-    if (total >= 2) return { type: 'hint' as const, message: '이 정도면 한 번 꺼내볼 수 있어요. (Tab 답 가리기)' };
+    // 연습 3회 이상: 답 가리기 유도
+    if (total >= 3 && total < 5) return { type: 'hide_practice' as const, message: `${total}번 했으면… 이제 눈 감고 가야지 😏` };
     
     return null;
   }, [totalPracticeCount, confidenceData?.displayScore]);
@@ -1736,14 +1733,18 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {(studySuggestion.type === 'test_ready' || studySuggestion.type === 'mastered') && question && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs gap-1"
-                onClick={() => setLocation(`/test/${question.id}`)}
-              >
-                백지복습 시험
-              </Button>
+              <div className="flex flex-col items-center gap-0.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => setLocation(`/test/${question.id}`)}
+                >
+                  <Zap className="h-3 w-3" />
+                  백지시험
+                </Button>
+                <span className="text-[10px] text-muted-foreground/60">(Shift+Enter)</span>
+              </div>
             )}
             {studySuggestion.type === 'hide_practice' && (
               <div className="flex items-center gap-2">
@@ -1752,9 +1753,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     size="sm"
                     variant="outline"
                     className="h-7 text-xs gap-1"
-                    onClick={() => {
-                      setHideMode('all');
-                    }}
+                    onClick={() => setHideMode('all')}
                   >
                     <EyeOff className="h-3 w-3" />
                     답 가리기
@@ -1762,15 +1761,18 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   <span className="text-[10px] text-muted-foreground/60">(Tab)</span>
                 </div>
                 {question && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs gap-1 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
-                    onClick={() => setLocation(`/test/${question.id}`)}
-                  >
-                    <Zap className="h-3 w-3" />
-                    백지시험
-                  </Button>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs gap-1 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
+                      onClick={() => setLocation(`/test/${question.id}`)}
+                    >
+                      <Zap className="h-3 w-3" />
+                      백지시험
+                    </Button>
+                    <span className="text-[10px] text-muted-foreground/60">(Shift+Enter)</span>
+                  </div>
                 )}
               </div>
             )}
