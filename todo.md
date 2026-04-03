@@ -1907,3 +1907,9 @@
 - [x] 이번 시험 오답 배지 (최근 시험에서 틀린 문제)
 - [x] 자주 틀림 배지 (시험 오답률 높은 문제)
 - [x] 주의 구간 있음 배지 (텍스트 문제에서 특정 줄 오답률 높음)
+
+## 버그: Sticky Bottom Input Panel 미작동 (v4.1.0)
+- [x] sidebar-wrapper h-svh 고정 (min-h-svh → h-svh)
+- [x] SidebarInset에 min-h-0 overflow-hidden 추가
+- [x] DashboardLayout main에 min-h-0 추가
+- [x] Practice 페이지 flex-col h-full overflow-hidden + flex-1 overflow-y-auto + shrink-0 구조 확인
