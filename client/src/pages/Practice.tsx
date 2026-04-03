@@ -369,6 +369,33 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (!startTime) setStartTime(Date.now());
     setLastInputTime(Date.now());
     setIsActive(true);
+    
+    // 실시간 자동 채점: 입력값이 정답과 일치하면 자동으로 다음 셀로 이동
+    if (tableActiveCellKey && tableData) {
+      const ri = parseInt(tableActiveCellKey.split('-')[0]);
+      const ci = parseInt(tableActiveCellKey.split('-')[1]);
+      const cell = tableData.cells[ri]?.[ci];
+      if (cell && tableNorm(value) === tableNorm(cell.content)) {
+        // 정답! 자동으로 완료 처리
+        setTimeout(() => {
+          setTableCompletedCells(prev => {
+            const newSet = new Set(Array.from(prev).concat(tableActiveCellKey));
+            const allDone = tableTargetCells.every(k => newSet.has(k));
+            if (allDone) {
+              tableCorrectAnswerRef.current?.(tableTargetCells.length);
+              setTimeout(() => {
+                setTableCompletedCells(new Set());
+                setTableActiveCellIdx(0);
+                setTableCellInput('');
+              }, 400);
+            } else {
+              tableMoveToCell('next');
+            }
+            return newSet;
+          });
+        }, 150); // 약간의 딜레이로 자연스러운 전환
+      }
+    }
   };
 
   const handleTableKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -376,8 +403,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       e.preventDefault();
       tableMoveToCell(e.shiftKey ? 'prev' : 'next');
     } else if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      tableSubmitCurrentCell();
+      // 정답이면 다음 셀로 이동, 아니면 줄바꿈 허용
+      if (tableActiveCellKey && tableData) {
+        const ri = parseInt(tableActiveCellKey.split('-')[0]);
+        const ci = parseInt(tableActiveCellKey.split('-')[1]);
+        const cell = tableData.cells[ri]?.[ci];
+        if (cell && tableNorm(tableCellInput) === tableNorm(cell.content)) {
+          e.preventDefault();
+          tableMoveToCell('next');
+        }
+        // 정답이 아니면 기본 Enter 동작(줄바꿈) 허용
+      }
     }
   };
 
@@ -609,11 +645,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return;
     }
     
-    const normalizedTarget = normalizeText(targetText);
-    if (normalized === normalizedTarget) {
-      handleCorrectAnswer(newValue.length);
-      return;
-    }
+    // 연습장 모드: 정답 자동 감지 제거 - 완료 버튼으로만 세션 저장
     
     // 듷포트 실시간 이동: 사용자 입력의 현재 줄 번호에 따라 스크롤
     if (question?.autoNumbering === 1 && answerDisplayRef.current) {
@@ -719,12 +751,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return;
     }
     
-    const normalizedTarget = normalizeText(targetText);
-    if (normalized === normalizedTarget) {
-      // 완료 처리 - fade out 후 입력 초기화는 handleCorrectAnswer 내부에서 처리
-      handleCorrectAnswer(newValue.length);
-      return; // 이후 코드 실행 중단
-    }
+    // 연습장 모드: 정답 자동 감지 제거 - 완료 버튼으로만 세션 저장
     
     // 듷포트 실시간 이동: 사용자 입력의 현재 줄 번호에 따라 스크롤
     if (question?.autoNumbering === 1 && answerDisplayRef.current) {
@@ -825,21 +852,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return;
     }
     
-    // Enter: 줄바꿈 추가 (autoNumbering=1인 경우, 답안 줄 수만큼 허용)
-    if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey && question?.autoNumbering === 1) {
-      const lines = targetText.split('\n');
-      const maxLines = lines.length;
-      const currentLines = userInput.split('\n').length;
-      
-      // 답안 줄 수만큼만 Enter 허용
-      if (currentLines < maxLines) {
-        // 기본 Enter 동작 허용 (줄바꿈 추가)
-        return;
-      } else {
-        // 최대 줄 수 도달 시 Enter 차단
-        e.preventDefault();
-        return;
-      }
+    // Enter: 항상 줄바꿈 허용 (연습장 모드 - 제출 기능 없음)
+    if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+      // 기본 Enter 동작 허용 (줄바꿈)
+      return;
     }
     
     // Shift+Backspace: 문장 삭제 (마지막 줄 삭제)

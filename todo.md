@@ -1913,3 +1913,10 @@
 - [x] SidebarInset에 min-h-0 overflow-hidden 추가
 - [x] DashboardLayout main에 min-h-0 추가
 - [x] Practice 페이지 flex-col h-full overflow-hidden + flex-1 overflow-y-auto + shrink-0 구조 확인
+
+## 표 모드 실시간 채점 + 텍스트 모드 연습장 (v4.2.0)
+- [x] 표 모드: 글자 입력할 때마다 실시간 채점 (맞는 부분 검정, 틀린 부분 빨강) + 정답 시 자동 다음 셀 이동
+- [x] 표 모드: 엔터 = 정답이면 다음 셀, 아니면 줄바꿈
+- [x] 텍스트 모드: 정답 자동 감지 제거 (완료 버튼으로만 세션 저장)
+- [x] 텍스트 모드: 엔터 키 항상 줄바꿈 허용 (autoNumbering 조건 제거)
+- [x] 텍스트 모드: 입력창을 자유로운 연습장으로 전환
