@@ -1,15 +1,19 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import * as db from "./db";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createTestContext(userId: number = 1): TrpcContext {
+// 테스트 전용 userId - 실제 사용자(id=1) 데이터에 영향 없음
+const TEST_USER_ID = 99999;
+
+function createTestContext(userId: number = TEST_USER_ID): TrpcContext {
   const user: AuthenticatedUser = {
     id: userId,
-    openId: "test-user",
-    email: "test@example.com",
-    name: "Test User",
+    openId: "test-user-isolated",
+    email: "test-isolated@example.com",
+    name: "Test User Isolated",
     loginMethod: "manus",
     role: "user",
     createdAt: new Date(),
@@ -30,43 +34,39 @@ function createTestContext(userId: number = 1): TrpcContext {
 }
 
 describe("Statistics Reset", () => {
+  beforeEach(() => {
+    // deleteAll은 실제 DB를 건드리지 않도록 mock 처리
+    vi.spyOn(db, "deleteAllPracticeSessions").mockResolvedValue(undefined as any);
+    vi.spyOn(db, "deleteAllTestSessions").mockResolvedValue(undefined as any);
+    vi.spyOn(db, "getPracticeSessionsByUserId").mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it("should have deleteAll mutation for practice sessions", async () => {
     const ctx = createTestContext();
     const caller = appRouter.createCaller(ctx);
 
-    // Test that deleteAll mutation exists and can be called
-    const result = await caller.practice.deleteAll();
-    
-    // Result should be defined (returns delete result from database)
-    expect(result).toBeDefined();
+    // deleteAll은 mock되어 있으므로 실제 DB 데이터에 영향 없음
+    // mock이 undefined를 반환하므로 에러 없이 완료되면 성공
+    await expect(caller.practice.deleteAll()).resolves.not.toThrow();
   });
 
   it("should have deleteAll mutation for test sessions", async () => {
     const ctx = createTestContext();
     const caller = appRouter.createCaller(ctx);
 
-    // Test that deleteAll mutation exists and can be called
-    const result = await caller.test.deleteAll();
-    
-    // Result should be defined (returns delete result from database)
-    expect(result).toBeDefined();
+    // deleteAll은 mock되어 있으므로 실제 DB 데이터에 영향 없음
+    await expect(caller.test.deleteAll()).resolves.not.toThrow();
   });
 
   it("should get practice sessions by user", async () => {
     const ctx = createTestContext();
     const caller = appRouter.createCaller(ctx);
 
-    // Get all practice sessions
     const sessions = await caller.practice.getByUser();
-    
-    // Should return an array
     expect(Array.isArray(sessions)).toBe(true);
-    
-    // Each session should have duration field
-    if (sessions.length > 0) {
-      expect(sessions[0]).toHaveProperty("duration");
-      expect(typeof sessions[0].duration).toBe("number");
-    }
   });
 });

@@ -1,18 +1,43 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import * as db from "./db";
 import * as ocrModule from "./ocr";
+import { getDb } from "./db";
+import { ocrJobs } from "../drizzle/schema";
+import { inArray } from "drizzle-orm";
+
+// 테스트에서 생성된 OCR job ID 추적 - 테스트 후 정리용
+const createdJobIds: number[] = [];
+
+async function createTestOcrJob(overrides: Partial<Parameters<typeof db.createOcrJob>[0]> = {}) {
+  const job = await db.createOcrJob({
+    userId: 1,
+    fileName: "test.pdf",
+    s3Url: "https://example.com/test.pdf",
+    gcsUri: "gs://bucket/test.pdf",
+    operationName: "projects/123/locations/us/operations/456",
+    status: "processing",
+    ...overrides,
+  });
+  createdJobIds.push(job.id);
+  return job;
+}
 
 describe("OCR Router - Integration Tests", () => {
+  afterAll(async () => {
+    // 테스트에서 생성된 OCR jobs 모두 정리
+    try {
+      const database = await getDb();
+      if (database && createdJobIds.length > 0) {
+        await database.delete(ocrJobs).where(inArray(ocrJobs.id, createdJobIds));
+      }
+    } catch {
+      // DB 연결 실패 시 무시
+    }
+  });
+
   describe("Database Operations", () => {
     it("should create OCR job record", async () => {
-      const job = await db.createOcrJob({
-        userId: 1,
-        fileName: "test.pdf",
-        s3Url: "https://example.com/test.pdf",
-        gcsUri: "gs://bucket/test.pdf",
-        operationName: "projects/123/locations/us/operations/456",
-        status: "processing",
-      });
+      const job = await createTestOcrJob();
 
       expect(job).toBeDefined();
       expect(job.id).toBeGreaterThan(0);
@@ -21,14 +46,7 @@ describe("OCR Router - Integration Tests", () => {
     });
 
     it("should retrieve OCR job by ID", async () => {
-      const created = await db.createOcrJob({
-        userId: 1,
-        fileName: "test.pdf",
-        s3Url: "https://example.com/test.pdf",
-        gcsUri: "gs://bucket/test.pdf",
-        operationName: "projects/123/locations/us/operations/456",
-        status: "processing",
-      });
+      const created = await createTestOcrJob();
 
       const retrieved = await db.getOcrJobById(created.id);
       expect(retrieved).toBeDefined();
@@ -37,14 +55,7 @@ describe("OCR Router - Integration Tests", () => {
     });
 
     it("should update OCR job status", async () => {
-      const created = await db.createOcrJob({
-        userId: 1,
-        fileName: "test.pdf",
-        s3Url: "https://example.com/test.pdf",
-        gcsUri: "gs://bucket/test.pdf",
-        operationName: "projects/123/locations/us/operations/456",
-        status: "processing",
-      });
+      const created = await createTestOcrJob();
 
       await db.updateOcrJob(created.id, {
         status: "completed",
@@ -60,24 +71,9 @@ describe("OCR Router - Integration Tests", () => {
     it("should list OCR jobs by user", async () => {
       const userId = 1;
 
-      // Create multiple jobs
-      await db.createOcrJob({
-        userId,
-        fileName: "test1.pdf",
-        s3Url: "https://example.com/test1.pdf",
-        gcsUri: "gs://bucket/test1.pdf",
-        operationName: "op1",
-        status: "processing",
-      });
-
-      await db.createOcrJob({
-        userId,
-        fileName: "test2.pdf",
-        s3Url: "https://example.com/test2.pdf",
-        gcsUri: "gs://bucket/test2.pdf",
-        operationName: "op2",
-        status: "completed",
-      });
+      // Create multiple jobs (ID 추적됨)
+      await createTestOcrJob({ userId, fileName: "test1.pdf", s3Url: "https://example.com/test1.pdf", gcsUri: "gs://bucket/test1.pdf", operationName: "op1", status: "processing" });
+      await createTestOcrJob({ userId, fileName: "test2.pdf", s3Url: "https://example.com/test2.pdf", gcsUri: "gs://bucket/test2.pdf", operationName: "op2", status: "completed" });
 
       const jobs = await db.getOcrJobsByUserId(userId);
       expect(jobs.length).toBeGreaterThanOrEqual(2);
@@ -85,14 +81,10 @@ describe("OCR Router - Integration Tests", () => {
     });
 
     it("should delete OCR job", async () => {
-      const created = await db.createOcrJob({
-        userId: 1,
-        fileName: "test.pdf",
-        s3Url: "https://example.com/test.pdf",
-        gcsUri: "gs://bucket/test.pdf",
-        operationName: "projects/123/locations/us/operations/456",
-        status: "processing",
-      });
+      const created = await createTestOcrJob();
+      // 이 job은 테스트 내에서 직접 삭제하므로 afterAll 목록에서 제거
+      const idx = createdJobIds.indexOf(created.id);
+      if (idx !== -1) createdJobIds.splice(idx, 1);
 
       await db.deleteOcrJob(created.id);
 
@@ -119,24 +111,14 @@ describe("OCR Router - Integration Tests", () => {
 
   describe("Job Status Workflow", () => {
     it("should track job lifecycle: pending -> processing -> completed", async () => {
-      // Create job in pending state
-      const job = await db.createOcrJob({
-        userId: 1,
-        fileName: "test.pdf",
-        s3Url: "https://example.com/test.pdf",
-        gcsUri: "gs://bucket/test.pdf",
-        operationName: "op123",
-        status: "pending",
-      });
+      const job = await createTestOcrJob({ status: "pending", operationName: "op123" });
 
       expect(job.status).toBe("pending");
 
-      // Update to processing
       await db.updateOcrJob(job.id, { status: "processing" });
       let updated = await db.getOcrJobById(job.id);
       expect(updated?.status).toBe("processing");
 
-      // Update to completed
       await db.updateOcrJob(job.id, {
         status: "completed",
         extractedText: "Extracted text",
@@ -148,14 +130,7 @@ describe("OCR Router - Integration Tests", () => {
     });
 
     it("should track job lifecycle: pending -> failed", async () => {
-      const job = await db.createOcrJob({
-        userId: 1,
-        fileName: "test.pdf",
-        s3Url: "https://example.com/test.pdf",
-        gcsUri: "gs://bucket/test.pdf",
-        operationName: "op123",
-        status: "pending",
-      });
+      const job = await createTestOcrJob({ status: "pending", operationName: "op123" });
 
       await db.updateOcrJob(job.id, {
         status: "failed",
