@@ -1929,3 +1929,8 @@
 ## 버그: Practice 배지 미표시 + 채점 안됨 (v4.4.0)
 - [x] Practice 페이지에 배지 정보(이번 시험 오답/자주 틀림/주의 구간) 표시
 - [x] 텍스트 모드 완료 버튼 클릭 시 채점 복원 (handleCorrectAnswer 호출)
+
+## 버그: 표 모드 실시간 글자별 채점이 텍스트 모드와 다르게 동작 (v4.5.0)
+- [x] TableEditor.tsx 셀 내 시각화: 단순 문자열 비교 → isPartialMatch 기반 한글 자모 분해 채점으로 변경
+- [x] Practice.tsx getTableActiveCellResult: 조합 중에도 채점 표시 (partial 포함)
+- [x] Practice.tsx handleTableInputChange: 자동 완료 체크도 isPartialMatch 기반으로 변경

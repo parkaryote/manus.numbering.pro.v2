@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Eye, EyeOff, RotateCcw, Merge, Split } from "lucide-react";
 import { toast } from "sonner";
+import { isPartialMatch, splitGraphemes } from "@/lib/hangul";
 
 // 표 데이터 타입 정의
 export interface TableCell {
@@ -705,31 +706,42 @@ export function TableView({
                             title="집중 연습 선택됨"
                           />
                         )}
-                        {/* 채점 시각화: 활성 셀 - 실시간 글자별 색상 표시 */}
+                        {/* 채점 시각화: 활성 셀 - 실시간 글자별 색상 표시 (isPartialMatch 기반) */}
                         {isActiveCell && !isCompleted && (
                           <div className="text-sm font-semibold cursor-text">
                             {cellSubmittedResult === 'correct' ? (
-                              // 정답: 전체 초록
-                              <span className="text-emerald-600">{cell.content}</span>
-                            ) : (cellSubmittedResult === 'wrong' || cellSubmittedResult === 'typing') ? (
-                              // 입력 중 / 오답: 글자별 실시간 색상
+                              // 정답: 전체 검정 (텍스트 모드와 동일)
+                              <span className="text-foreground">{cell.content}</span>
+                            ) : partialInput.length > 0 ? (
+                              // 입력 중: isPartialMatch 기반 글자별 실시간 색상 (텍스트 모드와 동일 로직)
                               (() => {
-                                const norm = (s: string) => s.replace(/\s+/g, '');
-                                const target = cell.content;
-                                const input = norm(partialInput);
-                                let inputIdx = 0;
-                                return target.split('').map((ch, i) => {
+                                const targetChars = splitGraphemes(cell.content.replace(/\s+/g, ''));
+                                const userChars = splitGraphemes(partialInput.replace(/\s+/g, ''));
+                                let charIdx = 0; // 띄어쓰기 제외 인덱스
+                                return cell.content.split('').map((ch, i) => {
                                   if (ch === ' ' || ch === '\n') {
                                     return <span key={i}>{ch}</span>;
                                   }
-                                  const normCh = norm(ch);
-                                  if (inputIdx < input.length) {
-                                    const isOk = input[inputIdx] === normCh;
-                                    inputIdx++;
-                                    return <span key={i} className={isOk ? 'text-foreground' : 'text-red-500'}>{ch}</span>;
+                                  const currentCharIdx = charIdx;
+                                  charIdx++;
+                                  // 아직 입력하지 않은 글자
+                                  if (currentCharIdx >= userChars.length) {
+                                    return <span key={i} className="text-slate-300">{ch}</span>;
                                   }
-                                  inputIdx++;
-                                  return <span key={i} className="text-slate-300">{ch}</span>;
+                                  // 입력한 글자 채점 (isPartialMatch 사용)
+                                  const userChar = userChars[currentCharIdx];
+                                  const targetChar = targetChars[currentCharIdx];
+                                  const nextTargetChar = targetChars[currentCharIdx + 1];
+                                  const matchResult = isPartialMatch(userChar, targetChar, nextTargetChar);
+                                  if (matchResult === 'complete' || matchResult === 'partial_complete') {
+                                    return <span key={i} className="text-foreground">{ch}</span>;
+                                  } else if (matchResult === 'partial') {
+                                    // 조합 중 (초성/중성만 입력) - 회색 유지
+                                    return <span key={i} className="text-slate-400">{ch}</span>;
+                                  } else {
+                                    // 오답 - 빨간색
+                                    return <span key={i} className="text-red-500">{ch}</span>;
+                                  }
                                 });
                               })()
                             ) : (

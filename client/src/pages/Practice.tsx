@@ -347,7 +347,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const ci = parseInt(tableActiveCellKey.split('-')[1]);
     const cell = tableData.cells[ri]?.[ci];
     if (!cell) return;
-    if (tableNorm(tableCellInput) === tableNorm(cell.content)) {
+    // isPartialMatch 기반 정답 확인
+    const targetChars = splitGraphemes(cell.content.replace(/\s+/g, ''));
+    const userChars = splitGraphemes(tableCellInput.replace(/\s+/g, ''));
+    let isCorrect = userChars.length === targetChars.length;
+    if (isCorrect) {
+      for (let i = 0; i < userChars.length; i++) {
+        const result = isPartialMatch(userChars[i], targetChars[i], targetChars[i + 1]);
+        if (result !== 'complete' && result !== 'partial_complete') { isCorrect = false; break; }
+      }
+    }
+    if (isCorrect) {
       setTableCompletedCells(prev => new Set(Array.from(prev).concat(tableActiveCellKey)));
       const newCompleted = new Set(Array.from(tableCompletedCells).concat(tableActiveCellKey));
       const allDone = tableTargetCells.every(k => newCompleted.has(k));
@@ -370,30 +380,41 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setLastInputTime(Date.now());
     setIsActive(true);
     
-    // 실시간 자동 채점: 입력값이 정답과 일치하면 자동으로 다음 셀로 이동
+    // isPartialMatch 기반 실시간 자동 채점: 모든 글자가 complete이면 자동으로 다음 셀로 이동
     if (tableActiveCellKey && tableData) {
       const ri = parseInt(tableActiveCellKey.split('-')[0]);
       const ci = parseInt(tableActiveCellKey.split('-')[1]);
       const cell = tableData.cells[ri]?.[ci];
-      if (cell && tableNorm(value) === tableNorm(cell.content)) {
-        // 정답! 자동으로 완료 처리
-        setTimeout(() => {
-          setTableCompletedCells(prev => {
-            const newSet = new Set(Array.from(prev).concat(tableActiveCellKey));
-            const allDone = tableTargetCells.every(k => newSet.has(k));
-            if (allDone) {
-              tableCorrectAnswerRef.current?.(tableTargetCells.length);
-              setTimeout(() => {
-                setTableCompletedCells(new Set());
-                setTableActiveCellIdx(0);
-                setTableCellInput('');
-              }, 400);
-            } else {
-              tableMoveToCell('next');
-            }
-            return newSet;
-          });
-        }, 150); // 약간의 딜레이로 자연스러운 전환
+      if (cell) {
+        const targetChars = splitGraphemes(cell.content.replace(/\s+/g, ''));
+        const userChars = splitGraphemes(value.replace(/\s+/g, ''));
+        if (userChars.length === targetChars.length) {
+          let allComplete = true;
+          for (let i = 0; i < userChars.length; i++) {
+            const result = isPartialMatch(userChars[i], targetChars[i], targetChars[i + 1]);
+            if (result !== 'complete' && result !== 'partial_complete') { allComplete = false; break; }
+          }
+          if (allComplete) {
+            // 정답! 자동으로 완료 처리
+            setTimeout(() => {
+              setTableCompletedCells(prev => {
+                const newSet = new Set(Array.from(prev).concat(tableActiveCellKey));
+                const allDone = tableTargetCells.every(k => newSet.has(k));
+                if (allDone) {
+                  tableCorrectAnswerRef.current?.(tableTargetCells.length);
+                  setTimeout(() => {
+                    setTableCompletedCells(new Set());
+                    setTableActiveCellIdx(0);
+                    setTableCellInput('');
+                  }, 400);
+                } else {
+                  tableMoveToCell('next');
+                }
+                return newSet;
+              });
+            }, 150);
+          }
+        }
       }
     }
   };
@@ -403,14 +424,25 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       e.preventDefault();
       tableMoveToCell(e.shiftKey ? 'prev' : 'next');
     } else if (e.key === 'Enter' && !e.shiftKey) {
-      // 정답이면 다음 셀로 이동, 아니면 줄바꿈 허용
+      // isPartialMatch 기반 정답 확인: 정답이면 다음 셀로 이동
       if (tableActiveCellKey && tableData) {
         const ri = parseInt(tableActiveCellKey.split('-')[0]);
         const ci = parseInt(tableActiveCellKey.split('-')[1]);
         const cell = tableData.cells[ri]?.[ci];
-        if (cell && tableNorm(tableCellInput) === tableNorm(cell.content)) {
-          e.preventDefault();
-          tableMoveToCell('next');
+        if (cell) {
+          const targetChars = splitGraphemes(cell.content.replace(/\s+/g, ''));
+          const userChars = splitGraphemes(tableCellInput.replace(/\s+/g, ''));
+          if (userChars.length === targetChars.length) {
+            let allComplete = true;
+            for (let i = 0; i < userChars.length; i++) {
+              const result = isPartialMatch(userChars[i], targetChars[i], targetChars[i + 1]);
+              if (result !== 'complete' && result !== 'partial_complete') { allComplete = false; break; }
+            }
+            if (allComplete) {
+              e.preventDefault();
+              tableMoveToCell('next');
+            }
+          }
         }
         // 정답이 아니면 기본 Enter 동작(줄바꿈) 허용
       }
@@ -418,17 +450,26 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   };
 
   const getTableActiveCellResult = (): 'correct' | 'typing' | 'wrong' | null => {
-    if (!tableActiveCellKey || !tableCellInput || isTableComposing || !tableData) return null;
+    if (!tableActiveCellKey || !tableCellInput || !tableData) return null;
     const ri = parseInt(tableActiveCellKey.split('-')[0]);
     const ci = parseInt(tableActiveCellKey.split('-')[1]);
     const cell = tableData.cells[ri]?.[ci];
     if (!cell) return null;
-    const target = tableNorm(cell.content);
-    const input = tableNorm(tableCellInput);
-    if (input.length === 0) return null;
-    const prefix = target.slice(0, input.length);
-    if (input === prefix) return input.length === target.length ? 'correct' : 'typing';
-    return 'wrong';
+    const targetChars = splitGraphemes(cell.content.replace(/\s+/g, ''));
+    const userChars = splitGraphemes(tableCellInput.replace(/\s+/g, ''));
+    if (userChars.length === 0) return null;
+    // isPartialMatch 기반 글자별 채점 (텍스트 모드와 동일)
+    let allComplete = true;
+    let hasWrong = false;
+    for (let i = 0; i < userChars.length; i++) {
+      if (i >= targetChars.length) { hasWrong = true; break; }
+      const result = isPartialMatch(userChars[i], targetChars[i], targetChars[i + 1]);
+      if (result === 'wrong') { hasWrong = true; }
+      if (result !== 'complete' && result !== 'partial_complete') { allComplete = false; }
+    }
+    if (allComplete && userChars.length === targetChars.length) return 'correct';
+    if (hasWrong) return 'wrong';
+    return 'typing';
   };
 
   // Auto-start on mount
