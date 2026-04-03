@@ -1936,7 +1936,7 @@
 - [x] Practice.tsx handleTableInputChange: 자동 완료 체크도 isPartialMatch 기반으로 변경
 
 ## 세로 스크롤 연습 모드 + Recall Speed Bonus (v2.x)
-- [ ] SubjectPractice.tsx 구현 - 과목 전체 문제 세로 나열, sticky 하단 입력창, 우측 북마크 패널
+- [x] SubjectPractice.tsx 구현 - 과목 전체 문제 세로 나열, sticky 하단 입력창, 우측 북마크 패널, App.tsx 라우트 등록, Questions.tsx 전체 연습 버튼 추가
 - [ ] 과목 내 모의고사 버튼 위치 추가 (SubjectPractice 상단)
 - [ ] Recall Speed Bonus 알고리즘 - 개별 문제(max +12) vs 모의고사(max +6) 분리, baseline CPS 기반, 정확도 보정
 

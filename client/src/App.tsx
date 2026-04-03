@@ -13,6 +13,7 @@ import Test from "./pages/Test";
 import Statistics from "./pages/Statistics";
 import Demo from "./pages/Demo";
 import AdminDemoManagement from "./pages/AdminDemoManagement";
+import SubjectPractice from "./pages/SubjectPractice";
 
 function Router() {
   return (
@@ -31,6 +32,13 @@ function Router() {
         {(params) => (
           <DashboardLayout>
             <Questions subjectId={parseInt(params.subjectId)} />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/subject-practice/:subjectId"}>
+        {(params) => (
+          <DashboardLayout>
+            <SubjectPractice subjectId={parseInt(params.subjectId)} />
           </DashboardLayout>
         )}
       </Route>

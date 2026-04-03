@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
-import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star } from "lucide-react";
+import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star, ScrollText } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
   DndContext,
@@ -966,10 +966,19 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 variant="outline"
                 size="sm"
                 className="gap-1.5 h-8"
+                onClick={() => setLocation(`/subject-practice/${subjectId}`)}
+              >
+                <ScrollText className="h-3.5 w-3.5" />
+                전체 연습
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 h-8"
                 onClick={() => setLocation(`/practice/${questions[0].id}`)}
               >
                 <Dumbbell className="h-3.5 w-3.5" />
-                연습
+                개별 연습
               </Button>
               <Button
                 variant="outline"
