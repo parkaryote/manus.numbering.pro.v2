@@ -945,6 +945,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return;
     }
     
+    // Shift+Enter: 시험 모드 진입
+    if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      if (question) {
+        setLocation(`/test/${question.id}`);
+      }
+      return;
+    }
+
     // Enter: 항상 줄바꿈 허용 (연습장 모드 - 제출 기능 없음)
     if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey) {
       // 기본 Enter 동작 허용 (줄바꿈)
@@ -1776,7 +1785,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               <div>
                 <CardTitle>{question.question}</CardTitle>
                 <CardDescription>
-                  {isTableQuestion ? "셀 클릭으로 이동 · Enter로 제출 · Tab으로 자유 이동" : "정답을 따라 입력하세요 (띄어쓰기 무시)"}
+                  {isTableQuestion ? "셀 클릭으로 이동 · Enter로 제출 · Tab으로 자유 이동" : "정답을 따라 입력하세요 (띄어쓰기 무시) · Shift+Enter로 백지시험"}
+                  
                 </CardDescription>
               </div>
               {!isTableQuestion && (
