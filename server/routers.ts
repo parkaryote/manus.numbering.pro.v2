@@ -601,12 +601,11 @@ export const appRouter = router({
             });
           }
           
-          // Check if all lines match (exact correctness)
+          // 정답 판별: 모든 줄이 완벽히 일치해야 정답
           const isCorrect = correctLineCount === totalLines && userLines.length === totalLines;
           
           // Calculate accuracy rate based on correct lines
           const accuracyRate = totalLines > 0 ? Math.round((correctLineCount / totalLines) * 100) : 0;
-          // Calculate character-level similarity
           const similarityScore = calcCharSimilarity(input.userAnswer, correctAnswer);
           
           console.log("[DEBUG] Line-by-line comparison mode");
@@ -1336,7 +1335,7 @@ ${input.userAnswer}
         }
         const mostRecentTest = sortedTests[0] || null;
         const mostRecentTestWasPoor = mostRecentTest
-          ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50)
+          ? ((mostRecentTest.similarityScore ?? 0) < 50)
           : false;
 
         const avgRecallTime = qTests.length > 0
@@ -1418,7 +1417,7 @@ ${input.userAnswer}
 
           const mostRecentTest = sortedTests[0] || null;
           const mostRecentTestWasPoor = mostRecentTest
-            ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50)
+            ? ((mostRecentTest.similarityScore ?? 0) < 50)
             : false;
 
            const avgRecallTime = qTests.length > 0
@@ -1526,7 +1525,7 @@ ${input.userAnswer}
             averageSimilarityScore: Math.round(avgSimilarity),
             mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
             recentCorrectStreak: streak,
-            mostRecentTestWasPoor: mostRecentTest ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50) : false,
+            mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
             averageRecallTime: avgRecallTime,
           };
 
@@ -1563,7 +1562,7 @@ ${input.userAnswer}
             averageSimilarityScore: Math.round(avgSimilarity),
             mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
             recentCorrectStreak: streak,
-            mostRecentTestWasPoor: mostRecentTest ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50) : false,
+            mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
             averageRecallTime: avgRecallTime,
           };
           const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
@@ -1634,7 +1633,7 @@ ${input.userAnswer}
               averageSimilarityScore: Math.round(avgSim),
               mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
               recentCorrectStreak: streak,
-              mostRecentTestWasPoor: mostRecentTest ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50) : false,
+              mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
             };
             const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now: ev.at });
             totalScore += result.displayScore;
@@ -1670,7 +1669,7 @@ ${input.userAnswer}
               averageSimilarityScore: Math.round(avgSim),
               mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
               recentCorrectStreak: streak,
-              mostRecentTestWasPoor: mostRecentTest ? (mostRecentTest.isCorrect === 0 || (mostRecentTest.similarityScore ?? 0) < 50) : false,
+              mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
             };
             const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now: nowDate });
             totalScore += result.displayScore;

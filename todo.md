@@ -1934,3 +1934,12 @@
 - [x] TableEditor.tsx 셀 내 시각화: 단순 문자열 비교 → isPartialMatch 기반 한글 자모 분해 채점으로 변경
 - [x] Practice.tsx getTableActiveCellResult: 조합 중에도 채점 표시 (partial 포함)
 - [x] Practice.tsx handleTableInputChange: 자동 완료 체크도 isPartialMatch 기반으로 변경
+
+## 세로 스크롤 연습 모드 + Recall Speed Bonus (v2.x)
+- [ ] SubjectPractice.tsx 구현 - 과목 전체 문제 세로 나열, sticky 하단 입력창, 우측 북마크 패널
+- [ ] 과목 내 모의고사 버튼 위치 추가 (SubjectPractice 상단)
+- [ ] Recall Speed Bonus 알고리즘 - 개별 문제(max +12) vs 모의고사(max +6) 분리, baseline CPS 기반, 정확도 보정
+
+- [x] 시험 안정도 계산 로직 수정 - 정답률 80% 이상이면 초록불 (5/5→4/5 맞추면 안정), wrongPenalty 정답률 기반 완화
+- [ ] 연습 모드에 시험 오답/주의 구간 배지 표시 (기존 Practice.tsx)
+- [ ] 연습 모드 본문 최우선 표시 - 단축키 안내 등 불필요 UI 최소화

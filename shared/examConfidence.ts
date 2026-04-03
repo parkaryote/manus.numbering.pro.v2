@@ -5,9 +5,11 @@
  * - cold-start = 0% (아무것도 안 했으면 0%)
  * - 연습만으로는 최대 25% (연습은 보조 수단)
  * - 시험 통과가 핵심 점수 상승 요인
+ * - 정답률 80% 이상이면 안정(초록) 도달 가능
+ *   예: 5개 중 4개, 6개 중 5개 맞추면 초록
  * - 연속 정답 streak이 높을수록 급격히 상승
  * - 망각 패널티는 시간 경과에 따라 점진적 감소
- * - 오답은 강한 패널티 (특히 최근 오답)
+ * - 오답은 패널티가 있지만, 정답률이 높으면 완화
  *
  * 현실적 기대값:
  *   cold-start          → 0%
@@ -16,6 +18,7 @@
  *   시험 1회 통과         → ~40%
  *   시험 2회 연속 통과    → ~65%
  *   시험 3회+ 연속 통과   → ~85~95%
+ *   시험 5회 중 4회 정답  → ~80% (초록)
  */
 
 // ─── Configurable Thresholds ───────────────────────────────────────
@@ -47,7 +50,7 @@ export interface TestSignal {
   averageSimilarityScore: number; // 0~100
   mostRecentTestAt: Date | null;
   recentCorrectStreak: number;
-  mostRecentTestWasPoor: boolean; // similarityScore < 50 or isCorrect === 0
+  mostRecentTestWasPoor: boolean; // similarityScore < 50
   averageRecallTime?: number; // 평균 회상 시간(초) - 빠른 입력 보너스용
 }
 
@@ -154,6 +157,11 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
     };
   }
 
+  // ── 정답률 계산 ──────────────────────────────────────────────────
+  const correctRate = test.testCount > 0
+    ? test.correctCount / test.testCount
+    : 0;
+
   // ── A. 연습 기여 (최대 25점) ──────────────────────────────────────
   // 연습은 보조 수단 - 많이 해도 25%를 넘을 수 없음
   // 1회: 6점, 2회: 11점, 3회: 15점, 5회: 20점, 10회+: 25점
@@ -171,9 +179,10 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
   // 시험 노출 횟수 (최대 10점)
   const testExposureScore = Math.min(test.testCount * 3, 10);
 
-  // 시험 정확도 (최대 25점)
+  // 시험 정확도 (최대 25점) - 정답률 기반으로 변경
+  // 정답률 100%: 25점, 80%: 20점, 60%: 15점
   const testAccuracyScore = test.testCount > 0
-    ? Math.min((test.averageSimilarityScore / 100) * 25, 25)
+    ? Math.min(Math.round(correctRate * 25), 25)
     : 0;
 
   // 정답 횟수 보너스 (최대 15점)
@@ -206,14 +215,32 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
   );
 
   // ── D. 오답 패널티 ────────────────────────────────────────────────
-  // 오답 1회: -15, 2회: -28, 3회: -40, 4회+: -50
-  // 연속 오답은 streak을 0으로 만들어 recentStreakScore도 0이 되므로 이중 패널티
-  const wrongPenalty = test.wrongCount > 0
-    ? Math.min(15 + (test.wrongCount - 1) * 13, 50)
-    : 0;
+  // 정답률에 따라 패널티 완화:
+  // - 정답률 80% 이상: 패널티 대폭 감소 (소수 오답은 관대하게)
+  // - 정답률 60~80%: 패널티 중간
+  // - 정답률 60% 미만: 패널티 전액
+  let wrongPenalty = 0;
+  if (test.wrongCount > 0) {
+    const basePenalty = Math.min(15 + (test.wrongCount - 1) * 13, 50);
+    // 정답률에 따른 패널티 감면
+    if (correctRate >= 0.8) {
+      // 80% 이상 정답률: 패널티 20%만 적용
+      wrongPenalty = Math.round(basePenalty * 0.2);
+    } else if (correctRate >= 0.6) {
+      // 60~80%: 패널티 60% 적용
+      wrongPenalty = Math.round(basePenalty * 0.6);
+    } else {
+      // 60% 미만: 패널티 전액
+      wrongPenalty = basePenalty;
+    }
+  }
 
-  // 최근 시험이 나빴으면 추가 패널티
-  const recentPoorPenalty = test.mostRecentTestWasPoor ? 15 : 0;
+  // 최근 시험이 나빴으면 추가 패널티 (유사도 50 미만)
+  // 정답률 80% 이상이면 이 패널티도 완화
+  let recentPoorPenalty = 0;
+  if (test.mostRecentTestWasPoor) {
+    recentPoorPenalty = correctRate >= 0.8 ? 5 : 15;
+  }
 
   // ── E. 최종 점수 ──────────────────────────────────────────────────
   const rawScore = clamp(

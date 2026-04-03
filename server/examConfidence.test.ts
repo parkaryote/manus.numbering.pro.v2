@@ -143,7 +143,7 @@ describe("computeExamConfidence - 현실적 기대값", () => {
     expect(result.state).toBe("green");
   });
 
-  it("3번 틀린 후 점수가 크게 감소 (45% 이하)", () => {
+  it("3번 틀린 후 점수가 크게 감소 (60% 이하)", () => {
     const after = computeExamConfidence({
       practice: makePractice({
         practiceCount: 5,
@@ -160,7 +160,7 @@ describe("computeExamConfidence - 현실적 기대값", () => {
       }),
       now,
     });
-    expect(after.displayScore).toBeLessThan(45);
+    expect(after.displayScore).toBeLessThan(60);
   });
 
   it("연습 후 점수가 cold-start(0%)보다 높아야 함", () => {
@@ -314,6 +314,97 @@ describe("aggregateConfidence", () => {
 describe("CONFIDENCE_THRESHOLDS", () => {
   it("임계값 확인", () => {
     expect(CONFIDENCE_THRESHOLDS.green).toBe(80);
-    expect(CONFIDENCE_THRESHOLDS.yellow).toBe(50);
+    expect(CONFIDENCE_THRESHOLDS.yellow).toBe(40);
+  });
+});
+
+describe("정답률 80% 이상이면 초록불", () => {
+  it("5번 시험 4번 정답 (80% 정답률) → 초록불", () => {
+    const result = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 5,
+        totalPracticeDuration: 600,
+        mostRecentPracticeAt: now,
+      }),
+      test: makeTest({
+        testCount: 5,
+        correctCount: 4,
+        wrongCount: 1,
+        averageSimilarityScore: 85,
+        mostRecentTestAt: now,
+        recentCorrectStreak: 2,
+        mostRecentTestWasPoor: false,
+      }),
+      now,
+    });
+    expect(result.displayScore).toBeGreaterThanOrEqual(CONFIDENCE_THRESHOLDS.green);
+    expect(result.state).toBe("green");
+  });
+
+  it("6번 시험 5번 정답 (83% 정답률) → 초록불", () => {
+    const result = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 5,
+        totalPracticeDuration: 600,
+        mostRecentPracticeAt: now,
+      }),
+      test: makeTest({
+        testCount: 6,
+        correctCount: 5,
+        wrongCount: 1,
+        averageSimilarityScore: 88,
+        mostRecentTestAt: now,
+        recentCorrectStreak: 3,
+        mostRecentTestWasPoor: false,
+      }),
+      now,
+    });
+    expect(result.displayScore).toBeGreaterThanOrEqual(CONFIDENCE_THRESHOLDS.green);
+    expect(result.state).toBe("green");
+  });
+
+  it("5번 시험 3번 정답 (60% 정답률) → 노란불", () => {
+    const result = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 5,
+        totalPracticeDuration: 600,
+        mostRecentPracticeAt: now,
+      }),
+      test: makeTest({
+        testCount: 5,
+        correctCount: 3,
+        wrongCount: 2,
+        averageSimilarityScore: 70,
+        mostRecentTestAt: now,
+        recentCorrectStreak: 1,
+        mostRecentTestWasPoor: false,
+      }),
+      now,
+    });
+    expect(result.displayScore).toBeGreaterThanOrEqual(CONFIDENCE_THRESHOLDS.yellow);
+    expect(result.displayScore).toBeLessThan(CONFIDENCE_THRESHOLDS.green);
+    expect(result.state).toBe("yellow");
+  });
+
+  it("정답률 80% 이상이면 wrongPenalty가 크게 감소", () => {
+    const highRate = computeExamConfidence({
+      practice: makePractice({ practiceCount: 5, totalPracticeDuration: 600, mostRecentPracticeAt: now }),
+      test: makeTest({
+        testCount: 5, correctCount: 4, wrongCount: 1,
+        averageSimilarityScore: 85, mostRecentTestAt: now,
+        recentCorrectStreak: 2, mostRecentTestWasPoor: false,
+      }),
+      now,
+    });
+    const lowRate = computeExamConfidence({
+      practice: makePractice({ practiceCount: 5, totalPracticeDuration: 600, mostRecentPracticeAt: now }),
+      test: makeTest({
+        testCount: 5, correctCount: 2, wrongCount: 3,
+        averageSimilarityScore: 50, mostRecentTestAt: now,
+        recentCorrectStreak: 0, mostRecentTestWasPoor: true,
+      }),
+      now,
+    });
+    expect(highRate.breakdown.wrongPenalty).toBeLessThan(lowRate.breakdown.wrongPenalty);
   });
 });
