@@ -163,8 +163,8 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
               <span className="font-medium">{subjectConfidence.aggregate.averageScore}%</span>
               <span className="text-muted-foreground/60">·</span>
               <span className="flex gap-1">
-                <span title="초록(안정): 70% 이상">🟢{subjectConfidence.aggregate.greenCount}</span>
-                <span title="노랑(학습중): 40~70%">🟡{subjectConfidence.aggregate.yellowCount}</span>
+                <span title="초록(안정): 80% 이상">🟢{subjectConfidence.aggregate.greenCount}</span>
+                <span title="노랑(학습중): 40~80%">🟡{subjectConfidence.aggregate.yellowCount}</span>
                 <span title="빨강(취약): 40% 미만">🔴{subjectConfidence.aggregate.redCount}</span>
               </span>
             </div>

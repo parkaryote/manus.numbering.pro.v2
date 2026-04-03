@@ -21,8 +21,8 @@
 // ─── Configurable Thresholds ───────────────────────────────────────
 
 export const CONFIDENCE_THRESHOLDS = {
-  green: 70,   // 70~100: 안정
-  yellow: 40,  // 40~69: 학습중
+  green: 80,   // 80~100: 안정
+  yellow: 40,  // 40~79: 학습중
   // 0~39: 취약 (red)
 } as const;
 

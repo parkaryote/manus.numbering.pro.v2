@@ -7,8 +7,9 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ReferenceLine,
   ResponsiveContainer,
+  ReferenceArea,
+  ReferenceLine,
 } from "recharts";
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -36,67 +37,113 @@ function formatTimeLabel(isoStr: string, allPoints: { at: string }[]): string {
   return format(date, "M/d", { locale: ko });
 }
 
-const STATE_COLORS = {
-  green: "#22c55e",
-  yellow: "#f59e0b",
-  red: "#ef4444",
-};
+// 브랜드 컬러 (보라 계열) - 선에만 사용
+const BRAND_COLOR = "#8b5cf6";
+// 성공 기준
+const SUCCESS_THRESHOLD = 80;
 
-function getState(score: number): "green" | "yellow" | "red" {
-  if (score >= 70) return "green";
-  if (score >= 40) return "yellow";
-  return "red";
+function getStateColor(score: number): string {
+  if (score >= 80) return "#22c55e";
+  if (score >= 40) return "#f59e0b";
+  return "#ef4444";
 }
 
 const CustomDot = (props: any) => {
   const { cx, cy, payload } = props;
   if (!cx || !cy) return null;
-  const state = getState(payload.score);
-  const color = STATE_COLORS[state];
 
   if (payload.eventType === "test") {
-    const size = 7;
+    const isSuccess = payload.score >= SUCCESS_THRESHOLD;
+    const color = isSuccess ? "#22c55e" : "#ef4444";
+    const isLatest = payload.isLatest;
     return (
       <g key={`dot-${cx}-${cy}`}>
-        <polygon
-          points={`${cx},${cy - size} ${cx + size},${cy} ${cx},${cy + size} ${cx - size},${cy}`}
-          fill={color}
-          stroke="white"
-          strokeWidth={1.5}
-        />
+        {isLatest && (
+          <circle cx={cx} cy={cy} r={12} fill={color} fillOpacity={0.15} />
+        )}
+        <circle cx={cx} cy={cy} r={isLatest ? 7 : 5.5} fill={color} stroke="white" strokeWidth={2} />
       </g>
     );
   }
   if (payload.eventType === "now") {
     return (
       <g key={`dot-${cx}-${cy}`}>
-        <circle cx={cx} cy={cy} r={6} fill={color} stroke="white" strokeWidth={2} />
-        <circle cx={cx} cy={cy} r={10} fill={color} fillOpacity={0.2} />
+        <circle cx={cx} cy={cy} r={12} fill={BRAND_COLOR} fillOpacity={0.15} />
+        <circle cx={cx} cy={cy} r={6} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />
       </g>
     );
   }
-  return <circle key={`dot-${cx}-${cy}`} cx={cx} cy={cy} r={4} fill={color} stroke="white" strokeWidth={1.5} />;
+  // 연습 - 기본 상태에서는 숨김
+  return null;
+};
+
+const CustomActiveDot = (props: any) => {
+  const { cx, cy, payload } = props;
+  if (!cx || !cy) return null;
+
+  if (payload.eventType === "practice") {
+    return <circle cx={cx} cy={cy} r={4.5} fill="#9ca3af" stroke="white" strokeWidth={1.5} />;
+  }
+  if (payload.eventType === "test") {
+    const isSuccess = payload.score >= SUCCESS_THRESHOLD;
+    const color = isSuccess ? "#22c55e" : "#ef4444";
+    return <circle cx={cx} cy={cy} r={7} fill={color} stroke="white" strokeWidth={2} />;
+  }
+  return <circle cx={cx} cy={cy} r={7} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />;
 };
 
 const CustomTooltip = ({ active, payload }: any) => {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   const date = new Date(d.at);
-  const state = getState(d.score);
-  const color = STATE_COLORS[state];
-  const stateLabel = state === "green" ? "안정" : state === "yellow" ? "주의" : "위험";
-  const eventLabel = d.eventType === "practice" ? "연습" : d.eventType === "test" ? "시험" : "현재";
+
+  if (d.eventType === "practice") {
+    return (
+      <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[150px]">
+        <div className="text-muted-foreground text-xs mb-1">
+          {format(date, "yyyy.MM.dd HH:mm", { locale: ko })}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-gray-400 inline-block" />
+          <span className="text-muted-foreground text-xs">연습</span>
+          <span className="font-semibold text-sm">{d.score}점</span>
+        </div>
+        {d.questionCount && (
+          <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
+        )}
+      </div>
+    );
+  }
+
+  if (d.eventType === "test") {
+    const isSuccess = d.score >= SUCCESS_THRESHOLD;
+    const color = isSuccess ? "#22c55e" : "#ef4444";
+    return (
+      <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[160px]">
+        <div className="text-muted-foreground text-xs mb-1.5">
+          {format(date, "yyyy.MM.dd HH:mm", { locale: ko })}
+        </div>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: color }} />
+          <span className="font-semibold text-sm" style={{ color }}>
+            시험: {isSuccess ? "성공" : "실패"}
+          </span>
+        </div>
+        <div className="text-xs text-muted-foreground">안정도 {d.score}%</div>
+        {d.questionCount && (
+          <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[160px]">
-      <div className="text-muted-foreground text-xs mb-1">
-        {format(date, "yyyy.MM.dd HH:mm", { locale: ko })}
+    <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[130px]">
+      <div className="text-muted-foreground text-xs mb-1">현재</div>
+      <div className="flex items-center gap-2">
+        <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: BRAND_COLOR }} />
+        <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>안정도 {d.score}%</span>
       </div>
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-xs px-1.5 py-0.5 rounded bg-muted">{eventLabel}</span>
-        <span className="font-bold text-base" style={{ color }}>{d.score}점</span>
-      </div>
-      <div className="text-xs" style={{ color }}>{stateLabel}</div>
       {d.questionCount && (
         <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
       )}
@@ -112,16 +159,19 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
 
   const points = data?.points ?? [];
 
+  const testPoints = points.filter(p => p.eventType === "test");
+  const latestTestAt = testPoints.length > 0 ? testPoints[testPoints.length - 1].at : null;
+
   const chartData = points.map((p, i) => ({
     ...p,
     idx: i,
     label: points.length > 0 ? formatTimeLabel(p.at, points) : "",
+    isLatest: p.at === latestTestAt && p.eventType === "test",
   }));
 
   const hasData = chartData.length > 0;
   const currentScore = hasData ? chartData[chartData.length - 1].score : null;
-  const currentState = currentScore !== null ? getState(currentScore) : null;
-  const currentColor = currentState ? STATE_COLORS[currentState] : "#6b7280";
+  const currentStateColor = currentScore !== null ? getStateColor(currentScore) : "#6b7280";
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
@@ -134,7 +184,7 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
             {currentScore !== null && (
               <span
                 className="text-2xl font-bold tabular-nums"
-                style={{ color: currentColor }}
+                style={{ color: currentStateColor }}
               >
                 {currentScore}점
               </span>
@@ -154,18 +204,22 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
         ) : (
           <>
             {/* 범례 */}
-            <div className="flex items-center gap-4 text-xs text-muted-foreground px-1">
+            <div className="flex items-center gap-4 text-xs text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-3 rounded-full bg-blue-400" />
-                연습
+                <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
+                안정도 흐름
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-3 rotate-45 bg-green-500" />
-                시험
+                <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
+                시험 성공 (≥80%)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-3 rounded-full border-2 border-current" style={{ color: currentColor }} />
-                현재
+                <span className="inline-block w-3 h-3 rounded-full bg-red-500" />
+                시험 실패 (&lt;80%)
+              </span>
+              <span className="flex items-center gap-1.5 text-muted-foreground/50">
+                <span className="inline-block w-3 h-3 rounded-full bg-gray-400" />
+                연습 (호버 시만)
               </span>
               <span className="ml-auto text-xs text-muted-foreground">과목 내 문제 평균</span>
             </div>
@@ -176,7 +230,12 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
                   data={chartData}
                   margin={{ top: 10, right: 20, left: -10, bottom: 0 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+                  {/* 상태 구간 배경 영역 */}
+                  <ReferenceArea y1={0} y2={40} fill="#ef4444" fillOpacity={0.06} />
+                  <ReferenceArea y1={40} y2={80} fill="#f59e0b" fillOpacity={0.06} />
+                  <ReferenceArea y1={80} y2={100} fill="#22c55e" fillOpacity={0.06} />
+
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
                   <XAxis
                     dataKey="label"
                     tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
@@ -186,22 +245,38 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
                   />
                   <YAxis
                     domain={[0, 100]}
-                    ticks={[0, 25, 50, 70, 100]}
+                    ticks={[0, 40, 80, 100]}
                     tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
                     width={32}
                   />
-                  <ReferenceLine y={70} stroke="#22c55e" strokeDasharray="4 3" strokeOpacity={0.5} label={{ value: "안정", position: "right", fontSize: 10, fill: "#22c55e" }} />
-                  <ReferenceLine y={40} stroke="#f59e0b" strokeDasharray="4 3" strokeOpacity={0.5} label={{ value: "주의", position: "right", fontSize: 10, fill: "#f59e0b" }} />
+
+                  <ReferenceLine
+                    y={80}
+                    stroke="#22c55e"
+                    strokeDasharray="4 3"
+                    strokeOpacity={0.4}
+                    label={{ value: "안정", position: "right", fontSize: 10, fill: "#22c55e", fillOpacity: 0.7 }}
+                  />
+                  <ReferenceLine
+                    y={40}
+                    stroke="#f59e0b"
+                    strokeDasharray="4 3"
+                    strokeOpacity={0.4}
+                    label={{ value: "위험", position: "right", fontSize: 10, fill: "#f59e0b", fillOpacity: 0.7 }}
+                  />
+
                   <Tooltip content={<CustomTooltip />} />
+
+                  {/* 그래프 선: 단일 브랜드 컬러 */}
                   <Line
                     type="monotone"
                     dataKey="score"
-                    stroke={currentColor}
+                    stroke={BRAND_COLOR}
                     strokeWidth={2.5}
                     dot={<CustomDot />}
-                    activeDot={{ r: 6, strokeWidth: 2, stroke: "white" }}
+                    activeDot={<CustomActiveDot />}
                     isAnimationActive={true}
                     animationDuration={600}
                   />

@@ -46,11 +46,11 @@ export function QuestionGridView({
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-foreground">문제 순서별 안정도</h3>
         <div className="flex gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1 cursor-help" title="초록(안정): 70% 이상">
+          <span className="flex items-center gap-1 cursor-help" title="초록(안정): 80% 이상">
             <span className="inline-block w-3 h-3 rounded-sm bg-emerald-500" />
             안정
           </span>
-          <span className="flex items-center gap-1 cursor-help" title="노랑(학습중): 40~70%">
+          <span className="flex items-center gap-1 cursor-help" title="노랑(학습중): 40~80%">
             <span className="inline-block w-3 h-3 rounded-sm bg-amber-400" />
             학습중
           </span>
@@ -83,8 +83,8 @@ export function QuestionGridView({
                   text-[11px] leading-none
                 `}
                 title={score !== undefined ? `문제 ${q.displayOrder} — 안정도 ${Math.round(score)}% — ${
-                  confidenceData[q.id]?.state === 'green' ? '초록(안정): 70% 이상' :
-                  confidenceData[q.id]?.state === 'yellow' ? '노랑(학습중): 40~70%' :
+                  confidenceData[q.id]?.state === 'green' ? '초록(안정): 80% 이상' :
+                  confidenceData[q.id]?.state === 'yellow' ? '노랑(학습중): 40~80%' :
                   confidenceData[q.id]?.state === 'red' ? '빨강(취약): 40% 미만' :
                   '희색(미학습): 0%'
                 }` : `문제 ${q.displayOrder}`}
