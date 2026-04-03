@@ -1355,12 +1355,21 @@ ${input.userAnswer}
         };
 
         const confidence = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
+
+        // 배지 계산
+        const lastTest = sortedTests[0];
+        const lastTestWrong = !!lastTest && lastTest.isCorrect === 0;
+        const wrongCount = wrongTests.length;
+        const frequentlyWrong = qTests.length >= 3 && wrongCount / qTests.length >= 0.5;
+        const hasWarnZone = qTests.some(t => (t as any).mistakeHighlights && (t as any).mistakeHighlights.length > 2);
+
         return {
           displayScore: confidence.displayScore,
           state: confidence.state,
           label: confidence.label,
           isColdStart: confidence.isColdStart,
           breakdown: confidence.breakdown,
+          badges: { lastTestWrong, frequentlyWrong, hasWarnZone },
         };
       }),
     // 과목별 문제 안정도 점수 조회

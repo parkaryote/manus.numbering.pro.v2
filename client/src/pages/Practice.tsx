@@ -1005,24 +1005,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const handleComplete = async () => {
     if (!question || elapsedTime === 0) return;
 
-    const timeInMinutes = elapsedTime / 60;
-    const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
-
-    if (isDemo) {
-      setPracticeCount(prev => prev + 1);
-      // 누적 연습도 동시 증가
-      const storageKey = `demo_practice_count_${question.id}`;
-      const currentCount = parseInt(localStorage.getItem(storageKey) || "0", 10);
-      localStorage.setItem(storageKey, String(currentCount + 1));
-    } else {
-      await createSession.mutateAsync({
-        questionId: question.id,
-        duration: elapsedTime,
-        typingSpeed: speed,
-        accuracy: 100, // Not tracking accuracy anymore
-        errorCount: 0, // Not tracking errors anymore
-      });
-    }
+    // handleCorrectAnswer를 호출하여 채점 + 입력 초기화 + 애니메이션 처리
+    handleCorrectAnswer(userInput.length);
 
     // 세션 완료 카운트 증가, 3회마다 백지시험 유도
     setSessionCompleteCount(prev => {
@@ -1609,6 +1593,26 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               </span>
             </div>
           </div>
+          {/* 학습 추천 배지 */}
+          {!isDemo && confidenceData?.badges && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {confidenceData.badges.lastTestWrong && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                  이번 시험 오답
+                </span>
+              )}
+              {confidenceData.badges.frequentlyWrong && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+                  자주 틀림
+                </span>
+              )}
+              {confidenceData.badges.hasWarnZone && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+                  주의 구간 있음
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
 

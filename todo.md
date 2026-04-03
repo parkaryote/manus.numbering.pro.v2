@@ -1925,3 +1925,7 @@
 - [x] Subjects.tsx 과목 카드 그리드 점: rounded-[4px] 둥근 사각형
 - [x] QuestionGridView.tsx 그리드: 이미 rounded-lg 적용됨
 - [x] 별표 색상: 노란색 → 흰색 + drop-shadow로 변경 (빨간 배경 위에서도 세련되게)
+
+## 버그: Practice 배지 미표시 + 채점 안됨 (v4.4.0)
+- [x] Practice 페이지에 배지 정보(이번 시험 오답/자주 틀림/주의 구간) 표시
+- [x] 텍스트 모드 완료 버튼 클릭 시 채점 복원 (handleCorrectAnswer 호출)
