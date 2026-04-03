@@ -866,16 +866,27 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (total === 0) return null;
     
     // 안정도 80% 이상: 완벽 암기
-    if (conf >= 80) return { type: 'mastered' as const, message: '완벽하게 암기했습니다! 테스트로 확인해보세요.' };
+    if (conf >= 80) return { type: 'mastered' as const, message: '완벽하게 암기했어요. 시험으로 확인해볼까요?' };
     
     // 연습 3회 이상 + 안정도 50% 이상: 시험 추천
-    if (total >= 3 && conf >= 50) return { type: 'test_ready' as const, message: `${total}회 연습 완료! 백지복습 시험으로 확인해보세요.` };
+    if (total >= 3 && conf >= 50) {
+      const messages = [
+        `${total}번 돌렸어요. 백지복습 한 번 가볼까요?`,
+        `지금이 시험 타이밍이에요.`,
+        `손에 익었어요. 안 보고 한 번 확인해볼까요?`,
+      ];
+      const msg = messages[(total - 3) % messages.length];
+      return { type: 'test_ready' as const, message: msg };
+    }
     
     // 연습 5회 이상 + 안정도 낮음: 답 가리고 연습 추천
-    if (total >= 5 && conf < 50) return { type: 'hide_practice' as const, message: '답을 가리고 연습해보세요! Tab을 누르면 답이 가려집니다.' };
+    if (total >= 5 && conf < 50) return { type: 'hide_practice' as const, message: '슬슬 안 보고 해볼 차례 (Tab 답 가리기)' };
     
-    // 연습 2회: 답 가리기 안내
-    if (total >= 2 && total < 5) return { type: 'hint' as const, message: `${5 - total}회 더 연습하면 시험을 추천해드립니다. Tab으로 답 가리기도 시도해보세요!` };
+    // 연습 3회: 답 가리기 유도
+    if (total >= 3 && total < 5) return { type: 'hide_practice' as const, message: `${total}번 했으면… 이제 눈 감고 가야지 😏 (Tab 답 가리기)` };
+    
+    // 연습 2회: 가볍게 안내
+    if (total >= 2) return { type: 'hint' as const, message: '이 정도면 한 번 꺼내볼 수 있어요. (Tab 답 가리기)' };
     
     return null;
   }, [totalPracticeCount, confidenceData?.displayScore]);
