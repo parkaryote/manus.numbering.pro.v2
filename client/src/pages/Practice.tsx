@@ -686,8 +686,29 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return;
     }
     
-    // 연습장 모드: 정답 자동 감지 제거 - 완료 버튼으로만 세션 저장
-    
+    // 텍스트 모드: 정답 자동 감지 (isPartialMatch 기반)
+    if (!isTableQuestion && !isImageQuestion) {
+      const currentTargetText = repeatStateRef.current.targetText;
+      const targetLines = currentTargetText.split('\n');
+      const userLines = newValue.split('\n');
+      let allLinesComplete = true;
+      for (let li = 0; li < targetLines.length; li++) {
+        const tChars = splitGraphemes(targetLines[li].replace(/\s+/g, ''));
+        const uChars = splitGraphemes((userLines[li] || '').replace(/\s+/g, ''));
+        if (tChars.length === 0) continue;
+        if (uChars.length < tChars.length) { allLinesComplete = false; break; }
+        for (let i = 0; i < tChars.length; i++) {
+          const r = isPartialMatch(uChars[i], tChars[i], tChars[i + 1]);
+          if (r !== 'complete' && r !== 'partial_complete') { allLinesComplete = false; break; }
+        }
+        if (!allLinesComplete) break;
+      }
+      if (allLinesComplete && targetLines.some(l => l.replace(/\s+/g, '').length > 0)) {
+        handleCorrectAnswer(newValue.length);
+        return;
+      }
+    }
+
     // 듷포트 실시간 이동: 사용자 입력의 현재 줄 번호에 따라 스크롤
     if (question?.autoNumbering === 1 && answerDisplayRef.current) {
       const currentLineIndex = newValue.split('\n').length - 1;
@@ -791,9 +812,29 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
       return;
     }
-    
-    // 연습장 모드: 정답 자동 감지 제거 - 완료 버튼으로만 세션 저장
-    
+     // 텍스트 모드: 정답 자동 감지 (isPartialMatch 기반)
+    if (!isTableQuestion && !isImageQuestion) {
+      const currentTargetText = repeatStateRef.current.targetText;
+      const targetLines = currentTargetText.split('\n');
+      const userLines = newValue.split('\n');
+      let allLinesComplete = true;
+      for (let li = 0; li < targetLines.length; li++) {
+        const tChars = splitGraphemes(targetLines[li].replace(/\s+/g, ''));
+        const uChars = splitGraphemes((userLines[li] || '').replace(/\s+/g, ''));
+        if (tChars.length === 0) continue;
+        if (uChars.length < tChars.length) { allLinesComplete = false; break; }
+        for (let i = 0; i < tChars.length; i++) {
+          const r = isPartialMatch(uChars[i], tChars[i], tChars[i + 1]);
+          if (r !== 'complete' && r !== 'partial_complete') { allLinesComplete = false; break; }
+        }
+        if (!allLinesComplete) break;
+      }
+      if (allLinesComplete && targetLines.some(l => l.replace(/\s+/g, '').length > 0)) {
+        handleCorrectAnswer(newValue.length);
+        return;
+      }
+    }
+
     // 듷포트 실시간 이동: 사용자 입력의 현재 줄 번호에 따라 스크롤
     if (question?.autoNumbering === 1 && answerDisplayRef.current) {
       const currentLineIndex = newValue.split('\n').length - 1;
