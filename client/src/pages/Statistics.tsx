@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, Cell, LineChart, Line } from "recharts";
 import { Target, BookOpen, TrendingUp, AlertTriangle, Dumbbell, ClipboardCheck, Timer, Brain, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 
 const difficultyLabel: Record<string, string> = { easy: "쉬움", medium: "보통", hard: "어려움" };
 const difficultyColor: Record<string, string> = { easy: "#10B981", medium: "#F59E0B", hard: "#EF4444" };
@@ -39,9 +39,15 @@ export default function Statistics() {
     },
   });
 
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState("");
+  const resetInputRef = useRef<HTMLInputElement>(null);
+
   const handleResetStats = async () => {
-    if (!confirm("모든 학습 통계를 초기화하시겠습니까? 이 작업은 취소할 수 없습니다.")) return;
+    if (resetConfirmText !== "초기화") return;
     await Promise.all([deleteAllPractice.mutateAsync(), deleteAllTest.mutateAsync()]);
+    setShowResetConfirm(false);
+    setResetConfirmText("");
     alert("통계가 초기화되었습니다.");
   };
 
@@ -143,13 +149,46 @@ export default function Statistics() {
         <Button
           variant="outline"
           size="sm"
-          onClick={handleResetStats}
-          disabled={deleteAllPractice.isPending || deleteAllTest.isPending}
+          onClick={() => { setShowResetConfirm(true); setTimeout(() => resetInputRef.current?.focus(), 100); }}
           className="gap-1 text-destructive border-destructive hover:bg-destructive hover:text-destructive-foreground"
         >
           <RotateCcw className="w-3.5 h-3.5" />
-          {deleteAllPractice.isPending || deleteAllTest.isPending ? "초기화 중..." : "통계 초기화"}
+          통계 초기화
         </Button>
+
+        {/* 초기화 확인 다이얼로그 */}
+        {showResetConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => { setShowResetConfirm(false); setResetConfirmText(""); }}>
+            <div className="bg-card border rounded-xl shadow-xl p-6 w-80 space-y-4" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="w-5 h-5" />
+                <h3 className="font-semibold text-base">통계 초기화</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">모든 연습 및 시험 기록이 <strong className="text-foreground">영구적으로 삭제</strong>됩니다. 이 작업은 취소할 수 없습니다.</p>
+              <p className="text-sm">확인하려면 아래에 <strong>초기화</strong>를 입력하세요.</p>
+              <input
+                ref={resetInputRef}
+                type="text"
+                value={resetConfirmText}
+                onChange={e => setResetConfirmText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleResetStats(); if (e.key === 'Escape') { setShowResetConfirm(false); setResetConfirmText(""); } }}
+                placeholder="초기화"
+                className="w-full border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-destructive"
+              />
+              <div className="flex gap-2 justify-end">
+                <Button variant="ghost" size="sm" onClick={() => { setShowResetConfirm(false); setResetConfirmText(""); }}>취소</Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleResetStats}
+                  disabled={resetConfirmText !== "초기화" || deleteAllPractice.isPending || deleteAllTest.isPending}
+                >
+                  {deleteAllPractice.isPending || deleteAllTest.isPending ? "초기화 중..." : "영구 삭제"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {!hasData ? (
