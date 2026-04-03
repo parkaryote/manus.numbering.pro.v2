@@ -1955,3 +1955,11 @@
 ## 신규 기능 요청 (2026-04-03 2차)
 - [x] 과목 설정에 시험일 설정 UI - Questions.tsx 헤더에 설정 아이콘 버튼 + 팝오버로 시험일 날짜 선택기 추가
 - [x] 모의고사 결과 안정도 반영 - SubjectExam 결과 화면에서 각 문제 안정도 표시, evaluateMutation onSuccess에서 캐시 무효화
+
+## 문제 목록 UI 리디자인 (2026-04-03)
+- [x] 문제 칩 UI 리디자인 - 전체 fill 제거 → 흰 배경 + 상단 색 바(3-4px accent) + 번호 + 안정도(%)
+- [x] 중요도 표현 - 별표/색 추가 금지, border 두께 증가(1px→2-3px)로 표현
+- [x] 과목 목록 UI 정리 - 색 점 크기 통일, 간격 일정 정렬
+- [x] 정보 계층 - active > 상태(신호등) > 중요도(subtle) 순서 유지
+- [x] SubjectPractice.tsx 색상 표현 accent 바 스타일로 변경
+- [x] Subjects.tsx SubjectMiniGrid 리디자인

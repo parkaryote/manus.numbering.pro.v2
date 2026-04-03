@@ -23,11 +23,11 @@ function getQuestionType(q: { imageUrl?: string | null; imageLabels?: string | n
   return "text";
 }
 
-// 안정도 색상
-function getStateColor(state?: string) {
-  if (state === "green") return "bg-green-500";
-  if (state === "yellow") return "bg-yellow-500";
-  return "bg-red-400";
+// 안정도 색상 (accent 바 스타일)
+function getStateBarColor(state?: string) {
+  if (state === "green") return "bg-emerald-500";
+  if (state === "yellow") return "bg-amber-400";
+  return "bg-red-500";
 }
 
 // 글자별 채점 렌더링 (텍스트 모드)
@@ -117,7 +117,7 @@ function QuestionPracticeSection({
               {confidenceInfo.displayScore}%
             </span>
           )}
-          <div className={`w-2 h-2 rounded-full ${getStateColor(confidenceInfo?.state)}`} />
+          <div className={`w-3 h-[3px] rounded-full ${getStateBarColor(confidenceInfo?.state)}`} />
           {savedPracticeCount > 0 && (
             <Badge variant="secondary" className="text-xs h-5 px-1.5">
               {savedPracticeCount}회
@@ -602,7 +602,7 @@ export default function SubjectPractice({ subjectId }: SubjectPracticeProps) {
             >
               <span className="text-xs">{q.displayOrder}</span>
               {conf && !conf.isColdStart && (
-                <div className={`absolute w-1.5 h-1.5 rounded-full ${getStateColor(conf.state)} -bottom-0.5 -right-0.5`} />
+                <div className={`absolute w-full h-[2px] rounded-full ${getStateBarColor(conf.state)} bottom-0 left-0`} />
               )}
             </button>
           );

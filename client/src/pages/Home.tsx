@@ -26,9 +26,9 @@ function SubjectMiniGrid({
   if (!questions || questions.length === 0) return null;
   const sorted = [...questions].sort((a, b) => a.displayOrder - b.displayOrder);
 
-  const getDotColor = (questionId: number) => {
+  const getBarColor = (questionId: number) => {
     const d = confidenceMap.get(questionId);
-    if (!d) return "bg-muted border border-border";
+    if (!d) return "bg-neutral-200 dark:bg-neutral-700";
     switch (d.state) {
       case "green":
         return "bg-emerald-500";
@@ -37,26 +37,34 @@ function SubjectMiniGrid({
       case "red":
         return "bg-red-500";
       default:
-        return "bg-muted border border-border";
+        return "bg-neutral-200 dark:bg-neutral-700";
     }
   };
 
   return (
-    <div className="flex flex-wrap gap-0.5">
+    <div className="flex flex-wrap gap-1">
       {sorted.map((q) => {
         const starred = q.isStarred === 1;
         return (
-          <div key={q.id} className="relative">
-            <div
-              className={`w-3 h-3 rounded-[2px] ${getDotColor(q.id)} flex-shrink-0`}
-              title={`${q.displayOrder}번${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}%` : ""}`}
-            />
-            {starred && (
-              <Star
-                size={6}
-                className="absolute -top-0.5 -right-0.5 fill-yellow-400 text-yellow-400"
-              />
-            )}
+          <div
+            key={q.id}
+            className={`
+              overflow-hidden rounded-md
+              bg-white dark:bg-neutral-900
+              ${starred
+                ? "border-2 border-neutral-400 dark:border-neutral-500"
+                : "border border-neutral-200 dark:border-neutral-700"
+              }
+            `}
+            title={`${q.displayOrder}번${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}%` : ""}`}
+          >
+            {/* 상단 색 바 (2px) */}
+            <div className={`h-[2px] w-full ${getBarColor(q.id)}`} />
+            <div className="w-4 h-3 flex items-center justify-center">
+              <span className="text-[7px] font-semibold text-foreground leading-none">
+                {q.displayOrder}
+              </span>
+            </div>
           </div>
         );
       })}
@@ -157,11 +165,11 @@ function SubjectStudyCard({ subject }: { subject: any }) {
                   <span>미측정</span>
                 </div>
               )}
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                {redCount > 0 && <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-red-500 inline-block" />{redCount}</span>}
-                {yellowCount > 0 && <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-amber-400 inline-block" />{yellowCount}</span>}
-                {greenCount > 0 && <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-emerald-500 inline-block" />{greenCount}</span>}
-                {coldCount > 0 && <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-sm bg-muted border border-border inline-block" />{coldCount}</span>}
+              <div className="flex items-center gap-2.5 text-[10px] text-muted-foreground">
+                {redCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-red-500 inline-block" />{redCount}</span>}
+                {yellowCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-amber-400 inline-block" />{yellowCount}</span>}
+                {greenCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-emerald-500 inline-block" />{greenCount}</span>}
+                {coldCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-neutral-200 dark:bg-neutral-700 inline-block" />{coldCount}</span>}
               </div>
             </div>
             <SubjectMiniGrid

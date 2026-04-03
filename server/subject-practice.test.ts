@@ -71,6 +71,6 @@ describe("SubjectPractice 라우트 및 UI 통합", () => {
     const content = fs.readFileSync("client/src/pages/SubjectPractice.tsx", "utf-8");
     expect(content).toContain("confidence.getBySubject");
     expect(content).toContain("confidenceMap");
-    expect(content).toContain("getStateColor");
+    expect(content).toContain("getStateBarColor");
   });
 });

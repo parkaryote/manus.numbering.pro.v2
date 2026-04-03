@@ -59,14 +59,14 @@ function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
 
   const sorted = [...questions].sort((a, b) => a.displayOrder - b.displayOrder);
 
-  const getDotColor = (questionId: number) => {
+  const getBarColor = (questionId: number) => {
     const d = confidenceMap.get(questionId);
-    if (!d) return 'bg-muted border border-border';
+    if (!d) return 'bg-neutral-200 dark:bg-neutral-700';
     switch (d.state) {
       case 'green': return 'bg-emerald-500';
       case 'yellow': return 'bg-amber-400';
       case 'red': return 'bg-red-500';
-      default: return 'bg-muted border border-border';
+      default: return 'bg-neutral-200 dark:bg-neutral-700';
     }
   };
 
@@ -75,16 +75,24 @@ function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
       {sorted.map((q) => {
         const starred = q.isStarred === 1;
         return (
-          <div key={q.id} className="relative">
-            <div
-              className={`w-4 h-4 rounded-[4px] ${getDotColor(q.id)} flex-shrink-0`}
-              title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}%` : ''}`}
-            />
-            {starred && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <Star size={7} className="fill-white text-white drop-shadow-[0_0_1px_rgba(0,0,0,0.5)]" />
-              </div>
-            )}
+          <div
+            key={q.id}
+            className={`
+              overflow-hidden rounded-md
+              bg-white dark:bg-neutral-900
+              ${starred
+                ? 'border-2 border-neutral-400 dark:border-neutral-500'
+                : 'border border-neutral-200 dark:border-neutral-700'
+              }
+            `}
+            title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}%` : ''}`}
+          >
+            <div className={`h-[2px] w-full ${getBarColor(q.id)}`} />
+            <div className="w-4 h-3 flex items-center justify-center">
+              <span className="text-[7px] font-semibold text-foreground leading-none">
+                {q.displayOrder}
+              </span>
+            </div>
           </div>
         );
       })}
@@ -152,21 +160,28 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
           )}
           {/* 안정도 요약 */}
           {subjectConfidence?.aggregate && subjectConfidence.aggregate.totalQuestions > 0 && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  subjectConfidence.aggregate.state === 'green' ? 'bg-emerald-500' :
-                  subjectConfidence.aggregate.state === 'yellow' ? 'bg-amber-400' :
-                  'bg-red-400'
-                }`}
-              />
-              <span className="font-medium">{subjectConfidence.aggregate.averageScore}%</span>
-              <span className="text-muted-foreground/60">·</span>
-              <span className="flex gap-1">
-                <span title="초록(안정): 80% 이상">🟢{subjectConfidence.aggregate.greenCount}</span>
-                <span title="노랑(학습중): 40~80%">🟡{subjectConfidence.aggregate.yellowCount}</span>
-                <span title="빨강(취약): 40% 미만">🔴{subjectConfidence.aggregate.redCount}</span>
-              </span>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              <span className="font-semibold">{subjectConfidence.aggregate.averageScore}%</span>
+              <div className="flex items-center gap-2">
+                {subjectConfidence.aggregate.redCount > 0 && (
+                  <span className="flex items-center gap-0.5" title="취약">
+                    <span className="w-2.5 h-[3px] rounded-full bg-red-500 inline-block" />
+                    {subjectConfidence.aggregate.redCount}
+                  </span>
+                )}
+                {subjectConfidence.aggregate.yellowCount > 0 && (
+                  <span className="flex items-center gap-0.5" title="학습중">
+                    <span className="w-2.5 h-[3px] rounded-full bg-amber-400 inline-block" />
+                    {subjectConfidence.aggregate.yellowCount}
+                  </span>
+                )}
+                {subjectConfidence.aggregate.greenCount > 0 && (
+                  <span className="flex items-center gap-0.5" title="안정">
+                    <span className="w-2.5 h-[3px] rounded-full bg-emerald-500 inline-block" />
+                    {subjectConfidence.aggregate.greenCount}
+                  </span>
+                )}
+              </div>
             </div>
           )}
           {/* 미니 그리드 */}
