@@ -98,7 +98,7 @@ export function QuestionGridView({
               {/* 별표 표시: 우측 상단 (안정도 %와 겹치지 않게) */}
               {starred && (
                 <div className="absolute -top-1 -right-1 pointer-events-none z-10">
-                  <Star size={10} className="fill-yellow-400 text-yellow-400 drop-shadow-sm" />
+                  <Star size={10} className="fill-white text-white drop-shadow-[0_0_2px_rgba(0,0,0,0.4)]" />
                 </div>
               )}
             </div>

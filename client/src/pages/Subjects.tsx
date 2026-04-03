@@ -77,12 +77,12 @@ function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
         return (
           <div key={q.id} className="relative">
             <div
-              className={`w-4 h-4 rounded-sm ${getDotColor(q.id)} flex-shrink-0`}
+              className={`w-4 h-4 rounded-[4px] ${getDotColor(q.id)} flex-shrink-0`}
               title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}%` : ''}`}
             />
             {starred && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <Star size={7} className="fill-yellow-400 text-yellow-400" />
+                <Star size={7} className="fill-white text-white drop-shadow-[0_0_1px_rgba(0,0,0,0.5)]" />
               </div>
             )}
           </div>
