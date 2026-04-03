@@ -1737,17 +1737,33 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               </Button>
             )}
             {studySuggestion.type === 'hide_practice' && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs gap-1"
-                onClick={() => {
-                  setHideMode('all');
-                }}
-              >
-                <EyeOff className="h-3 w-3" />
-                답 가리기
-              </Button>
+              <div className="flex items-center gap-2">
+                <div className="flex flex-col items-center gap-0.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1"
+                    onClick={() => {
+                      setHideMode('all');
+                    }}
+                  >
+                    <EyeOff className="h-3 w-3" />
+                    답 가리기
+                  </Button>
+                  <span className="text-[10px] text-muted-foreground/60">(Tab)</span>
+                </div>
+                {question && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
+                    onClick={() => setLocation(`/test/${question.id}`)}
+                  >
+                    <Zap className="h-3 w-3" />
+                    백지시험
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         </div>
