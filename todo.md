@@ -1963,3 +1963,10 @@
 - [x] 정보 계층 - active > 상태(신호등) > 중요도(subtle) 순서 유지
 - [x] SubjectPractice.tsx 색상 표현 accent 바 스타일로 변경
 - [x] Subjects.tsx SubjectMiniGrid 리디자인
+
+
+## 다크 모드 (2026-04-03)
+- [x] ThemeProvider 설정 확인 및 switchable=true로 설정 (localStorage 저장)
+- [x] DashboardLayout 사이드바 푸터 + 모바일 헤더에 다크/라이트 모드 토글 버튼 추가 (Moon/Sun 아이콘)
+- [x] CSS 변수 및 컴포넌트 다크 모드 완벽 대응 (OKLCH 색상 시스템)
+- [x] 문제 칩 UI 다크 모드 색상 자동 조정 (CSS 변수 기반)

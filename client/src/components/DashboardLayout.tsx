@@ -21,11 +21,12 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, BookOpen, FileQuestion, Dumbbell, ClipboardCheck, BarChart3, Settings } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, BookOpen, FileQuestion, Dumbbell, ClipboardCheck, BarChart3, Settings, Moon, Sun } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
+import { useTheme } from "@/contexts/ThemeContext";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "대시보드", path: "/" },
@@ -100,6 +101,7 @@ function DashboardLayoutContent({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
+  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     if (isCollapsed) {
@@ -211,6 +213,23 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter className="p-3">
+            {toggleTheme && (
+              <button
+                onClick={toggleTheme}
+                className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-accent/50 transition-colors w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1"
+                aria-label="Toggle dark mode"
+              >
+                {theme === "dark" ? (
+                  <Sun className="h-4 w-4 text-muted-foreground shrink-0" />
+                ) : (
+                  <Moon className="h-4 w-4 text-muted-foreground shrink-0" />
+                )}
+                <span className="text-sm font-medium group-data-[collapsible=icon]:hidden">
+                  {theme === "dark" ? "라이트 모드" : "다크 모드"}
+                </span>
+              </button>
+            )}
+            <div className="my-1 border-t" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -276,6 +295,19 @@ function DashboardLayoutContent({
                 </div>
               </div>
             </div>
+            {toggleTheme && (
+              <button
+                onClick={toggleTheme}
+                className="h-9 w-9 flex items-center justify-center hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Toggle dark mode"
+              >
+                {theme === "dark" ? (
+                  <Sun className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <Moon className="h-4 w-4 text-muted-foreground" />
+                )}
+              </button>
+            )}
           </div>
         )}
         <main className="flex-1 min-h-0 flex flex-col overflow-y-auto">{children}</main>
