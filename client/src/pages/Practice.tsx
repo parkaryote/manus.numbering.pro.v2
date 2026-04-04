@@ -1107,10 +1107,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // handleCorrectAnswer를 호출하여 채점 + 입력 초기화 + 애니메이션 처리
     handleCorrectAnswer(userInput.length);
 
-    // 세션 완료 카운트 증가, 3회마다 백지시험 유도
+    // 세션 완료 카운트 증가, 3회 이후 백지시험 유도
     setSessionCompleteCount(prev => {
       const next = prev + 1;
-      if (next % 3 === 0) {
+      if (next >= 3) {
         setShowTestNudge(true);
       }
       return next;
@@ -1754,7 +1754,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             <span>{studySuggestion.message}</span>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {(studySuggestion.type === 'test_ready' || studySuggestion.type === 'mastered') && question && (
+            {(studySuggestion.type === 'test_ready' || studySuggestion.type === 'mastered') && question && sessionCompleteCount >= 3 && (
               <div className="flex flex-col items-center gap-0.5">
                 <Button
                   size="sm"
@@ -1765,7 +1765,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   <Zap className="h-3 w-3" />
                   백지시험
                 </Button>
-                <span className="text-[10px] text-muted-foreground/60">(Shift+Enter)</span>
               </div>
             )}
             {studySuggestion.type === 'hide_practice' && (
@@ -1782,7 +1781,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   </Button>
                   <span className="text-[10px] text-muted-foreground/60">(Tab)</span>
                 </div>
-                {question && (
+                {question && sessionCompleteCount >= 3 && (
                   <div className="flex flex-col items-center gap-0.5">
                     <Button
                       size="sm"
@@ -1793,7 +1792,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       <Zap className="h-3 w-3" />
                       백지시험
                     </Button>
-                    <span className="text-[10px] text-muted-foreground/60">(Shift+Enter)</span>
                   </div>
                 )}
               </div>
@@ -1809,7 +1807,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               <div>
                 <CardTitle>{question.question}</CardTitle>
                 <CardDescription>
-                  {isTableQuestion ? "셀 클릭으로 이동 · Enter로 제출 · Tab으로 자유 이동" : "정답을 따라 입력하세요 (띄어쓰기 무시) · Shift+Enter로 백지시험"}
+                  {isTableQuestion ? "셀 클릭으로 이동 · Enter로 제출 · Tab으로 자유 이동" : "정답을 따라 입력하세요 (띄어쓰기 무시)"}
                   
                 </CardDescription>
               </div>
@@ -1851,7 +1849,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       size="sm"
                       className={`h-8 gap-1.5 text-xs ${memoOpen ? 'bg-blue-500/10 text-blue-600' : ''}`}
                       onClick={() => setMemoOpen(!memoOpen)}
-                      title="암기법/설명 메모 (영구 저장)"
+                      title="알기법/설명 메모"
                     >
                       <StickyNote className="h-3.5 w-3.5" />
                       메모
@@ -2190,7 +2188,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       <div className="flex items-center gap-2">
                         <StickyNote className="h-4 w-4 text-blue-600" />
                         <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">암기법 / 설명 메모</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-200/60 dark:bg-blue-800/40 text-blue-600 dark:text-blue-400">영구 저장</span>
+
                       </div>
                       <div className="flex items-center gap-2">
                         {memoSaved && <span className="text-xs text-emerald-600">✓ 저장됨</span>}
@@ -2217,7 +2215,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     <textarea
                       value={memo}
                       onChange={(e) => setMemo(e.target.value)}
-                      placeholder="암기법, 연상 기억법, 설명 등을 적어두세요. 연습장과 달리 이 내용은 영구적으로 저장됩니다."
+                      placeholder="암기법, 연상 기억법, 설명 등을 적어두세요."
                       className="flex-1 w-full p-3 rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-950/30 resize-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                       style={{ minHeight: '200px' }}
                     />

@@ -1977,3 +1977,9 @@
 - [ ] Home.tsx SubjectMiniGrid - 번호 제거, 신호등 색 전체 fill만 표시
 - [ ] SubjectPractice.tsx - 신호등 색 전체 fill, 번호 + 안정도(%) 표시
 - [ ] Subjects.tsx - 동일 원칙 적용
+
+
+## 버그 수정 (2026-04-04)
+- [ ] Practice.tsx 주의 구간 표시 버그 - /practice/750002에서 주의 구간이 안 뜸
+- [ ] 백지시험 조건 변경 - 연습 3회 이후에만 표시, "Shift+Enter로 백지시험" 문구 제거
+- [ ] 메모 '영구저장' 텍스트 제거
