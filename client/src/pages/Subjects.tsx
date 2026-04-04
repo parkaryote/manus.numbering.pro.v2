@@ -59,7 +59,7 @@ function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
 
   const sorted = [...questions].sort((a, b) => a.displayOrder - b.displayOrder);
 
-  const getBarColor = (questionId: number) => {
+  const getFillColor = (questionId: number) => {
     const d = confidenceMap.get(questionId);
     if (!d) return 'bg-neutral-200 dark:bg-neutral-700';
     switch (d.state) {
@@ -70,30 +70,23 @@ function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
     }
   };
 
+  const getBorderColor = (isStarred: boolean) => {
+    if (!isStarred) return 'border border-neutral-200 dark:border-neutral-700';
+    return 'border-2 border-indigo-600 dark:border-indigo-500';
+  };
+
   return (
     <div className="flex flex-wrap gap-1 mt-2">
       {sorted.map((q) => {
         const starred = q.isStarred === 1;
+        const fillColor = getFillColor(q.id);
+        const borderColor = getBorderColor(starred);
         return (
           <div
             key={q.id}
-            className={`
-              overflow-hidden rounded-md
-              bg-white dark:bg-neutral-900
-              ${starred
-                ? 'border-2 border-neutral-400 dark:border-neutral-500'
-                : 'border border-neutral-200 dark:border-neutral-700'
-              }
-            `}
-            title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}%` : ''}`}
-          >
-            <div className={`h-[2px] w-full ${getBarColor(q.id)}`} />
-            <div className="w-4 h-3 flex items-center justify-center">
-              <span className="text-[7px] font-semibold text-foreground leading-none">
-                {q.displayOrder}
-              </span>
-            </div>
-          </div>
+            className={`rounded-md w-3 h-3 ${fillColor} ${borderColor}`}
+            title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}%` : ""}${starred ? " (중요)" : ""}`}
+          />
         );
       })}
     </div>

@@ -1970,3 +1970,10 @@
 - [x] DashboardLayout 사이드바 푸터 + 모바일 헤더에 다크/라이트 모드 토글 버튼 추가 (Moon/Sun 아이콘)
 - [x] CSS 변수 및 컴포넌트 다크 모드 완벽 대응 (OKLCH 색상 시스템)
 - [x] 문제 칩 UI 다크 모드 색상 자동 조정 (CSS 변수 기반)
+
+
+## 칩 디자인 재조정 (2026-04-03)
+- [ ] QuestionGridView.tsx - 신호등 색 전체 fill 복원, border로 중요도 표현 (노란색과 다른 색)
+- [ ] Home.tsx SubjectMiniGrid - 번호 제거, 신호등 색 전체 fill만 표시
+- [ ] SubjectPractice.tsx - 신호등 색 전체 fill, 번호 + 안정도(%) 표시
+- [ ] Subjects.tsx - 동일 원칙 적용

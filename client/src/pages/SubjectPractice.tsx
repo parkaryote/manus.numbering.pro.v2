@@ -586,27 +586,6 @@ export default function SubjectPractice({ subjectId }: SubjectPracticeProps) {
 
       {/* 우측 북마크 패널 */}
       <div className="hidden lg:flex flex-col w-12 border-l border-border bg-muted/30 overflow-y-auto py-3 gap-1 items-center flex-shrink-0">
-        {questions.map((q) => {
-          const conf = confidenceMap[q.id];
-          const isFocused = focusedQuestionId === q.id;
-          return (
-            <button
-              key={q.id}
-              onClick={() => scrollToQuestion(q.id)}
-              className={`w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold transition-all duration-150 ${
-                isFocused
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-              }`}
-              title={`문제 ${q.displayOrder}`}
-            >
-              <span className="text-xs">{q.displayOrder}</span>
-              {conf && !conf.isColdStart && (
-                <div className={`absolute w-full h-[2px] rounded-full ${getStateBarColor(conf.state)} bottom-0 left-0`} />
-              )}
-            </button>
-          );
-        })}
       </div>
 
       {/* 하단 sticky 입력 패널 */}
