@@ -39,6 +39,14 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [confidenceBefore, setConfidenceBefore] = useState(0);
   const [confidenceAfter, setConfidenceAfter] = useState(0);
 
+  // 타이핑 속도 보너스 수집 상태
+  const typingStartTimeRef = useRef<number | null>(null);
+  const timeToFirstKeyRef = useRef<number | null>(null);
+  const backspaceCountRef = useRef(0);
+  const pasteDetectedRef = useRef(false);
+  const inputCharsRef = useRef(0);
+  const [speedBonus, setSpeedBonus] = useState<{ bonus: number; label: string; ratio: number } | null>(null);
+
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const { data: confidenceData, refetch: refetchConfidence } = trpc.confidence.getByQuestion.useQuery(
     { questionId },
@@ -105,6 +113,14 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     setShowConfidencePopup(true);
   }, [confidenceBefore, recallTime, isDemo, refetchConfidence]);
 
+  const recordAttemptMutation = trpc.typing.recordAttempt.useMutation({
+    onSuccess: (data) => {
+      if (data.bonus > 0) {
+        setSpeedBonus({ bonus: data.bonus, label: data.label, ratio: data.ratio });
+      }
+    },
+  });
+
   const evaluateMutation = trpc.test.evaluate.useMutation({
     onSuccess: async (data: any) => {
       setResult(data);
@@ -167,6 +183,13 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     setTableAnswers({});
     setTableResults(null);
     setTableScore(null);
+    setSpeedBonus(null);
+    // 타이핑 수집 리셋
+    typingStartTimeRef.current = null;
+    timeToFirstKeyRef.current = null;
+    backspaceCountRef.current = 0;
+    pasteDetectedRef.current = false;
+    inputCharsRef.current = 0;
     textareaRef.current?.focus();
   };
 
@@ -181,6 +204,12 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     setTableAnswers({});
     setTableResults(null);
     setTableScore(null);
+    setSpeedBonus(null);
+    typingStartTimeRef.current = null;
+    timeToFirstKeyRef.current = null;
+    backspaceCountRef.current = 0;
+    pasteDetectedRef.current = false;
+    inputCharsRef.current = 0;
   };
 
   const handleSubmit = async () => {
@@ -265,6 +294,21 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
           userAnswer: userAnswer.trim(),
           recallTime,
         });
+        // 타이핑 속도 데이터 기록
+        if (typingStartTimeRef.current !== null) {
+          const typingEndTime = Date.now();
+          recordAttemptMutation.mutate({
+            questionId: question.id,
+            answerLength: question.answer?.length ?? 0,
+            inputChars: inputCharsRef.current,
+            timeToFirstKey: timeToFirstKeyRef.current ?? 0,
+            typingStartTime: typingStartTimeRef.current,
+            typingEndTime,
+            backspaceCount: backspaceCountRef.current,
+            pasteDetected: pasteDetectedRef.current,
+            mode: "exam",
+          });
+        }
       }
     }
   };
@@ -773,6 +817,16 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                     value={userAnswer}
                     onChange={(e) => {
                       const newValue = e.target.value;
+                      const now = Date.now();
+                      // 첫 타이핑 시작 시간 기록
+                      if (typingStartTimeRef.current === null && newValue.length > 0) {
+                        typingStartTimeRef.current = now;
+                        if (startTime !== null && timeToFirstKeyRef.current === null) {
+                          timeToFirstKeyRef.current = now - startTime;
+                        }
+                      }
+                      // 입력 글자 수 업데이트
+                      inputCharsRef.current = newValue.length;
                       setUserAnswer(newValue);
                       
                       // 히스토리에 추가
@@ -784,7 +838,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                       setAnswerHistory(newHistory);
                       setAnswerHistoryIndex(newHistory.length - 1);
                     }}
-                    onKeyDown={handleKeyDown}
+                    onPaste={() => { pasteDetectedRef.current = true; }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Backspace') backspaceCountRef.current++;
+                      handleKeyDown(e);
+                    }}
                     placeholder="답안을 입력하세요..."
                     rows={12}
                     className="text-base"
@@ -936,6 +994,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   {result?.isCorrect && recallTime > 0 && recallTime <= 45 && (
                     <p className="text-xs font-bold text-emerald-500 mt-1">
                       ⚡ 속도 보너스 +{recallTime <= 10 ? 5 : recallTime <= 20 ? 3 : recallTime <= 30 ? 2 : 1}
+                    </p>
+                  )}
+                  {speedBonus && speedBonus.bonus > 0 && (
+                    <p className="text-xs font-bold text-blue-500 mt-1">
+                      ⚡ 타이핑 +{speedBonus.bonus} ({speedBonus.label === 'great' ? '매우 빠름' : '빠름'})
                     </p>
                   )}
                 </div>

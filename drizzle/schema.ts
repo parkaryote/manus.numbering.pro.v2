@@ -146,3 +146,41 @@ export const ocrJobs = mysqlTable("ocrJobs", {
 
 export type OcrJob = typeof ocrJobs.$inferSelect;
 export type InsertOcrJob = typeof ocrJobs.$inferInsert;
+
+/**
+ * 타이핑 시도 기록 - 속도 보너스 시스템용
+ */
+export const typingAttempts = mysqlTable("typingAttempts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  questionId: int("questionId").notNull(),
+  mode: mysqlEnum("mode", ["practice", "exam"]).notNull(),
+  answerLength: int("answerLength").notNull(),
+  inputChars: int("inputChars").notNull(),
+  timeToFirstKey: int("timeToFirstKey").notNull(), // ms
+  typingDuration: int("typingDuration").notNull(), // ms
+  backspaceCount: int("backspaceCount").notNull(),
+  pasteDetected: int("pasteDetected").default(0).notNull(), // 0=false, 1=true
+  effectiveSpeed: int("effectiveSpeed").notNull(), // chars/sec * 1000 (정수 저장)
+  lengthBucket: int("lengthBucket").notNull(), // 1-4
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type TypingAttempt = typeof typingAttempts.$inferSelect;
+export type InsertTypingAttempt = typeof typingAttempts.$inferInsert;
+
+/**
+ * 타이핑 베이스라인 - 사용자별/모드별/길이버킷별 p60 속도
+ */
+export const typingBaselines = mysqlTable("typingBaselines", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  mode: mysqlEnum("mode", ["practice", "exam"]).notNull(),
+  lengthBucket: int("lengthBucket").notNull(), // 1-4
+  baselineSpeed: int("baselineSpeed").notNull(), // chars/sec * 1000
+  sampleCount: int("sampleCount").default(0).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TypingBaseline = typeof typingBaselines.$inferSelect;
+export type InsertTypingBaseline = typeof typingBaselines.$inferInsert;

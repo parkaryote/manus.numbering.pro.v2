@@ -12,6 +12,18 @@ import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 import * as ocrModule from "./ocr";
 import { computeExamConfidence, aggregateConfidence, predictExamDayConfidence, type PracticeSignal, type TestSignal, type ConfidenceResult } from "@shared/examConfidence";
+import {
+  calculateEffectiveSpeed,
+  calculateSpeedBonus,
+  computeBlendedBaseline,
+  computeExpectedSpeed,
+  computeP60,
+  shouldUpdateBaseline,
+  speedToInt,
+  intToSpeed,
+  getLengthBucket,
+  type TypingAttemptInput,
+} from "./typingSpeed";
 
 // 글자 단위 유사도 계산 (대소문자 무시, 띄어쓰기 무시)
 function calcCharSimilarity(userText: string, correctText: string): number {
@@ -780,6 +792,89 @@ ${input.userAnswer}
     deleteAll: protectedProcedure
       .mutation(async ({ ctx }) => {
         return db.deleteAllTestSessions(ctx.user.id);
+      }),
+  }),
+
+  // Typing Speed Bonus
+  typing: router({
+    /** 타이핑 시도 기록 저장 + 베이스라인 업데이트 + 보너스 계산 */
+    recordAttempt: protectedProcedure
+      .input(z.object({
+        questionId: z.number(),
+        answerLength: z.number(),
+        inputChars: z.number(),
+        timeToFirstKey: z.number(),
+        typingStartTime: z.number(),
+        typingEndTime: z.number(),
+        backspaceCount: z.number(),
+        pasteDetected: z.boolean(),
+        mode: z.enum(["practice", "exam"]),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const attempt: TypingAttemptInput = {
+          answerLength: input.answerLength,
+          inputChars: input.inputChars,
+          timeToFirstKey: input.timeToFirstKey,
+          typingStartTime: input.typingStartTime,
+          typingEndTime: input.typingEndTime,
+          backspaceCount: input.backspaceCount,
+          pasteDetected: input.pasteDetected,
+          mode: input.mode,
+        };
+
+        const { effectiveSpeed, typingDuration, lengthBucket } = calculateEffectiveSpeed(attempt);
+
+        // 베이스라인 업데이트 (조건 충족 시)
+        if (shouldUpdateBaseline(attempt)) {
+          // 시도 저장
+          await db.createTypingAttempt({
+            userId: ctx.user.id,
+            questionId: input.questionId,
+            mode: input.mode,
+            answerLength: input.answerLength,
+            inputChars: input.inputChars,
+            timeToFirstKey: input.timeToFirstKey,
+            typingDuration,
+            backspaceCount: input.backspaceCount,
+            pasteDetected: input.pasteDetected ? 1 : 0,
+            effectiveSpeed: speedToInt(effectiveSpeed),
+            lengthBucket,
+          });
+
+          // 최근 50개 샘플로 p60 재계산
+          const samples = await db.getTypingAttempts(ctx.user.id, input.mode, lengthBucket, 50);
+          const sampleCount = samples.length;
+          if (sampleCount > 0) {
+            const p60 = computeP60(samples.map(intToSpeed));
+            await db.upsertTypingBaseline(ctx.user.id, input.mode, lengthBucket, speedToInt(p60), sampleCount);
+          }
+        }
+
+        // exam 모드일 때만 보너스 계산
+        if (input.mode !== "exam") {
+          return { bonus: 0, ratio: 1, effectiveSpeed, expectedSpeed: 0, label: "normal" as const };
+        }
+
+        // 베이스라인 조회
+        const examBaseline = await db.getTypingBaseline(ctx.user.id, "exam", lengthBucket);
+        const practiceBaseline = await db.getTypingBaseline(ctx.user.id, "practice", lengthBucket);
+
+        // 글로벌 기본값 (버킷별 경험치 기반)
+        const globalDefaults: Record<number, number> = { 1: 3.0, 2: 2.5, 3: 2.0, 4: 1.5 };
+        const globalBaseline = globalDefaults[lengthBucket] ?? 2.0;
+
+        const practiceSpeed = practiceBaseline
+          ? computeBlendedBaseline(intToSpeed(practiceBaseline.baselineSpeed), practiceBaseline.sampleCount, globalBaseline)
+          : globalBaseline;
+
+        const examSpeed = examBaseline
+          ? computeBlendedBaseline(intToSpeed(examBaseline.baselineSpeed), examBaseline.sampleCount, practiceSpeed * 0.8)
+          : null;
+
+        const expectedSpeed = computeExpectedSpeed(examSpeed, practiceSpeed);
+        const bonusResult = calculateSpeedBonus(effectiveSpeed, expectedSpeed);
+
+        return bonusResult;
       }),
   }),
 

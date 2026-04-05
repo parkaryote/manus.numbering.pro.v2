@@ -9,12 +9,15 @@ import {
   testSessions,
   reviewSchedules,
   ocrJobs,
+  typingAttempts,
+  typingBaselines,
   InsertSubject,
   InsertQuestion,
   InsertPracticeSession,
   InsertTestSession,
   InsertReviewSchedule,
   InsertOcrJob,
+  InsertTypingAttempt,
   OcrJob,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -630,4 +633,106 @@ export async function deleteDemoSubject(id: number) {
   // 과목에 속한 데모 문제도 함께 삭제
   await db.delete(questions).where(and(eq(questions.subjectId, id), eq(questions.isDemo, 1)));
   await db.delete(subjects).where(eq(subjects.id, id));
+}
+
+// ─── Typing Speed Bonus ───────────────────────────────────────────────────────
+
+/** 타이핑 시도 기록 저장 (최근 50개 rolling window 유지) */
+export async function createTypingAttempt(data: InsertTypingAttempt) {
+  const db = await getDb();
+  if (!db) return null;
+  await db.insert(typingAttempts).values(data);
+  // rolling window: 50개 초과 시 오래된 것 삭제
+  const rows = await db
+    .select({ id: typingAttempts.id })
+    .from(typingAttempts)
+    .where(
+      and(
+        eq(typingAttempts.userId, data.userId),
+        eq(typingAttempts.mode, data.mode),
+        eq(typingAttempts.lengthBucket, data.lengthBucket)
+      )
+    )
+    .orderBy(desc(typingAttempts.createdAt));
+  if (rows.length > 50) {
+    const toDelete = rows.slice(50).map((r) => r.id);
+    for (const id of toDelete) {
+      await db.delete(typingAttempts).where(eq(typingAttempts.id, id));
+    }
+  }
+}
+
+/** 최근 N개 타이핑 시도 조회 (effectiveSpeed 값 반환) */
+export async function getTypingAttempts(
+  userId: number,
+  mode: "practice" | "exam",
+  lengthBucket: number,
+  limit = 50
+): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ effectiveSpeed: typingAttempts.effectiveSpeed })
+    .from(typingAttempts)
+    .where(
+      and(
+        eq(typingAttempts.userId, userId),
+        eq(typingAttempts.mode, mode),
+        eq(typingAttempts.lengthBucket, lengthBucket),
+        eq(typingAttempts.pasteDetected, 0)
+      )
+    )
+    .orderBy(desc(typingAttempts.createdAt))
+    .limit(limit);
+  return rows.map((r) => r.effectiveSpeed);
+}
+
+/** 베이스라인 조회 */
+export async function getTypingBaseline(
+  userId: number,
+  mode: "practice" | "exam",
+  lengthBucket: number
+): Promise<{ baselineSpeed: number; sampleCount: number } | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(typingBaselines)
+    .where(
+      and(
+        eq(typingBaselines.userId, userId),
+        eq(typingBaselines.mode, mode),
+        eq(typingBaselines.lengthBucket, lengthBucket)
+      )
+    )
+    .limit(1);
+  if (rows.length === 0) return null;
+  return { baselineSpeed: rows[0].baselineSpeed, sampleCount: rows[0].sampleCount };
+}
+
+/** 베이스라인 upsert */
+export async function upsertTypingBaseline(
+  userId: number,
+  mode: "practice" | "exam",
+  lengthBucket: number,
+  baselineSpeed: number,
+  sampleCount: number
+) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await getTypingBaseline(userId, mode, lengthBucket);
+  if (existing) {
+    await db
+      .update(typingBaselines)
+      .set({ baselineSpeed, sampleCount })
+      .where(
+        and(
+          eq(typingBaselines.userId, userId),
+          eq(typingBaselines.mode, mode),
+          eq(typingBaselines.lengthBucket, lengthBucket)
+        )
+      );
+  } else {
+    await db.insert(typingBaselines).values({ userId, mode, lengthBucket, baselineSpeed, sampleCount });
+  }
 }
