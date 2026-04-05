@@ -2321,40 +2321,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               />
             );
           })()}
-          {/* 연습 횟수 + 초기화 + 완료 */}
+          {/* 연습 횟수 + 초기화 */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground">연습 {practiceCount}회</span>
-              <span className="text-xs text-muted-foreground/50">
-                <kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>
-                +<kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Enter</kbd>
-                {' '}또는{' '}
-                <kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Esc</kbd>
-                {' '}완료
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => {
-                  setTableCompletedCells(new Set());
-                  setTableActiveCellIdx(0);
-                  setTableCellInput('');
-                }}
-              >
-                초기화
-              </Button>
-              <Button
-                size="sm"
-                className="h-7 text-xs"
-                onClick={handleComplete}
-                disabled={createSession.isPending}
-              >
-                {createSession.isPending ? "저장 중..." : "완료"}
-              </Button>
-            </div>
+            <span className="text-xs text-muted-foreground">연습 {practiceCount}회</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => {
+                setTableCompletedCells(new Set());
+                setTableActiveCellIdx(0);
+                setTableCellInput('');
+              }}
+            >
+              초기화
+            </Button>
           </div>
         </div>
       )}
