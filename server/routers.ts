@@ -964,7 +964,11 @@ ${input.userAnswer}
         }
         
         easeFactor = easeFactor + (80 - 50 * (5 - input.quality));
+        // easeFactor 범위 제한: 130~300 (1.3배~3.0배)
         if (easeFactor < 130) easeFactor = 130;
+        if (easeFactor > 300) easeFactor = 300;
+        // interval 상한 제한: 최대 365일 (1년)
+        if (interval > 365) interval = 365;
         
         const nextReviewDate = new Date();
         nextReviewDate.setDate(nextReviewDate.getDate() + interval);
