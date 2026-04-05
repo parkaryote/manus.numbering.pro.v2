@@ -1722,7 +1722,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           </Button>
 
           {/* 오른쪽: 통계 + 측정 상태 */}
-          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+          <div className="flex items-center gap-2 min-w-0 flex-nowrap">
             {/* 현재/누적 연습 */}
             <div className="flex items-center gap-1 shrink-0 text-xs">
               <span className="font-bold tabular-nums text-sm">{practiceCountDisplay}</span>
@@ -1815,13 +1815,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
             {/* 측정 상태 표시 */}
             <div className="flex items-center gap-1 shrink-0">
-              <div className="relative flex items-center justify-center">
-                <div className={`h-2 w-2 rounded-full ${isActive ? 'bg-green-500' : 'bg-red-500'}`} />
-                {isActive && (
-                  <div className="absolute h-4 w-4 rounded-full bg-green-500/30 animate-ping" />
+              <div className="relative w-4 h-4 flex items-center justify-center flex-shrink-0">
+                <div className={`h-2 w-2 rounded-full z-10 relative ${isActive ? 'bg-green-500' : 'bg-red-500'}`} />
+                {isActive ? (
+                  <div className="absolute inset-0 rounded-full bg-green-500/30 animate-ping" style={{animationDuration: '1.5s'}} />
+                ) : (
+                  <div className="absolute inset-0 rounded-full bg-red-500/20 animate-pulse" style={{animationDuration: '2s'}} />
                 )}
               </div>
-              <span className={`text-[10px] font-medium ${isActive ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+              <span className={`text-[10px] font-medium whitespace-nowrap ${isActive ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
                 {isActive ? '측정중' : '중단됨'}
               </span>
             </div>
