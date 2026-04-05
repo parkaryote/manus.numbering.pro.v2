@@ -89,6 +89,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 연속 완료 카운트 (세션 내, 3회마다 백지시험 유도)
   const [sessionCompleteCount, setSessionCompleteCount] = useState(0);
   const [showTestNudge, setShowTestNudge] = useState(false);
+  const [showWarnZone, setShowWarnZone] = useState(false);
   // 문제 수정 모드
   const [editMode, setEditMode] = useState(false);
   const [editQuestion, setEditQuestion] = useState('');
@@ -115,6 +116,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const lastInputRef = useRef<string>(""); // 마지막 입력값 추적 (모바일용)
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
+  // 인접 문제 네비게이션을 위한 같은 과목 문제 목록
+  const { data: subjectQuestions } = trpc.questions.listBySubject.useQuery(
+    { subjectId: question?.subjectId ?? 0 },
+    { enabled: !!question?.subjectId && !isDemo }
+  );
+  const currentIndex = subjectQuestions?.findIndex(q => q.id === questionId) ?? -1;
+  const prevQuestion = currentIndex > 0 ? subjectQuestions?.[currentIndex - 1] : null;
+  const nextQuestion = currentIndex >= 0 && subjectQuestions && currentIndex < subjectQuestions.length - 1 ? subjectQuestions[currentIndex + 1] : null;
   const { data: practiceCountData } = trpc.practice.countByQuestion.useQuery(
     { questionId },
     { enabled: !!questionId && !isDemo }
@@ -628,12 +637,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         return;
       }
       
-      if (e.key === "Escape" || (e.ctrlKey && e.key === "Enter")) {
+      if (e.key === "Escape") {
         e.preventDefault();
-        await handleComplete();
-        if (isDemo) {
-          setLocation("/demo");
-        }
+        handleGoBack();
       }
     };
 
@@ -978,13 +984,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
     
     // Tab 키는 이미 전역 이벤트에서 처리됨 - 입력창에서는 처리하지 않음
-    
-    // Ctrl+Enter or Esc: Complete and save
-    if ((e.ctrlKey && e.key === "Enter") || e.key === "Escape") {
-      e.preventDefault();
-      handleComplete();
-      return;
-    }
     
     // Shift+Enter: 시험 모드 진입
     if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey) {
@@ -1776,9 +1775,25 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 </span>
               )}
               {confidenceData.badges.hasWarnZone && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-                  주의 구간 있음
-                </span>
+                <button
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 hover:bg-yellow-200 dark:hover:bg-yellow-900/50 cursor-pointer transition-colors"
+                  onClick={() => setShowWarnZone(v => !v)}
+                >
+                  ⚠️ 주의 구간 있음 {showWarnZone ? '▲' : '▼'}
+                </button>
+              )}
+              {showWarnZone && confidenceData.warnZoneLines && confidenceData.warnZoneLines.length > 0 && (
+                <div className="w-full mt-1 px-3 py-2 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700/40 text-xs text-yellow-800 dark:text-yellow-300">
+                  <p className="font-semibold mb-1">자주 틀리는 구간 (시험 2회 이상 오답)</p>
+                  <ul className="space-y-0.5">
+                    {confidenceData.warnZoneLines.map((wz: { lineIndex: number; wrongCount: number }) => (
+                      <li key={wz.lineIndex} className="flex items-center gap-2">
+                        <span className="font-mono bg-yellow-200 dark:bg-yellow-800/50 px-1.5 rounded">{wz.lineIndex}번 줄</span>
+                        <span className="text-yellow-600 dark:text-yellow-400">{wz.wrongCount}회 오답</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           )}
@@ -1798,7 +1813,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             <span>{studySuggestion.message}</span>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {(studySuggestion.type === 'test_ready' || studySuggestion.type === 'mastered') && question && sessionCompleteCount >= 3 && (
+            {(studySuggestion.type === 'test_ready' || studySuggestion.type === 'mastered') && question && (
               <div className="flex flex-col items-center gap-0.5">
                 <Button
                   size="sm"
@@ -1825,7 +1840,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   </Button>
                   <span className="text-[10px] text-muted-foreground/60">(Tab)</span>
                 </div>
-                {question && sessionCompleteCount >= 3 && (
+                {question && (
                   <div className="flex flex-col items-center gap-0.5">
                     <Button
                       size="sm"
@@ -2271,6 +2286,41 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           )}
         </CardContent>
       </Card>
+      {/* 이전/다음 문제 네비게이션 카드 */}
+      {!isImageQuestion && !isDemo && (prevQuestion || nextQuestion) && (
+        <div className="flex flex-col gap-2 px-1 pb-2">
+          {prevQuestion && (
+            <button
+              className="w-full text-left px-4 py-3 rounded-lg border border-border bg-muted/30 hover:bg-muted/60 transition-colors group"
+              onClick={() => setLocation(`/practice/${prevQuestion.id}`)}
+            >
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-0.5">
+                <ArrowLeft className="h-3 w-3" />
+                <span>이전 문제</span>
+                {subjectQuestions && currentIndex > 0 && (
+                  <span className="ml-auto">{currentIndex}/{subjectQuestions.length}</span>
+                )}
+              </div>
+              <p className="text-sm font-medium line-clamp-2 group-hover:text-foreground text-muted-foreground">{prevQuestion.question}</p>
+            </button>
+          )}
+          {nextQuestion && (
+            <button
+              className="w-full text-left px-4 py-3 rounded-lg border border-border bg-muted/30 hover:bg-muted/60 transition-colors group"
+              onClick={() => setLocation(`/practice/${nextQuestion.id}`)}
+            >
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-0.5">
+                <span>다음 문제</span>
+                {subjectQuestions && (
+                  <span className="ml-auto">{currentIndex + 2}/{subjectQuestions.length}</span>
+                )}
+                <ArrowLeft className="h-3 w-3 rotate-180" />
+              </div>
+              <p className="text-sm font-medium line-clamp-2 group-hover:text-foreground text-muted-foreground">{nextQuestion.question}</p>
+            </button>
+          )}
+        </div>
+      )}
       </div>{/* 스크롤 영역 끝 */}
 
       {/* 하단 고정 입력 패널 - 표 모드 전용 */}
@@ -2367,13 +2417,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               ) : (
                 <button onClick={toggleShortcutHelp} className="text-xs text-muted-foreground/50 hover:text-muted-foreground underline self-start">단축키</button>
               )}
-              <div className="text-xs text-muted-foreground/60">
-                <kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Enter</kbd> 또는 <kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Esc</kbd> 완료
-              </div>
             </div>
-            <Button onClick={handleComplete} disabled={createSession.isPending} className="shrink-0">
-              {createSession.isPending ? "저장 중..." : "완료"}
-            </Button>
           </div>
         </div>
       )}
@@ -2388,40 +2432,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </div>
       )}
 
-      {/* 백지시험 유도 배너 (연속 3회 완료 후) */}
-      {showTestNudge && question && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 animate-in slide-in-from-bottom duration-300">
-          <div className="mx-auto max-w-2xl px-4 pb-4">
-            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-2xl shadow-2xl p-4 flex items-center gap-4">
-              <div className="text-3xl">🎯</div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-sm">연습 {sessionCompleteCount}회 완료!</p>
-                <p className="text-xs text-white/80 mt-0.5">이제 백지시험으로 실력을 확인해볼까요?</p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-8 text-xs bg-white/20 hover:bg-white/30 text-white border-0"
-                  onClick={() => setShowTestNudge(false)}
-                >
-                  나중에
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-8 text-xs bg-white text-violet-700 hover:bg-white/90 font-bold"
-                  onClick={() => {
-                    setShowTestNudge(false);
-                    setLocation(`/test/${question.id}`);
-                  }}
-                >
-                  시험 시작 →
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* 안정도 변화 그래프 모달 */}
       {!isDemo && question && (

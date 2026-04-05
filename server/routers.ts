@@ -1450,6 +1450,11 @@ ${input.userAnswer}
           recentCorrectStreak,
           mostRecentTestWasPoor,
           averageRecallTime: avgRecallTime,
+          recentTestHistory: sortedTests.map(t => ({
+            completedAt: new Date(t.completedAt),
+            isCorrect: t.isCorrect === 1,
+            similarityScore: t.similarityScore ?? 0,
+          })),
         };
 
         const confidence = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
@@ -1472,7 +1477,29 @@ ${input.userAnswer}
         const lastTestWrong = !!lastTest && lastTest.isCorrect === 0;
         const wrongCount = wrongTests.length;
         const frequentlyWrong = qTests.length >= 3 && wrongCount / qTests.length >= 0.5;
-        const hasWarnZone = qTests.some(t => (t as any).mistakeHighlights && (t as any).mistakeHighlights.length > 2);
+
+        // 주의구간: 여러 시험에서 반복적으로 틀린 줄 집계
+        const lineWrongCount: Record<number, number> = {};
+        for (const t of qTests) {
+          if (!t.mistakeHighlights) continue;
+          try {
+            const highlights = JSON.parse(t.mistakeHighlights as string);
+            if (Array.isArray(highlights)) {
+              for (const h of highlights) {
+                if (h.isCorrect === false) {
+                  const idx = h.lineIndex ?? h.labelIndex ?? 1;
+                  lineWrongCount[idx] = (lineWrongCount[idx] || 0) + 1;
+                }
+              }
+            }
+          } catch {}
+        }
+        // 2회 이상 틀린 줄을 주의구간으로 판단
+        const warnZoneLines = Object.entries(lineWrongCount)
+          .filter(([, cnt]) => cnt >= 2)
+          .map(([idx, cnt]) => ({ lineIndex: Number(idx), wrongCount: cnt }))
+          .sort((a, b) => b.wrongCount - a.wrongCount);
+        const hasWarnZone = warnZoneLines.length > 0;
 
         // 마지막 시험의 오답 줄 정보 파싱
         let lastTestWrongLines: number[] = [];
@@ -1497,6 +1524,7 @@ ${input.userAnswer}
           lastTestWrongLines,
           lastTestAccuracyRate: lastTest ? (lastTest.similarityScore ?? null) : null,
           examDatePrediction,
+          warnZoneLines,
         };
       }),
     // 과목별 문제 안정도 점수 조회
@@ -1562,6 +1590,11 @@ ${input.userAnswer}
             recentCorrectStreak,
             mostRecentTestWasPoor,
             averageRecallTime: avgRecallTime,
+            recentTestHistory: sortedTests.map(t => ({
+              completedAt: new Date(t.completedAt),
+              isCorrect: t.isCorrect === 1,
+              similarityScore: t.similarityScore ?? 0,
+            })),
           };
           const confidence = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
           results.push({ questionId: qId, confidence });
@@ -1655,6 +1688,11 @@ ${input.userAnswer}
             recentCorrectStreak: streak,
             mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
             averageRecallTime: avgRecallTime,
+            recentTestHistory: sortedCumTests.map(t => ({
+              completedAt: new Date(t.completedAt),
+              isCorrect: t.isCorrect === 1,
+              similarityScore: t.similarityScore ?? 0,
+            })),
           };
 
           const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now: ev.at });
@@ -1697,6 +1735,11 @@ ${input.userAnswer}
             recentCorrectStreak: streak,
             mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
             averageRecallTime: avgRecallTime,
+            recentTestHistory: sortedTests.map(t => ({
+              completedAt: new Date(t.completedAt),
+              isCorrect: t.isCorrect === 1,
+              similarityScore: t.similarityScore ?? 0,
+            })),
           };
           const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
           points.push({ at: now.toISOString(), score: result.displayScore, state: result.state, eventType: 'now' });
@@ -1767,6 +1810,11 @@ ${input.userAnswer}
               mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
               recentCorrectStreak: streak,
               mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
+              recentTestHistory: sortedT.map(t => ({
+                completedAt: new Date(t.completedAt),
+                isCorrect: t.isCorrect === 1,
+                similarityScore: t.similarityScore ?? 0,
+              })),
             };
             const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now: ev.at });
             totalScore += result.displayScore;

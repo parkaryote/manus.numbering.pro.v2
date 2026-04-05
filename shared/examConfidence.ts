@@ -1,24 +1,28 @@
 /**
- * 시험 안정도 (Exam Confidence) - Realistic Learning Curve Module
+ * 시험 안정도 (Exam Confidence) - Forgetting-Curve Weighted Module
  *
  * 설계 원칙:
- * - cold-start = 0% (아무것도 안 했으면 0%)
- * - 연습만으로는 최대 25% (연습은 보조 수단)
- * - 시험 통과가 핵심 점수 상승 요인
- * - 정답률 80% 이상이면 안정(초록) 도달 가능
- *   예: 5개 중 4개, 6개 중 5개 맞추면 초록
- * - 연속 정답 streak이 높을수록 급격히 상승
- * - 망각 패널티는 시간 경과에 따라 점진적 감소
- * - 오답은 패널티가 있지만, 정답률이 높으면 완화
+ * ─────────────────────────────────────────────────────────────────
+ * 1. cold-start = 0%
+ * 2. 연습만으로는 최대 25% (연습은 보조 수단)
+ * 3. 시험 통과가 핵심 점수 상승 요인
+ * 4. "시간이 지난 뒤 회상 성공"이 더 큰 점수 상승을 줌 (망각곡선 보상)
+ *    - 직전 시험 후 6시간 이내 재시험: streak 가중치 0.2 (거의 증가 없음)
+ *    - 6~24시간 후: 가중치 0.5
+ *    - 24~72시간 후: 가중치 1.0 (기본)
+ *    - 72시간+ 후: 가중치 1.3 (망각 극복 보상)
+ * 5. 유사도 80% 이상이면 "사실상 정답"으로 처리
+ *    - isCorrect=false여도 유사도 80%+ → 오답 패널티 대폭 완화
+ * 6. 망각 패널티는 마지막 상호작용 이후 시간 경과에 따라 점진적 감소
  *
- * 현실적 기대값:
- *   cold-start          → 0%
- *   연습 1회             → ~6%
- *   연습 3회             → ~15%
- *   시험 1회 통과         → ~40%
- *   시험 2회 연속 통과    → ~65%
- *   시험 3회+ 연속 통과   → ~85~95%
- *   시험 5회 중 4회 정답  → ~80% (초록)
+ * 현실적 기대값 (3일 뒤 시험 기준):
+ *   cold-start                → 0%
+ *   연습 3회                   → ~15%
+ *   시험 1회 통과 (당일)        → ~35%
+ *   시험 1회 통과 (24h 후 재확인) → ~50%
+ *   시험 2회 통과 (간격 있음)   → ~70%
+ *   시험 3회+ 통과 (간격 있음)  → ~85~95%
+ *   바로 연속 2회 통과          → ~40% (간격 없으면 증가 억제)
  */
 
 // ─── Configurable Thresholds ───────────────────────────────────────
@@ -51,9 +55,18 @@ export interface TestSignal {
   mostRecentTestAt: Date | null;
   recentCorrectStreak: number;
   mostRecentTestWasPoor: boolean; // similarityScore < 50
-  averageRecallTime?: number; // 평균 회상 시간(초) - 빠른 입력 보너스용
-  /** 시험 유형: 'individual' = 개별 문제 시험(max +12), 'exam' = 모의고사(max +6) */
+  averageRecallTime?: number; // 평균 회상 시간(초)
+  /** 시험 유형: 'individual' = 개별 문제 시험, 'exam' = 모의고사 */
   testType?: 'individual' | 'exam';
+  /**
+   * 최근 시험 이력 (시간 가중 streak 계산용)
+   * 최신순 정렬, 각 항목에 completedAt과 isCorrect, similarityScore 포함
+   */
+  recentTestHistory?: Array<{
+    completedAt: Date;
+    isCorrect: boolean;
+    similarityScore: number;
+  }>;
 }
 
 export interface ConfidenceInput {
@@ -63,17 +76,11 @@ export interface ConfidenceInput {
 }
 
 export interface ConfidenceResult {
-  /** Raw score 0~100 before display transform */
   rawScore: number;
-  /** Display score 0~100 (정수) */
   displayScore: number;
-  /** Traffic light state */
   state: "green" | "yellow" | "red";
-  /** Korean label */
   label: string;
-  /** Whether this is a cold-start (no data) result */
   isColdStart: boolean;
-  /** Score breakdown for debugging / future tooltip */
   breakdown: ScoreBreakdown;
 }
 
@@ -82,8 +89,7 @@ export interface ScoreBreakdown {
   practiceBonus: number;
   testExposureScore: number;
   testAccuracyScore: number;
-  testCorrectnessBonus: number;
-  recentStreakScore: number;
+  timeWeightedStreakScore: number;
   speedBonus: number;
   forgettingPenalty: number;
   wrongPenalty: number;
@@ -101,20 +107,70 @@ function hoursSince(date: Date | null, now: Date): number {
   return (now.getTime() - date.getTime()) / (1000 * 60 * 60);
 }
 
-// ─── Forgetting Penalty ────────────────────────────────────────────
-// 시험 경험이 없으면 망각 패널티 없음 (연습만 한 경우 패널티 적용 안 함)
-// 시험 경험이 있을 때만 망각 패널티 적용
+// ─── Time-gap Weight for Streak ────────────────────────────────────
+/**
+ * 직전 시험과의 시간 간격에 따른 streak 가중치
+ * 짧은 간격 = 낮은 가중치 (바로 다시 보면 의미 없음)
+ * 긴 간격 = 높은 가중치 (망각 후 회상 성공 = 진짜 학습)
+ */
+function getTimeGapWeight(hoursSincePrev: number): number {
+  if (hoursSincePrev < 1) return 0.1;   // 1시간 이내: 거의 무의미
+  if (hoursSincePrev < 6) return 0.2;   // 6시간 이내: 매우 낮음
+  if (hoursSincePrev < 24) return 0.5;  // 6~24시간: 절반
+  if (hoursSincePrev < 72) return 1.0;  // 1~3일: 기본값
+  return 1.3;                            // 3일+: 망각 극복 보상
+}
 
+// ─── Time-weighted Streak Score ────────────────────────────────────
+/**
+ * 시간 가중 streak 점수 계산
+ * 각 연속 정답에 시간 간격 가중치를 곱해서 누적
+ * 최대 55점
+ */
+function computeTimeWeightedStreakScore(
+  history: Array<{ completedAt: Date; isCorrect: boolean; similarityScore: number }>,
+  now: Date
+): number {
+  if (history.length === 0) return 0;
+
+  // 최신순 정렬 확인 (이미 정렬되어 있어야 함)
+  let score = 0;
+  let prevTime: Date = now;
+
+  for (let i = 0; i < history.length; i++) {
+    const item = history[i];
+    // 유사도 80% 이상이면 사실상 정답으로 처리
+    const isEffectivelyCorrect = item.isCorrect || item.similarityScore >= 80;
+
+    if (!isEffectivelyCorrect) break; // streak 끊김
+
+    const hoursSincePrev = i === 0
+      ? hoursSince(item.completedAt, now)  // 가장 최근 시험 ~ 현재
+      : (prevTime.getTime() - item.completedAt.getTime()) / (1000 * 60 * 60); // 연속 시험 간격
+
+    const weight = i === 0
+      ? 1.0  // 첫 번째 streak은 시간 가중치 없이 기본 점수
+      : getTimeGapWeight(hoursSincePrev); // 이후 streak은 간격 가중치 적용
+
+    // streak 순서별 기본 점수: 1st=10, 2nd=15, 3rd=18, 4th+=12
+    const basePoints = i === 0 ? 10 : i === 1 ? 15 : i === 2 ? 18 : 12;
+    score += basePoints * weight;
+
+    prevTime = item.completedAt;
+  }
+
+  return Math.min(Math.round(score), 55);
+}
+
+// ─── Forgetting Penalty ────────────────────────────────────────────
 function computeForgettingPenalty(
   lastPracticeAt: Date | null,
   lastTestAt: Date | null,
   testCount: number,
   now: Date
 ): number {
-  // 시험 경험이 없으면 망각 패널티 없음
   if (testCount === 0) return 0;
 
-  // Use the most recent meaningful interaction
   const candidates = [lastPracticeAt, lastTestAt].filter(Boolean) as Date[];
   if (candidates.length === 0) return 0;
 
@@ -123,10 +179,10 @@ function computeForgettingPenalty(
 
   if (hours < 12) return 0;
   if (hours < 24) return 5;
-  if (hours < 72) return 12;   // 1~3 days
-  if (hours < 168) return 22;  // 3~7 days
-  if (hours < 336) return 35;  // 7~14 days
-  return 50;                    // 14+ days
+  if (hours < 72) return 12;
+  if (hours < 168) return 22;
+  if (hours < 336) return 35;
+  return 50;
 }
 
 // ─── Main Scoring Function ─────────────────────────────────────────
@@ -135,7 +191,6 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
   const now = input.now ?? new Date();
   const { practice, test } = input;
 
-  // Cold-start: 아무것도 안 했으면 0%
   const hasAnyData = practice.practiceCount > 0 || test.testCount > 0;
   if (!hasAnyData) {
     return {
@@ -149,8 +204,7 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
         practiceBonus: 0,
         testExposureScore: 0,
         testAccuracyScore: 0,
-        testCorrectnessBonus: 0,
-        recentStreakScore: 0,
+        timeWeightedStreakScore: 0,
         speedBonus: 0,
         forgettingPenalty: 0,
         wrongPenalty: 0,
@@ -159,69 +213,64 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
     };
   }
 
-  // ── 정답률 계산 ──────────────────────────────────────────────────
-  const correctRate = test.testCount > 0
-    ? test.correctCount / test.testCount
+  // ── 정답률 계산 (유사도 80% 이상 = 사실상 정답) ──────────────────
+  const effectiveCorrectCount = test.recentTestHistory
+    ? test.recentTestHistory.filter(t => t.isCorrect || t.similarityScore >= 80).length
+    : test.correctCount;
+  const effectiveCorrectRate = test.testCount > 0
+    ? effectiveCorrectCount / test.testCount
     : 0;
 
   // ── A. 연습 기여 (최대 25점) ──────────────────────────────────────
-  // 연습은 보조 수단 - 많이 해도 25%를 넘을 수 없음
-  // 1회: 6점, 2회: 11점, 3회: 15점, 5회: 20점, 10회+: 25점
   const practiceVolumeScore = Math.min(
     Math.round(25 * (1 - Math.exp(-practice.practiceCount * 0.25))),
     25
   );
-
-  // 연습 시간 보너스 (최대 3점)
   const practiceBonus = practice.totalPracticeDuration > 0
-    ? Math.min(Math.floor(practice.totalPracticeDuration / 120), 3) // 2분당 1점, 최대 3점
+    ? Math.min(Math.floor(practice.totalPracticeDuration / 120), 3)
     : 0;
 
-  // ── B. 시험 기여 (최대 80점) ──────────────────────────────────────
-  // 시험 노출 횟수 (최대 10점)
-  const testExposureScore = Math.min(test.testCount * 3, 10);
+  // ── B. 시험 기여 ──────────────────────────────────────────────────
+  // 시험 노출 횟수 (최대 8점)
+  const testExposureScore = Math.min(test.testCount * 2, 8);
 
-  // 시험 정확도 (최대 25점) - 정답률 기반으로 변경
-  // 정답률 100%: 25점, 80%: 20점, 60%: 15점
+  // 시험 정확도 (최대 20점) - 유사도 보정 정답률 기반
   const testAccuracyScore = test.testCount > 0
-    ? Math.min(Math.round(correctRate * 25), 25)
+    ? Math.min(Math.round(effectiveCorrectRate * 20), 20)
     : 0;
 
-  // 정답 횟수 보너스 (최대 15점)
-  const testCorrectnessBonus = Math.min(test.correctCount * 5, 15);
+  // ── C. 시간 가중 streak 점수 (최대 55점) ─────────────────────────
+  // recentTestHistory가 있으면 정밀 계산, 없으면 기존 streak 기반 근사
+  let timeWeightedStreakScore = 0;
+  if (test.recentTestHistory && test.recentTestHistory.length > 0) {
+    timeWeightedStreakScore = computeTimeWeightedStreakScore(test.recentTestHistory, now);
+  } else {
+    // fallback: 기존 streak 기반 (시간 정보 없음 → 보수적으로 계산)
+    const s = test.recentCorrectStreak;
+    if (s >= 4) timeWeightedStreakScore = 40;
+    else if (s === 3) timeWeightedStreakScore = 30;
+    else if (s === 2) timeWeightedStreakScore = 20;
+    else if (s === 1) timeWeightedStreakScore = 10;
+  }
 
-  // ── 연속 정답 streak - 핵심 점수 ──────────────────────────────────
-  // streak 1: +10, streak 2: +25, streak 3: +40, streak 4+: +55
-  // 연속 정답이 쌓일수록 급격히 상승 (시험을 반복해서 통과해야 안정)
-  let recentStreakScore = 0;
-  if (test.recentCorrectStreak >= 4) recentStreakScore = 55;
-  else if (test.recentCorrectStreak === 3) recentStreakScore = 40;
-  else if (test.recentCorrectStreak === 2) recentStreakScore = 25;
-  else if (test.recentCorrectStreak === 1) recentStreakScore = 10;
-
-  // 빠른 회상 보너스 (개별 시험: max +12, 모의고사: max +6)
-  // 개별 문제 시험은 더 높은 보너스 (집중적 반복 학습 보상)
-  // 모의고사는 전체 흐름 파악이 목적이므로 보너스 절반
+  // ── D. 빠른 회상 보너스 (최대 10점) ─────────────────────────────
   const isExamMode = test.testType === 'exam';
   let speedBonus = 0;
   if (test.testCount > 0 && test.averageRecallTime !== undefined) {
     const avgTime = test.averageRecallTime;
     if (isExamMode) {
-      // 모의고사: max +6
       if (avgTime <= 10) speedBonus = 6;
       else if (avgTime <= 20) speedBonus = 4;
       else if (avgTime <= 30) speedBonus = 2;
-      else if (avgTime <= 45) speedBonus = 1;
     } else {
-      // 개별 시험: max +12
-      if (avgTime <= 10) speedBonus = 12;
-      else if (avgTime <= 20) speedBonus = 8;
-      else if (avgTime <= 30) speedBonus = 5;
-      else if (avgTime <= 45) speedBonus = 2;
+      if (avgTime <= 10) speedBonus = 10;
+      else if (avgTime <= 20) speedBonus = 6;
+      else if (avgTime <= 30) speedBonus = 3;
+      else if (avgTime <= 45) speedBonus = 1;
     }
   }
 
-  // ── C. 망각 패널티 ────────────────────────────────────────────────
+  // ── E. 망각 패널티 ────────────────────────────────────────────────
   const forgettingPenalty = computeForgettingPenalty(
     practice.mostRecentPracticeAt,
     test.mostRecentTestAt,
@@ -229,42 +278,38 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
     now
   );
 
-  // ── D. 오답 패널티 ────────────────────────────────────────────────
-  // 정답률에 따라 패널티 완화:
-  // - 정답률 80% 이상: 패널티 대폭 감소 (소수 오답은 관대하게)
-  // - 정답률 60~80%: 패널티 중간
-  // - 정답률 60% 미만: 패널티 전액
+  // ── F. 오답 패널티 (유사도 80% 이상이면 대폭 완화) ───────────────
+  // 유사도 80%+ 오답은 "거의 맞음" → 패널티 10%만 적용
+  // 유사도 60~80%: 패널티 40%
+  // 유사도 60% 미만 + 정답률 낮음: 패널티 전액
   let wrongPenalty = 0;
-  if (test.wrongCount > 0) {
-    const basePenalty = Math.min(15 + (test.wrongCount - 1) * 13, 50);
-    // 정답률에 따른 패널티 감면
-    if (correctRate >= 0.8) {
-      // 80% 이상 정답률: 패널티 20%만 적용
-      wrongPenalty = Math.round(basePenalty * 0.2);
-    } else if (correctRate >= 0.6) {
-      // 60~80%: 패널티 60% 적용
-      wrongPenalty = Math.round(basePenalty * 0.6);
+  const effectiveWrongCount = test.recentTestHistory
+    ? test.recentTestHistory.filter(t => !t.isCorrect && t.similarityScore < 80).length
+    : test.wrongCount;
+  if (effectiveWrongCount > 0) {
+    const basePenalty = Math.min(12 + (effectiveWrongCount - 1) * 10, 40);
+    if (effectiveCorrectRate >= 0.8) {
+      wrongPenalty = Math.round(basePenalty * 0.15);
+    } else if (effectiveCorrectRate >= 0.6) {
+      wrongPenalty = Math.round(basePenalty * 0.5);
     } else {
-      // 60% 미만: 패널티 전액
       wrongPenalty = basePenalty;
     }
   }
 
-  // 최근 시험이 나빴으면 추가 패널티 (유사도 50 미만)
-  // 정답률 80% 이상이면 이 패널티도 완화
+  // 최근 시험이 유사도 50 미만이면 추가 패널티
   let recentPoorPenalty = 0;
   if (test.mostRecentTestWasPoor) {
-    recentPoorPenalty = correctRate >= 0.8 ? 5 : 15;
+    recentPoorPenalty = effectiveCorrectRate >= 0.8 ? 3 : 12;
   }
 
-  // ── E. 최종 점수 ──────────────────────────────────────────────────
+  // ── G. 최종 점수 ──────────────────────────────────────────────────
   const rawScore = clamp(
     practiceVolumeScore +
     practiceBonus +
     testExposureScore +
     testAccuracyScore +
-    testCorrectnessBonus +
-    recentStreakScore +
+    timeWeightedStreakScore +
     speedBonus -
     forgettingPenalty -
     wrongPenalty -
@@ -273,11 +318,9 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
     100
   );
 
-  // 정수 반올림, 연습만 한 경우 최대 28점으로 캡
   const practiceOnlyCap = test.testCount === 0 ? 28 : 100;
   const displayScore = Math.min(Math.round(rawScore), practiceOnlyCap);
 
-  // Traffic light
   let state: "green" | "yellow" | "red";
   if (displayScore >= CONFIDENCE_THRESHOLDS.green) {
     state = "green";
@@ -287,21 +330,18 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
     state = "red";
   }
 
-  const label = TRAFFIC_LIGHT_LABELS[state];
-
   return {
     rawScore,
     displayScore,
     state,
-    label,
+    label: TRAFFIC_LIGHT_LABELS[state],
     isColdStart: false,
     breakdown: {
       practiceVolumeScore,
       practiceBonus,
       testExposureScore,
       testAccuracyScore,
-      testCorrectnessBonus,
-      recentStreakScore,
+      timeWeightedStreakScore,
       speedBonus,
       forgettingPenalty,
       wrongPenalty,
@@ -311,23 +351,14 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
 }
 
 // ─── Exam Date Prediction ─────────────────────────────────────────
-// 시험일까지 남은 기간과 망각 곡선을 고려하여 시험 당일 예상 안정도를 계산
-// 에빙하우스 망각 곡선 기반: 복습 없이 시간이 지나면 안정도가 감소
 
 export interface ExamDatePrediction {
-  /** 시험 당일 예상 안정도 (0~100) */
   predictedScore: number;
-  /** 예상 상태 */
   predictedState: "green" | "yellow" | "red";
-  /** 예상 상태 라벨 */
   predictedLabel: string;
-  /** 시험까지 남은 일수 */
   daysUntilExam: number;
-  /** 현재 안정도 */
   currentScore: number;
-  /** 예상 변화량 (음수면 감소) */
   scoreDelta: number;
-  /** 안정 도달 가능 여부 */
   canReachGreen: boolean;
 }
 
@@ -340,13 +371,10 @@ export function predictExamDayConfidence(
   const daysUntilExam = Math.max(0, Math.round((examDate.getTime() - nowDate.getTime()) / (1000 * 60 * 60 * 24)));
   const currentScore = currentResult.displayScore;
 
-  // 시험일까지 복습 없이 망각만 적용했을 때의 패널티
-  // 에빙하우스 망각 곡선 근사: 시험 경험이 있을 때만 적용
   const hoursUntilExam = daysUntilExam * 24;
   let forgettingAtExam = 0;
 
   if (currentResult.isColdStart) {
-    // cold-start: 변화 없음
     forgettingAtExam = 0;
   } else if (hoursUntilExam < 12) {
     forgettingAtExam = 0;
@@ -362,10 +390,8 @@ export function predictExamDayConfidence(
     forgettingAtExam = 50;
   }
 
-  // 현재 망각 패널티와의 차이 (추가 감소분)
   const currentForgetting = currentResult.breakdown.forgettingPenalty;
   const additionalForgetting = Math.max(0, forgettingAtExam - currentForgetting);
-
   const predictedScore = Math.max(0, Math.min(100, currentScore - additionalForgetting));
   const scoreDelta = predictedScore - currentScore;
 
@@ -378,8 +404,6 @@ export function predictExamDayConfidence(
     predictedState = "red";
   }
 
-  // 지금 안정도가 초록이면 시험일에도 초록 가능성 높음
-  // 지금 노란색이면 복습 없이는 빨간색으로 떨어질 수 있음
   const canReachGreen = currentScore >= CONFIDENCE_THRESHOLDS.green;
 
   return {
