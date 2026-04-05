@@ -911,33 +911,35 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const totalPracticeCount = (practiceCountData?.count || 0) + practiceCount;
   const studySuggestion = useMemo(() => {
     const conf = confidenceData?.displayScore ?? 0;
+    // sessionCompleteCount: 현재 세션에서 완료한 연습 횟수 (페이지 진입 후 새로 연습한 횟수)
+    const session = sessionCompleteCount;
     const total = totalPracticeCount;
     
-    // 아직 연습 안 함
-    if (total === 0) return null;
+    // 현재 세션에서 3회 미만 연습: 배너 표시 안 함
+    if (session < 3) return null;
     
-    // 안정도 80% 이상 + 3회 이상 연습: 완벽 암기
-    if (conf >= 80 && total >= 3) return { type: 'mastered' as const, message: '완벽하게 암기했어요. 시험으로 확인해볼까요?' };
+    // 안정도 80% 이상 + 세션 3회 이상 연습: 완벽 암기
+    if (conf >= 80) return { type: 'mastered' as const, message: '완벽하게 암기했어요. 시험으로 확인해볼까요?' };
     
-    // 연습 3회 이상 + 안정도 50% 이상: 시험 추천
-    if (total >= 3 && conf >= 50) {
+    // 세션 3회 이상 + 안정도 50% 이상: 시험 추천
+    if (conf >= 50) {
       const messages = [
         `${total}번 돌렸어요. 백지복습 한 번 가볼까요?`,
         `지금이 시험 타이밍이에요.`,
         `손에 익었어요. 안 보고 한 번 확인해볼까요?`,
       ];
-      const msg = messages[(total - 3) % messages.length];
+      const msg = messages[(session - 3) % messages.length];
       return { type: 'test_ready' as const, message: msg };
     }
     
-    // 연습 5회 이상 + 안정도 낮음: 답 가리고 연습 추천
-    if (total >= 5 && conf < 50) return { type: 'hide_practice' as const, message: '슬슬 안 보고 해볼 차례' };
+    // 세션 5회 이상 + 안정도 낮음: 답 가리고 연습 추천
+    if (session >= 5 && conf < 50) return { type: 'hide_practice' as const, message: '슬슬 안 보고 해볼 차례' };
     
-    // 연습 3회 이상: 답 가리기 유도
-    if (total >= 3 && total < 5) return { type: 'hide_practice' as const, message: `${total}번 했으면… 이제 눈 감고 가야지 😏` };
+    // 세션 3회 이상: 답 가리기 유도
+    if (session >= 3 && session < 5) return { type: 'hide_practice' as const, message: `${session}번 했으면… 이제 눈 감고 가야지 😏` };
     
     return null;
-  }, [totalPracticeCount, confidenceData?.displayScore]);
+  }, [sessionCompleteCount, totalPracticeCount, confidenceData?.displayScore]);
 
   const toggleShortcutHelp = () => {
     const newValue = !showShortcutHelp;
