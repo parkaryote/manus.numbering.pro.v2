@@ -180,6 +180,50 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     };
   }, []);
 
+  // 모바일 sticky 입력창: 부모 main 요소의 overflow를 제어하여 Practice 내부에서 스크롤 처리
+  useEffect(() => {
+    // DashboardLayout의 <main> 요소를 찾아 overflow 제거
+    const mainEl = document.querySelector('[data-slot="sidebar-inset"] > main') as HTMLElement | null;
+    if (mainEl) {
+      const prev = mainEl.style.overflow;
+      mainEl.style.overflow = 'hidden';
+      return () => {
+        mainEl.style.overflow = prev;
+      };
+    }
+  }, []);
+
+  // 모바일 키보드 대응: visualViewport API로 키보드 올라올 때 레이아웃 조정
+  useEffect(() => {
+    const rootEl = document.getElementById('root') as HTMLElement | null;
+    if (!rootEl || !window.visualViewport) return;
+
+    const handleViewportResize = () => {
+      const vv = window.visualViewport!;
+      // visualViewport 높이를 root에 적용하여 키보드 공간 확보
+      rootEl.style.height = `${vv.height}px`;
+      rootEl.style.position = 'fixed';
+      rootEl.style.top = `${vv.offsetTop}px`;
+      rootEl.style.left = `${vv.offsetLeft}px`;
+      rootEl.style.width = `${vv.width}px`;
+    };
+
+    window.visualViewport.addEventListener('resize', handleViewportResize);
+    window.visualViewport.addEventListener('scroll', handleViewportResize);
+    handleViewportResize();
+
+    return () => {
+      window.visualViewport!.removeEventListener('resize', handleViewportResize);
+      window.visualViewport!.removeEventListener('scroll', handleViewportResize);
+      // 언마운트 시 원래대로 복원
+      rootEl.style.height = '';
+      rootEl.style.position = '';
+      rootEl.style.top = '';
+      rootEl.style.left = '';
+      rootEl.style.width = '';
+    };
+  }, []);
+
   // 새로운 문제로 이동할 때 hasBeenSaved 초기화
   useEffect(() => {
     hasBeenSaved.current = false;
