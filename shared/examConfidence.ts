@@ -7,10 +7,11 @@
  * 2. 연습만으로는 최대 25% (연습은 보조 수단)
  * 3. 시험 통과가 핵심 점수 상승 요인
  * 4. "시간이 지난 뒤 회상 성공"이 더 큰 점수 상승을 줌 (망각곡선 보상)
- *    - 직전 시험 후 6시간 이내 재시험: streak 가중치 0.2 (거의 증가 없음)
- *    - 6~24시간 후: 가중치 0.5
- *    - 24~72시간 후: 가중치 1.0 (기본)
- *    - 72시간+ 후: 가중치 1.3 (망각 극복 보상)
+ *    - 직전 시험 후 1시간 이내 재시험: 가중치 0.1 (거의 무의미)
+ *    - 1~6시간 후: 가중치 0.2
+ *    - 6~24시간 후: 가중치 0.7 (절반 이상)
+ *    - 24~72시간 후: 가중치 1.2 (기본 이상 — 망각 위험 극복)
+ *    - 72시간+ 후: 가중치 1.5 (망각 극복 최대 보상)
  * 5. 유사도 80% 이상이면 "사실상 정답"으로 처리
  *    - isCorrect=false여도 유사도 80%+ → 오답 패널티 대폭 완화
  * 6. 망각 패널티는 마지막 상호작용 이후 시간 경과에 따라 점진적 감소
@@ -18,11 +19,12 @@
  * 현실적 기대값 (3일 뒤 시험 기준):
  *   cold-start                → 0%
  *   연습 3회                   → ~15%
- *   시험 1회 통과 (당일)        → ~35%
- *   시험 1회 통과 (24h 후 재확인) → ~50%
+ *   시험 1회 통과 (당일, 1시간 내)  → ~28%
+ *   시험 1회 통과 (20시간 후)   → ~45%
+ *   시험 1회 통과 (24h 후 재확인) → ~55%
  *   시험 2회 통과 (간격 있음)   → ~70%
  *   시험 3회+ 통과 (간격 있음)  → ~85~95%
- *   바로 연속 2회 통과          → ~40% (간격 없으면 증가 억제)
+ *   바로 연속 2회 통과          → ~32% (간격 없으면 증가 억제)
  */
 
 // ─── Configurable Thresholds ───────────────────────────────────────
@@ -112,20 +114,30 @@ function hoursSince(date: Date | null, now: Date): number {
  * 직전 시험과의 시간 간격에 따른 streak 가중치
  * 짧은 간격 = 낮은 가중치 (바로 다시 보면 의미 없음)
  * 긴 간격 = 높은 가중치 (망각 후 회상 성공 = 진짜 학습)
+ *
+ * 첫 번째 streak (현재 ~ 가장 최근 시험)에도 동일하게 적용:
+ * - 방금 본 시험: 낮은 가중치
+ * - 20시간 후 확인: 높은 가중치 (망각 위험 구간에서 성공)
  */
 function getTimeGapWeight(hoursSincePrev: number): number {
-  if (hoursSincePrev < 1) return 0.1;   // 1시간 이내: 거의 무의미
-  if (hoursSincePrev < 6) return 0.2;   // 6시간 이내: 매우 낮음
-  if (hoursSincePrev < 24) return 0.5;  // 6~24시간: 절반
-  if (hoursSincePrev < 72) return 1.0;  // 1~3일: 기본값
-  return 1.3;                            // 3일+: 망각 극복 보상
+  if (hoursSincePrev < 1) return 0.1;    // 1시간 이내: 거의 무의미
+  if (hoursSincePrev < 6) return 0.2;    // 1~6시간: 매우 낮음
+  if (hoursSincePrev < 24) return 0.7;   // 6~24시간: 망각 위험 구간 진입 → 보상 시작
+  if (hoursSincePrev < 72) return 1.2;   // 1~3일: 망각 위험 극복 → 기본 이상
+  return 1.5;                             // 3일+: 망각 극복 최대 보상
 }
 
 // ─── Time-weighted Streak Score ────────────────────────────────────
 /**
  * 시간 가중 streak 점수 계산
  * 각 연속 정답에 시간 간격 가중치를 곱해서 누적
- * 최대 55점
+ * 최대 65점 (시간 가중치 상향으로 상한 조정)
+ *
+ * 첫 번째 streak도 시간 가중치 적용:
+ * - 가장 최근 시험 ~ 현재 시간 간격 기준
+ * - 20시간 경과 후 확인 → 0.7 가중치 → 10 × 0.7 = 7점 (기존 10점보다 낮지만)
+ * - 단, 첫 번째 streak의 기본 점수를 20점으로 상향하여 보상 강화
+ *   → 20h 경과: 20 × 0.7 = 14점, 48h 경과: 20 × 1.2 = 24점
  */
 function computeTimeWeightedStreakScore(
   history: Array<{ completedAt: Date; isCorrect: boolean; similarityScore: number }>,
@@ -133,7 +145,6 @@ function computeTimeWeightedStreakScore(
 ): number {
   if (history.length === 0) return 0;
 
-  // 최신순 정렬 확인 (이미 정렬되어 있어야 함)
   let score = 0;
   let prevTime: Date = now;
 
@@ -145,21 +156,20 @@ function computeTimeWeightedStreakScore(
     if (!isEffectivelyCorrect) break; // streak 끊김
 
     const hoursSincePrev = i === 0
-      ? hoursSince(item.completedAt, now)  // 가장 최근 시험 ~ 현재
+      ? hoursSince(item.completedAt, now)  // 가장 최근 시험 ~ 현재 (시간 가중치 적용)
       : (prevTime.getTime() - item.completedAt.getTime()) / (1000 * 60 * 60); // 연속 시험 간격
 
-    const weight = i === 0
-      ? 1.0  // 첫 번째 streak은 시간 가중치 없이 기본 점수
-      : getTimeGapWeight(hoursSincePrev); // 이후 streak은 간격 가중치 적용
+    const weight = getTimeGapWeight(hoursSincePrev);
 
-    // streak 순서별 기본 점수: 1st=10, 2nd=15, 3rd=18, 4th+=12
-    const basePoints = i === 0 ? 10 : i === 1 ? 15 : i === 2 ? 18 : 12;
+    // streak 순서별 기본 점수: 1st=20, 2nd=18, 3rd=15, 4th+=12
+    // 첫 번째 streak 기본 점수를 20으로 상향 → 시간 가중치와 곱하면 의미 있는 차이 발생
+    const basePoints = i === 0 ? 20 : i === 1 ? 18 : i === 2 ? 15 : 12;
     score += basePoints * weight;
 
     prevTime = item.completedAt;
   }
 
-  return Math.min(Math.round(score), 55);
+  return Math.min(Math.round(score), 65);
 }
 
 // ─── Forgetting Penalty ────────────────────────────────────────────
@@ -239,7 +249,7 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
     ? Math.min(Math.round(effectiveCorrectRate * 20), 20)
     : 0;
 
-  // ── C. 시간 가중 streak 점수 (최대 55점) ─────────────────────────
+  // ── C. 시간 가중 streak 점수 (최대 65점) ─────────────────────────
   // recentTestHistory가 있으면 정밀 계산, 없으면 기존 streak 기반 근사
   let timeWeightedStreakScore = 0;
   if (test.recentTestHistory && test.recentTestHistory.length > 0) {
@@ -247,10 +257,10 @@ export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult 
   } else {
     // fallback: 기존 streak 기반 (시간 정보 없음 → 보수적으로 계산)
     const s = test.recentCorrectStreak;
-    if (s >= 4) timeWeightedStreakScore = 40;
-    else if (s === 3) timeWeightedStreakScore = 30;
-    else if (s === 2) timeWeightedStreakScore = 20;
-    else if (s === 1) timeWeightedStreakScore = 10;
+    if (s >= 4) timeWeightedStreakScore = 45;
+    else if (s === 3) timeWeightedStreakScore = 35;
+    else if (s === 2) timeWeightedStreakScore = 25;
+    else if (s === 1) timeWeightedStreakScore = 14;
   }
 
   // ── D. 빠른 회상 보너스 (최대 10점) ─────────────────────────────
@@ -440,9 +450,12 @@ export function aggregateConfidence(results: ConfidenceResult[]): {
     };
   }
 
-  const averageScore = Math.round(
-    results.reduce((sum, r) => sum + r.displayScore, 0) / results.length
-  );
+  const total = results.reduce((sum, r) => sum + r.displayScore, 0);
+  const averageScore = Math.round(total / results.length);
+
+  const greenCount = results.filter(r => r.state === "green").length;
+  const yellowCount = results.filter(r => r.state === "yellow").length;
+  const redCount = results.filter(r => r.state === "red").length;
 
   let state: "green" | "yellow" | "red";
   if (averageScore >= CONFIDENCE_THRESHOLDS.green) {
@@ -458,8 +471,8 @@ export function aggregateConfidence(results: ConfidenceResult[]): {
     state,
     label: TRAFFIC_LIGHT_LABELS[state],
     totalQuestions: results.length,
-    greenCount: results.filter(r => r.state === "green").length,
-    yellowCount: results.filter(r => r.state === "yellow").length,
-    redCount: results.filter(r => r.state === "red").length,
+    greenCount,
+    yellowCount,
+    redCount,
   };
 }

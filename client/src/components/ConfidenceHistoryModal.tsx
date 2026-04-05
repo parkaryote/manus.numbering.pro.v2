@@ -219,27 +219,30 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
     } as any);
   }
 
-  const chartData = allPoints.map((p, i) => ({
-    ...p,
-    idx: i,
-    label: allPoints.length > 0 ? formatTimeLabel(p.at, allPoints) : "",
-    isLatest: p.at === latestTestAt && p.eventType === "test",
-    // 예측 포인트에 추가 정보 주입
-    ...(p.eventType === "exam_predict" && examDatePrediction ? {
-      predictedState: examDatePrediction.predictedState,
-      scoreDelta: examDatePrediction.scoreDelta,
-      daysUntilExam: examDatePrediction.daysUntilExam,
-    } : {}),
-  }));
-
-  // 실선 데이터 (예측 제외)
-  const solidData = chartData.filter(p => p.eventType !== "exam_predict");
-  // 점선 데이터 (현재 → 예측): 현재 마지막 포인트 + 예측 포인트
+  // 실선/점선 분리: solidScore = 실제 데이터, dashedScore = 예측 구간
+  const solidData = allPoints.filter(p => (p as any).eventType !== "exam_predict");
   const lastSolidPoint = solidData[solidData.length - 1];
-  const predictPoint = chartData.find(p => p.eventType === "exam_predict");
-  const dashedData = lastSolidPoint && predictPoint
-    ? [lastSolidPoint, predictPoint]
-    : [];
+  const predictPoint = allPoints.find(p => (p as any).eventType === "exam_predict");
+
+  // mergedData: 모든 포인트를 하나의 배열로, solidScore/dashedScore 필드 분리
+  const chartData = allPoints.map((p, i) => {
+    const isPredict = (p as any).eventType === "exam_predict";
+    const isJunction = lastSolidPoint && p.at === lastSolidPoint.at && !isPredict;
+    return {
+      ...p,
+      idx: i,
+      label: allPoints.length > 0 ? formatTimeLabel(p.at, allPoints) : "",
+      isLatest: p.at === latestTestAt && (p as any).eventType === "test",
+      solidScore: isPredict ? null : p.score,
+      // 점선은 마지막 실선 포인트부터 예측 포인트까지
+      dashedScore: isPredict ? p.score : (isJunction ? p.score : null),
+      ...(isPredict && examDatePrediction ? {
+        predictedState: examDatePrediction.predictedState,
+        scoreDelta: examDatePrediction.scoreDelta,
+        daysUntilExam: examDatePrediction.daysUntilExam,
+      } : {}),
+    };
+  });
 
   const hasData = solidData.length > 0;
   const currentScore = hasData ? solidData[solidData.length - 1].score : null;
@@ -254,7 +257,7 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
     : "#ef4444";
 
   // 두 데이터셋을 합쳐서 XAxis 공유
-  const mergedData = chartData;
+  // chartData를 LineChart에 직접 사용 (mergedData 별칭 제거)
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
@@ -315,7 +318,7 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
             <div className="h-64 w-full mt-2">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart
-                  data={mergedData}
+                  data={chartData}
                   margin={{ top: 10, right: 20, left: -10, bottom: 0 }}
                 >
                   {/* 상태 구간 배경 영역 */}
@@ -358,18 +361,31 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
 
                   <Tooltip content={<CustomTooltip />} />
 
-                  {/* 실선: 실제 안정도 흐름 (예측 제외) */}
+                  {/* 실선: 실제 안정도 흐름 */}
                   <Line
                     type="monotone"
-                    dataKey="score"
+                    dataKey="solidScore"
                     stroke={BRAND_COLOR}
                     strokeWidth={2.5}
                     dot={<CustomDot />}
                     activeDot={<CustomActiveDot />}
-                    isAnimationActive={true}
-                    animationDuration={600}
+                    isAnimationActive={false}
                     connectNulls={false}
                   />
+                  {/* 점선: 시험일 예측 */}
+                  {predictPoint && (
+                    <Line
+                      type="monotone"
+                      dataKey="dashedScore"
+                      stroke={PREDICT_COLOR}
+                      strokeWidth={2}
+                      strokeDasharray="5 4"
+                      dot={false}
+                      activeDot={false}
+                      isAnimationActive={false}
+                      connectNulls={true}
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             </div>

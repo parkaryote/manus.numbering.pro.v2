@@ -1712,40 +1712,38 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </div>
       ) : (
         /* 텍스트/표 문제: 상단 통계 바 */
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          {/* 왼쪽: 돌아가기 */}
           <Button variant="ghost" size="sm" onClick={handleGoBack} className="gap-1.5 h-8 px-2 shrink-0">
             <ArrowLeft className="h-4 w-4" />
             <span className="hidden sm:inline text-sm">돌아가기</span>
           </Button>
 
-          {/* 구분선 */}
-          <div className="h-6 w-px bg-border shrink-0" />
-
-          {/* 통계 칩들 - 한 행 */}
-          <div className="flex items-center gap-3 overflow-x-auto scrollbar-none flex-1 min-w-0">
+          {/* 오른쪽: 통계 + 측정 상태 */}
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
             {/* 현재/누적 연습 */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-lg font-bold tabular-nums">{practiceCountDisplay}</span>
-              <span className="text-xs text-muted-foreground">현재</span>
-              <span className="text-muted-foreground/40 text-xs">/</span>
-              <span className="text-lg font-bold tabular-nums">{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)}</span>
-              <span className="text-xs text-muted-foreground">누적</span>
+            <div className="flex items-center gap-1 shrink-0 text-xs">
+              <span className="font-bold tabular-nums text-sm">{practiceCountDisplay}</span>
+              <span className="text-muted-foreground">현재</span>
+              <span className="text-muted-foreground/40">/</span>
+              <span className="font-bold tabular-nums text-sm">{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)}</span>
+              <span className="text-muted-foreground">누적</span>
             </div>
 
             {/* 구분선 */}
-            {!isDemo && confidenceData && <div className="h-5 w-px bg-border shrink-0" />}
+            {!isDemo && confidenceData && <div className="h-4 w-px bg-border shrink-0" />}
 
             {/* 안정도 */}
             {!isDemo && confidenceData && (
               <button
-                className="flex items-center gap-1.5 hover:opacity-70 transition-opacity cursor-pointer shrink-0"
+                className="flex items-center gap-1 hover:opacity-70 transition-opacity cursor-pointer shrink-0"
                 title="안정도 변화 그래프 보기"
                 onClick={() => setShowConfidenceHistory(true)}
               >
-                <span className="text-lg font-bold tabular-nums" style={{
+                <span className="font-bold tabular-nums text-sm" style={{
                   color: confidenceData.state === 'green' ? '#10b981' : confidenceData.state === 'yellow' ? '#f59e0b' : '#ef4444'
                 }}>{Math.round(confidenceData.displayScore)}%</span>
-                <span className="text-xs text-muted-foreground">안정도 ↗</span>
+                <span className="text-xs text-muted-foreground">안정도↗</span>
               </button>
             )}
 
@@ -1755,7 +1753,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               const stateColor = pred.predictedState === 'green' ? '#10b981' : pred.predictedState === 'yellow' ? '#f59e0b' : '#ef4444';
               return (
                 <>
-                  <div className="h-5 w-px bg-border shrink-0" />
+                  <div className="h-4 w-px bg-border shrink-0" />
                   <div className="flex items-center gap-1 shrink-0 text-xs">
                     <span className="text-muted-foreground">D-{pred.daysUntilExam}</span>
                     <span className="font-semibold" style={{ color: stateColor }}>{pred.predictedScore}%</span>
@@ -1769,7 +1767,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
             {/* 배지들 */}
             {!isDemo && confidenceData?.badges && (
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1 shrink-0">
                 {confidenceData.badges.lastTestWrong && (
                   <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
                     오답
@@ -1781,22 +1779,50 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   </span>
                 )}
                 {confidenceData.badges.hasWarnZone && (
-                  <button
-                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 hover:bg-yellow-200 dark:hover:bg-yellow-900/50 cursor-pointer transition-colors"
-                    onClick={() => setShowWarnZone(v => !v)}
-                  >
-                    ⚠️ 주의구간
-                  </button>
+                  <div className="relative">
+                    <button
+                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 hover:bg-yellow-200 dark:hover:bg-yellow-900/50 cursor-pointer transition-colors"
+                      onClick={() => setShowWarnZone(v => !v)}
+                    >
+                      ⚠️ 주의구간 {showWarnZone ? '▲' : '▼'}
+                    </button>
+                    {showWarnZone && (
+                      <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-lg border border-yellow-200 dark:border-yellow-700/40 bg-white dark:bg-zinc-900 shadow-lg p-3">
+                        <p className="text-xs text-muted-foreground mb-2">시험에서 2회 이상 오답이 발생한 구간</p>
+                        {confidenceData?.warnZoneLines && confidenceData.warnZoneLines.length > 0 ? (
+                          <ul className="space-y-1.5">
+                            {confidenceData.warnZoneLines.map((wz: { lineIndex: number; wrongCount: number }) => (
+                              <li key={wz.lineIndex} className="flex items-center justify-between px-2 py-1.5 rounded bg-yellow-50 dark:bg-yellow-900/20">
+                                <span className="text-xs font-medium text-yellow-800 dark:text-yellow-300">{wz.lineIndex}번째 줄</span>
+                                <span className="text-xs font-bold text-red-500">{wz.wrongCount}회 오답</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">데이터 없음</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}
-          </div>
 
-          {/* 측정 상태 표시 */}
-          <div className="flex items-center gap-1 shrink-0 ml-auto">
-            <Circle
-              className={`h-2 w-2 ${isActive ? "fill-green-500 text-green-500" : "fill-red-500 text-red-500"}`}
-            />
+            {/* 구분선 */}
+            <div className="h-4 w-px bg-border shrink-0" />
+
+            {/* 측정 상태 표시 */}
+            <div className="flex items-center gap-1 shrink-0">
+              <div className="relative flex items-center justify-center">
+                <div className={`h-2 w-2 rounded-full ${isActive ? 'bg-green-500' : 'bg-red-500'}`} />
+                {isActive && (
+                  <div className="absolute h-4 w-4 rounded-full bg-green-500/30 animate-ping" />
+                )}
+              </div>
+              <span className={`text-[10px] font-medium ${isActive ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+                {isActive ? '측정중' : '중단됨'}
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -2446,31 +2472,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         />
       )}
 
-      {/* 주의구간 오버레이 Dialog */}
-      <Dialog open={showWarnZone} onOpenChange={setShowWarnZone}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-yellow-700 dark:text-yellow-400">
-              ⚠️ 주의 구간
-            </DialogTitle>
-          </DialogHeader>
-          {confidenceData?.warnZoneLines && confidenceData.warnZoneLines.length > 0 ? (
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">시험에서 2회 이상 오답이 발생한 구간입니다.</p>
-              <ul className="space-y-2 mt-3">
-                {confidenceData.warnZoneLines.map((wz: { lineIndex: number; wrongCount: number }) => (
-                  <li key={wz.lineIndex} className="flex items-center justify-between px-3 py-2 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700/40">
-                    <span className="text-sm font-medium text-yellow-800 dark:text-yellow-300">{wz.lineIndex}번째 줄</span>
-                    <span className="text-sm font-bold text-red-500">{wz.wrongCount}회 오답</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">주의 구간 데이터가 없습니다.</p>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* 주의구간은 배지 아래 팝업 박스로 표시 (Dialog 불필요) */}
     </div>
   );
 }
