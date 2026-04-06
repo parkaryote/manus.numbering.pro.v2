@@ -1034,6 +1034,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           )}
           {questions && questions.length > 0 && (
             <>
+              {!isDemo && (
               <Button
                 variant="outline"
                 size="sm"
@@ -1043,11 +1044,12 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 <ScrollText className="h-3.5 w-3.5" />
                 전체 연습
               </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
                 className="gap-1.5 h-8"
-                onClick={() => setLocation(`/practice/${questions[0].id}`)}
+                onClick={() => setLocation(isDemo ? `/demo/practice/${questions[0].id}` : `/practice/${questions[0].id}`)}
               >
                 <BookOpen className="h-3.5 w-3.5" />
                 개별 연습
@@ -1056,7 +1058,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 variant="outline"
                 size="sm"
                 className="gap-1.5 h-8"
-                onClick={() => setLocation(`/test/${questions[0].id}`)}
+                onClick={() => setLocation(isDemo ? `/demo/test/${questions[0].id}` : `/test/${questions[0].id}`)}
               >
                 <ClipboardCheck className="h-3.5 w-3.5" />
                 시험
@@ -1078,7 +1080,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             displayOrder: q.displayOrder,
             isStarred: q.isStarred || 0,
           }))}
-          onSelectQuestion={(id) => setLocation(`/practice/${id}`)}
+          onSelectQuestion={(id) => setLocation(isDemo ? `/demo/practice/${id}` : `/practice/${id}`)}
           confidenceData={Object.fromEntries(
             Array.from(confidenceMap.entries()).map(([qId, conf]) => [
               qId,
@@ -1129,8 +1131,8 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                       confidence={confidenceMap.get(question.id)}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
-                      onPractice={(id) => setLocation(`/practice/${id}`)}
-                      onTest={(id) => setLocation(`/test/${id}`)}
+                      onPractice={(id) => setLocation(isDemo ? `/demo/practice/${id}` : `/practice/${id}`)}
+                      onTest={(id) => setLocation(isDemo ? `/demo/test/${id}` : `/test/${id}`)}
                       onCopy={handleCopy}
                       onMove={handleMove}
                       onToggleStar={(id) => toggleStarMutation.mutate({ id })}

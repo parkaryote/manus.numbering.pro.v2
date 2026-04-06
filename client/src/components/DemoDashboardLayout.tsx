@@ -9,7 +9,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { LayoutDashboard, BookOpen, BarChart3, Moon, Sun, PanelLeft } from "lucide-react";
+import { BookOpen, Moon, Sun, PanelLeft, LogIn } from "lucide-react";
 import { CSSProperties, useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "./ui/button";
@@ -44,9 +44,7 @@ function DemoDashboardContent({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
 
   const menuItems = [
-    { icon: LayoutDashboard, label: "대시보드", path: "/" },
-    { icon: BookOpen, label: "과목 관리", path: "/subjects" },
-    { icon: BarChart3, label: "학습 통계", path: "/statistics" },
+    { icon: BookOpen, label: "데모 과목", path: "/demo" },
   ];
 
   return (
@@ -64,8 +62,8 @@ function DemoDashboardContent({ children }: { children: React.ReactNode }) {
             {menuItems.map((item) => (
               <SidebarMenuItem key={item.path}>
                 <SidebarMenuButton
-                  isActive={location === item.path}
-                  onClick={() => setLocation("/demo")}
+                  isActive={location.startsWith(item.path)}
+                  onClick={() => setLocation(item.path)}
                   className="gap-2"
                 >
                   <item.icon className="h-4 w-4" />
@@ -74,6 +72,22 @@ function DemoDashboardContent({ children }: { children: React.ReactNode }) {
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
+          {/* 가입/로그인 유도 */}
+          <div className="mt-4 px-1">
+            <Button
+              variant="default"
+              size="sm"
+              className="w-full gap-2 text-xs"
+              onClick={() => setLocation("/demo")}
+            >
+              <LogIn className="h-3.5 w-3.5" />
+              가입 / 로그인
+            </Button>
+            <p className="text-[10px] text-muted-foreground text-center mt-1.5">
+              가입하면 나만의 통계가 쌓입니다
+            </p>
+          </div>
+
         </SidebarContent>
       </Sidebar>
 
