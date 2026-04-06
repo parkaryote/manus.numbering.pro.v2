@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
-import { Plus, ArrowLeft, Dumbbell, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star, ScrollText, Settings, Calendar } from "lucide-react";
+import { Plus, ArrowLeft, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star, ScrollText, Settings, Calendar, BookOpen } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
@@ -131,8 +131,12 @@ function SortableQuestionCard({
           </div>
         )}
 
-          {/* 문제 정보 */}
-        <div className="flex-1 px-3 py-2 min-w-0">
+          {/* 문제 정보 - 클릭 시 연습모드 진입 */}
+        <div
+          className="flex-1 px-3 py-2 min-w-0 cursor-pointer hover:bg-muted/20 transition-colors"
+          onClick={() => onPractice(question.id)}
+          title="클릭하여 연습 시작"
+        >
           <div className="flex items-center gap-1.5">
             {hasImage && (
               <ImageIcon className="h-3 w-3 text-blue-500 flex-shrink-0" />
@@ -266,7 +270,7 @@ function SortableQuestionCard({
           <button
             className="flex items-center px-2 border-l hover:bg-muted/50 transition-colors cursor-pointer"
             title="클릭하여 변화 그래프 보기"
-            onClick={() => onConfidenceClick(question.id, question.question)}
+            onClick={(e) => { e.stopPropagation(); onConfidenceClick(question.id, question.question); }}
           >
             <div className="flex flex-col items-center gap-0.5">
               <div
@@ -289,16 +293,7 @@ function SortableQuestionCard({
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => onPractice(question.id)}
-            title="연습 모드"
-          >
-            <Dumbbell className="h-3.5 w-3.5 text-blue-600" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => onTest(question.id)}
+            onClick={(e) => { e.stopPropagation(); onTest(question.id); }}
             title="시험 모드"
           >
             <ClipboardCheck className="h-3.5 w-3.5 text-green-600" />
@@ -308,7 +303,7 @@ function SortableQuestionCard({
             variant="ghost"
             size="icon"
             className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={() => onCopy(question)}
+            onClick={(e) => { e.stopPropagation(); onCopy(question); }}
             title="복사"
           >
             <Copy className="h-3 w-3" />
@@ -317,7 +312,7 @@ function SortableQuestionCard({
             variant="ghost"
             size="icon"
             className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={() => onMove(question)}
+            onClick={(e) => { e.stopPropagation(); onMove(question); }}
             title="이동"
           >
             <MoveRight className="h-3 w-3" />
@@ -326,7 +321,7 @@ function SortableQuestionCard({
             variant="ghost"
             size="icon"
             className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={() => onEdit(question)}
+            onClick={(e) => { e.stopPropagation(); onEdit(question); }}
             title="수정"
           >
             <Edit className="h-3 w-3" />
@@ -335,7 +330,7 @@ function SortableQuestionCard({
             variant="ghost"
             size="icon"
             className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={() => onDelete(question.id)}
+            onClick={(e) => { e.stopPropagation(); onDelete(question.id); }}
             title="삭제"
           >
             <Trash2 className="h-3 w-3 text-destructive" />
@@ -1054,7 +1049,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 className="gap-1.5 h-8"
                 onClick={() => setLocation(`/practice/${questions[0].id}`)}
               >
-                <Dumbbell className="h-3.5 w-3.5" />
+                <BookOpen className="h-3.5 w-3.5" />
                 개별 연습
               </Button>
               <Button
