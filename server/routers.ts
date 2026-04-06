@@ -50,6 +50,40 @@ function calcCharSimilarity(userText: string, correctText: string): number {
   return Math.round((lcsLen / Math.max(m, n)) * 100);
 }
 
+// 데모 과목·문제를 사용자 계정으로 복사하는 헬퍼 함수
+async function copyDemoDataToUser(userId: number) {
+  const demoSubjects = await db.getDemoSubjects();
+  for (const demoSubject of demoSubjects) {
+    // 사용자 계정에 과목 생성
+    const newSubject = await db.createSubject({
+      userId,
+      name: demoSubject.name,
+      description: demoSubject.description ?? undefined,
+      color: demoSubject.color ?? "#3B82F6",
+      isDemo: 0,
+      displayOrder: demoSubject.displayOrder,
+    });
+    // 해당 과목의 데모 문제 복사
+    const demoQuestions = await db.getDemoQuestions(demoSubject.id);
+    for (const dq of demoQuestions) {
+      await db.createQuestion({
+        subjectId: newSubject.id,
+        userId,
+        question: dq.question,
+        answer: dq.answer,
+        difficulty: dq.difficulty ?? "medium",
+        imageUrl: dq.imageUrl ?? undefined,
+        imageLabels: dq.imageLabels ?? undefined,
+        autoNumbering: dq.autoNumbering,
+        tableData: dq.tableData ?? undefined,
+        displayOrder: dq.displayOrder,
+        isDemo: 0,
+        isStarred: 0,
+      });
+    }
+  }
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -113,6 +147,9 @@ export const appRouter = router({
 
         // 아이디/비밀번호 저장
         await db.setUserCredentials(user.id, input.username, passwordHash);
+
+        // 데모 과목·문제를 사용자 계정으로 복사
+        await copyDemoDataToUser(user.id);
 
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(simpleOpenId, {
@@ -294,10 +331,14 @@ export const appRouter = router({
       return db.getSubjectsByUserId(ctx.user.id);
     }),
     
-    getById: protectedProcedure
+    getById: publicProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
-        return db.getSubjectById(input.id);
+      .query(async ({ input, ctx }) => {
+        const subject = await db.getSubjectById(input.id);
+        // Allow access to demo subjects without auth
+        if (subject?.isDemo) return subject;
+        if (!ctx.user) throw new TRPCError({ code: 'UNAUTHORIZED' });
+        return subject;
       }),
     
     create: protectedProcedure
@@ -357,9 +398,15 @@ export const appRouter = router({
 
   // Question management
   questions: router({
-    listBySubject: protectedProcedure
+    listBySubject: publicProcedure
       .input(z.object({ subjectId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
+        // Check if subject is demo - allow without auth
+        const subject = await db.getSubjectById(input.subjectId);
+        if (subject?.isDemo) {
+          return db.getDemoQuestions(input.subjectId);
+        }
+        if (!ctx.user) throw new TRPCError({ code: 'UNAUTHORIZED' });
         return db.getQuestionsBySubjectId(input.subjectId);
       }),
     
