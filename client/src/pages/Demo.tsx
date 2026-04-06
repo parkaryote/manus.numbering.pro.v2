@@ -1,28 +1,48 @@
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useLocation } from "wouter";
-import { FileText, Image as ImageIcon, Table, LogIn, Zap, UserPlus } from "lucide-react";
-import { getLoginUrl } from "@/const";
-import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
+import { BookOpen, Star, LogIn, UserPlus, Zap, X } from "lucide-react";
 import { toast } from "sonner";
+import { getLoginUrl } from "@/const";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+// 과목별 미니 그리드 (데모용 — 안정도 데이터 없이 회색 점만 표시)
+function DemoSubjectMiniGrid({ subjectId }: { subjectId: number }) {
+  const { data: questions } = trpc.demo.questions.useQuery({ subjectId });
+  if (!questions || questions.length === 0) return null;
+  const sorted = [...questions].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+  return (
+    <div className="flex flex-wrap gap-1 mt-2">
+      {sorted.map((q) => (
+        <div
+          key={q.id}
+          className="rounded-md w-3 h-3 bg-neutral-200 dark:bg-neutral-700 border border-neutral-200 dark:border-neutral-700"
+          title={q.question}
+        />
+      ))}
+    </div>
+  );
+}
 
 type AuthMode = "none" | "signup" | "login";
 
 export default function Demo() {
   const [, setLocation] = useLocation();
   const [authMode, setAuthMode] = useState<AuthMode>("none");
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
-  // 가입 폼 상태
+  // 가입 폼
   const [accessPassword, setAccessPassword] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
 
-  // 로그인 폼 상태
+  // 로그인 폼
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
 
@@ -62,143 +82,99 @@ export default function Demo() {
     simpleLoginMutation.mutate({ username: loginUsername, password: loginPassword });
   };
 
+  const resetForms = () => {
+    setAccessPassword(""); setUsername(""); setPassword(""); setPasswordConfirm("");
+    setLoginUsername(""); setLoginPassword("");
+    setAuthMode("none");
+  };
+
   return (
-    <div className="container max-w-4xl py-8 overflow-y-auto">
-      <div className="mb-6">
-        <h1 className="text-4xl font-semibold tracking-tight">데모 모드</h1>
-        <p className="text-muted-foreground mt-2">로그인 없이 예시 문제를 체험할 수 있습니다</p>
+    <div className="space-y-6">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">과목 관리</h1>
+          <p className="text-muted-foreground mt-1">데모 모드 — 로그인하면 나만의 과목을 만들 수 있습니다</p>
+        </div>
+        <Button variant="outline" onClick={() => setAuthMode(authMode === "none" ? "login" : "none")} className="gap-2">
+          <LogIn className="h-4 w-4" />
+          로그인 / 가입
+        </Button>
       </div>
 
-      {/* 로그인/가입 카드 */}
-      {authMode === "none" ? (
-        <Card className="mb-6 border-primary/20 bg-primary/5">
-          <CardContent className="py-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <p className="font-medium">나만의 문제를 만들고 학습 기록을 저장하려면?</p>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  계정을 만들면 과목 생성, 문제 추가, 학습 통계 기능을 사용할 수 있습니다
-                </p>
-              </div>
-              <div className="flex gap-2 shrink-0">
-                <Button variant="outline" onClick={() => setAuthMode("signup")} className="gap-2">
-                  <UserPlus className="h-4 w-4" />
-                  간편 가입
-                </Button>
-                <Button variant="outline" onClick={() => setAuthMode("login")} className="gap-2">
-                  <Zap className="h-4 w-4" />
-                  간편 로그인
-                </Button>
-                <Button onClick={() => { window.location.href = getLoginUrl(); }} className="gap-2">
-                  <LogIn className="h-4 w-4" />
-                  Manus 로그인
-                </Button>
-              </div>
+      {/* 가입/로그인 패널 */}
+      {authMode !== "none" && (
+        <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-sm font-medium">계정으로 시작하면 나만의 과목과 문제를 추가하고 학습 통계를 쌓을 수 있습니다.</p>
+              <Button variant="ghost" size="icon" className="h-6 w-6 -mt-1 -mr-1" onClick={resetForms}>
+                <X className="h-4 w-4" />
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="mb-6 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
-          <CardContent className="py-5">
-            <Tabs value={authMode === "login" ? "login" : "signup"} onValueChange={(v) => setAuthMode(v as AuthMode)}>
+            <Tabs value={authMode} onValueChange={(v) => setAuthMode(v as AuthMode)}>
               <TabsList className="mb-4">
-                <TabsTrigger value="signup">간편 가입</TabsTrigger>
-                <TabsTrigger value="login">간편 로그인</TabsTrigger>
+                <TabsTrigger value="signup" className="gap-1.5"><UserPlus className="h-3.5 w-3.5" />간편 가입</TabsTrigger>
+                <TabsTrigger value="login" className="gap-1.5"><Zap className="h-3.5 w-3.5" />간편 로그인</TabsTrigger>
               </TabsList>
 
-              {/* 가입 탭 */}
               <TabsContent value="signup">
-                <div className="space-y-3 max-w-sm">
-                  <p className="text-sm text-muted-foreground">접속 비밀번호를 확인한 후 개인 계정을 만듭니다.</p>
-                  <div className="space-y-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
+                  <div className="space-y-1 sm:col-span-2">
                     <Label htmlFor="accessPassword">접속 비밀번호</Label>
-                    <Input
-                      id="accessPassword"
-                      type="password"
-                      placeholder="사이트 접속 비밀번호"
-                      value={accessPassword}
-                      onChange={(e) => setAccessPassword(e.target.value)}
-                      disabled={simpleSignupMutation.isPending}
-                    />
+                    <Input id="accessPassword" type="password" placeholder="사이트 접속 비밀번호" value={accessPassword}
+                      onChange={(e) => setAccessPassword(e.target.value)} disabled={simpleSignupMutation.isPending} />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="username">아이디</Label>
-                    <Input
-                      id="username"
-                      placeholder="2~20자 아이디"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      disabled={simpleSignupMutation.isPending}
-                    />
+                    <Input id="username" placeholder="2~20자" value={username}
+                      onChange={(e) => setUsername(e.target.value)} disabled={simpleSignupMutation.isPending} />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="password">비밀번호</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="4자 이상"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      disabled={simpleSignupMutation.isPending}
-                    />
+                    <Input id="password" type="password" placeholder="4자 이상" value={password}
+                      onChange={(e) => setPassword(e.target.value)} disabled={simpleSignupMutation.isPending} />
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 sm:col-span-2">
                     <Label htmlFor="passwordConfirm">비밀번호 확인</Label>
-                    <Input
-                      id="passwordConfirm"
-                      type="password"
-                      placeholder="비밀번호 재입력"
-                      value={passwordConfirm}
+                    <Input id="passwordConfirm" type="password" placeholder="비밀번호 재입력" value={passwordConfirm}
                       onChange={(e) => setPasswordConfirm(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleSignup()}
-                      disabled={simpleSignupMutation.isPending}
-                    />
+                      disabled={simpleSignupMutation.isPending} />
                   </div>
-                  <div className="flex gap-2 pt-1">
+                  <div className="sm:col-span-2 flex gap-2 pt-1">
                     <Button onClick={handleSignup} disabled={simpleSignupMutation.isPending} className="gap-2">
                       <UserPlus className="h-4 w-4" />
                       {simpleSignupMutation.isPending ? "처리중..." : "계정 만들기"}
                     </Button>
-                    <Button variant="outline" onClick={() => { setAuthMode("none"); setAccessPassword(""); setUsername(""); setPassword(""); setPasswordConfirm(""); }}>
-                      취소
-                    </Button>
+                    <Button variant="outline" onClick={resetForms}>취소</Button>
                   </div>
                 </div>
               </TabsContent>
 
-              {/* 로그인 탭 */}
               <TabsContent value="login">
-                <div className="space-y-3 max-w-sm">
-                  <p className="text-sm text-muted-foreground">기존에 만든 계정으로 로그인합니다.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
                   <div className="space-y-1">
                     <Label htmlFor="loginUsername">아이디</Label>
-                    <Input
-                      id="loginUsername"
-                      placeholder="아이디"
-                      value={loginUsername}
-                      onChange={(e) => setLoginUsername(e.target.value)}
-                      disabled={simpleLoginMutation.isPending}
-                    />
+                    <Input id="loginUsername" placeholder="아이디" value={loginUsername}
+                      onChange={(e) => setLoginUsername(e.target.value)} disabled={simpleLoginMutation.isPending} />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="loginPassword">비밀번호</Label>
-                    <Input
-                      id="loginPassword"
-                      type="password"
-                      placeholder="비밀번호"
-                      value={loginPassword}
+                    <Input id="loginPassword" type="password" placeholder="비밀번호" value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                      disabled={simpleLoginMutation.isPending}
-                    />
+                      disabled={simpleLoginMutation.isPending} />
                   </div>
-                  <div className="flex gap-2 pt-1">
+                  <div className="sm:col-span-2 flex gap-2 pt-1">
                     <Button onClick={handleLogin} disabled={simpleLoginMutation.isPending} className="gap-2">
                       <Zap className="h-4 w-4" />
                       {simpleLoginMutation.isPending ? "처리중..." : "로그인"}
                     </Button>
-                    <Button variant="outline" onClick={() => { setAuthMode("none"); setLoginUsername(""); setLoginPassword(""); }}>
-                      취소
+                    <Button variant="outline" onClick={resetForms}>취소</Button>
+                    <Button variant="ghost" onClick={() => { window.location.href = getLoginUrl(); }} className="ml-auto gap-1.5 text-muted-foreground">
+                      <LogIn className="h-3.5 w-3.5" />
+                      Manus 계정으로 로그인
                     </Button>
                   </div>
                 </div>
@@ -208,86 +184,56 @@ export default function Demo() {
         </Card>
       )}
 
-      {/* 데모 과목 목록 */}
+      {/* 데모 과목 목록 — Subjects.tsx와 동일한 카드 구조 */}
       {isLoading ? (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">로딩 중...</p>
+        </div>
+      ) : !subjects || subjects.length === 0 ? (
         <Card className="shadow-elegant">
-          <CardContent className="py-8">
-            <p className="text-center text-muted-foreground">로딩 중...</p>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
+            <p className="text-muted-foreground">아직 데모 과목이 없습니다</p>
           </CardContent>
         </Card>
-      ) : subjects && subjects.length > 0 ? (
-        <div className="space-y-4">
+      ) : (
+        <div className="grid gap-4">
           {subjects.map((subject) => (
-            <Card key={subject.id} className="shadow-elegant hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-4 h-4 rounded-full"
-                    style={{ backgroundColor: subject.color || "#3B82F6" }}
-                  />
-                  <CardTitle>{subject.name}</CardTitle>
-                </div>
-                {subject.description && (
-                  <CardDescription>{subject.description}</CardDescription>
-                )}
-              </CardHeader>
-              <CardContent>
-                <DemoQuestions subjectId={subject.id} />
-              </CardContent>
-            </Card>
+            <DemoSubjectCard key={subject.id} subject={subject} />
           ))}
         </div>
-      ) : (
-        <Card className="shadow-elegant">
-          <CardContent className="py-8">
-            <p className="text-center text-muted-foreground">아직 데모 과목이 없습니다</p>
-          </CardContent>
-        </Card>
       )}
     </div>
   );
 }
 
-function DemoQuestions({ subjectId }: { subjectId: number }) {
+function DemoSubjectCard({ subject }: { subject: any }) {
   const [, setLocation] = useLocation();
-  const { data: questions, isLoading } = trpc.demo.questions.useQuery({ subjectId });
+  const { data: questions } = trpc.demo.questions.useQuery({ subjectId: subject.id });
 
-  if (isLoading) return <p className="text-sm text-muted-foreground">문제 로딩 중...</p>;
-  if (!questions || questions.length === 0) return <p className="text-sm text-muted-foreground">등록된 문제가 없습니다</p>;
+  const questionCount = questions?.length ?? 0;
 
   return (
-    <div className="space-y-2">
-      {questions.map((question) => {
-        const isImageQuestion = !!question.imageUrl;
-        const isTableQuestion = !!question.tableData;
-        const questionType = isTableQuestion ? "table" : isImageQuestion ? "image" : "text";
-        const practiceCount = parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10);
-
-        return (
-          <div
-            key={question.id}
-            className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors cursor-pointer"
-            onClick={() => setLocation(`/demo/practice/${question.id}`)}
-          >
-            <div className="flex items-center gap-3 flex-1">
-              {questionType === "text" && <FileText className="h-4 w-4 text-blue-500 shrink-0" />}
-              {questionType === "image" && <ImageIcon className="h-4 w-4 text-green-500 shrink-0" />}
-              {questionType === "table" && <Table className="h-4 w-4 text-purple-500 shrink-0" />}
-              <div className="flex-1 min-w-0">
-                <p className="font-medium line-clamp-1">{question.question}</p>
-                <p className="text-sm text-muted-foreground">
-                  난이도: {question.difficulty === "easy" ? "쉬움" : question.difficulty === "medium" ? "보통" : "어려움"} · 누적 연습: {practiceCount}
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-              <Button variant="outline" size="sm" onClick={() => setLocation(`/demo/test/${question.id}`)}>
-                시험 모드
-              </Button>
-            </div>
+    <Card className="shadow-elegant hover:shadow-lg transition-all cursor-pointer"
+      onClick={() => setLocation(`/demo/questions/${subject.id}`)}>
+      <CardHeader className="flex flex-row items-start gap-3 pb-3">
+        <div className="w-4 h-4 rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: subject.color }} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <CardTitle className="text-lg">{subject.name}</CardTitle>
+            <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+              <Star className="w-2.5 h-2.5" />
+              데모
+            </Badge>
           </div>
-        );
-      })}
-    </div>
+          {subject.description && (
+            <CardDescription className="line-clamp-1 mb-1">{subject.description}</CardDescription>
+          )}
+          <p className="text-xs text-muted-foreground mb-1">{questionCount}개 문제 · 클릭하여 연습 시작</p>
+          {/* 미니 그리드 (회색 점 — 안정도는 로그인 후 쌓임) */}
+          <DemoSubjectMiniGrid subjectId={subject.id} />
+        </div>
+      </CardHeader>
+    </Card>
   );
 }

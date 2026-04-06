@@ -114,9 +114,6 @@ export const appRouter = router({
         // 아이디/비밀번호 저장
         await db.setUserCredentials(user.id, input.username, passwordHash);
 
-        // 초기 데이터 생성
-        await createInitialDataForUser(user.id);
-
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(simpleOpenId, {
           name: user.name || input.username,

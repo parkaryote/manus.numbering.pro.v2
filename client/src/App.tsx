@@ -70,21 +70,29 @@ function Router() {
         </DashboardLayout>
       </Route>
       <Route path={"/demo"}>
-        <Demo />
+        <DashboardLayout>
+          <Demo />
+        </DashboardLayout>
       </Route>
       <Route path={"/demo/practice/:questionId"}>
         {(params) => (
-          <Practice questionId={parseInt(params.questionId)} isDemo={true} />
+          <DashboardLayout>
+            <Practice questionId={parseInt(params.questionId)} isDemo={true} />
+          </DashboardLayout>
         )}
       </Route>
       <Route path={"/demo/test/:questionId"}>
         {(params) => (
-          <Test questionId={parseInt(params.questionId)} isDemo={true} />
+          <DashboardLayout>
+            <Test questionId={parseInt(params.questionId)} isDemo={true} />
+          </DashboardLayout>
         )}
       </Route>
-      <Route path={"\demo/questions/:subjectId"}>
+      <Route path={"/demo/questions/:subjectId"}>
         {(params) => (
-          <Questions subjectId={parseInt(params.subjectId)} isDemo={true} />
+          <DashboardLayout>
+            <Questions subjectId={parseInt(params.subjectId)} isDemo={true} />
+          </DashboardLayout>
         )}
       </Route>
       <Route path={"/admin/demo-management"}>

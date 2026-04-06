@@ -2011,3 +2011,13 @@
 - [x] simpleLogin: 개인 아이디/비밀번호로 재로그인
 - [x] Demo.tsx UI: 가입/로그인 탭 분리
 - [x] auth.simpleSignup 프로시저 에러 근본 수정
+
+# 간편 가입 개선 (v2.2.1)
+- [x] parkham 계정의 영어 단어/한국사/수학 공식 과목 DB에서 삭제
+- [x] 초기 데이터 생성 로직 제거 (가입 후 빈 상태로 시작)
+- [x] 간편 가입 처리 속도 최적화 (createInitialDataForUser 제거로 속도 개선)
+
+# 데모 페이지 재설계 (v2.3.0)
+- [x] 데모 페이지를 로그인 후 과목 목록과 동일한 화면으로 변경
+- [x] 상단에 가입/로그인 유도 배너 배치
+- [x] createInitialDataForUser 제거 (가입 후 빈 상태로 시작)
