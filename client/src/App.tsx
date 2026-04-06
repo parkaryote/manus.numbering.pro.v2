@@ -20,58 +20,97 @@ import AdminDemoManagement from "./pages/AdminDemoManagement";
 import SubjectPractice from "./pages/SubjectPractice";
 import SubjectExam from "./pages/SubjectExam";
 
-function Router() {
+const GUEST_ID_KEY = "numbering_guest_id";
+
+function getOrCreateGuestId(): string {
+  try {
+    let guestId = localStorage.getItem(GUEST_ID_KEY);
+    if (!guestId) {
+      guestId = Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
+      localStorage.setItem(GUEST_ID_KEY, guestId);
+    }
+    return guestId;
+  } catch {
+    return Math.random().toString(36).substring(2, 11);
+  }
+}
+
+function isGuestUser(user: { openId?: string; loginMethod?: string | null } | null | undefined): boolean {
+  if (!user) return false;
+  return (
+    (user.openId?.startsWith("guest_") ?? false) ||
+    user.loginMethod === "guest"
+  );
+}
+
+/**
+ * 레이아웃 선택 헬퍼: 게스트면 DemoDashboardLayout, 일반 로그인이면 DashboardLayout
+ */
+function Layout({
+  user,
+  children,
+}: {
+  user: { openId?: string; loginMethod?: string | null } | null | undefined;
+  children: React.ReactNode;
+}) {
+  if (isGuestUser(user)) {
+    return <DemoDashboardLayout>{children}</DemoDashboardLayout>;
+  }
+  return <DashboardLayout>{children}</DashboardLayout>;
+}
+
+function Router({ user }: { user: { openId?: string; loginMethod?: string | null } | null | undefined }) {
   return (
     <Switch>
       <Route path={"/"}>
-        <DashboardLayout>
+        <Layout user={user}>
           <Home />
-        </DashboardLayout>
+        </Layout>
       </Route>
       <Route path={"/subjects"}>
-        <DashboardLayout>
+        <Layout user={user}>
           <Subjects />
-        </DashboardLayout>
+        </Layout>
       </Route>
       <Route path={"/questions/:subjectId"}>
         {(params) => (
-          <DashboardLayout>
+          <Layout user={user}>
             <Questions subjectId={parseInt(params.subjectId)} />
-          </DashboardLayout>
+          </Layout>
         )}
       </Route>
       <Route path={"/subject-practice/:subjectId"}>
         {(params) => (
-          <DashboardLayout>
+          <Layout user={user}>
             <SubjectPractice subjectId={parseInt(params.subjectId)} />
-          </DashboardLayout>
+          </Layout>
         )}
       </Route>
       <Route path={"/subject-exam/:subjectId"}>
         {(params) => (
-          <DashboardLayout>
+          <Layout user={user}>
             <SubjectExam subjectId={parseInt(params.subjectId)} />
-          </DashboardLayout>
+          </Layout>
         )}
       </Route>
       <Route path={"/practice/:questionId"}>
         {(params) => (
-          <DashboardLayout>
+          <Layout user={user}>
             <Practice questionId={parseInt(params.questionId)} />
-          </DashboardLayout>
+          </Layout>
         )}
       </Route>
       <Route path={"/test/:questionId"}>
         {(params) => (
-          <DashboardLayout>
+          <Layout user={user}>
             <Test questionId={parseInt(params.questionId)} />
-          </DashboardLayout>
+          </Layout>
         )}
       </Route>
       <Route path={"/statistics"}>
-        <DashboardLayout>
+        <Layout user={user}>
           <Statistics />
-        </DashboardLayout>
+        </Layout>
       </Route>
       <Route path={"/demo"}>
         <DemoDashboardLayout>
@@ -110,24 +149,14 @@ function Router() {
   );
 }
 
-const GUEST_ID_KEY = "numbering_guest_id";
-
-function getOrCreateGuestId(): string {
-  try {
-    let guestId = localStorage.getItem(GUEST_ID_KEY);
-    if (!guestId) {
-      guestId = Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
-      localStorage.setItem(GUEST_ID_KEY, guestId);
-    }
-    return guestId;
-  } catch {
-    return Math.random().toString(36).substring(2, 11);
-  }
-}
-
 function AppContent() {
   const autoGuestLogin = trpc.auth.autoGuestLogin.useMutation();
   const [guestReady, setGuestReady] = useState(false);
+  const meQuery = trpc.auth.me.useQuery(undefined, {
+    retry: false,
+    refetchOnWindowFocus: false,
+    enabled: guestReady,
+  });
 
   useEffect(() => {
     const guestId = getOrCreateGuestId();
@@ -151,7 +180,7 @@ function AppContent() {
   return (
     <TooltipProvider>
       <Toaster />
-      <Router />
+      <Router user={meQuery.data} />
     </TooltipProvider>
   );
 }

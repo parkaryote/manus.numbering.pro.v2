@@ -7,25 +7,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-  useSidebar,
-} from "@/components/ui/sidebar";
-import { getLoginUrl } from "@/const";
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, BookOpen, FileQuestion, Dumbbell, ClipboardCheck, BarChart3, Settings, Moon, Sun } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { LayoutDashboard, LogOut, BookOpen, BarChart3, Settings, Moon, Sun, Menu, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
-import { Button } from "./ui/button";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const menuItems = [
@@ -38,26 +29,13 @@ const adminMenuItems = [
   { icon: Settings, label: "데모 관리", path: "/admin/demo-management" },
 ];
 
-const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const DEFAULT_WIDTH = 280;
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 480;
-
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
-  });
   const { loading, user } = useAuth();
   const [, setLocation] = useLocation();
-
-  useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
-  }, [sidebarWidth]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -70,248 +48,242 @@ export default function DashboardLayout({
   }
 
   return (
-    <SidebarProvider
-      style={
-        {
-          "--sidebar-width": `${sidebarWidth}px`,
-        } as CSSProperties
-      }
-    >
-      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
-        {children}
-      </DashboardLayoutContent>
-    </SidebarProvider>
+    <TooltipProvider delayDuration={300}>
+      <DashboardLayoutContent>{children}</DashboardLayoutContent>
+    </TooltipProvider>
   );
 }
 
-type DashboardLayoutContentProps = {
-  children: React.ReactNode;
-  setSidebarWidth: (width: number) => void;
-};
-
-function DashboardLayoutContent({
-  children,
-  setSidebarWidth,
-}: DashboardLayoutContentProps) {
+function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
-  const { state, toggleSidebar } = useSidebar();
-  const isCollapsed = state === "collapsed";
-  const [isResizing, setIsResizing] = useState(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
   const { theme, toggleTheme } = useTheme();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  useEffect(() => {
-    if (isCollapsed) {
-      setIsResizing(false);
-    }
-  }, [isCollapsed]);
+  if (isMobile) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        {/* 모바일 상단 헤더 */}
+        <header className="flex h-12 items-center justify-between border-b px-4 sticky top-0 bg-background z-40">
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-md transition-colors"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+          <span className="text-sm font-semibold">numbering.pro</span>
+          <button
+            onClick={toggleTheme}
+            className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-md transition-colors"
+          >
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
+        </header>
 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-
-      const sidebarLeft = sidebarRef.current?.getBoundingClientRect().left ?? 0;
-      const newWidth = e.clientX - sidebarLeft;
-      if (newWidth >= MIN_WIDTH && newWidth <= MAX_WIDTH) {
-        setSidebarWidth(newWidth);
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    if (isResizing) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    }
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-  }, [isResizing, setSidebarWidth]);
-
-  return (
-    <>
-      <div className="relative" ref={sidebarRef}>
-        <Sidebar
-          collapsible="icon"
-          className="border-r-0"
-          disableTransition={isResizing}
-        >
-          <SidebarHeader className="h-16 justify-center">
-            <div className="flex items-center gap-3 px-2 transition-all w-full">
-              <button
-                onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
-                aria-label="Toggle navigation"
-              >
-                <PanelLeft className="h-4 w-4 text-muted-foreground" />
-              </button>
-              {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
-                    Navigation
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          </SidebarHeader>
-
-          <SidebarContent className="gap-0">
-            <SidebarMenu className="px-2 py-1">
-              {menuItems.map(item => {
+        {/* 모바일 드로어 */}
+        {mobileOpen && (
+          <div className="fixed inset-0 z-50 flex">
+            <div className="w-56 bg-background border-r flex flex-col py-3 gap-1">
+              <div className="flex items-center justify-between px-3 mb-2">
+                <span className="text-sm font-semibold">numbering.pro</span>
+                <button
+                  onClick={() => setMobileOpen(false)}
+                  className="h-7 w-7 flex items-center justify-center hover:bg-accent rounded-md"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              {menuItems.map((item) => {
                 const isActive = location === item.path;
                 return (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => setLocation(item.path)}
-                      tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
-                    >
-                      <item.icon
-                        className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
-                      />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  <button
+                    key={item.path}
+                    onClick={() => { setLocation(item.path); setMobileOpen(false); }}
+                    className={`flex items-center gap-3 mx-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                      isActive
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                  >
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    <span>{item.label}</span>
+                  </button>
                 );
               })}
               {user?.role === "admin" && (
                 <>
-                  <div className="my-2 border-t" />
-                  {adminMenuItems.map(item => {
+                  <div className="mx-3 my-1 border-t" />
+                  {adminMenuItems.map((item) => {
                     const isActive = location === item.path;
                     return (
-                      <SidebarMenuItem key={item.path}>
-                        <SidebarMenuButton
-                          isActive={isActive}
-                          onClick={() => setLocation(item.path)}
-                          tooltip={item.label}
-                          className={`h-10 transition-all font-normal`}
-                        >
-                          <item.icon
-                            className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
-                          />
-                          <span>{item.label}</span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
+                      <button
+                        key={item.path}
+                        onClick={() => { setLocation(item.path); setMobileOpen(false); }}
+                        className={`flex items-center gap-3 mx-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                          isActive
+                            ? "bg-primary/10 text-primary font-medium"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                        }`}
+                      >
+                        <item.icon className="h-4 w-4 shrink-0" />
+                        <span>{item.label}</span>
+                      </button>
                     );
                   })}
                 </>
               )}
-            </SidebarMenu>
-          </SidebarContent>
-
-          <SidebarFooter className="p-3">
-            {toggleTheme && (
-              <button
-                onClick={toggleTheme}
-                className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-accent/50 transition-colors w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1"
-                aria-label="Toggle dark mode"
-              >
-                {theme === "dark" ? (
-                  <Sun className="h-4 w-4 text-muted-foreground shrink-0" />
-                ) : (
-                  <Moon className="h-4 w-4 text-muted-foreground shrink-0" />
-                )}
-                <span className="text-sm font-medium group-data-[collapsible=icon]:hidden">
-                  {theme === "dark" ? "라이트 모드" : "다크 모드"}
-                </span>
-              </button>
-            )}
-            <div className="my-1 border-t" />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0">
+              <div className="mt-auto px-3 pt-2 border-t mx-2">
+                <div className="flex items-center gap-2 py-2">
+                  <Avatar className="h-7 w-7 border shrink-0">
                     <AvatarFallback className="text-xs font-medium">
                       {user?.name?.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none">
-                      {user?.name || "-"}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate mt-1.5">
-                      {user?.email || "-"}
-                    </p>
-                  </div>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                {user?.role === "admin" && (
-                  <>
-                    <DropdownMenuItem
-                      onClick={() => setLocation("/admin/demo-management")}
-                      className="cursor-pointer"
-                    >
-                      <Settings className="mr-2 h-4 w-4" />
-                      <span>데모 관리</span>
-                    </DropdownMenuItem>
-                    <div className="my-1 border-t" />
-                  </>
-                )}
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sign out</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarFooter>
-        </Sidebar>
-        <div
-          className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors ${isCollapsed ? "hidden" : ""}`}
-          onMouseDown={() => {
-            if (isCollapsed) return;
-            setIsResizing(true);
-          }}
-          style={{ zIndex: 50 }}
-        />
-      </div>
-
-      <SidebarInset>
-        {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="tracking-tight text-foreground">
-                    {activeMenuItem?.label ?? "Menu"}
-                  </span>
+                  <span className="text-xs text-muted-foreground truncate">{user?.name}</span>
                 </div>
+                <button
+                  onClick={logout}
+                  className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span>로그아웃</span>
+                </button>
               </div>
             </div>
-            {toggleTheme && (
-              <button
-                onClick={toggleTheme}
-                className="h-9 w-9 flex items-center justify-center hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label="Toggle dark mode"
-              >
-                {theme === "dark" ? (
-                  <Sun className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <Moon className="h-4 w-4 text-muted-foreground" />
-                )}
-              </button>
-            )}
+            <div className="flex-1 bg-black/40" onClick={() => setMobileOpen(false)} />
           </div>
         )}
-        <main className="flex-1 min-h-0 flex flex-col overflow-y-auto">{children}</main>
-      </SidebarInset>
-    </>
+
+        <main className="flex-1 overflow-y-auto">{children}</main>
+      </div>
+    );
+  }
+
+  // 데스크탑: 항상 아이콘만 표시하는 슬림 사이드바
+  return (
+    <div className="min-h-screen bg-background flex">
+      {/* 슬림 사이드바 */}
+      <aside className="w-12 flex flex-col items-center py-3 gap-1 border-r bg-background shrink-0 sticky top-0 h-screen overflow-y-auto">
+        {/* 메뉴 아이템들 */}
+        <div className="flex flex-col items-center gap-1 w-full">
+          {menuItems.map((item) => {
+            const isActive = location === item.path;
+            return (
+              <Tooltip key={item.path}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setLocation(item.path)}
+                    className={`h-9 w-9 flex items-center justify-center rounded-md transition-colors ${
+                      isActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                  >
+                    <item.icon className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="text-xs">
+                  {item.label}
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+
+          {user?.role === "admin" && (
+            <>
+              <div className="w-6 border-t my-1" />
+              {adminMenuItems.map((item) => {
+                const isActive = location === item.path;
+                return (
+                  <Tooltip key={item.path}>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setLocation(item.path)}
+                        className={`h-9 w-9 flex items-center justify-center rounded-md transition-colors ${
+                          isActive
+                            ? "bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                        }`}
+                      >
+                        <item.icon className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="text-xs">
+                      {item.label}
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </>
+          )}
+        </div>
+
+        {/* 하단 영역 */}
+        <div className="mt-auto flex flex-col items-center gap-1">
+          {/* 다크모드 토글 */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={toggleTheme}
+                className="h-9 w-9 flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="text-xs">
+              {theme === "dark" ? "라이트 모드" : "다크 모드"}
+            </TooltipContent>
+          </Tooltip>
+
+          {/* 유저 아바타 + 로그아웃 */}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button className="h-9 w-9 flex items-center justify-center rounded-md hover:bg-accent transition-colors">
+                    <Avatar className="h-7 w-7 border shrink-0">
+                      <AvatarFallback className="text-xs font-medium">
+                        {user?.name?.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="text-xs">
+                {user?.name || "계정"}
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" side="right" className="w-48">
+              <div className="px-2 py-1.5 text-xs text-muted-foreground border-b mb-1">
+                {user?.name}
+              </div>
+              {user?.role === "admin" && (
+                <>
+                  <DropdownMenuItem
+                    onClick={() => setLocation("/admin/demo-management")}
+                    className="cursor-pointer text-xs"
+                  >
+                    <Settings className="mr-2 h-3.5 w-3.5" />
+                    <span>데모 관리</span>
+                  </DropdownMenuItem>
+                  <div className="my-1 border-t" />
+                </>
+              )}
+              <DropdownMenuItem
+                onClick={logout}
+                className="cursor-pointer text-destructive focus:text-destructive text-xs"
+              >
+                <LogOut className="mr-2 h-3.5 w-3.5" />
+                <span>로그아웃</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </aside>
+
+      {/* 메인 콘텐츠 */}
+      <main className="flex-1 min-w-0 overflow-y-auto">{children}</main>
+    </div>
   );
 }
