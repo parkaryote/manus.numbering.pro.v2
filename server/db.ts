@@ -108,6 +108,19 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function getUserByUsername(username: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function setUserCredentials(userId: number, username: string, passwordHash: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ username, passwordHash }).where(eq(users.id, userId));
+}
+
 export async function getUserAICredits(userId: number) {
   const db = await getDb();
   if (!db) return 0;

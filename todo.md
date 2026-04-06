@@ -2004,3 +2004,10 @@
 
 # 버그 수정 (v2.1.1)
 - [x] auth.simpleSignup 프로시저 라우터 등록 오류 수정
+
+# 간편 가입 재설계 (v2.2.0)
+- [x] DB users 테이블에 username/passwordHash 필드 추가
+- [x] simpleSignup: 접속 비밀번호 확인 후 개인 아이디/비밀번호로 계정 생성
+- [x] simpleLogin: 개인 아이디/비밀번호로 재로그인
+- [x] Demo.tsx UI: 가입/로그인 탭 분리
+- [x] auth.simpleSignup 프로시저 에러 근본 수정

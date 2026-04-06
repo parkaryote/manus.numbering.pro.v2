@@ -61,17 +61,34 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
-    // 간편 가입: 비밀번호 검증 후 세션 생성
+    // 간편 가입: 접속 비밀번호 확인 후 개인 아이디/비밀번호로 계정 생성
     simpleSignup: publicProcedure
-      .input(z.object({ password: z.string() }))
+      .input(z.object({
+        accessPassword: z.string(), // 접속 비밀번호 (wlsgur37)
+        username: z.string().min(2).max(20),
+        password: z.string().min(4),
+      }))
       .mutation(async ({ input, ctx }) => {
-        const SIMPLE_SIGNUP_PASSWORD = "진혁37";
-        if (input.password !== SIMPLE_SIGNUP_PASSWORD) {
+        const ACCESS_PASSWORD = "wlsgur37";
+        if (input.accessPassword !== ACCESS_PASSWORD) {
           throw new TRPCError({
             code: "UNAUTHORIZED",
-            message: "비밀번호가 일치하지 않습니다",
+            message: "접속 비밀번호가 일치하지 않습니다",
           });
         }
+
+        // 아이디 중복 확인
+        const existing = await db.getUserByUsername(input.username);
+        if (existing) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "이미 사용 중인 아이디입니다",
+          });
+        }
+
+        // 비밀번호 해시
+        const bcrypt = await import("bcryptjs");
+        const passwordHash = await bcrypt.hash(input.password, 10);
 
         // 고유한 openId 생성 (간편 가입용)
         const simpleOpenId = `simple_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
@@ -79,7 +96,7 @@ export const appRouter = router({
         // 사용자 생성
         await db.upsertUser({
           openId: simpleOpenId,
-          name: `사용자_${Date.now().toString().slice(-6)}`,
+          name: input.username,
           email: null,
           loginMethod: "simple",
           lastSignedIn: new Date(),
@@ -94,12 +111,54 @@ export const appRouter = router({
           });
         }
 
+        // 아이디/비밀번호 저장
+        await db.setUserCredentials(user.id, input.username, passwordHash);
+
         // 초기 데이터 생성
         await createInitialDataForUser(user.id);
 
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(simpleOpenId, {
-          name: user.name || "사용자",
+          name: user.name || input.username,
+          expiresInMs: ONE_YEAR_MS,
+        });
+
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return { success: true, userId: user.id };
+      }),
+
+    // 간편 로그인: 개인 아이디/비밀번호로 재로그인
+    simpleLogin: publicProcedure
+      .input(z.object({
+        username: z.string(),
+        password: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const user = await db.getUserByUsername(input.username);
+        if (!user || !user.passwordHash) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "아이디 또는 비밀번호가 일치하지 않습니다",
+          });
+        }
+
+        const bcrypt = await import("bcryptjs");
+        const isValid = await bcrypt.compare(input.password, user.passwordHash);
+        if (!isValid) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "아이디 또는 비밀번호가 일치하지 않습니다",
+          });
+        }
+
+        // 세션 토큰 생성
+        const sessionToken = await sdk.createSessionToken(user.openId, {
+          name: user.name || input.username,
           expiresInMs: ONE_YEAR_MS,
         });
 

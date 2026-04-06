@@ -21,6 +21,10 @@ export const users = mysqlTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  /** 간편 가입 사용자 아이디 (선택) */
+  username: varchar("username", { length: 64 }).unique(),
+  /** 간편 가입 비밀번호 해시 (bcrypt) */
+  passwordHash: varchar("passwordHash", { length: 255 }),
 });
 
 export type User = typeof users.$inferSelect;
