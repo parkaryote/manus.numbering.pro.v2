@@ -15,12 +15,12 @@ describe("SubjectPractice 라우트 및 UI 통합", () => {
     expect(content).toContain("export default function SubjectPractice");
   });
 
-  it("Questions.tsx에 전체 연습 버튼이 있어야 함", async () => {
+  it("Questions.tsx에 모의고사 버튼이 있어야 함", async () => {
     const fs = await import("fs");
     const content = fs.readFileSync("client/src/pages/Questions.tsx", "utf-8");
-    expect(content).toContain("전체 연습");
-    expect(content).toContain("subject-practice");
-    expect(content).toContain("ScrollText");
+    expect(content).toContain("모의고사");
+    expect(content).toContain("subject-exam");
+    expect(content).toContain("ClipboardCheck");
   });
 
   it("SubjectPractice에 sticky 입력 패널이 있어야 함", async () => {

@@ -2046,3 +2046,9 @@
 - [x] 데모 연습 모드에서 로그인 체크 제거 (게스트도 연습 가능)
 - [x] 게스트 연습 통계를 localStorage에 저장 (쿠키/캐시 유지 시 보존)
 - [x] DemoDashboardLayout 사이드바에서 과목 관리·대시보드 메뉴 제거
+
+# 버튼 개편 및 모의고사 개선 (v2.8.0)
+- [x] Questions.tsx에서 전체연습·개별연습 버튼 제거
+- [x] Questions.tsx에서 모의고사 버튼 추가 (과목 전체 시험)
+- [x] SubjectExam.tsx 모의고사 입력 칸 크기 개선 (200px 기본 높이)
+- [x] SubjectExam.tsx 랜덤 순서 버그 수정 (순서대로/랜덤 토글 추가)

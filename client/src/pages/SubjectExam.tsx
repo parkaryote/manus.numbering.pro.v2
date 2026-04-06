@@ -74,6 +74,8 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
+  const [isRandom, setIsRandom] = useState(false);
+  const [examQuestions, setExamQuestions] = useState<typeof textQuestions>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
@@ -117,6 +119,10 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
       toast.error("연습할 텍스트 문제가 없습니다.");
       return;
     }
+    const ordered = isRandom
+      ? [...textQuestions].sort(() => Math.random() - 0.5)
+      : [...textQuestions];
+    setExamQuestions(ordered);
     setPhase("exam");
     setCurrentIndex(0);
     setResults([]);
@@ -125,11 +131,11 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
     setStartTime(now);
     setQuestionStartTime(now);
     setTimeout(() => textareaRef.current?.focus(), 100);
-  }, [textQuestions]);
+  }, [textQuestions, isRandom]);
 
   const handleSubmitAnswer = useCallback(async () => {
     if (isSubmitting) return;
-    const question = textQuestions[currentIndex];
+    const question = examQuestions[currentIndex];
     if (!question) return;
 
     setIsSubmitting(true);
@@ -157,7 +163,7 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
       const newResults = [...results, result];
       setResults(newResults);
 
-      if (currentIndex + 1 < textQuestions.length) {
+      if (currentIndex + 1 < examQuestions.length) {
         setCurrentIndex(currentIndex + 1);
         setUserAnswer("");
         setQuestionStartTime(Date.now());
@@ -213,8 +219,28 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
           <div className="text-5xl mb-4">📝</div>
           <h1 className="text-2xl font-bold mb-2">{subject?.name} 모의고사</h1>
           <p className="text-muted-foreground mb-6">
-            과목 내 텍스트 문제를 순서대로 풀어봅니다.
+            과목 내 텍스트 문제를 풀어봅니다.
           </p>
+
+          {/* 랜덤 순서 토글 */}
+          <div className="flex items-center justify-center gap-3 mb-6">
+            <button
+              onClick={() => setIsRandom(false)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                !isRandom ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              순서대로
+            </button>
+            <button
+              onClick={() => setIsRandom(true)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                isRandom ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              랜덤 순서
+            </button>
+          </div>
 
           <div className="grid grid-cols-3 gap-4 mb-8 max-w-sm mx-auto">
             <div className="bg-muted/40 rounded-lg p-4 text-center">
@@ -256,8 +282,8 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
 
   // ── 시험 화면 ──────────────────────────────────────────────────
   if (phase === "exam") {
-    const question = textQuestions[currentIndex];
-    const progress = ((currentIndex) / textQuestions.length) * 100;
+    const question = examQuestions[currentIndex];
+    const progress = ((currentIndex) / examQuestions.length) * 100;
 
     return (
       <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-4">
@@ -280,7 +306,7 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
           <div className="flex-1">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium">
-                {currentIndex + 1} / {textQuestions.length}
+                {currentIndex + 1} / {examQuestions.length}
               </span>
               <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Clock className="h-3.5 w-3.5" />
@@ -310,7 +336,7 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
             onCompositionEnd={() => setIsComposing(false)}
             onKeyDown={handleKeyDown}
             placeholder="정답을 입력하세요..."
-            className="min-h-[120px] resize-none font-medium"
+            className="min-h-[200px] resize-none font-medium"
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}

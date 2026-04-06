@@ -1039,30 +1039,12 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 variant="outline"
                 size="sm"
                 className="gap-1.5 h-8"
-                onClick={() => setLocation(`/subject-practice/${subjectId}`)}
-              >
-                <ScrollText className="h-3.5 w-3.5" />
-                전체 연습
-              </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 h-8"
-                onClick={() => setLocation(isDemo ? `/demo/practice/${questions[0].id}` : `/practice/${questions[0].id}`)}
-              >
-                <BookOpen className="h-3.5 w-3.5" />
-                개별 연습
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 h-8"
-                onClick={() => setLocation(isDemo ? `/demo/test/${questions[0].id}` : `/test/${questions[0].id}`)}
+                onClick={() => setLocation(`/subject-exam/${subjectId}`)}
               >
                 <ClipboardCheck className="h-3.5 w-3.5" />
-                시험
+                모의고사
               </Button>
+              )}
             </>
           )}
           <Button size="sm" className="gap-1.5 h-8" onClick={() => setIsCreateOpen(true)}>
