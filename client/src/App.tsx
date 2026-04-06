@@ -4,6 +4,7 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { SiteGate, useSiteAccess } from "./components/SiteGate";
 import DashboardLayout from "./components/DashboardLayout";
 import Home from "./pages/Home";
 import Subjects from "./pages/Subjects";
@@ -107,6 +108,18 @@ function Router() {
 }
 
 function App() {
+  const { granted, grant } = useSiteAccess();
+
+  if (!granted) {
+    return (
+      <ErrorBoundary>
+        <ThemeProvider defaultTheme="light" switchable={false}>
+          <SiteGate onGranted={grant} />
+        </ThemeProvider>
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light" switchable={true}>

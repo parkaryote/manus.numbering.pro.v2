@@ -37,7 +37,6 @@ export default function Demo() {
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
   // 가입 폼
-  const [accessPassword, setAccessPassword] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -69,11 +68,10 @@ export default function Demo() {
   });
 
   const handleSignup = () => {
-    if (!accessPassword.trim()) { toast.error("접속 비밀번호를 입력해주세요"); return; }
     if (!username.trim()) { toast.error("아이디를 입력해주세요"); return; }
     if (password.length < 4) { toast.error("비밀번호는 4자 이상이어야 합니다"); return; }
     if (password !== passwordConfirm) { toast.error("비밀번호가 일치하지 않습니다"); return; }
-    simpleSignupMutation.mutate({ accessPassword, username, password });
+    simpleSignupMutation.mutate({ accessPassword: "wlsgur37", username, password });
   };
 
   const handleLogin = () => {
@@ -83,7 +81,7 @@ export default function Demo() {
   };
 
   const resetForms = () => {
-    setAccessPassword(""); setUsername(""); setPassword(""); setPasswordConfirm("");
+    setUsername(""); setPassword(""); setPasswordConfirm("");
     setLoginUsername(""); setLoginPassword("");
     setAuthMode("none");
   };
@@ -120,11 +118,6 @@ export default function Demo() {
 
               <TabsContent value="signup">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
-                  <div className="space-y-1 sm:col-span-2">
-                    <Label htmlFor="accessPassword">접속 비밀번호</Label>
-                    <Input id="accessPassword" type="password" placeholder="사이트 접속 비밀번호" value={accessPassword}
-                      onChange={(e) => setAccessPassword(e.target.value)} disabled={simpleSignupMutation.isPending} />
-                  </div>
                   <div className="space-y-1">
                     <Label htmlFor="username">아이디</Label>
                     <Input id="username" placeholder="2~20자" value={username}
