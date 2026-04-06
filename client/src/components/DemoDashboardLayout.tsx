@@ -175,7 +175,7 @@ export default function DemoDashboardLayout({
   const handleClose = () => setAuthOpen(false);
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
+    <div className="h-screen flex flex-col bg-background">
       {/* 로그인 유도 배너 */}
       <div className="shrink-0 bg-primary/5 border-b border-primary/10 px-4 py-2 flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground leading-snug">
@@ -200,8 +200,8 @@ export default function DemoDashboardLayout({
         </div>
       </div>
 
-      {/* 메인 콘텐츠 - 스크롤 가능 */}
-      <main className="flex-1 overflow-y-auto p-6">
+      {/* 메인 콘텐츠 */}
+      <main className="flex-1 overflow-y-auto flex flex-col min-h-0 p-6">
         {children}
       </main>
 
