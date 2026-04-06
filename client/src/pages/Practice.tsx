@@ -921,6 +921,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // 안정도 80% 이상 + 세션 3회 이상 연습: 완벽 암기
     if (conf >= 80) return { type: 'mastered' as const, message: '완벽하게 암기했어요. 시험으로 확인해볼까요?' };
     
+    // 세션 3회 달성: 안정도 무관하게 백지시험 제안
+    if (session === 3) {
+      return { type: 'test_ready' as const, message: `3번 연습했어요! 이제 백지시험으로 확인해보세요.` };
+    }
+    
     // 세션 3회 이상 + 안정도 50% 이상: 시험 추천
     if (conf >= 50) {
       const messages = [
@@ -932,7 +937,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return { type: 'test_ready' as const, message: msg };
     }
     
-    // 세션 5회 이상 + 안정도 낮음: 답 가리고 연습 추천
+    // 세션 5회 이상 + 안정도 낙음: 답 가리고 연습 추천
     if (session >= 5 && conf < 50) return { type: 'hide_practice' as const, message: '슬슬 안 보고 해볼 차례' };
     
     // 세션 3회 이상: 답 가리기 유도
@@ -1184,6 +1189,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
   const handleCorrectAnswer = (currentInputLength?: number) => {
     setPracticeCount(prev => prev + 1);
+    
+    // sessionCompleteCount 증가 + 3회 달성 시 백지시험 제안
+    setSessionCompleteCount(prev => {
+      const next = prev + 1;
+      if (next === 3) {
+        setShowTestNudge(true);
+      }
+      return next;
+    });
     
     // 페이드아웃 애니메이션을 즉시 시작 (네트워크 요청 기다리지 않음)
     // 0.15초 delay 후 글자 색상 fade out 시작
