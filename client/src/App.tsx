@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { SiteGate, useSiteAccess } from "./components/SiteGate";
 import DashboardLayout from "./components/DashboardLayout";
+import DemoDashboardLayout from "./components/DemoDashboardLayout";
 import Home from "./pages/Home";
 import Subjects from "./pages/Subjects";
 import Questions from "./pages/Questions";
@@ -71,29 +72,29 @@ function Router() {
         </DashboardLayout>
       </Route>
       <Route path={"/demo"}>
-        <DashboardLayout>
+        <DemoDashboardLayout>
           <Demo />
-        </DashboardLayout>
+        </DemoDashboardLayout>
       </Route>
       <Route path={"/demo/practice/:questionId"}>
         {(params) => (
-          <DashboardLayout>
+          <DemoDashboardLayout>
             <Practice questionId={parseInt(params.questionId)} isDemo={true} />
-          </DashboardLayout>
+          </DemoDashboardLayout>
         )}
       </Route>
       <Route path={"/demo/test/:questionId"}>
         {(params) => (
-          <DashboardLayout>
+          <DemoDashboardLayout>
             <Test questionId={parseInt(params.questionId)} isDemo={true} />
-          </DashboardLayout>
+          </DemoDashboardLayout>
         )}
       </Route>
       <Route path={"/demo/questions/:subjectId"}>
         {(params) => (
-          <DashboardLayout>
+          <DemoDashboardLayout>
             <Questions subjectId={parseInt(params.subjectId)} isDemo={true} />
-          </DashboardLayout>
+          </DemoDashboardLayout>
         )}
       </Route>
       <Route path={"/admin/demo-management"}>
