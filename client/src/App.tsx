@@ -49,39 +49,41 @@ function isGuestUser(user: { openId?: string; loginMethod?: string | null } | nu
 function Layout({
   user,
   children,
+  onAuthSuccess,
 }: {
   user: { openId?: string; loginMethod?: string | null } | null | undefined;
   children: React.ReactNode;
+  onAuthSuccess?: () => void;
 }) {
   if (isGuestUser(user)) {
-    return <DemoDashboardLayout>{children}</DemoDashboardLayout>;
+    return <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>{children}</DemoDashboardLayout>;
   }
   return <DashboardLayout>{children}</DashboardLayout>;
 }
 
-function Router({ user }: { user: { openId?: string; loginMethod?: string | null } | null | undefined }) {
+function Router({ user, onAuthSuccess }: { user: { openId?: string; loginMethod?: string | null } | null | undefined; onAuthSuccess?: () => void }) {
   return (
     <Switch>
       <Route path={"/"}>
-        <Layout user={user}>
+        <Layout user={user} onAuthSuccess={onAuthSuccess}>
           <Home />
         </Layout>
       </Route>
       <Route path={"/subjects"}>
-        <Layout user={user}>
+        <Layout user={user} onAuthSuccess={onAuthSuccess}>
           <Subjects />
         </Layout>
       </Route>
       <Route path={"/questions/:subjectId"}>
         {(params) => (
-          <Layout user={user}>
+          <Layout user={user} onAuthSuccess={onAuthSuccess}>
             <Questions subjectId={parseInt(params.subjectId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/subject-practice/:subjectId"}>
         {(params) => (
-          <Layout user={user}>
+          <Layout user={user} onAuthSuccess={onAuthSuccess}>
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
               <div className="text-4xl">🚧</div>
               <h2 className="text-xl font-bold">준비 중입니다</h2>
@@ -96,27 +98,27 @@ function Router({ user }: { user: { openId?: string; loginMethod?: string | null
       </Route>
       <Route path={"/subject-exam/:subjectId"}>
         {(params) => (
-          <Layout user={user}>
+          <Layout user={user} onAuthSuccess={onAuthSuccess}>
             <SubjectExam subjectId={parseInt(params.subjectId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/practice/:questionId"}>
         {(params) => (
-          <Layout user={user}>
+          <Layout user={user} onAuthSuccess={onAuthSuccess}>
             <Practice questionId={parseInt(params.questionId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/test/:questionId"}>
         {(params) => (
-          <Layout user={user}>
+          <Layout user={user} onAuthSuccess={onAuthSuccess}>
             <Test questionId={parseInt(params.questionId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/statistics"}>
-        <Layout user={user}>
+        <Layout user={user} onAuthSuccess={onAuthSuccess}>
           <Statistics />
         </Layout>
       </Route>
@@ -159,22 +161,72 @@ function Router({ user }: { user: { openId?: string; loginMethod?: string | null
 
 function AppContent() {
   const autoGuestLogin = trpc.auth.autoGuestLogin.useMutation();
-  const [guestReady, setGuestReady] = useState(false);
-  const meQuery = trpc.auth.me.useQuery(undefined, {
-    retry: false,
-    refetchOnWindowFocus: false,
-    enabled: guestReady,
-  });
+  // 먼저 현재 세션 확인 (이미 로그인된 경우 게스트 로그인 건너뜀)
+  const [initDone, setInitDone] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  // 로그인/가입 성공 후 currentUser를 업데이트하는 함수 (reload 없이 레이아웃 전환)
+  const handleAuthSuccess = async () => {
+    try {
+      const res = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const user = data?.[0]?.result?.data?.json;
+        if (user) {
+          setCurrentUser(user);
+          return;
+        }
+      }
+    } catch { /* ignore */ }
+    window.location.reload();
+  };
 
   useEffect(() => {
-    const guestId = getOrCreateGuestId();
-    autoGuestLogin.mutate({ guestId }, {
-      onSuccess: () => setGuestReady(true),
-      onError: () => setGuestReady(true), // 실패해도 앱 진입 허용
-    });
+    async function init() {
+      try {
+        // 1) 먼저 현재 세션 확인
+        const res = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
+          credentials: "include",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const user = data?.[0]?.result?.data?.json;
+          if (user && user.loginMethod !== "guest") {
+            // 이미 정식 계정으로 로그인됨 → 게스트 로그인 건너뜀
+            setCurrentUser(user);
+            setInitDone(true);
+            return;
+          }
+        }
+      } catch {
+        // 세션 확인 실패 → 게스트 로그인 시도
+      }
+
+      // 2) 정식 계정 없으면 게스트 로그인
+      const guestId = getOrCreateGuestId();
+      autoGuestLogin.mutate({ guestId }, {
+        onSuccess: async () => {
+          // 게스트 로그인 후 최신 user 정보 fetch
+          try {
+            const res2 = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
+              credentials: "include",
+            });
+            if (res2.ok) {
+              const data2 = await res2.json();
+              setCurrentUser(data2?.[0]?.result?.data?.json ?? null);
+            }
+          } catch { /* ignore */ }
+          setInitDone(true);
+        },
+        onError: () => setInitDone(true),
+      });
+    }
+    init();
   }, []);
 
-  if (!guestReady) {
+  if (!initDone) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center space-y-3">
@@ -188,7 +240,7 @@ function AppContent() {
   return (
     <TooltipProvider>
       <Toaster />
-      <Router user={meQuery.data} />
+      <Router user={currentUser} onAuthSuccess={handleAuthSuccess} />
     </TooltipProvider>
   );
 }

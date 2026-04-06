@@ -14,10 +14,12 @@ function AuthModal({
   open,
   defaultTab,
   onClose,
+  onAuthSuccess,
 }: {
   open: boolean;
   defaultTab: AuthTab;
   onClose: () => void;
+  onAuthSuccess?: () => void;
 }) {
   const [tab, setTab] = useState<AuthTab>(defaultTab);
 
@@ -34,7 +36,7 @@ function AuthModal({
     onSuccess: () => {
       toast.success("가입 완료! 로그인되었습니다.");
       onClose();
-      window.location.reload();
+      if (onAuthSuccess) onAuthSuccess(); else window.location.reload();
     },
     onError: (err) => toast.error(err.message || "가입 실패"),
   });
@@ -43,7 +45,7 @@ function AuthModal({
     onSuccess: () => {
       toast.success("로그인되었습니다.");
       onClose();
-      window.location.reload();
+      if (onAuthSuccess) onAuthSuccess(); else window.location.reload();
     },
     onError: (err) => toast.error(err.message || "로그인 실패"),
   });
@@ -160,14 +162,17 @@ function AuthModal({
 
 export default function DemoDashboardLayout({
   children,
+  onAuthSuccess,
 }: {
   children: React.ReactNode;
+  onAuthSuccess?: () => void;
 }) {
   const [authOpen, setAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState<AuthTab>("login");
 
   const openLogin = () => { setAuthTab("login"); setAuthOpen(true); };
   const openSignup = () => { setAuthTab("signup"); setAuthOpen(true); };
+  const handleClose = () => setAuthOpen(false);
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
@@ -204,7 +209,8 @@ export default function DemoDashboardLayout({
       <AuthModal
         open={authOpen}
         defaultTab={authTab}
-        onClose={() => setAuthOpen(false)}
+        onClose={handleClose}
+        onAuthSuccess={onAuthSuccess}
       />
     </div>
   );

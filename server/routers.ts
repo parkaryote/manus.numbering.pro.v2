@@ -243,6 +243,10 @@ export const appRouter = router({
         guestId: z.string(), // 클라이언트에서 생성한 고유 게스트 ID (localStorage에 저장)
       }))
       .mutation(async ({ input, ctx }) => {
+        // 이미 정식 로그인된 사용자(simple, oauth 등)가 있으면 게스트 세션으로 덮어쓰지 않음
+        if (ctx.user && ctx.user.loginMethod !== "guest") {
+          return { success: true, userId: ctx.user.id, isNewGuest: false, skipped: true };
+        }
         const guestOpenId = `guest_${input.guestId}`;
 
         // 기존 게스트 계정 조회
