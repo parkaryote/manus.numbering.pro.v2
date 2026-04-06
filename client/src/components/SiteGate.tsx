@@ -57,7 +57,7 @@ export function SiteGate({ onGranted }: SiteGateProps) {
               <BookOpen className="w-7 h-7 text-primary" />
             </div>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">타이핑 퀴즈</h1>
+          <h1 className="text-2xl font-bold tracking-tight">numbering.pro</h1>
           <p className="text-sm text-muted-foreground">서술형 문제 암기 도우미</p>
         </div>
 
