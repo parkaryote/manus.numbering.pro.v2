@@ -2,14 +2,35 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
-import { BookOpen, ArrowLeft, FileText, Image as ImageIcon, Table, LogIn, Plus } from "lucide-react";
+import { BookOpen, ArrowLeft, FileText, Image as ImageIcon, Table, LogIn, Plus, Zap } from "lucide-react";
 import { getLoginUrl } from "@/const";
 import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 
 export default function Demo() {
   const [, setLocation] = useLocation();
   const [expandedSubject, setExpandedSubject] = useState<number | null>(null);
+  const [password, setPassword] = useState("");
+  const [showSimpleSignup, setShowSimpleSignup] = useState(false);
   const { data: subjects, isLoading } = trpc.demo.subjects.useQuery();
+  const simpleSignupMutation = trpc.auth.simpleSignup.useMutation({
+    onSuccess: () => {
+      toast.success("간편 가입 완료! 로그인되었습니다.");
+      setLocation("/");
+    },
+    onError: (error) => {
+      toast.error(error.message || "간편 가입 실패");
+    },
+  });
+
+  const handleSimpleSignup = () => {
+    if (!password.trim()) {
+      toast.error("비밀번호를 입력해주세요");
+      return;
+    }
+    simpleSignupMutation.mutate({ password });
+  };
 
   return (
     <div className="container max-w-4xl py-8 overflow-y-auto">
@@ -22,23 +43,75 @@ export default function Demo() {
         <p className="text-muted-foreground mt-2">로그인 없이 연습할 수 있습니다</p>
       </div>
 
-      <Card className="mb-6 border-primary/20 bg-primary/5">
-        <CardContent className="py-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="font-medium">나만의 문제를 만들고 학습 기록을 저장하려면?</p>
-              <p className="text-sm text-muted-foreground">로그인하면 과목 생성, 문제 추가, 학습 통계 기능을 사용할 수 있습니다</p>
+      {showSimpleSignup ? (
+        <Card className="mb-6 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+          <CardContent className="py-4">
+            <div className="space-y-3">
+              <div>
+                <p className="font-medium mb-1">간편 가입</p>
+                <p className="text-sm text-muted-foreground">비밀번호를 입력하면 예시 데이터와 함께 계정이 생성됩니다</p>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  placeholder="비밀번호 입력"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSimpleSignup()}
+                  disabled={simpleSignupMutation.isPending}
+                  className="flex-1"
+                />
+                <Button
+                  onClick={handleSimpleSignup}
+                  disabled={simpleSignupMutation.isPending}
+                  className="gap-2 shrink-0"
+                >
+                  <Zap className="h-4 w-4" />
+                  {simpleSignupMutation.isPending ? "처리중..." : "가입하기"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowSimpleSignup(false);
+                    setPassword("");
+                  }}
+                  disabled={simpleSignupMutation.isPending}
+                >
+                  취소
+                </Button>
+              </div>
             </div>
-            <Button
-              onClick={() => { window.location.href = getLoginUrl(); }}
-              className="gap-2 shrink-0"
-            >
-              <LogIn className="h-4 w-4" />
-              로그인
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="mb-6 border-primary/20 bg-primary/5">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-medium">나만의 문제를 만들고 학습 기록을 저장하려면?</p>
+                <p className="text-sm text-muted-foreground">로그인하면 과목 생성, 문제 추가, 학습 통계 기능을 사용할 수 있습니다</p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSimpleSignup(true)}
+                  className="gap-2"
+                >
+                  <Zap className="h-4 w-4" />
+                  간편 가입
+                </Button>
+                <Button
+                  onClick={() => { window.location.href = getLoginUrl(); }}
+                  className="gap-2"
+                >
+                  <LogIn className="h-4 w-4" />
+                  로그인
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {isLoading ? (
         <Card className="shadow-elegant">
