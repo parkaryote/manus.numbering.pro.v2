@@ -53,6 +53,7 @@ function calcCharSimilarity(userText: string, correctText: string): number {
 // 데모 과목·문제를 사용자 계정으로 복사하는 헬퍼 함수
 async function copyDemoDataToUser(userId: number) {
   const demoSubjects = await db.getDemoSubjects();
+  const now = new Date();
   for (const demoSubject of demoSubjects) {
     // 사용자 계정에 과목 생성
     const newSubject = await db.createSubject({
@@ -65,8 +66,9 @@ async function copyDemoDataToUser(userId: number) {
     });
     // 해당 과목의 데모 문제 복사
     const demoQuestions = await db.getDemoQuestions(demoSubject.id);
-    for (const dq of demoQuestions) {
-      await db.createQuestion({
+    for (let qi = 0; qi < demoQuestions.length; qi++) {
+      const dq = demoQuestions[qi];
+      const newQuestion = await db.createQuestion({
         subjectId: newSubject.id,
         userId,
         question: dq.question,
@@ -80,6 +82,36 @@ async function copyDemoDataToUser(userId: number) {
         isDemo: 0,
         isStarred: 0,
       });
+      // 예시 안정도 데이터: 앞 문제일수록 더 많이 연습한 realistic 분포
+      const practiceCount = Math.max(0, 5 - Math.floor(qi / 2));
+      const testCount = Math.max(0, 3 - Math.floor(qi / 3));
+      for (let j = 0; j < practiceCount; j++) {
+        const daysAgo = Math.floor(Math.random() * 21) + 1;
+        const sessionDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+        await db.createPracticeSession({
+          userId,
+          questionId: newQuestion.id,
+          duration: 30 + Math.floor(Math.random() * 60),
+          typingSpeed: 200 + Math.floor(Math.random() * 150),
+          accuracy: 75 + Math.floor(Math.random() * 25),
+          errorCount: Math.floor(Math.random() * 4),
+          completedAt: sessionDate,
+        });
+      }
+      for (let j = 0; j < testCount; j++) {
+        const daysAgo = Math.floor(Math.random() * 14) + 1;
+        const sessionDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+        const isCorrect = Math.random() > 0.3 ? 1 : 0;
+        await db.createTestSession({
+          userId,
+          questionId: newQuestion.id,
+          userAnswer: isCorrect ? (dq.answer || "") : "(오답)",
+          isCorrect,
+          similarityScore: isCorrect ? 75 + Math.floor(Math.random() * 25) : 20 + Math.floor(Math.random() * 30),
+          recallTime: 3 + Math.floor(Math.random() * 10),
+          completedAt: sessionDate,
+        });
+      }
     }
   }
 }

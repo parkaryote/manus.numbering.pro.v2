@@ -82,7 +82,15 @@ function Router({ user }: { user: { openId?: string; loginMethod?: string | null
       <Route path={"/subject-practice/:subjectId"}>
         {(params) => (
           <Layout user={user}>
-            <SubjectPractice subjectId={parseInt(params.subjectId)} />
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
+              <div className="text-4xl">🚧</div>
+              <h2 className="text-xl font-bold">준비 중입니다</h2>
+              <p className="text-muted-foreground text-sm max-w-xs">수직 스크롤 연습 모드는 현재 준비 중입니다. 곧 업데이트될 예정입니다.</p>
+              <button
+                className="mt-2 text-sm text-primary hover:underline"
+                onClick={() => window.history.back()}
+              >← 돌아가기</button>
+            </div>
           </Layout>
         )}
       </Route>
