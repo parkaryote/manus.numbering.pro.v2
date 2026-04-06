@@ -1991,3 +1991,6 @@
 - [x] 시험 버튼 클릭 시 event.stopPropagation() 처리
 - [x] 태그, 즐겨찾기 등 다른 UI 요소도 전파 차단 처리
 - [x] 카드 hover 시 cursor-pointer + 배경색 미세 강조
+
+# 버그 수정 (v2.0.1)
+- [x] 데모 페이지 스크롤 문제 해결

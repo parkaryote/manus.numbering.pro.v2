@@ -12,7 +12,7 @@ export default function Demo() {
   const { data: subjects, isLoading } = trpc.demo.subjects.useQuery();
 
   return (
-    <div className="container max-w-4xl py-8">
+    <div className="container max-w-4xl py-8 overflow-y-auto">
       <div className="mb-6">
         <Button variant="ghost" onClick={() => setLocation("/")} className="gap-2 mb-4">
           <ArrowLeft className="h-4 w-4" />
