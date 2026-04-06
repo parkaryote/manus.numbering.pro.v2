@@ -5,6 +5,8 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { SiteGate, useSiteAccess } from "./components/SiteGate";
+import { trpc } from "./lib/trpc";
+import { useState, useEffect } from "react";
 import DashboardLayout from "./components/DashboardLayout";
 import DemoDashboardLayout from "./components/DemoDashboardLayout";
 import Home from "./pages/Home";
@@ -108,6 +110,52 @@ function Router() {
   );
 }
 
+const GUEST_ID_KEY = "numbering_guest_id";
+
+function getOrCreateGuestId(): string {
+  try {
+    let guestId = localStorage.getItem(GUEST_ID_KEY);
+    if (!guestId) {
+      guestId = Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
+      localStorage.setItem(GUEST_ID_KEY, guestId);
+    }
+    return guestId;
+  } catch {
+    return Math.random().toString(36).substring(2, 11);
+  }
+}
+
+function AppContent() {
+  const autoGuestLogin = trpc.auth.autoGuestLogin.useMutation();
+  const [guestReady, setGuestReady] = useState(false);
+
+  useEffect(() => {
+    const guestId = getOrCreateGuestId();
+    autoGuestLogin.mutate({ guestId }, {
+      onSuccess: () => setGuestReady(true),
+      onError: () => setGuestReady(true), // 실패해도 앱 진입 허용
+    });
+  }, []);
+
+  if (!guestReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-muted-foreground">입장 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <TooltipProvider>
+      <Toaster />
+      <Router />
+    </TooltipProvider>
+  );
+}
+
 function App() {
   const { granted, grant } = useSiteAccess();
 
@@ -124,10 +172,7 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light" switchable={true}>
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
+        <AppContent />
       </ThemeProvider>
     </ErrorBoundary>
   );

@@ -204,6 +204,48 @@ export const appRouter = router({
 
         return { success: true, userId: user.id };
       }),
+
+    // 자동 게스트 로그인: 접속 비밀번호 통과 후 자동으로 게스트 계정 생성/로그인
+    autoGuestLogin: publicProcedure
+      .input(z.object({
+        guestId: z.string(), // 클라이언트에서 생성한 고유 게스트 ID (localStorage에 저장)
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const guestOpenId = `guest_${input.guestId}`;
+
+        // 기존 게스트 계정 조회
+        let user = await db.getUserByOpenId(guestOpenId);
+
+        if (!user) {
+          // 새 게스트 계정 생성
+          await db.upsertUser({
+            openId: guestOpenId,
+            name: `게스트_${input.guestId.substring(0, 6)}`,
+            email: null,
+            loginMethod: "guest",
+            lastSignedIn: new Date(),
+          });
+          user = await db.getUserByOpenId(guestOpenId);
+          if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "게스트 계정 생성 실패" });
+
+          // 데모 과목·문제 복사
+          await copyDemoDataToUser(user.id);
+        }
+
+        // 세션 토큰 생성
+        const sessionToken = await sdk.createSessionToken(guestOpenId, {
+          name: user.name || `게스트`,
+          expiresInMs: ONE_YEAR_MS,
+        });
+
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return { success: true, userId: user.id, isNewGuest: !user };
+      }),
   }),
 
   // Demo mode - public access
