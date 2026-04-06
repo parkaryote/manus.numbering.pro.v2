@@ -50,10 +50,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
   const isResettingRef = useRef(false); // 초기화 진행 중 플래그 (compositionend 잔류 방지)
   const [practiceCount, setPracticeCount] = useState(0); // 현재 연습 횟수 (세션 동안만 유지)
-  const [showShortcutHelp, setShowShortcutHelp] = useState(() => {
-    const saved = localStorage.getItem("showShortcutHelp");
-    return saved !== null ? saved === "true" : true;
-  });
   const [inputHistory, setInputHistory] = useState<string[]>([""]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [showInactiveAlert, setShowInactiveAlert] = useState(false); // 입력 시간 알림
@@ -945,12 +941,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     
     return null;
   }, [sessionCompleteCount, totalPracticeCount, confidenceData?.displayScore]);
-
-  const toggleShortcutHelp = () => {
-    const newValue = !showShortcutHelp;
-    setShowShortcutHelp(newValue);
-    localStorage.setItem("showShortcutHelp", String(newValue));
-  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Ctrl+Z: Undo
@@ -1918,58 +1908,67 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               {!isTableQuestion && (
                 <div className="flex items-center gap-2">
                   {/* 답 가리기 전체 토글 */}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`h-8 gap-1.5 text-xs ${hideMode === 'all' ? 'bg-amber-500/10 text-amber-600' : ''}`}
-                    onClick={() => {
-                      if (hideMode === 'all') {
-                        setHideMode('none');
-                        setHiddenLines(new Set());
-                      } else {
-                        setHideMode('all');
-                        setHiddenLines(new Set());
-                      }
-                    }}
-                    title="Tab으로도 토글 가능 · 각 줄 클릭으로 개별 토글"
-                  >
-                    {hideMode === 'all' ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                    {hideMode === 'all' ? '답 보기' : '답 가리기'}
-                  </Button>
+                  <div className="flex flex-col items-center gap-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`h-8 gap-1.5 text-xs ${hideMode === 'all' ? 'bg-amber-500/10 text-amber-600' : ''}`}
+                      onClick={() => {
+                        if (hideMode === 'all') {
+                          setHideMode('none');
+                          setHiddenLines(new Set());
+                        } else {
+                          setHideMode('all');
+                          setHiddenLines(new Set());
+                        }
+                      }}
+                    >
+                      {hideMode === 'all' ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                      {hideMode === 'all' ? '답 보기' : '답 가리기'}
+                    </Button>
+                    <span className="text-[10px] text-muted-foreground/50 leading-none">(tab)</span>
+                  </div>
                   {question && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 gap-1.5 text-xs"
-                      onClick={() => setLocation(`/test/${question.id}`)}
-                    >
-                      <Zap className="h-3.5 w-3.5" />
-                      백지시험
-                    </Button>
+                    <div className="flex flex-col items-center gap-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5 text-xs"
+                        onClick={() => setLocation(`/test/${question.id}`)}
+                      >
+                        <Zap className="h-3.5 w-3.5" />
+                        백지시험
+                      </Button>
+                      <span className="text-[10px] text-muted-foreground/50 leading-none">(shift+enter)</span>
+                    </div>
                   )}
                   {!isDemo && question && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={`h-8 gap-1.5 text-xs ${memoOpen ? 'bg-blue-500/10 text-blue-600' : ''}`}
-                      onClick={() => setMemoOpen(!memoOpen)}
-                      title="알기법/설명 메모"
-                    >
-                      <StickyNote className="h-3.5 w-3.5" />
-                      메모
-                    </Button>
+                    <div className="flex flex-col items-center gap-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={`h-8 gap-1.5 text-xs ${memoOpen ? 'bg-blue-500/10 text-blue-600' : ''}`}
+                        onClick={() => setMemoOpen(!memoOpen)}
+                      >
+                        <StickyNote className="h-3.5 w-3.5" />
+                        메모
+                      </Button>
+                      <span className="text-[10px] text-muted-foreground/50 leading-none opacity-0">·</span>
+                    </div>
                   )}
                   {!isDemo && question && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={`h-8 gap-1.5 text-xs ${editMode ? 'bg-orange-500/10 text-orange-600' : ''}`}
-                      onClick={() => editMode ? setEditMode(false) : startEditMode()}
-                      title="문제/답안 수정"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                      수정
-                    </Button>
+                    <div className="flex flex-col items-center gap-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={`h-8 gap-1.5 text-xs ${editMode ? 'bg-orange-500/10 text-orange-600' : ''}`}
+                        onClick={() => editMode ? setEditMode(false) : startEditMode()}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        수정
+                      </Button>
+                      <span className="text-[10px] text-muted-foreground/50 leading-none opacity-0">·</span>
+                    </div>
                   )}
                 </div>
               )}
@@ -2447,23 +2446,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             onKeyDown={handleKeyDown}
             onKeyUp={handleKeyUp}
             className="w-full min-h-[80px] max-h-[200px] p-3 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm"
-            placeholder="여기에 입력하세요..."
+            placeholder="여기에 입력하세요... (Esc / Ctrl+Enter: 완료)"
           />
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex flex-col gap-0.5">
-              {showShortcutHelp ? (
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                  <span><kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 취소</span>
-                  <span><kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Alt</kbd>+<kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">⌫</kbd> 단어</span>
-                  <span><kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">⌫</kbd> 문장</span>
-                  <span><kbd className="px-1 py-0.5 bg-muted rounded text-[10px] font-mono">Tab</kbd> 답 가리기</span>
-                  <button onClick={toggleShortcutHelp} className="text-muted-foreground/50 hover:text-muted-foreground underline">숨기기</button>
-                </div>
-              ) : (
-                <button onClick={toggleShortcutHelp} className="text-xs text-muted-foreground/50 hover:text-muted-foreground underline self-start">단축키</button>
-              )}
-            </div>
-          </div>
+
         </div>
       )}
 

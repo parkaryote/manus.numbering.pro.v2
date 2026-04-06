@@ -2066,3 +2066,9 @@
 # 사이드바 UI 개선 (v2.9.2)
 - [x] DashboardLayout: 항상 아이콘만 표시, hover 시 라벨 tooltip 표시, 확장 버튼 제거
 - [x] 게스트(guest) 계정 로그인 시 사이드바 완전 제거 (DemoDashboardLayout 사용)
+
+# 연습 모드 UI 개선 (v2.9.3)
+- [x] 단축키 안내 별도 공간 제거, 입력창 placeholder에 통합
+- [x] 답 가리기 버튼 하단에 단축키 (tab) 작게 표시
+- [x] 백지시험 버튼 하단에 단축키 (shift+enter) 작게 표시
+- [x] 메모, 수정 버튼 높이·크기를 답 가리기/백지시험 버튼과 맞춰 정렬
