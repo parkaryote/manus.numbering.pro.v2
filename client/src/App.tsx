@@ -19,6 +19,7 @@ import Demo from "./pages/Demo";
 import AdminDemoManagement from "./pages/AdminDemoManagement";
 import SubjectExam from "./pages/SubjectExam";
 import Login from "./pages/Login";
+import { Analytics } from "@vercel/analytics/react";
 
 const GUEST_ID_KEY = "numbering_guest_id";
 
@@ -226,7 +227,7 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
 
 function AppContent() {
   const autoGuestLogin = trpc.auth.autoGuestLogin.useMutation();
-  // 먼저 현재 세션 확인 (이미 로그인된 경우 게스트 로그인 건너뜀)
+  // 먼저 현재 세션 확인 (이미 로그인된 경우 게스트 로���인 건너뜀)
   const [initDone, setInitDone] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const meQuery = trpc.auth.me.useQuery(undefined, {
@@ -355,6 +356,7 @@ function App() {
       <ThemeProvider defaultTheme="light" switchable={true}>
         <AppContent />
         {globalFooterNotice}
+        <Analytics />
       </ThemeProvider>
     </ErrorBoundary>
   );
