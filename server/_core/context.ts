@@ -8,17 +8,23 @@ export type TrpcContext = {
   user: User | null;
 };
 
+const AUTH_CONTEXT_TIMEOUT_MS = Number(
+  process.env.AUTH_CONTEXT_TIMEOUT_MS ?? "1200"
+);
+
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
-  let user: User | null = null;
+  const authPromise = sdk
+    .authenticateRequest(opts.req)
+    .then((resolvedUser) => resolvedUser)
+    .catch(() => null);
 
-  try {
-    user = await sdk.authenticateRequest(opts.req);
-  } catch (error) {
-    // Authentication is optional for public procedures.
-    user = null;
-  }
+  const timeoutPromise = new Promise<null>((resolve) => {
+    setTimeout(() => resolve(null), AUTH_CONTEXT_TIMEOUT_MS);
+  });
+
+  const user = await Promise.race<User | null>([authPromise, timeoutPromise]);
 
   return {
     req: opts.req,

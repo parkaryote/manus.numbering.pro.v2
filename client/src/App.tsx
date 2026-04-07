@@ -170,9 +170,9 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
       </Route>
       <Route path={"/demo"}>
         {canAccessDemo ? (
-          <Layout user={user} onAuthSuccess={onAuthSuccess}>
+          <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
             <Demo />
-          </Layout>
+          </DemoDashboardLayout>
         ) : (
           <RouteRedirect to="/subjects" />
         )}
@@ -183,9 +183,9 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
       <Route path={"/demo/practice/:questionId"}>
         {(params) =>
           canAccessDemo ? (
-            <Layout user={user} onAuthSuccess={onAuthSuccess}>
+            <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
               <Practice questionId={parseInt(params.questionId)} isDemo={true} />
-            </Layout>
+            </DemoDashboardLayout>
           ) : (
             <RouteRedirect to={`/practice/${parseInt(params.questionId)}`} />
           )
@@ -194,9 +194,9 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
       <Route path={"/demo/test/:questionId"}>
         {(params) =>
           canAccessDemo ? (
-            <Layout user={user} onAuthSuccess={onAuthSuccess}>
+            <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
               <Test questionId={parseInt(params.questionId)} isDemo={true} />
-            </Layout>
+            </DemoDashboardLayout>
           ) : (
             <RouteRedirect to={`/test/${parseInt(params.questionId)}`} />
           )
@@ -204,18 +204,18 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
       </Route>
       <Route path={"/demo/questions"}>
         {canAccessDemo ? (
-          <Layout user={user} onAuthSuccess={onAuthSuccess}>
+          <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
             <Demo />
-          </Layout>
+          </DemoDashboardLayout>
         ) : (
           <RouteRedirect to="/subjects" />
         )}
       </Route>
       <Route path={"/demo/questions/"}>
         {canAccessDemo ? (
-          <Layout user={user} onAuthSuccess={onAuthSuccess}>
+          <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
             <Demo />
-          </Layout>
+          </DemoDashboardLayout>
         ) : (
           <RouteRedirect to="/subjects" />
         )}
@@ -223,9 +223,9 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
       <Route path={"/demo/questions/:subjectId"}>
         {(params) =>
           canAccessDemo ? (
-            <Layout user={user} onAuthSuccess={onAuthSuccess}>
+            <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
               <Questions subjectId={parseInt(params.subjectId)} isDemo={true} />
-            </Layout>
+            </DemoDashboardLayout>
           ) : (
             <RouteRedirect to="/subjects" />
           )
@@ -244,6 +244,7 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
 
 function AppContent() {
   const autoGuestLogin = trpc.auth.autoGuestLogin.useMutation();
+  const [location, setLocation] = useLocation();
   // 먼저 현재 세션 확인 (이미 로그인된 경우 게스트 로그인 건너뜀)
   const [initDone, setInitDone] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -316,6 +317,13 @@ function AppContent() {
     if (meQuery.isLoading) return;
     setCurrentUser(meQuery.data ?? null);
   }, [initDone, meQuery.data, meQuery.isLoading]);
+
+  useEffect(() => {
+    if (!initDone) return;
+    if (currentUser) return;
+    if (location === "/login" || location.startsWith("/demo")) return;
+    setLocation("/demo");
+  }, [currentUser, initDone, location, setLocation]);
 
   if (!initDone) {
     return (
