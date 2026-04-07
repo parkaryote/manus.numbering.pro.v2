@@ -7,8 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 type AuthTab = "login" | "signup";
+
+function isGuestUser(user: { openId?: string; loginMethod?: string | null } | null | undefined): boolean {
+  if (!user) return false;
+  return (
+    (user.openId?.startsWith("guest_") ?? false) ||
+    user.loginMethod === "guest"
+  );
+}
 
 function AuthModal({
   open,
@@ -167,6 +176,8 @@ export default function DemoDashboardLayout({
   children: React.ReactNode;
   onAuthSuccess?: () => void;
 }) {
+  const { user } = useAuth();
+  const isGuest = isGuestUser(user);
   const [authOpen, setAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState<AuthTab>("login");
 
@@ -176,29 +187,31 @@ export default function DemoDashboardLayout({
 
   return (
     <div className="h-screen flex flex-col bg-background">
-      {/* 로그인 유도 배너 */}
-      <div className="shrink-0 bg-primary/5 border-b border-primary/10 px-4 py-2 flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground leading-snug">
-          <span className="font-medium text-foreground">나만의 학습 통계</span>를 쌓고 문제를 추가하려면 로그인하세요.
-        </p>
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={openLogin}
-            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-          >
-            <LogIn className="h-3 w-3" />
-            로그인
-          </button>
-          <span className="text-muted-foreground/40 text-xs">|</span>
-          <button
-            onClick={openSignup}
-            className="inline-flex items-center gap-1 text-xs font-medium bg-primary text-primary-foreground px-2 py-1 rounded-md hover:bg-primary/90 transition-colors"
-          >
-            <UserPlus className="h-3 w-3" />
-            가입
-          </button>
+      {/* 로그인 유도 배너 - 게스트 사용자에게는 표시하지 않음 */}
+      {!isGuest && (
+        <div className="shrink-0 bg-primary/5 border-b border-primary/10 px-4 py-2 flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground leading-snug">
+            <span className="font-medium text-foreground">나만의 학습 통계</span>를 쌓고 문제를 추가하려면 로그인하세요.
+          </p>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={openLogin}
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            >
+              <LogIn className="h-3 w-3" />
+              로그인
+            </button>
+            <span className="text-muted-foreground/40 text-xs">|</span>
+            <button
+              onClick={openSignup}
+              className="inline-flex items-center gap-1 text-xs font-medium bg-primary text-primary-foreground px-2 py-1 rounded-md hover:bg-primary/90 transition-colors"
+            >
+              <UserPlus className="h-3 w-3" />
+              가입
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 메인 콘텐츠 */}
       <main className="flex-1 overflow-y-auto flex flex-col min-h-0 p-6">
