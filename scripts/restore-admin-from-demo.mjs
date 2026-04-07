@@ -71,7 +71,12 @@ async function findOrCreateAdminSubject(connection, adminUserId, demoSubject) {
       `UPDATE subjects
        SET description = ?, color = ?, displayOrder = ?, updatedAt = NOW()
        WHERE id = ?`,
-      [demoSubject.description ?? null, demoSubject.color ?? "#3B82F6", demoSubject.displayOrder ?? 0, subjectId]
+      [
+        demoSubject.description ?? null,
+        demoSubject.color ?? "#3B82F6",
+        demoSubject.displayOrder ?? 0,
+        subjectId,
+      ]
     );
     return { subjectId, created: false };
   }
@@ -130,12 +135,16 @@ async function main() {
   try {
     const admin = await findAdminUser(connection);
     if (!admin) {
-      throw new Error(`Admin user not found. Tried email=${ADMIN_EMAIL}, username=${ADMIN_USERNAME}`);
+      throw new Error(
+        `Admin user not found. Tried email=${ADMIN_EMAIL}, username=${ADMIN_USERNAME}`
+      );
     }
 
     const demoSubjects = await getDemoSubjects(connection);
     if (demoSubjects.length === 0) {
-      throw new Error("No demo subjects found. Run `pnpm db:sync-demo-prod` first.");
+      throw new Error(
+        "No demo subjects found. Run `pnpm db:sync-demo-prod` first."
+      );
     }
 
     const summary = [];
@@ -143,11 +152,19 @@ async function main() {
     let createdSubjects = 0;
 
     for (const ds of demoSubjects) {
-      const { subjectId, created } = await findOrCreateAdminSubject(connection, admin.id, ds);
+      const { subjectId, created } = await findOrCreateAdminSubject(
+        connection,
+        admin.id,
+        ds
+      );
       if (created) createdSubjects += 1;
 
       const demoQuestions = await getDemoQuestions(connection, ds.id);
-      const existing = await getAdminQuestionsBySubject(connection, admin.id, subjectId);
+      const existing = await getAdminQuestionsBySubject(
+        connection,
+        admin.id,
+        subjectId
+      );
       const existingKeys = new Set(existing.map(questionKey));
 
       let inserted = 0;
@@ -177,17 +194,21 @@ async function main() {
       [admin.id]
     );
 
-    console.log(`Admin user: id=${admin.id}, email=${admin.email ?? "null"}, username=${admin.username ?? "null"}`);
+    console.log(
+      `Admin user: id=${admin.id}, email=${admin.email ?? "null"}, username=${admin.username ?? "null"}`
+    );
     console.log(`Created subjects: ${createdSubjects}`);
     console.log(`Inserted questions: ${totalInsertedQuestions}`);
     console.table(summary);
-    console.log(`Final admin counts -> subjects=${subjectCount.c}, questions=${questionCount.c}`);
+    console.log(
+      `Final admin counts -> subjects=${subjectCount.c}, questions=${questionCount.c}`
+    );
   } finally {
     await connection.end();
   }
 }
 
-main().catch((error) => {
+main().catch(error => {
   console.error(error);
   process.exit(1);
 });

@@ -5,7 +5,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
@@ -51,7 +56,9 @@ function getOrCreateId(key: string): string {
   }
 }
 
-function isGuestUser(user: { loginMethod?: string | null } | null | undefined): boolean {
+function isGuestUser(
+  user: { loginMethod?: string | null } | null | undefined
+): boolean {
   if (!user) return false;
   return user.loginMethod === "guest";
 }
@@ -83,52 +90,76 @@ function AuthModal({
     onSuccess: () => {
       toast.success("가입 완료! 로그인되었습니다.");
       onClose();
-      if (onAuthSuccess) onAuthSuccess(); else window.location.reload();
+      if (onAuthSuccess) onAuthSuccess();
+      else window.location.reload();
       setLocation("/");
     },
-    onError: (err) => toast.error(err.message || "가입 실패"),
+    onError: err => toast.error(err.message || "가입 실패"),
   });
 
   const loginMutation = trpc.auth.simpleLogin.useMutation({
     onSuccess: () => {
       toast.success("로그인되었습니다.");
       onClose();
-      if (onAuthSuccess) onAuthSuccess(); else window.location.reload();
+      if (onAuthSuccess) onAuthSuccess();
+      else window.location.reload();
       setLocation("/");
     },
-    onError: (err) => toast.error(err.message || "로그인 실패"),
+    onError: err => toast.error(err.message || "로그인 실패"),
   });
   const socialLogin = trpc.auth.socialLogin.useMutation({
     onSuccess: () => {
       toast.success("로그인되었습니다.");
       onClose();
-      if (onAuthSuccess) onAuthSuccess(); else window.location.reload();
+      if (onAuthSuccess) onAuthSuccess();
+      else window.location.reload();
       setLocation("/");
     },
-    onError: (err) => toast.error(err.message || "소셜 로그인 실패"),
+    onError: err => toast.error(err.message || "소셜 로그인 실패"),
   });
-  const isPending = signupMutation.isPending || loginMutation.isPending || socialLogin.isPending;
+  const isPending =
+    signupMutation.isPending ||
+    loginMutation.isPending ||
+    socialLogin.isPending;
 
   const handleSignup = () => {
-    if (!username.trim()) { toast.error("아이디를 입력해주세요"); return; }
-    if (password.length < 4) { toast.error("비밀번호는 4자 이상이어야 합니다"); return; }
-    if (password !== passwordConfirm) { toast.error("비밀번호가 일치하지 않습니다"); return; }
+    if (!username.trim()) {
+      toast.error("아이디를 입력해주세요");
+      return;
+    }
+    if (password.length < 4) {
+      toast.error("비밀번호는 4자 이상이어야 합니다");
+      return;
+    }
+    if (password !== passwordConfirm) {
+      toast.error("비밀번호가 일치하지 않습니다");
+      return;
+    }
     signupMutation.mutate({ username, password });
   };
 
   const handleLogin = () => {
-    if (!loginIdentifier.trim()) { toast.error("아이디 또는 이메일을 입력해주세요"); return; }
-    if (!loginPassword.trim()) { toast.error("비밀번호를 입력해주세요"); return; }
-    loginMutation.mutate({ identifier: loginIdentifier, password: loginPassword });
+    if (!loginIdentifier.trim()) {
+      toast.error("아이디 또는 이메일을 입력해주세요");
+      return;
+    }
+    if (!loginPassword.trim()) {
+      toast.error("비밀번호를 입력해주세요");
+      return;
+    }
+    loginMutation.mutate({
+      identifier: loginIdentifier,
+      password: loginPassword,
+    });
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>계정</DialogTitle>
         </DialogHeader>
-        <Tabs value={tab} onValueChange={(v) => setTab(v as AuthTab)}>
+        <Tabs value={tab} onValueChange={v => setTab(v as AuthTab)}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="login">로그인</TabsTrigger>
             <TabsTrigger value="signup">가입</TabsTrigger>
@@ -137,23 +168,27 @@ function AuthModal({
           {/* 로그인 탭 */}
           <TabsContent value="login" className="space-y-4 pt-2">
             <div className="space-y-2">
-              {(Object.keys(SOCIAL_PROVIDER_META) as SocialProvider[]).map((provider) => {
-                const meta = SOCIAL_PROVIDER_META[provider];
-                return (
-                  <Button
-                    key={provider}
-                    onClick={() => {
-                      const socialId = getOrCreateId(`${SOCIAL_ID_KEY_PREFIX}${provider}`);
-                      socialLogin.mutate({ provider, socialId });
-                    }}
-                    className={`w-full justify-start gap-2 ${meta.className}`}
-                    disabled={isPending}
-                  >
-                    {meta.icon ?? <CircleUserRound className="h-4 w-4" />}
-                    {meta.label}
-                  </Button>
-                );
-              })}
+              {(Object.keys(SOCIAL_PROVIDER_META) as SocialProvider[]).map(
+                provider => {
+                  const meta = SOCIAL_PROVIDER_META[provider];
+                  return (
+                    <Button
+                      key={provider}
+                      onClick={() => {
+                        const socialId = getOrCreateId(
+                          `${SOCIAL_ID_KEY_PREFIX}${provider}`
+                        );
+                        socialLogin.mutate({ provider, socialId });
+                      }}
+                      className={`w-full justify-start gap-2 ${meta.className}`}
+                      disabled={isPending}
+                    >
+                      {meta.icon ?? <CircleUserRound className="h-4 w-4" />}
+                      {meta.label}
+                    </Button>
+                  );
+                }
+              )}
             </div>
 
             <div className="h-px bg-border" />
@@ -164,8 +199,8 @@ function AuthModal({
                 id="login-identifier"
                 placeholder="아이디 또는 이메일 입력"
                 value={loginIdentifier}
-                onChange={(e) => setLoginIdentifier(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                onChange={e => setLoginIdentifier(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleLogin()}
                 disabled={isPending}
               />
             </div>
@@ -176,8 +211,8 @@ function AuthModal({
                 type="password"
                 placeholder="비밀번호 입력"
                 value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                onChange={e => setLoginPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleLogin()}
                 disabled={isPending}
               />
             </div>
@@ -199,7 +234,7 @@ function AuthModal({
                 id="signup-username"
                 placeholder="사용할 아이디 입력"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={e => setUsername(e.target.value)}
                 disabled={isPending}
               />
             </div>
@@ -210,7 +245,7 @@ function AuthModal({
                 type="password"
                 placeholder="비밀번호 (4자 이상)"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={e => setPassword(e.target.value)}
                 disabled={isPending}
               />
             </div>
@@ -221,8 +256,8 @@ function AuthModal({
                 type="password"
                 placeholder="비밀번호 재입력"
                 value={passwordConfirm}
-                onChange={(e) => setPasswordConfirm(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSignup()}
+                onChange={e => setPasswordConfirm(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleSignup()}
                 disabled={isPending}
               />
             </div>
@@ -253,8 +288,14 @@ export default function DemoDashboardLayout({
   const [authOpen, setAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState<AuthTab>("login");
 
-  const openLogin = () => { setAuthTab("login"); setAuthOpen(true); };
-  const openSignup = () => { setAuthTab("signup"); setAuthOpen(true); };
+  const openLogin = () => {
+    setAuthTab("login");
+    setAuthOpen(true);
+  };
+  const openSignup = () => {
+    setAuthTab("signup");
+    setAuthOpen(true);
+  };
   const handleClose = () => setAuthOpen(false);
 
   return (
@@ -274,7 +315,10 @@ export default function DemoDashboardLayout({
       {isGuest && (
         <div className="shrink-0 bg-primary/5 border-b border-primary/10 px-4 py-2 flex items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground leading-snug">
-            <span className="font-medium text-foreground">나만의 학습 통계</span>를 쌓고 문제를 추가하려면 로그인하세요.
+            <span className="font-medium text-foreground">
+              나만의 학습 통계
+            </span>
+            를 쌓고 문제를 추가하려면 로그인하세요.
           </p>
           <div className="flex items-center gap-2 shrink-0">
             <button

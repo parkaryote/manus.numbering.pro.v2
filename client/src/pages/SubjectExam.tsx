@@ -6,9 +6,20 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Clock, Trophy, RotateCcw, ChevronRight } from "lucide-react";
+import {
+  ArrowLeft,
+  Clock,
+  Trophy,
+  RotateCcw,
+  ChevronRight,
+} from "lucide-react";
 import { toast } from "sonner";
-import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
+import {
+  TableView,
+  TableData,
+  getBlankCells,
+  gradeTable,
+} from "@/components/TableEditor";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
 import { buildNextAutoNumberingValue } from "@/lib/autoNumbering";
 
@@ -71,7 +82,10 @@ function toBool(v: unknown): boolean {
   return v === true || v === 1 || v === "1";
 }
 
-function getTableCorrectAnswerByCellKey(tableData: TableData, key: string): string {
+function getTableCorrectAnswerByCellKey(
+  tableData: TableData,
+  key: string
+): string {
   const [rStr, cStr] = key.split("-");
   const r = Number(rStr);
   const c = Number(cStr);
@@ -108,21 +122,31 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
 
   const [phase, setPhase] = useState<"intro" | "exam" | "result">("intro");
   const [textAnswers, setTextAnswers] = useState<Record<number, string>>({});
-  const [tableAnswers, setTableAnswers] = useState<Record<number, Record<string, string>>>({});
-  const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, Record<number, string>>>({});
+  const [tableAnswers, setTableAnswers] = useState<
+    Record<number, Record<string, string>>
+  >({});
+  const [imageLabelAnswers, setImageLabelAnswers] = useState<
+    Record<number, Record<number, string>>
+  >({});
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [outcomes, setOutcomes] = useState<Record<number, QuestionOutcome>>({});
-  const [subjectScoreBefore, setSubjectScoreBefore] = useState<number | null>(null);
-  const [subjectScoreAfter, setSubjectScoreAfter] = useState<number | null>(null);
+  const [subjectScoreBefore, setSubjectScoreBefore] = useState<number | null>(
+    null
+  );
+  const [subjectScoreAfter, setSubjectScoreAfter] = useState<number | null>(
+    null
+  );
 
   const [isRandom, setIsRandom] = useState(false);
   const [questionCount, setQuestionCount] = useState(0);
   const [examQuestions, setExamQuestions] = useState<ExamQuestion[]>([]);
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
-  const { data: questions } = trpc.questions.listBySubject.useQuery({ subjectId });
+  const { data: questions } = trpc.questions.listBySubject.useQuery({
+    subjectId,
+  });
   const utils = trpc.useUtils();
 
   const evaluateMutation = trpc.test.evaluate.useMutation({
@@ -162,14 +186,18 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
 
   const hasAnswer = useCallback(
     (q: ExamQuestion) => {
-      const tableData: TableData | null = q.tableData ? JSON.parse(q.tableData) : null;
+      const tableData: TableData | null = q.tableData
+        ? JSON.parse(q.tableData)
+        : null;
       const imageLabels: any[] = q.imageLabels ? JSON.parse(q.imageLabels) : [];
 
       if (tableData) {
-        return Object.values(tableAnswers[q.id] || {}).some((v) => v.trim());
+        return Object.values(tableAnswers[q.id] || {}).some(v => v.trim());
       }
       if (q.imageUrl && imageLabels.length > 0) {
-        return Object.values(imageLabelAnswers[q.id] || {}).some((v: any) => v.trim());
+        return Object.values(imageLabelAnswers[q.id] || {}).some((v: any) =>
+          v.trim()
+        );
       }
       return (textAnswers[q.id] || "").trim().length > 0;
     },
@@ -178,7 +206,7 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
 
   const answeredCount = useMemo(() => {
     if (examQuestions.length === 0) return 0;
-    return examQuestions.filter((q) => hasAnswer(q)).length;
+    return examQuestions.filter(q => hasAnswer(q)).length;
   }, [examQuestions, hasAnswer]);
 
   const handleStart = useCallback(() => {
@@ -187,8 +215,13 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
       return;
     }
 
-    const count = Math.min(questions.length, Math.max(1, Math.floor(questionCount || questions.length)));
-    const ordered = isRandom ? [...questions].sort(() => Math.random() - 0.5) : [...questions];
+    const count = Math.min(
+      questions.length,
+      Math.max(1, Math.floor(questionCount || questions.length))
+    );
+    const ordered = isRandom
+      ? [...questions].sort(() => Math.random() - 0.5)
+      : [...questions];
     const selected = ordered.slice(0, count) as ExamQuestion[];
 
     setExamQuestions(selected);
@@ -211,21 +244,33 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
 
     setIsSubmitting(true);
     try {
-      const recallTimeForExam = startTime ? Math.floor((Date.now() - startTime) / 1000) : elapsedTime;
-      const examEndDate = subject?.examEndDate ? new Date(subject.examEndDate) : null;
-      const hoursUntilExam = examEndDate ? (examEndDate.getTime() - Date.now()) / (1000 * 60 * 60) : null;
+      const recallTimeForExam = startTime
+        ? Math.floor((Date.now() - startTime) / 1000)
+        : elapsedTime;
+      const examEndDate = subject?.examEndDate
+        ? new Date(subject.examEndDate)
+        : null;
+      const hoursUntilExam = examEndDate
+        ? (examEndDate.getTime() - Date.now()) / (1000 * 60 * 60)
+        : null;
 
       await utils.confidence.getBySubject.invalidate({ subjectId });
-      const beforeConfidenceRaw = await utils.confidence.getBySubject.fetch({ subjectId });
+      const beforeConfidenceRaw = await utils.confidence.getBySubject.fetch({
+        subjectId,
+      });
       const beforeSnapshot = toSubjectConfidenceSnapshot(beforeConfidenceRaw);
       const fetchQuestionConfidence = async (
         questionId: number,
         fallback?: QuestionConfidencePoint
       ): Promise<QuestionConfidencePoint> => {
         try {
-          const raw = await utils.confidence.getByQuestion.fetch({ questionId });
+          const raw = await utils.confidence.getByQuestion.fetch({
+            questionId,
+          });
           return {
-            score: clampScore(Number((raw as any)?.displayScore ?? fallback?.score ?? 0)),
+            score: clampScore(
+              Number((raw as any)?.displayScore ?? fallback?.score ?? 0)
+            ),
             state: String((raw as any)?.state ?? fallback?.state ?? "red"),
           };
         } catch {
@@ -237,7 +282,7 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
       };
 
       const beforeQuestionEntries = await Promise.all(
-        examQuestions.map(async (q) => {
+        examQuestions.map(async q => {
           const fallback = {
             score: beforeSnapshot.questionScoreMap[q.id] ?? 0,
             state: beforeSnapshot.questionStateMap[q.id] ?? "red",
@@ -247,21 +292,29 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
           return [q.id, point] as const;
         })
       );
-      const beforeQuestionMap = Object.fromEntries(beforeQuestionEntries) as Record<number, QuestionConfidencePoint>;
+      const beforeQuestionMap = Object.fromEntries(
+        beforeQuestionEntries
+      ) as Record<number, QuestionConfidencePoint>;
       const nextOutcomes: Record<number, QuestionOutcome> = {};
 
       for (const q of examQuestions) {
-        const tableData: TableData | null = q.tableData ? JSON.parse(q.tableData) : null;
-        const imageLabels: any[] = q.imageLabels ? JSON.parse(q.imageLabels) : [];
+        const tableData: TableData | null = q.tableData
+          ? JSON.parse(q.tableData)
+          : null;
+        const imageLabels: any[] = q.imageLabels
+          ? JSON.parse(q.imageLabels)
+          : [];
 
         let ans = "";
         if (tableData) {
           const blankCells = getBlankCells(tableData);
           const tAns = tableAnswers[q.id] || {};
-          ans = blankCells.map((k) => tAns[k] || "").join("\n");
+          ans = blankCells.map(k => tAns[k] || "").join("\n");
         } else if (q.imageUrl && imageLabels.length > 0) {
           const lAns = imageLabelAnswers[q.id] || {};
-          ans = imageLabels.map((_: any, i: number) => `${i + 1}. ${lAns[i] || ""}`).join("\n");
+          ans = imageLabels
+            .map((_: any, i: number) => `${i + 1}. ${lAns[i] || ""}`)
+            .join("\n");
         } else {
           ans = (textAnswers[q.id] || "").trim();
         }
@@ -291,7 +344,10 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
           const blankCells = getBlankCells(tableData);
           const answerMap = tableAnswers[q.id] || {};
           const tableGrade = gradeTable(tableData, answerMap);
-          const similarityScore = tableGrade.total > 0 ? Math.round((tableGrade.score / tableGrade.total) * 100) : 0;
+          const similarityScore =
+            tableGrade.total > 0
+              ? Math.round((tableGrade.score / tableGrade.total) * 100)
+              : 0;
           const tableMistakes = blankCells.map((key, idx) => ({
             lineIndex: idx + 1,
             cellKey: key,
@@ -309,9 +365,16 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
             mistakeHighlights: JSON.stringify(tableMistakes),
           });
 
-          const quality = tableGrade.score === tableGrade.total
-            ? (recallTimeForExam <= 15 ? 5 : 4)
-            : (similarityScore >= 80 ? 2 : similarityScore >= 60 ? 1 : 0);
+          const quality =
+            tableGrade.score === tableGrade.total
+              ? recallTimeForExam <= 15
+                ? 5
+                : 4
+              : similarityScore >= 80
+                ? 2
+                : similarityScore >= 60
+                  ? 1
+                  : 0;
           await updateReviewMutation.mutateAsync({
             questionId: q.id,
             quality,
@@ -325,9 +388,10 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
               correctLineCount: tableGrade.score,
               totalLines: tableGrade.total,
               mistakes: tableMistakes,
-              feedback: tableGrade.score === tableGrade.total
-                ? "정확하게 작성하셨습니다!"
-                : `${tableGrade.score}/${tableGrade.total} 정답`,
+              feedback:
+                tableGrade.score === tableGrade.total
+                  ? "정확하게 작성하셨습니다!"
+                  : `${tableGrade.score}/${tableGrade.total} 정답`,
               userAnswer: ans,
               submitted: true,
             },
@@ -349,8 +413,16 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
         const isCorrect = toBool((evalRaw as any)?.isCorrect);
         const similarityScore = Number((evalRaw as any)?.similarityScore ?? 0);
         const quality = isCorrect
-          ? (recallTimeForExam <= 15 ? 5 : recallTimeForExam <= 35 ? 4 : 3)
-          : (similarityScore >= 80 ? 2 : similarityScore >= 60 ? 1 : 0);
+          ? recallTimeForExam <= 15
+            ? 5
+            : recallTimeForExam <= 35
+              ? 4
+              : 3
+          : similarityScore >= 80
+            ? 2
+            : similarityScore >= 60
+              ? 1
+              : 0;
         await updateReviewMutation.mutateAsync({
           questionId: q.id,
           quality,
@@ -360,7 +432,9 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
           eval: {
             isCorrect,
             similarityScore,
-            accuracyRate: Number((evalRaw as any)?.accuracyRate ?? similarityScore),
+            accuracyRate: Number(
+              (evalRaw as any)?.accuracyRate ?? similarityScore
+            ),
             correctLineCount: (evalRaw as any)?.correctLineCount,
             totalLines: (evalRaw as any)?.totalLines,
             mistakes: (evalRaw as any)?.mistakes,
@@ -378,22 +452,34 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
       }
 
       await Promise.all(
-        examQuestions.map((q) => utils.confidence.getByQuestion.invalidate({ questionId: q.id }))
+        examQuestions.map(q =>
+          utils.confidence.getByQuestion.invalidate({ questionId: q.id })
+        )
       );
       await utils.confidence.getBySubject.invalidate({ subjectId });
-      const afterConfidenceRaw = await utils.confidence.getBySubject.fetch({ subjectId });
+      const afterConfidenceRaw = await utils.confidence.getBySubject.fetch({
+        subjectId,
+      });
       const afterSnapshot = toSubjectConfidenceSnapshot(afterConfidenceRaw);
       const afterQuestionEntries = await Promise.all(
-        examQuestions.map(async (q) => {
+        examQuestions.map(async q => {
           const fallback = {
-            score: afterSnapshot.questionScoreMap[q.id] ?? beforeQuestionMap[q.id]?.score ?? 0,
-            state: afterSnapshot.questionStateMap[q.id] ?? beforeQuestionMap[q.id]?.state ?? "red",
+            score:
+              afterSnapshot.questionScoreMap[q.id] ??
+              beforeQuestionMap[q.id]?.score ??
+              0,
+            state:
+              afterSnapshot.questionStateMap[q.id] ??
+              beforeQuestionMap[q.id]?.state ??
+              "red",
           };
           const point = await fetchQuestionConfidence(q.id, fallback);
           return [q.id, point] as const;
         })
       );
-      const afterQuestionMap = Object.fromEntries(afterQuestionEntries) as Record<number, QuestionConfidencePoint>;
+      const afterQuestionMap = Object.fromEntries(
+        afterQuestionEntries
+      ) as Record<number, QuestionConfidencePoint>;
 
       for (const q of examQuestions) {
         const beforePoint = beforeQuestionMap[q.id];
@@ -467,7 +553,7 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
   }
 
   if (phase === "intro") {
-    const presetCounts = [10, 20, 30].filter((n) => n <= totalAvailable);
+    const presetCounts = [10, 20, 30].filter(n => n <= totalAvailable);
 
     return (
       <div className="max-w-2xl mx-auto px-4 py-8">
@@ -484,20 +570,33 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
         <div className="text-center py-8">
           <div className="text-5xl mb-4">📝</div>
           <h1 className="text-2xl font-bold mb-2">{subject?.name} 모의고사</h1>
-          <p className="text-muted-foreground mb-6">시험지 형식으로 한 번에 풀고 마지막에 제출합니다.</p>
+          <p className="text-muted-foreground mb-6">
+            시험지 형식으로 한 번에 풀고 마지막에 제출합니다.
+          </p>
 
           <div className="grid grid-cols-3 gap-4 mb-8 max-w-sm mx-auto">
             <div className="bg-muted/40 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold">{totalAvailable}</div>
-              <div className="text-xs text-muted-foreground mt-1">전체 문제</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                전체 문제
+              </div>
             </div>
             <div className="bg-muted/40 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold">{Math.max(1, Math.min(questionCount || totalAvailable, totalAvailable))}</div>
-              <div className="text-xs text-muted-foreground mt-1">출제 문제</div>
+              <div className="text-2xl font-bold">
+                {Math.max(
+                  1,
+                  Math.min(questionCount || totalAvailable, totalAvailable)
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                출제 문제
+              </div>
             </div>
             <div className="bg-muted/40 rounded-lg p-4 text-center">
               <div className="text-2xl font-bold">∞</div>
-              <div className="text-xs text-muted-foreground mt-1">시간 제한 없음</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                시간 제한 없음
+              </div>
             </div>
           </div>
 
@@ -508,17 +607,21 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
                 <button
                   onClick={() => setQuestionCount(totalAvailable)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    questionCount === totalAvailable ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    questionCount === totalAvailable
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
                   }`}
                 >
                   전체 ({totalAvailable})
                 </button>
-                {presetCounts.map((n) => (
+                {presetCounts.map(n => (
                   <button
                     key={n}
                     onClick={() => setQuestionCount(n)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                      questionCount === n ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      questionCount === n
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
                     }`}
                   >
                     {n}문항
@@ -530,10 +633,12 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
                 min={1}
                 max={totalAvailable}
                 value={questionCount || totalAvailable}
-                onChange={(e) => {
+                onChange={e => {
                   const num = Number(e.target.value);
                   if (Number.isNaN(num)) return;
-                  setQuestionCount(Math.max(1, Math.min(totalAvailable, Math.floor(num))));
+                  setQuestionCount(
+                    Math.max(1, Math.min(totalAvailable, Math.floor(num)))
+                  );
                 }}
                 className="h-8 text-sm"
               />
@@ -545,7 +650,9 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
                 <button
                   onClick={() => setIsRandom(false)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    !isRandom ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    !isRandom
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
                   }`}
                 >
                   순서대로
@@ -553,7 +660,9 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
                 <button
                   onClick={() => setIsRandom(true)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isRandom ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    isRandom
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
                   }`}
                 >
                   랜덤 순서
@@ -620,7 +729,12 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
                   {formatTime(elapsedTime)}
                 </div>
               </div>
-              <Progress value={(answeredCount / Math.max(1, examQuestions.length)) * 100} className="h-1.5" />
+              <Progress
+                value={
+                  (answeredCount / Math.max(1, examQuestions.length)) * 100
+                }
+                className="h-1.5"
+              />
             </div>
 
             <Button
@@ -636,24 +750,39 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
         </div>
 
         {examQuestions.map((q, idx) => {
-          const tableData: TableData | null = q.tableData ? JSON.parse(q.tableData) : null;
-          const imageLabels: any[] = q.imageLabels ? JSON.parse(q.imageLabels) : [];
+          const tableData: TableData | null = q.tableData
+            ? JSON.parse(q.tableData)
+            : null;
+          const imageLabels: any[] = q.imageLabels
+            ? JSON.parse(q.imageLabels)
+            : [];
           const isTableQuestion = !!tableData;
           const isImageQuestion = !!q.imageUrl && imageLabels.length > 0;
           const answered = hasAnswer(q);
 
           return (
-            <div key={q.id} className="bg-card border border-border rounded-xl p-5 space-y-4">
+            <div
+              key={q.id}
+              className="bg-card border border-border rounded-xl p-5 space-y-4"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3 min-w-0">
-                  <Badge variant="outline" className="text-xs flex-shrink-0 mt-0.5">
+                  <Badge
+                    variant="outline"
+                    className="text-xs flex-shrink-0 mt-0.5"
+                  >
                     Q{idx + 1}
                     {isTableQuestion && " 📊"}
                     {isImageQuestion && " 🖼"}
                   </Badge>
-                  <p className="text-base font-medium leading-relaxed whitespace-pre-wrap">{q.question}</p>
+                  <p className="text-base font-medium leading-relaxed whitespace-pre-wrap">
+                    {q.question}
+                  </p>
                 </div>
-                <Badge variant={answered ? "default" : "secondary"} className="text-xs flex-shrink-0">
+                <Badge
+                  variant={answered ? "default" : "secondary"}
+                  className="text-xs flex-shrink-0"
+                >
                   {answered ? "작성됨" : "미작성"}
                 </Badge>
               </div>
@@ -661,7 +790,11 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
               {isImageQuestion && (
                 <div className="space-y-3">
                   <div className="relative">
-                    <img src={q.imageUrl || ""} alt="문제 이미지" className="w-full rounded-lg border border-border" />
+                    <img
+                      src={q.imageUrl || ""}
+                      alt="문제 이미지"
+                      className="w-full rounded-lg border border-border"
+                    />
                     {imageLabels.map((_: any, labelIdx: number) => (
                       <div
                         key={labelIdx}
@@ -680,14 +813,21 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
                   <div className="space-y-2">
                     {imageLabels.map((_: any, labelIdx: number) => (
                       <div key={labelIdx} className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-primary min-w-[24px]">{labelIdx + 1}.</span>
+                        <span className="text-sm font-semibold text-primary min-w-[24px]">
+                          {labelIdx + 1}.
+                        </span>
                         <input
                           type="text"
-                          value={(imageLabelAnswers[q.id] || {})[labelIdx] || ""}
-                          onChange={(e) =>
-                            setImageLabelAnswers((prev) => ({
+                          value={
+                            (imageLabelAnswers[q.id] || {})[labelIdx] || ""
+                          }
+                          onChange={e =>
+                            setImageLabelAnswers(prev => ({
                               ...prev,
-                              [q.id]: { ...(prev[q.id] || {}), [labelIdx]: e.target.value },
+                              [q.id]: {
+                                ...(prev[q.id] || {}),
+                                [labelIdx]: e.target.value,
+                              },
                             }))
                           }
                           placeholder={`영역 ${labelIdx + 1} 답안`}
@@ -704,7 +844,7 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
                   tableData={tableData}
                   answers={tableAnswers[q.id] || {}}
                   onAnswerChange={(key, value) =>
-                    setTableAnswers((prev) => ({
+                    setTableAnswers(prev => ({
                       ...prev,
                       [q.id]: { ...(prev[q.id] || {}), [key]: value },
                     }))
@@ -715,10 +855,21 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
               {!isTableQuestion && !isImageQuestion && (
                 <Textarea
                   value={textAnswers[q.id] || ""}
-                  onChange={(e) => setTextAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                  onKeyDown={(e) => {
+                  onChange={e =>
+                    setTextAnswers(prev => ({
+                      ...prev,
+                      [q.id]: e.target.value,
+                    }))
+                  }
+                  onKeyDown={e => {
                     if (q.autoNumbering !== 1) return;
-                    if (e.key !== "Enter" || e.ctrlKey || e.shiftKey || e.altKey) return;
+                    if (
+                      e.key !== "Enter" ||
+                      e.ctrlKey ||
+                      e.shiftKey ||
+                      e.altKey
+                    )
+                      return;
                     if ((e.nativeEvent as any).isComposing) return;
 
                     e.preventDefault();
@@ -726,14 +877,16 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
 
                     const textarea = e.currentTarget;
                     const selectionStart = textarea.selectionStart ?? 0;
-                    const selectionEnd = textarea.selectionEnd ?? selectionStart;
-                    const { nextValue, nextCursor } = buildNextAutoNumberingValue(
-                      textarea.value,
-                      selectionStart,
-                      selectionEnd
-                    );
+                    const selectionEnd =
+                      textarea.selectionEnd ?? selectionStart;
+                    const { nextValue, nextCursor } =
+                      buildNextAutoNumberingValue(
+                        textarea.value,
+                        selectionStart,
+                        selectionEnd
+                      );
 
-                    setTextAnswers((prev) => ({ ...prev, [q.id]: nextValue }));
+                    setTextAnswers(prev => ({ ...prev, [q.id]: nextValue }));
                     requestAnimationFrame(() => {
                       textarea.focus();
                       textarea.setSelectionRange(nextCursor, nextCursor);
@@ -753,16 +906,23 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
     );
   }
 
-  const subjectScoreDelta = (subjectScoreBefore !== null && subjectScoreAfter !== null)
-    ? subjectScoreAfter - subjectScoreBefore
-    : null;
+  const subjectScoreDelta =
+    subjectScoreBefore !== null && subjectScoreAfter !== null
+      ? subjectScoreAfter - subjectScoreBefore
+      : null;
   const solvedOutcomes = examQuestions
-    .map((q) => outcomes[q.id])
+    .map(q => outcomes[q.id])
     .filter((o): o is QuestionOutcome => !!o && o.eval.submitted);
-  const correctCount = solvedOutcomes.filter((o) => o.eval.isCorrect).length;
-  const avgSimilarity = solvedOutcomes.length > 0
-    ? Math.round(solvedOutcomes.reduce((sum, o) => sum + (o.eval.similarityScore || 0), 0) / solvedOutcomes.length)
-    : 0;
+  const correctCount = solvedOutcomes.filter(o => o.eval.isCorrect).length;
+  const avgSimilarity =
+    solvedOutcomes.length > 0
+      ? Math.round(
+          solvedOutcomes.reduce(
+            (sum, o) => sum + (o.eval.similarityScore || 0),
+            0
+          ) / solvedOutcomes.length
+        )
+      : 0;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 flex flex-col gap-4">
@@ -770,12 +930,15 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
         <div className="text-4xl mb-3">📝</div>
         <h2 className="text-xl font-bold mb-1">시험 완료</h2>
         <p className="text-muted-foreground text-sm mb-4">
-          {answeredCount}/{examQuestions.length}개 문제 답안 작성 · {formatTime(elapsedTime)} 소요
+          {answeredCount}/{examQuestions.length}개 문제 답안 작성 ·{" "}
+          {formatTime(elapsedTime)} 소요
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
           <div className="rounded-lg bg-background/60 border border-border p-2">
             <p className="text-muted-foreground">문항 정답</p>
-            <p className="font-bold text-sm">{correctCount}/{solvedOutcomes.length}</p>
+            <p className="font-bold text-sm">
+              {correctCount}/{solvedOutcomes.length}
+            </p>
           </div>
           <div className="rounded-lg bg-background/60 border border-border p-2">
             <p className="text-muted-foreground">평균 유사도</p>
@@ -789,134 +952,203 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
           </div>
           <div className="rounded-lg bg-background/60 border border-border p-2">
             <p className="text-muted-foreground">과목 증감</p>
-            <p className={`font-bold text-sm ${subjectScoreDelta === null ? "" : subjectScoreDelta > 0 ? "text-emerald-600" : subjectScoreDelta < 0 ? "text-red-500" : "text-muted-foreground"}`}>
-              {subjectScoreDelta === null ? "-" : `${subjectScoreDelta > 0 ? "+" : ""}${subjectScoreDelta}점`}
+            <p
+              className={`font-bold text-sm ${subjectScoreDelta === null ? "" : subjectScoreDelta > 0 ? "text-emerald-600" : subjectScoreDelta < 0 ? "text-red-500" : "text-muted-foreground"}`}
+            >
+              {subjectScoreDelta === null
+                ? "-"
+                : `${subjectScoreDelta > 0 ? "+" : ""}${subjectScoreDelta}점`}
             </p>
           </div>
         </div>
       </div>
 
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-muted-foreground">문제별 채점 결과 · 안정도 반영</h3>
+        <h3 className="text-sm font-semibold text-muted-foreground">
+          문제별 채점 결과 · 안정도 반영
+        </h3>
         {examQuestions.map((q, i) => {
-          const tableData: TableData | null = q.tableData ? JSON.parse(q.tableData) : null;
-          const imageLabels: any[] = q.imageLabels ? JSON.parse(q.imageLabels) : [];
+          const tableData: TableData | null = q.tableData
+            ? JSON.parse(q.tableData)
+            : null;
+          const imageLabels: any[] = q.imageLabels
+            ? JSON.parse(q.imageLabels)
+            : [];
           const isImageQuestion = !!q.imageUrl && imageLabels.length > 0;
           const outcome = outcomes[q.id];
 
           let answerDisplay = "";
           if (tableData) {
             const blankCells = getBlankCells(tableData);
-            answerDisplay = blankCells.map((k) => `${k}: ${(tableAnswers[q.id] || {})[k] || "(미작성)"}`).join("\n");
+            answerDisplay = blankCells
+              .map(k => `${k}: ${(tableAnswers[q.id] || {})[k] || "(미작성)"}`)
+              .join("\n");
           } else if (isImageQuestion) {
             answerDisplay = imageLabels
-              .map((_: any, idx: number) => `${idx + 1}. ${(imageLabelAnswers[q.id] || {})[idx] || "(미작성)"}`)
+              .map(
+                (_: any, idx: number) =>
+                  `${idx + 1}. ${(imageLabelAnswers[q.id] || {})[idx] || "(미작성)"}`
+              )
               .join("\n");
           } else {
             answerDisplay = (textAnswers[q.id] || "").trim();
           }
 
           const accuracySummary = outcome
-            ? (typeof outcome.eval.totalLines === "number" && outcome.eval.totalLines > 0
+            ? typeof outcome.eval.totalLines === "number" &&
+              outcome.eval.totalLines > 0
               ? `${outcome.eval.correctLineCount ?? 0}/${outcome.eval.totalLines}`
-              : `${Math.round(outcome.eval.accuracyRate)}%`)
+              : `${Math.round(outcome.eval.accuracyRate)}%`
             : "-";
 
           return (
             <div key={q.id} className="rounded-lg border border-border p-4">
               <div className="flex items-start gap-3">
-                <Badge variant="outline" className="text-xs flex-shrink-0 mt-0.5">
+                <Badge
+                  variant="outline"
+                  className="text-xs flex-shrink-0 mt-0.5"
+                >
                   Q{i + 1}
                   {tableData ? " 📊" : isImageQuestion ? " 🖼" : ""}
                 </Badge>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-3 mb-2">
-                    <p className="text-sm font-medium leading-snug">{q.question}</p>
+                    <p className="text-sm font-medium leading-snug">
+                      {q.question}
+                    </p>
                     {outcome ? (
                       <Badge
-                        variant={outcome.eval.submitted ? (outcome.eval.isCorrect ? "default" : "destructive") : "secondary"}
+                        variant={
+                          outcome.eval.submitted
+                            ? outcome.eval.isCorrect
+                              ? "default"
+                              : "destructive"
+                            : "secondary"
+                        }
                         className="text-[11px]"
                       >
-                        {outcome.eval.submitted ? (outcome.eval.isCorrect ? "정답" : "오답") : "미작성"}
+                        {outcome.eval.submitted
+                          ? outcome.eval.isCorrect
+                            ? "정답"
+                            : "오답"
+                          : "미작성"}
                       </Badge>
                     ) : (
-                      <Badge variant="secondary" className="text-[11px]">미채점</Badge>
+                      <Badge variant="secondary" className="text-[11px]">
+                        미채점
+                      </Badge>
                     )}
                   </div>
                   {outcome && (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
                       <div className="text-center rounded-lg border border-border bg-muted/30 px-2 py-2">
-                        <p className="text-2xl font-bold">{outcome.eval.isCorrect ? "✓" : "✗"}</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">정답 여부</p>
+                        <p className="text-2xl font-bold">
+                          {outcome.eval.isCorrect ? "✓" : "✗"}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          정답 여부
+                        </p>
                       </div>
                       <div className="text-center rounded-lg border border-border bg-muted/30 px-2 py-2">
                         <p className="text-2xl font-bold">{accuracySummary}</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">정확도</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          정확도
+                        </p>
                       </div>
                       <div className="text-center rounded-lg border border-border bg-muted/30 px-2 py-2">
-                        <p className="text-2xl font-bold">{Math.round(outcome.eval.similarityScore)}%</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">유사도</p>
-                      </div>
-                      <div className="text-center rounded-lg border border-border bg-muted/30 px-2 py-2">
-                        <p className={`text-2xl font-bold ${outcome.confidenceDelta > 0 ? "text-emerald-600" : outcome.confidenceDelta < 0 ? "text-red-500" : "text-muted-foreground"}`}>
-                          {outcome.confidenceDelta > 0 ? "+" : ""}{outcome.confidenceDelta}점
+                        <p className="text-2xl font-bold">
+                          {Math.round(outcome.eval.similarityScore)}%
                         </p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
-                          안정도 {outcome.confidenceBefore} → {outcome.confidenceAfter}
+                          유사도
+                        </p>
+                      </div>
+                      <div className="text-center rounded-lg border border-border bg-muted/30 px-2 py-2">
+                        <p
+                          className={`text-2xl font-bold ${outcome.confidenceDelta > 0 ? "text-emerald-600" : outcome.confidenceDelta < 0 ? "text-red-500" : "text-muted-foreground"}`}
+                        >
+                          {outcome.confidenceDelta > 0 ? "+" : ""}
+                          {outcome.confidenceDelta}점
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          안정도 {outcome.confidenceBefore} →{" "}
+                          {outcome.confidenceAfter}
                         </p>
                         {outcome.confidenceDeltaEstimated && (
-                          <p className="text-[10px] text-muted-foreground mt-0.5">실측 0점으로 추정 반영</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            실측 0점으로 추정 반영
+                          </p>
                         )}
                       </div>
                     </div>
                   )}
                   {outcome?.eval.feedback && (
-                    <p className="text-xs text-muted-foreground mt-2">{outcome.eval.feedback}</p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {outcome.eval.feedback}
+                    </p>
                   )}
                   {outcome?.eval.llmFeedback && (
-                    <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{outcome.eval.llmFeedback}</p>
+                    <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">
+                      {outcome.eval.llmFeedback}
+                    </p>
                   )}
-                  {outcome?.eval.mistakes && outcome.eval.mistakes.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      <p className="text-xs font-semibold text-muted-foreground">정답 비교</p>
-                      {outcome.eval.mistakes.slice(0, 6).map((m, idx) => (
-                        <div
-                          key={`${q.id}-${idx}`}
-                          className={`p-3 rounded-lg border ${m.isCorrect ? "bg-green-50 border-green-300" : "bg-red-50 border-red-300"}`}
-                        >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-xs font-semibold">
-                              {m.lineIndex
-                                ? `${m.lineIndex}줄`
-                                : m.labelIndex
-                                  ? `${m.labelIndex}번 라벨`
-                                  : m.cellKey
-                                    ? `셀 ${m.cellKey}`
-                                    : `항목 ${idx + 1}`}
-                            </span>
-                            <span className={`text-base ${m.isCorrect ? "text-green-600" : "text-red-600"}`}>
-                              {m.isCorrect ? "✓" : "✗"}
-                            </span>
-                          </div>
-                          <div className="text-xs space-y-1">
-                            <div><span className="font-semibold">정답:</span> {m.correctAnswer || "(없음)"}</div>
-                            <div className={m.isCorrect ? "text-green-700" : "text-red-700"}>
-                              <span className="font-semibold">내 답:</span> {m.userAnswer || "(미입력)"}
+                  {outcome?.eval.mistakes &&
+                    outcome.eval.mistakes.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        <p className="text-xs font-semibold text-muted-foreground">
+                          정답 비교
+                        </p>
+                        {outcome.eval.mistakes.slice(0, 6).map((m, idx) => (
+                          <div
+                            key={`${q.id}-${idx}`}
+                            className={`p-3 rounded-lg border ${m.isCorrect ? "bg-green-50 border-green-300" : "bg-red-50 border-red-300"}`}
+                          >
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-xs font-semibold">
+                                {m.lineIndex
+                                  ? `${m.lineIndex}줄`
+                                  : m.labelIndex
+                                    ? `${m.labelIndex}번 라벨`
+                                    : m.cellKey
+                                      ? `셀 ${m.cellKey}`
+                                      : `항목 ${idx + 1}`}
+                              </span>
+                              <span
+                                className={`text-base ${m.isCorrect ? "text-green-600" : "text-red-600"}`}
+                              >
+                                {m.isCorrect ? "✓" : "✗"}
+                              </span>
+                            </div>
+                            <div className="text-xs space-y-1">
+                              <div>
+                                <span className="font-semibold">정답:</span>{" "}
+                                {m.correctAnswer || "(없음)"}
+                              </div>
+                              <div
+                                className={
+                                  m.isCorrect
+                                    ? "text-green-700"
+                                    : "text-red-700"
+                                }
+                              >
+                                <span className="font-semibold">내 답:</span>{" "}
+                                {m.userAnswer || "(미입력)"}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {!outcome?.eval.mistakes?.length && (
-                    answerDisplay ? (
+                        ))}
+                      </div>
+                    )}
+                  {!outcome?.eval.mistakes?.length &&
+                    (answerDisplay ? (
                       <p className="text-xs text-muted-foreground bg-muted/40 rounded p-2 whitespace-pre-wrap font-mono mt-2">
                         {answerDisplay}
                       </p>
                     ) : (
-                      <p className="text-xs text-muted-foreground/50 italic mt-2">미작성</p>
-                    )
-                  )}
+                      <p className="text-xs text-muted-foreground/50 italic mt-2">
+                        미작성
+                      </p>
+                    ))}
                 </div>
               </div>
             </div>
@@ -942,7 +1174,10 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
           <RotateCcw className="h-4 w-4" />
           다시 시험
         </Button>
-        <Button className="flex-1 gap-1.5" onClick={() => setLocation(`/questions/${subjectId}`)}>
+        <Button
+          className="flex-1 gap-1.5"
+          onClick={() => setLocation(`/questions/${subjectId}`)}
+        >
           <Trophy className="h-4 w-4" />
           과목으로 돌아가기
         </Button>

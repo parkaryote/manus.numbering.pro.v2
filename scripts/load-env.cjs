@@ -19,4 +19,3 @@ function loadDotEnvIntoProcess(options = {}) {
 }
 
 module.exports = { loadDotEnvIntoProcess };
-

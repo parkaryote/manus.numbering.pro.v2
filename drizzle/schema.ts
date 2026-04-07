@@ -1,4 +1,11 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import {
+  int,
+  mysqlEnum,
+  mysqlTable,
+  text,
+  timestamp,
+  varchar,
+} from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -65,7 +72,9 @@ export const questions = mysqlTable("questions", {
   useAIGrading: int("useAIGrading").default(0).notNull(), // 0: disabled, 1: enabled
   autoNumbering: int("autoNumbering").default(1).notNull(), // 0: disabled, 1: enabled
   tableData: text("tableData"), // JSON for table questions (엔터 기준 자동 번호 생성)
-  difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default("medium"),
+  difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default(
+    "medium"
+  ),
   displayOrder: int("displayOrder").default(0).notNull(),
   isDemo: int("isDemo").default(0).notNull(), // 0: 일반 문제, 1: 데모 문제
   isStarred: int("isStarred").default(0).notNull(), // 0: 미표시, 1: 별표 표시 (중요문제/빈출문제)
@@ -142,7 +151,9 @@ export const ocrJobs = mysqlTable("ocrJobs", {
   s3Url: text("s3Url").notNull(), // Original S3 file URL
   gcsUri: text("gcsUri"), // gs:// URI after upload to GCS
   operationName: text("operationName"), // Google Cloud Vision operation name
-  status: mysqlEnum("status", ["pending", "processing", "completed", "failed"]).default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "processing", "completed", "failed"])
+    .default("pending")
+    .notNull(),
   extractedText: text("extractedText"), // OCR result
   errorMessage: text("errorMessage"), // Error details if failed
   createdAt: timestamp("createdAt").defaultNow().notNull(),

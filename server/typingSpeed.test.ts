@@ -12,7 +12,9 @@ import {
   type TypingAttemptInput,
 } from "./typingSpeed";
 
-const makeAttempt = (overrides: Partial<TypingAttemptInput> = {}): TypingAttemptInput => ({
+const makeAttempt = (
+  overrides: Partial<TypingAttemptInput> = {}
+): TypingAttemptInput => ({
   answerLength: 10,
   inputChars: 10,
   timeToFirstKey: 500,
@@ -45,7 +47,11 @@ describe("getLengthBucket", () => {
 
 describe("calculateEffectiveSpeed", () => {
   it("calculates basic speed correctly", () => {
-    const attempt = makeAttempt({ inputChars: 10, typingStartTime: 0, typingEndTime: 5000 });
+    const attempt = makeAttempt({
+      inputChars: 10,
+      typingStartTime: 0,
+      typingEndTime: 5000,
+    });
     const result = calculateEffectiveSpeed(attempt);
     expect(result.charsPerSec).toBeCloseTo(2.0, 1);
     expect(result.efficiency).toBe(1.0);
@@ -72,8 +78,12 @@ describe("calculateEffectiveSpeed", () => {
   });
 
   it("assigns correct length bucket", () => {
-    expect(calculateEffectiveSpeed(makeAttempt({ answerLength: 5 })).lengthBucket).toBe(2);
-    expect(calculateEffectiveSpeed(makeAttempt({ answerLength: 15 })).lengthBucket).toBe(4);
+    expect(
+      calculateEffectiveSpeed(makeAttempt({ answerLength: 5 })).lengthBucket
+    ).toBe(2);
+    expect(
+      calculateEffectiveSpeed(makeAttempt({ answerLength: 15 })).lengthBucket
+    ).toBe(4);
   });
 });
 
@@ -151,7 +161,9 @@ describe("computeP60", () => {
 
 describe("shouldUpdateBaseline", () => {
   it("returns false when pasteDetected", () => {
-    expect(shouldUpdateBaseline(makeAttempt({ pasteDetected: true }))).toBe(false);
+    expect(shouldUpdateBaseline(makeAttempt({ pasteDetected: true }))).toBe(
+      false
+    );
   });
 
   it("returns false when inputChars < 2", () => {
@@ -159,7 +171,11 @@ describe("shouldUpdateBaseline", () => {
   });
 
   it("returns false when typingDuration < 300ms", () => {
-    expect(shouldUpdateBaseline(makeAttempt({ typingStartTime: 0, typingEndTime: 200 }))).toBe(false);
+    expect(
+      shouldUpdateBaseline(
+        makeAttempt({ typingStartTime: 0, typingEndTime: 200 })
+      )
+    ).toBe(false);
   });
 
   it("returns true for valid attempt", () => {

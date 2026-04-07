@@ -104,7 +104,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
               opacity: 1;
             }
             100% {
-              transform: translate(-50%, -50%) scale(0.9) translateY(${isPositive ? '-20px' : '20px'});
+              transform: translate(-50%, -50%) scale(0.9) translateY(${isPositive ? "-20px" : "20px"});
               opacity: 0;
             }
           }

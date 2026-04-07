@@ -99,7 +99,10 @@ function hoursSince(date: Date | null, now: Date): number {
   return (now.getTime() - date.getTime()) / (1000 * 60 * 60);
 }
 
-function getHoursUntilExam(examDate: Date | null | undefined, now: Date): number | null {
+function getHoursUntilExam(
+  examDate: Date | null | undefined,
+  now: Date
+): number | null {
   if (!examDate) return null;
   return (examDate.getTime() - now.getTime()) / (1000 * 60 * 60);
 }
@@ -130,7 +133,11 @@ function estimateColdStartScore(
   const answerLength = Math.max(1, Math.round(hint.answerLength));
   const lineCount = Math.max(1, Math.round(hint.lineCount ?? 1));
   const blankCount = Math.max(0, Math.round(hint.blankCount ?? 0));
-  const normalizedLength = clamp(Math.log1p(answerLength) / Math.log1p(700), 0, 1);
+  const normalizedLength = clamp(
+    Math.log1p(answerLength) / Math.log1p(700),
+    0,
+    1
+  );
   const normalizedLine = clamp((lineCount - 1) / 10, 0, 1);
   const normalizedBlank = clamp(blankCount / 22, 0, 1);
   const tableComplexity = hint.hasTable ? 1 : 0;
@@ -149,7 +156,9 @@ function estimateColdStartScore(
   complexityIndex = clamp(complexityIndex, 0.02, 1);
 
   const oneLookRecallProb = clamp(0.9 - complexityIndex * 0.95, 0.04, 0.88);
-  let score = Math.round(3 + Math.pow(oneLookRecallProb, 1.1) * 42 - complexityIndex * 10);
+  let score = Math.round(
+    3 + Math.pow(oneLookRecallProb, 1.1) * 42 - complexityIndex * 10
+  );
 
   if (hoursUntilExam !== null && hoursUntilExam <= 24) score += 3;
   else if (hoursUntilExam !== null && hoursUntilExam <= 72) score += 2;
@@ -157,7 +166,10 @@ function estimateColdStartScore(
   return clamp(score, 0, 45);
 }
 
-function getPracticeRecencyBonus(hoursSincePractice: number, hoursUntilExam: number | null): number {
+function getPracticeRecencyBonus(
+  hoursSincePractice: number,
+  hoursUntilExam: number | null
+): number {
   if (!Number.isFinite(hoursSincePractice)) return 0;
 
   let bonus = 0;
@@ -189,7 +201,8 @@ function getPracticeProgressGainBounds(input: {
   hoursUntilExam: number | null;
   previousWasColdStart: boolean;
 }): { minGain: number; maxGain: number } {
-  const { previousScore, practiceCount, hoursUntilExam, previousWasColdStart } = input;
+  const { previousScore, practiceCount, hoursUntilExam, previousWasColdStart } =
+    input;
 
   if (previousWasColdStart) {
     // 0점 콜드스타트는 본래 상승폭을 유지한다.
@@ -229,7 +242,10 @@ function getPracticeProgressGainBounds(input: {
   return { minGain, maxGain };
 }
 
-function getSpacingWeight(gapHours: number, hoursUntilExam: number | null): number {
+function getSpacingWeight(
+  gapHours: number,
+  hoursUntilExam: number | null
+): number {
   // 20h 내외 재확인을 가장 높게 평가 (현 요청 스케줄 최적화)
   if (gapHours < 0.25) return 0.2;
   if (gapHours < 1) return 0.45;
@@ -244,7 +260,11 @@ function getSpacingWeight(gapHours: number, hoursUntilExam: number | null): numb
 }
 
 function computeTimeWeightedStreakScore(
-  history: Array<{ completedAt: Date; isCorrect: boolean; similarityScore: number }>,
+  history: Array<{
+    completedAt: Date;
+    isCorrect: boolean;
+    similarityScore: number;
+  }>,
   now: Date,
   hoursUntilExam: number | null
 ): number {
@@ -258,9 +278,10 @@ function computeTimeWeightedStreakScore(
     const passed = item.isCorrect || item.similarityScore >= 88;
     if (!passed) break;
 
-    const gap = i === 0
-      ? hoursSince(item.completedAt, now)
-      : (previous.getTime() - item.completedAt.getTime()) / (1000 * 60 * 60);
+    const gap =
+      i === 0
+        ? hoursSince(item.completedAt, now)
+        : (previous.getTime() - item.completedAt.getTime()) / (1000 * 60 * 60);
     const spacingWeight = getSpacingWeight(gap, hoursUntilExam);
     const base = i === 0 ? 14 : i === 1 ? 11 : i === 2 ? 8 : 6;
 
@@ -272,14 +293,25 @@ function computeTimeWeightedStreakScore(
 }
 
 function computeWeightedMastery(
-  history: Array<{ completedAt: Date; isCorrect: boolean; similarityScore: number }>,
+  history: Array<{
+    completedAt: Date;
+    isCorrect: boolean;
+    similarityScore: number;
+  }>,
   now: Date,
-  fallback: Pick<TestSignal, "testCount" | "correctCount" | "averageSimilarityScore">
+  fallback: Pick<
+    TestSignal,
+    "testCount" | "correctCount" | "averageSimilarityScore"
+  >
 ): number {
   if (history.length === 0) {
     if (fallback.testCount <= 0) return 0;
     const baseAccuracy = fallback.correctCount / fallback.testCount;
-    const similarityAnchor = clamp((fallback.averageSimilarityScore - 60) / 40, 0, 1);
+    const similarityAnchor = clamp(
+      (fallback.averageSimilarityScore - 60) / 40,
+      0,
+      1
+    );
     // 시험 안정도는 정확도보다 유사도를 더 강하게 반영
     return clamp(baseAccuracy * 0.35 + similarityAnchor * 0.65, 0, 1);
   }
@@ -295,7 +327,7 @@ function computeWeightedMastery(
     let similarityQuality = 0;
     if (s >= 99) similarityQuality = 1.0;
     else if (s >= 97) similarityQuality = 0.95;
-    else if (s >= 95) similarityQuality = 0.90;
+    else if (s >= 95) similarityQuality = 0.9;
     else if (s >= 92) similarityQuality = 0.78;
     else if (s >= 90) similarityQuality = 0.72;
     else if (s >= 85) similarityQuality = 0.62;
@@ -349,7 +381,11 @@ function computeInactivityPenalty(
 }
 
 function computeRecentPassStreak(
-  history: Array<{ completedAt: Date; isCorrect: boolean; similarityScore: number }>
+  history: Array<{
+    completedAt: Date;
+    isCorrect: boolean;
+    similarityScore: number;
+  }>
 ): number {
   let streak = 0;
   for (const item of history) {
@@ -407,7 +443,9 @@ function getSingleTestDisplayCap(input: {
 
 // ─── Main Scoring ──────────────────────────────────────────────────
 
-export function computeExamConfidence(input: ConfidenceInput): ConfidenceResult {
+export function computeExamConfidence(
+  input: ConfidenceInput
+): ConfidenceResult {
   return computeExamConfidenceInternal(input, true);
 }
 
@@ -422,12 +460,16 @@ function computeExamConfidenceInternal(
 
   const hasAnyData = practice.practiceCount > 0 || test.testCount > 0;
   if (!hasAnyData) {
-    const initialScore = estimateColdStartScore(input.initialEstimate, hoursUntilExam);
-    const state = initialScore >= CONFIDENCE_THRESHOLDS.green
-      ? "green"
-      : initialScore >= CONFIDENCE_THRESHOLDS.yellow
-        ? "yellow"
-        : "red";
+    const initialScore = estimateColdStartScore(
+      input.initialEstimate,
+      hoursUntilExam
+    );
+    const state =
+      initialScore >= CONFIDENCE_THRESHOLDS.green
+        ? "green"
+        : initialScore >= CONFIDENCE_THRESHOLDS.yellow
+          ? "yellow"
+          : "red";
 
     return {
       rawScore: initialScore,
@@ -457,18 +499,33 @@ function computeExamConfidenceInternal(
     .sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime());
 
   // A. Practice contribution
-  const practiceVolumeBase = 22 * (1 - Math.exp(-practice.practiceCount * 0.32));
-  const practiceVolumeScore = clamp(Math.round(practiceVolumeBase * urgencyMultiplier), 0, 38);
+  const practiceVolumeBase =
+    22 * (1 - Math.exp(-practice.practiceCount * 0.32));
+  const practiceVolumeScore = clamp(
+    Math.round(practiceVolumeBase * urgencyMultiplier),
+    0,
+    38
+  );
 
-  const durationSignal = 10 * (1 - Math.exp(-practice.totalPracticeDuration / 420));
-  const perPracticeSeconds = practice.practiceCount > 0
-    ? practice.totalPracticeDuration / practice.practiceCount
-    : 0;
+  const durationSignal =
+    10 * (1 - Math.exp(-practice.totalPracticeDuration / 420));
+  const perPracticeSeconds =
+    practice.practiceCount > 0
+      ? practice.totalPracticeDuration / practice.practiceCount
+      : 0;
   const densityAdjustment = getPracticeDensityAdjustment(perPracticeSeconds);
-  const recencyPracticeBonus = practice.practiceCount > 0
-    ? getPracticeRecencyBonus(hoursSince(practice.mostRecentPracticeAt, now), hoursUntilExam)
-    : 0;
-  const practiceBonus = clamp(Math.round(durationSignal + densityAdjustment + recencyPracticeBonus), 0, 18);
+  const recencyPracticeBonus =
+    practice.practiceCount > 0
+      ? getPracticeRecencyBonus(
+          hoursSince(practice.mostRecentPracticeAt, now),
+          hoursUntilExam
+        )
+      : 0;
+  const practiceBonus = clamp(
+    Math.round(durationSignal + densityAdjustment + recencyPracticeBonus),
+    0,
+    18
+  );
 
   // B. Test contribution (유사도 중심, 정오답은 보정 신호)
   const masteryRate = computeWeightedMastery(sortedHistory, now, {
@@ -477,12 +534,12 @@ function computeExamConfidenceInternal(
     averageSimilarityScore: test.averageSimilarityScore,
   });
 
-  const testExposureScore = test.testCount > 0
-    ? clamp(Math.round(14 * (1 - Math.exp(-test.testCount * 0.6))), 0, 14)
-    : 0;
-  const testAccuracyScore = test.testCount > 0
-    ? clamp(Math.round(masteryRate * 40), 0, 40)
-    : 0;
+  const testExposureScore =
+    test.testCount > 0
+      ? clamp(Math.round(14 * (1 - Math.exp(-test.testCount * 0.6))), 0, 14)
+      : 0;
+  const testAccuracyScore =
+    test.testCount > 0 ? clamp(Math.round(masteryRate * 40), 0, 40) : 0;
 
   // 최신 시험의 고유사도를 강하게 반영 (특히 95~100)
   let recentSimilarityBoost = 0;
@@ -490,19 +547,20 @@ function computeExamConfidenceInternal(
   if (latestTest) {
     const sim = clamp(Math.round(latestTest.similarityScore), 0, 100);
     const ageHours = hoursSince(latestTest.completedAt, now);
-    const freshness = ageHours <= 1
-      ? 1
-      : ageHours <= 3
-        ? 0.95
-        : ageHours <= 6
-          ? 0.9
-          : ageHours <= 12
-            ? 0.85
-            : ageHours <= 24
-              ? 0.8
-              : ageHours <= 48
-                ? 0.65
-                : 0.45;
+    const freshness =
+      ageHours <= 1
+        ? 1
+        : ageHours <= 3
+          ? 0.95
+          : ageHours <= 6
+            ? 0.9
+            : ageHours <= 12
+              ? 0.85
+              : ageHours <= 24
+                ? 0.8
+                : ageHours <= 48
+                  ? 0.65
+                  : 0.45;
 
     let baseBoost = 0;
     if (sim >= 99) baseBoost = 18;
@@ -517,14 +575,19 @@ function computeExamConfidenceInternal(
 
     if (latestTest.isCorrect) baseBoost += 3;
     else if (sim < 95) baseBoost -= 2;
-    if (hoursUntilExam !== null && hoursUntilExam <= 24 && sim >= 90) baseBoost += 2;
+    if (hoursUntilExam !== null && hoursUntilExam <= 24 && sim >= 90)
+      baseBoost += 2;
 
     recentSimilarityBoost = clamp(Math.round(baseBoost * freshness), -8, 20);
   }
 
   let timeWeightedStreakScore = 0;
   if (sortedHistory.length > 0) {
-    timeWeightedStreakScore = computeTimeWeightedStreakScore(sortedHistory, now, hoursUntilExam);
+    timeWeightedStreakScore = computeTimeWeightedStreakScore(
+      sortedHistory,
+      now,
+      hoursUntilExam
+    );
   } else if (test.recentCorrectStreak > 0) {
     const s = Math.min(test.recentCorrectStreak, 4);
     const fallback = [0, 8, 14, 20, 25][s];
@@ -548,17 +611,24 @@ function computeExamConfidenceInternal(
   }
 
   // D. Penalties
-  const recentCandidates = [practice.mostRecentPracticeAt, test.mostRecentTestAt]
-    .filter(Boolean) as Date[];
-  const inactivityHours = recentCandidates.length > 0
-    ? hoursSince(new Date(Math.max(...recentCandidates.map(d => d.getTime()))), now)
-    : Number.POSITIVE_INFINITY;
+  const recentCandidates = [
+    practice.mostRecentPracticeAt,
+    test.mostRecentTestAt,
+  ].filter(Boolean) as Date[];
+  const inactivityHours =
+    recentCandidates.length > 0
+      ? hoursSince(
+          new Date(Math.max(...recentCandidates.map(d => d.getTime()))),
+          now
+        )
+      : Number.POSITIVE_INFINITY;
 
-  const difficultyForgettingMultiplier = questionDifficulty === "hard"
-    ? 1.18
-    : questionDifficulty === "easy"
-      ? 0.86
-      : 1.0;
+  const difficultyForgettingMultiplier =
+    questionDifficulty === "hard"
+      ? 1.18
+      : questionDifficulty === "easy"
+        ? 0.86
+        : 1.0;
   const forgettingPenaltyBase = computeInactivityPenalty(
     inactivityHours,
     test.testCount > 0,
@@ -578,20 +648,22 @@ function computeExamConfidenceInternal(
         if (item.isCorrect) continue;
 
         const age = hoursSince(item.completedAt, now);
-        const ageWeight = age <= 6 ? 1.2 : age <= 20 ? 1.0 : age <= 48 ? 0.75 : 0.45;
-        const severity = item.similarityScore >= 98
-          ? 0.03
-          : item.similarityScore >= 95
-            ? 0.08
-            : item.similarityScore >= 90
-              ? 0.15
-              : item.similarityScore >= 85
-                ? 0.25
-          : item.similarityScore >= 70
-            ? 0.55
-            : item.similarityScore >= 50
-              ? 0.9
-              : 1.15;
+        const ageWeight =
+          age <= 6 ? 1.2 : age <= 20 ? 1.0 : age <= 48 ? 0.75 : 0.45;
+        const severity =
+          item.similarityScore >= 98
+            ? 0.03
+            : item.similarityScore >= 95
+              ? 0.08
+              : item.similarityScore >= 90
+                ? 0.15
+                : item.similarityScore >= 85
+                  ? 0.25
+                  : item.similarityScore >= 70
+                    ? 0.55
+                    : item.similarityScore >= 50
+                      ? 0.9
+                      : 1.15;
         penaltyAccumulator += 7 * ageWeight * severity;
       }
 
@@ -600,7 +672,11 @@ function computeExamConfidenceInternal(
 
       wrongPenalty = clamp(Math.round(penaltyAccumulator), 0, 32);
     } else {
-      wrongPenalty = clamp(Math.round(test.wrongCount * 7 * (1 - masteryRate * 0.4)), 0, 32);
+      wrongPenalty = clamp(
+        Math.round(test.wrongCount * 7 * (1 - masteryRate * 0.4)),
+        0,
+        32
+      );
     }
   }
 
@@ -610,31 +686,37 @@ function computeExamConfidenceInternal(
     if (latest.similarityScore >= 97) {
       recentPoorPenalty = 0;
     } else if (latest.similarityScore >= 93) {
-      recentPoorPenalty = hoursUntilExam !== null && hoursUntilExam <= 24 ? 1 : 0;
+      recentPoorPenalty =
+        hoursUntilExam !== null && hoursUntilExam <= 24 ? 1 : 0;
     } else if (latest.similarityScore >= 85) {
-      recentPoorPenalty = hoursUntilExam !== null && hoursUntilExam <= 24 ? 2 : 1;
+      recentPoorPenalty =
+        hoursUntilExam !== null && hoursUntilExam <= 24 ? 2 : 1;
     } else if (latest.similarityScore >= 70) {
-      recentPoorPenalty = hoursUntilExam !== null && hoursUntilExam <= 24 ? 4 : 2;
+      recentPoorPenalty =
+        hoursUntilExam !== null && hoursUntilExam <= 24 ? 4 : 2;
     } else if (latest.similarityScore < 50 || test.mostRecentTestWasPoor) {
-      recentPoorPenalty = hoursUntilExam !== null && hoursUntilExam <= 24 ? 12 : 8;
+      recentPoorPenalty =
+        hoursUntilExam !== null && hoursUntilExam <= 24 ? 12 : 8;
     } else {
-      recentPoorPenalty = hoursUntilExam !== null && hoursUntilExam <= 24 ? 7 : 4;
+      recentPoorPenalty =
+        hoursUntilExam !== null && hoursUntilExam <= 24 ? 7 : 4;
     }
   } else if (test.mostRecentTestWasPoor) {
-    recentPoorPenalty = hoursUntilExam !== null && hoursUntilExam <= 24 ? 10 : 7;
+    recentPoorPenalty =
+      hoursUntilExam !== null && hoursUntilExam <= 24 ? 10 : 7;
   }
 
   let rawScore = clamp(
     practiceVolumeScore +
-    practiceBonus +
-    testExposureScore +
-    testAccuracyScore +
-    recentSimilarityBoost +
-    timeWeightedStreakScore +
-    speedBonus -
-    forgettingPenalty -
-    wrongPenalty -
-    recentPoorPenalty,
+      practiceBonus +
+      testExposureScore +
+      testAccuracyScore +
+      recentSimilarityBoost +
+      timeWeightedStreakScore +
+      speedBonus -
+      forgettingPenalty -
+      wrongPenalty -
+      recentPoorPenalty,
     0,
     100
   );
@@ -644,9 +726,17 @@ function computeExamConfidenceInternal(
   // - 데이터가 충분할 때만 점진적으로 적용
   const profile = input.userProfile;
   if (profile) {
-    const evidence = clamp((practice.practiceCount + test.testCount * 1.5) / 24, 0, 1);
+    const evidence = clamp(
+      (practice.practiceCount + test.testCount * 1.5) / 24,
+      0,
+      1
+    );
 
-    const practiceEffectiveness = clamp(profile.practiceEffectiveness ?? 1, 0.8, 1.2);
+    const practiceEffectiveness = clamp(
+      profile.practiceEffectiveness ?? 1,
+      0.8,
+      1.2
+    );
     const testReliability = clamp(profile.testReliability ?? 1, 0.85, 1.15);
     const recoveryPower = clamp(profile.recoveryPower ?? 1, 0.85, 1.15);
     const pacingDiscipline = clamp(profile.pacingDiscipline ?? 1, 0.85, 1.15);
@@ -663,16 +753,15 @@ function computeExamConfidenceInternal(
       recentSimilarityBoost +
       timeWeightedStreakScore +
       speedBonus;
-    const penaltyTermBase = forgettingPenalty + wrongPenalty + recentPoorPenalty;
+    const penaltyTermBase =
+      forgettingPenalty + wrongPenalty + recentPoorPenalty;
 
     const practiceTerm = practiceTermBase * appliedPracticeFactor;
     const testTerm = testTermBase * appliedTestFactor;
 
     // recovery/pacing이 좋은 사용자는 동일 실수에서도 패널티를 조금 덜 받는다.
     const penaltyScaleRaw =
-      1 -
-      (appliedRecoveryFactor - 1) * 0.3 -
-      (appliedPacingFactor - 1) * 0.22;
+      1 - (appliedRecoveryFactor - 1) * 0.3 - (appliedPacingFactor - 1) * 0.22;
     const penaltyScale = clamp(penaltyScaleRaw, 0.82, 1.2);
     const penaltyTerm = penaltyTermBase * penaltyScale;
 
@@ -682,14 +771,25 @@ function computeExamConfidenceInternal(
   // F. Cold-start anchored practice floor
   // 테스트 기록이 없고 초기 추정치가 있는 문제는
   // 첫 연습에서 체감 가능한 상승이 보이도록 기준점을 유지한다.
-  if (test.testCount === 0 && practice.practiceCount > 0 && input.initialEstimate) {
-    const coldStartBaseline = estimateColdStartScore(input.initialEstimate, hoursUntilExam);
+  if (
+    test.testCount === 0 &&
+    practice.practiceCount > 0 &&
+    input.initialEstimate
+  ) {
+    const coldStartBaseline = estimateColdStartScore(
+      input.initialEstimate,
+      hoursUntilExam
+    );
     const progressiveGain = Math.max(
       2,
       Math.round(1 + Math.log2(practice.practiceCount + 1) * 2.2)
     );
     const urgencyLift = hoursUntilExam !== null && hoursUntilExam <= 24 ? 1 : 0;
-    const coldStartFloor = clamp(coldStartBaseline + progressiveGain + urgencyLift, 0, 100);
+    const coldStartFloor = clamp(
+      coldStartBaseline + progressiveGain + urgencyLift,
+      0,
+      100
+    );
     rawScore = Math.max(rawScore, coldStartFloor);
   }
 
@@ -698,7 +798,11 @@ function computeExamConfidenceInternal(
     displayCap = getPracticeOnlyCap(hoursUntilExam);
   } else {
     const hoursSinceLastTest = hoursSince(test.mostRecentTestAt, now);
-    if (hoursUntilExam !== null && hoursUntilExam <= 24 && hoursSinceLastTest > 12) {
+    if (
+      hoursUntilExam !== null &&
+      hoursUntilExam <= 24 &&
+      hoursSinceLastTest > 12
+    ) {
       displayCap = Math.min(displayCap, 78);
     }
     if (test.testCount === 1 && sortedHistory.length > 0) {
@@ -720,7 +824,11 @@ function computeExamConfidenceInternal(
   // 99%는 매우 높은 점수로 인정하되, "완전 암기" 100점은 더 엄격히 부여.
   if (displayScore >= 100 && sortedHistory.length > 0) {
     const latestTest = sortedHistory[0];
-    const latestSimilarity = clamp(Math.round(latestTest.similarityScore), 0, 100);
+    const latestSimilarity = clamp(
+      Math.round(latestTest.similarityScore),
+      0,
+      100
+    );
     if (!latestTest.isCorrect || latestSimilarity < 100) {
       displayScore = 99;
     }
@@ -734,10 +842,14 @@ function computeExamConfidenceInternal(
     displayScore < CONFIDENCE_THRESHOLDS.green &&
     hoursSince(practice.mostRecentPracticeAt, now) <= 3
   ) {
-    const avgPracticeDuration = practice.totalPracticeDuration / practice.practiceCount;
+    const avgPracticeDuration =
+      practice.totalPracticeDuration / practice.practiceCount;
     const prevPractice: PracticeSignal = {
       practiceCount: Math.max(0, practice.practiceCount - 1),
-      totalPracticeDuration: Math.max(0, practice.totalPracticeDuration - avgPracticeDuration),
+      totalPracticeDuration: Math.max(
+        0,
+        practice.totalPracticeDuration - avgPracticeDuration
+      ),
       mostRecentPracticeAt: practice.mostRecentPracticeAt,
     };
 
@@ -754,7 +866,10 @@ function computeExamConfidenceInternal(
       previousWasColdStart: prevResult.isColdStart,
     });
     const boundedGain = clamp(currentGain, minGain, maxGain);
-    const guardedScore = Math.min(displayCap, prevResult.displayScore + boundedGain);
+    const guardedScore = Math.min(
+      displayCap,
+      prevResult.displayScore + boundedGain
+    );
 
     if (displayScore !== guardedScore) {
       displayScore = guardedScore;
@@ -772,20 +887,35 @@ function computeExamConfidenceInternal(
   ) {
     const latestTest = sortedHistory[0];
     const previousTest = sortedHistory[1];
-    const latestSimilarity = clamp(Math.round(latestTest.similarityScore), 0, 100);
+    const latestSimilarity = clamp(
+      Math.round(latestTest.similarityScore),
+      0,
+      100
+    );
     const latestPassed = !!latestTest.isCorrect || latestSimilarity >= 88;
     const gapHours = Math.max(
       0,
-      (latestTest.completedAt.getTime() - previousTest.completedAt.getTime()) / (1000 * 60 * 60)
+      (latestTest.completedAt.getTime() - previousTest.completedAt.getTime()) /
+        (1000 * 60 * 60)
     );
 
     const remainingHistory = sortedHistory.slice(1);
     const prevTestCount = Math.max(0, test.testCount - 1);
-    const prevCorrectCount = Math.max(0, test.correctCount - (latestTest.isCorrect ? 1 : 0));
-    const prevWrongCount = Math.max(0, test.wrongCount - (latestTest.isCorrect ? 0 : 1));
-    const prevAverageSimilarity = remainingHistory.length > 0
-      ? remainingHistory.reduce((sum, item) => sum + item.similarityScore, 0) / remainingHistory.length
-      : 0;
+    const prevCorrectCount = Math.max(
+      0,
+      test.correctCount - (latestTest.isCorrect ? 1 : 0)
+    );
+    const prevWrongCount = Math.max(
+      0,
+      test.wrongCount - (latestTest.isCorrect ? 0 : 1)
+    );
+    const prevAverageSimilarity =
+      remainingHistory.length > 0
+        ? remainingHistory.reduce(
+            (sum, item) => sum + item.similarityScore,
+            0
+          ) / remainingHistory.length
+        : 0;
     const prevMostRecent = remainingHistory[0]?.completedAt ?? null;
 
     const previousResult = computeExamConfidenceInternal(
@@ -832,7 +962,10 @@ function computeExamConfidenceInternal(
       maxGain = clamp(Math.round(maxGain), 1, 14);
       minGain = clamp(Math.round(minGain), 0, maxGain);
       const boundedGain = clamp(currentGain, minGain, maxGain);
-      const guardedScore = Math.min(displayCap, previousResult.displayScore + boundedGain);
+      const guardedScore = Math.min(
+        displayCap,
+        previousResult.displayScore + boundedGain
+      );
 
       if (guardedScore !== displayScore) {
         displayScore = guardedScore;
@@ -903,15 +1036,22 @@ function getExamPeriodLengthBasedDecay(
   if (hoursUntilExam > examPeriodHours) return null;
 
   const questionLength = Math.max(1, Math.round(context.questionLength ?? 0));
-  const minQuestionLength = Math.max(1, Math.round(context.minQuestionLength ?? questionLength));
-  const maxQuestionLength = Math.max(minQuestionLength, Math.round(context.maxQuestionLength ?? questionLength));
+  const minQuestionLength = Math.max(
+    1,
+    Math.round(context.minQuestionLength ?? questionLength)
+  );
+  const maxQuestionLength = Math.max(
+    minQuestionLength,
+    Math.round(context.maxQuestionLength ?? questionLength)
+  );
 
   if (maxQuestionLength === minQuestionLength) {
     return 7;
   }
 
   const lengthRatio = clamp(
-    (questionLength - minQuestionLength) / (maxQuestionLength - minQuestionLength),
+    (questionLength - minQuestionLength) /
+      (maxQuestionLength - minQuestionLength),
     0,
     1
   );
@@ -928,7 +1068,10 @@ export function predictExamDayConfidence(
   lengthContext?: ExamPredictionLengthContext
 ): ExamDatePrediction {
   const nowDate = now ?? new Date();
-  const rawMinutesUntilExam = Math.max(0, Math.round((examDate.getTime() - nowDate.getTime()) / (1000 * 60)));
+  const rawMinutesUntilExam = Math.max(
+    0,
+    Math.round((examDate.getTime() - nowDate.getTime()) / (1000 * 60))
+  );
   const hoursUntilExam = Math.max(0, rawMinutesUntilExam / 60);
   const daysUntilExam = Math.max(0, Math.round(hoursUntilExam / 24));
   const currentScore = currentResult.displayScore;
@@ -949,10 +1092,16 @@ export function predictExamDayConfidence(
     projectedDecay = Math.round(projectedDecay * 0.85);
   }
   if (currentResult.breakdown.forgettingPenalty >= 12) {
-    projectedDecay = Math.max(projectedDecay, currentResult.breakdown.forgettingPenalty);
+    projectedDecay = Math.max(
+      projectedDecay,
+      currentResult.breakdown.forgettingPenalty
+    );
   }
 
-  const lengthBasedDecay = getExamPeriodLengthBasedDecay(hoursUntilExam, lengthContext);
+  const lengthBasedDecay = getExamPeriodLengthBasedDecay(
+    hoursUntilExam,
+    lengthContext
+  );
   if (lengthBasedDecay !== null) {
     projectedDecay = lengthBasedDecay;
   }
@@ -962,7 +1111,8 @@ export function predictExamDayConfidence(
 
   let predictedState: "green" | "yellow" | "red";
   if (predictedScore >= CONFIDENCE_THRESHOLDS.green) predictedState = "green";
-  else if (predictedScore >= CONFIDENCE_THRESHOLDS.yellow) predictedState = "yellow";
+  else if (predictedScore >= CONFIDENCE_THRESHOLDS.yellow)
+    predictedState = "yellow";
   else predictedState = "red";
 
   return {
@@ -1034,10 +1184,15 @@ export interface PracticeDeltaEstimateInput {
   hoursUntilExam?: number | null;
 }
 
-export function estimatePracticeConfidenceDelta(input: PracticeDeltaEstimateInput): number {
+export function estimatePracticeConfidenceDelta(
+  input: PracticeDeltaEstimateInput
+): number {
   const currentScore = clamp(Math.round(input.currentScore), 0, 100);
   const sessionPracticeCount = Math.max(0, input.sessionPracticeCount ?? 0);
-  const totalPracticeCount = Math.max(0, input.totalPracticeCount ?? sessionPracticeCount);
+  const totalPracticeCount = Math.max(
+    0,
+    input.totalPracticeCount ?? sessionPracticeCount
+  );
   const hoursUntilExam = input.hoursUntilExam ?? null;
 
   let base = 0;
@@ -1047,9 +1202,14 @@ export function estimatePracticeConfidenceDelta(input: PracticeDeltaEstimateInpu
   else if (currentScore < 80) base = 3;
   else base = 2;
 
-  const urgencyBoost = hoursUntilExam !== null
-    ? (hoursUntilExam <= 24 ? 2 : hoursUntilExam <= 72 ? 1 : 0)
-    : 0;
+  const urgencyBoost =
+    hoursUntilExam !== null
+      ? hoursUntilExam <= 24
+        ? 2
+        : hoursUntilExam <= 72
+          ? 1
+          : 0
+      : 0;
 
   const sessionFatigue = Math.min(3, Math.floor(sessionPracticeCount / 4));
   const totalFatigue = Math.min(2, Math.floor(totalPracticeCount / 30));
@@ -1065,20 +1225,23 @@ export interface TestDeltaEstimateInput {
   hoursUntilExam?: number | null;
 }
 
-export function estimateTestConfidenceDelta(input: TestDeltaEstimateInput): number {
+export function estimateTestConfidenceDelta(
+  input: TestDeltaEstimateInput
+): number {
   const currentScore = clamp(Math.round(input.currentScore), 0, 100);
   const similarityScore = clamp(Math.round(input.similarityScore), 0, 100);
   const recallTime = Math.max(0, input.recallTime);
   const hoursUntilExam = input.hoursUntilExam ?? null;
 
   if (input.isCorrect) {
-    let gain = similarityScore >= 95
-      ? 9
-      : similarityScore >= 85
-        ? 8
-        : similarityScore >= 70
-          ? 7
-          : 6;
+    let gain =
+      similarityScore >= 95
+        ? 9
+        : similarityScore >= 85
+          ? 8
+          : similarityScore >= 70
+            ? 7
+            : 6;
 
     if (recallTime > 0) {
       if (recallTime <= 10) gain += 2;
@@ -1098,13 +1261,14 @@ export function estimateTestConfidenceDelta(input: TestDeltaEstimateInput): numb
     return clamp(gain, 0, 12);
   }
 
-  let loss = similarityScore >= 85
-    ? 3
-    : similarityScore >= 70
-      ? 6
-      : similarityScore >= 50
-        ? 9
-        : 12;
+  let loss =
+    similarityScore >= 85
+      ? 3
+      : similarityScore >= 70
+        ? 6
+        : similarityScore >= 50
+          ? 9
+          : 12;
 
   if (hoursUntilExam !== null && hoursUntilExam <= 24) loss += 2;
   if (currentScore < 30 && similarityScore >= 70) loss -= 1;

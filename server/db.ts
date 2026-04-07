@@ -80,8 +80,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
         Boolean(ENV.ownerEmail) &&
         String(user.email).toLowerCase() === ENV.ownerEmail.toLowerCase())
     ) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
+      values.role = "admin";
+      updateSet.role = "admin";
     }
 
     if (!values.lastSignedIn) {
@@ -108,7 +108,11 @@ export async function getUserByOpenId(openId: string) {
     return undefined;
   }
 
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.openId, openId))
+    .limit(1);
 
   return result.length > 0 ? result[0] : undefined;
 }
@@ -116,27 +120,41 @@ export async function getUserByOpenId(openId: string) {
 export async function getUserByUsername(username: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.username, username))
+    .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
 export async function getUserByEmail(email: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
 export async function getUserByLoginIdentifier(identifier: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(
-    or(eq(users.username, identifier), eq(users.email, identifier))
-  ).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(or(eq(users.username, identifier), eq(users.email, identifier)))
+    .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function updateUserEmailAndRole(userId: number, email: string | null, role?: "user" | "admin") {
+export async function updateUserEmailAndRole(
+  userId: number,
+  email: string | null,
+  role?: "user" | "admin"
+) {
   const db = await getDb();
   if (!db) return;
   const updateSet: Record<string, unknown> = { lastSignedIn: new Date() };
@@ -145,16 +163,27 @@ export async function updateUserEmailAndRole(userId: number, email: string | nul
   await db.update(users).set(updateSet).where(eq(users.id, userId));
 }
 
-export async function setUserCredentials(userId: number, username: string, passwordHash: string) {
+export async function setUserCredentials(
+  userId: number,
+  username: string,
+  passwordHash: string
+) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ username, passwordHash }).where(eq(users.id, userId));
+  await db
+    .update(users)
+    .set({ username, passwordHash })
+    .where(eq(users.id, userId));
 }
 
 export async function getUserAICredits(userId: number) {
   const db = await getDb();
   if (!db) return 0;
-  const result = await db.select({ credits: users.aiCreditBalance }).from(users).where(eq(users.id, userId)).limit(1);
+  const result = await db
+    .select({ credits: users.aiCreditBalance })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
   return result.length > 0 ? result[0].credits : 0;
 }
 
@@ -165,20 +194,31 @@ export async function deductAICredits(userId: number, amount: number) {
   if (currentCredits < amount) {
     throw new Error("Insufficient AI credits");
   }
-  await db.update(users).set({ aiCreditBalance: currentCredits - amount }).where(eq(users.id, userId));
+  await db
+    .update(users)
+    .set({ aiCreditBalance: currentCredits - amount })
+    .where(eq(users.id, userId));
 }
 
 // ========== Subject Queries ==========
 export async function getSubjectsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(subjects).where(eq(subjects.userId, userId)).orderBy(subjects.displayOrder);
+  return db
+    .select()
+    .from(subjects)
+    .where(eq(subjects.userId, userId))
+    .orderBy(subjects.displayOrder);
 }
 
 export async function getSubjectById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(subjects).where(eq(subjects.id, id)).limit(1);
+  const result = await db
+    .select()
+    .from(subjects)
+    .where(eq(subjects.id, id))
+    .limit(1);
   return result[0];
 }
 
@@ -187,7 +227,11 @@ export async function createSubject(subject: InsertSubject) {
   if (!db) throw new Error("Database not available");
   const result = await db.insert(subjects).values(subject);
   const insertId = Number(result[0].insertId);
-  const created = await db.select().from(subjects).where(eq(subjects.id, insertId)).limit(1);
+  const created = await db
+    .select()
+    .from(subjects)
+    .where(eq(subjects.id, insertId))
+    .limit(1);
   return created[0];
 }
 
@@ -203,12 +247,16 @@ export async function deleteSubject(id: number) {
   return db.delete(subjects).where(eq(subjects.id, id));
 }
 
-export async function updateSubjectOrder(userId: number, subjectOrders: { id: number; displayOrder: number }[]) {
+export async function updateSubjectOrder(
+  userId: number,
+  subjectOrders: { id: number; displayOrder: number }[]
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   for (const { id, displayOrder } of subjectOrders) {
-    await db.update(subjects)
+    await db
+      .update(subjects)
       .set({ displayOrder })
       .where(and(eq(subjects.id, id), eq(subjects.userId, userId)));
   }
@@ -218,7 +266,9 @@ export async function updateSubjectOrder(userId: number, subjectOrders: { id: nu
 export async function getQuestionsBySubjectId(subjectId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(questions)
+  return db
+    .select()
+    .from(questions)
     .where(eq(questions.subjectId, subjectId))
     .orderBy(questions.displayOrder);
 }
@@ -232,14 +282,21 @@ export async function getQuestionsByUserId(userId: number) {
 export async function countQuestionsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return 0;
-  const allQuestions = await db.select().from(questions).where(eq(questions.userId, userId));
+  const allQuestions = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.userId, userId));
   return allQuestions.length;
 }
 
 export async function getQuestionById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(questions).where(eq(questions.id, id)).limit(1);
+  const result = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.id, id))
+    .limit(1);
   return result[0];
 }
 
@@ -260,11 +317,18 @@ export async function createQuestion(question: InsertQuestion) {
   if (!db) throw new Error("Database not available");
   const result = await db.insert(questions).values(question);
   const insertId = Number(result[0].insertId);
-  const created = await db.select().from(questions).where(eq(questions.id, insertId)).limit(1);
+  const created = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.id, insertId))
+    .limit(1);
   return created[0];
 }
 
-export async function updateQuestion(id: number, data: Partial<InsertQuestion>) {
+export async function updateQuestion(
+  id: number,
+  data: Partial<InsertQuestion>
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db.update(questions).set(data).where(eq(questions.id, id));
@@ -276,18 +340,24 @@ export async function deleteQuestion(id: number) {
   return db.delete(questions).where(eq(questions.id, id));
 }
 
-export async function updateQuestionOrder(userId: number, questionOrders: { id: number; displayOrder: number }[]) {
+export async function updateQuestionOrder(
+  userId: number,
+  questionOrders: { id: number; displayOrder: number }[]
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   for (const { id, displayOrder } of questionOrders) {
-    await db.update(questions)
+    await db
+      .update(questions)
       .set({ displayOrder })
       .where(and(eq(questions.id, id), eq(questions.userId, userId)));
   }
 }
 
-export async function normalizeQuestionDisplayOrderForSubject(subjectId: number) {
+export async function normalizeQuestionDisplayOrderForSubject(
+  subjectId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -306,18 +376,32 @@ export async function normalizeQuestionDisplayOrderForSubject(subjectId: number)
   }
 }
 
-export async function copyQuestion(userId: number, questionId: number, targetSubjectId: number) {
+export async function copyQuestion(
+  userId: number,
+  questionId: number,
+  targetSubjectId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   // Get the original question
-  const original = await db.select().from(questions).where(eq(questions.id, questionId)).limit(1);
+  const original = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.id, questionId))
+    .limit(1);
   if (!original[0]) throw new Error("Question not found");
-  
+
   // Get max displayOrder in target subject
-  const targetQuestions = await db.select().from(questions).where(eq(questions.subjectId, targetSubjectId));
-  const maxOrder = targetQuestions.reduce((max, q) => Math.max(max, q.displayOrder || 0), 0);
-  
+  const targetQuestions = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.subjectId, targetSubjectId));
+  const maxOrder = targetQuestions.reduce(
+    (max, q) => Math.max(max, q.displayOrder || 0),
+    0
+  );
+
   // Create a copy
   const result = await db.insert(questions).values({
     userId,
@@ -332,26 +416,44 @@ export async function copyQuestion(userId: number, questionId: number, targetSub
     difficulty: original[0].difficulty,
     displayOrder: maxOrder + 1,
   });
-  
+
   const insertId = Number(result[0].insertId);
-  const created = await db.select().from(questions).where(eq(questions.id, insertId)).limit(1);
+  const created = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.id, insertId))
+    .limit(1);
   return created[0];
 }
 
-export async function moveQuestion(questionId: number, targetSubjectId: number) {
+export async function moveQuestion(
+  questionId: number,
+  targetSubjectId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   // Get max displayOrder in target subject
-  const targetQuestions = await db.select().from(questions).where(eq(questions.subjectId, targetSubjectId));
-  const maxOrder = targetQuestions.reduce((max, q) => Math.max(max, q.displayOrder || 0), 0);
-  
+  const targetQuestions = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.subjectId, targetSubjectId));
+  const maxOrder = targetQuestions.reduce(
+    (max, q) => Math.max(max, q.displayOrder || 0),
+    0
+  );
+
   // Update the question's subjectId and displayOrder
-  await db.update(questions)
+  await db
+    .update(questions)
     .set({ subjectId: targetSubjectId, displayOrder: maxOrder + 1 })
     .where(eq(questions.id, questionId));
-  
-  const updated = await db.select().from(questions).where(eq(questions.id, questionId)).limit(1);
+
+  const updated = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.id, questionId))
+    .limit(1);
   return updated[0];
 }
 
@@ -359,38 +461,60 @@ export async function moveQuestion(questionId: number, targetSubjectId: number) 
 export async function getPracticeSessionsByQuestionId(questionId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(practiceSessions).where(eq(practiceSessions.questionId, questionId));
+  return db
+    .select()
+    .from(practiceSessions)
+    .where(eq(practiceSessions.questionId, questionId));
 }
 
-export async function getPracticeSessionsByQuestionIdForUser(questionId: number, userId: number) {
+export async function getPracticeSessionsByQuestionIdForUser(
+  questionId: number,
+  userId: number
+) {
   const db = await getDb();
   if (!db) return [];
   return db
     .select()
     .from(practiceSessions)
-    .where(and(eq(practiceSessions.questionId, questionId), eq(practiceSessions.userId, userId)));
+    .where(
+      and(
+        eq(practiceSessions.questionId, questionId),
+        eq(practiceSessions.userId, userId)
+      )
+    );
 }
 
 export async function getPracticeSessionsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(practiceSessions).where(eq(practiceSessions.userId, userId));
+  return db
+    .select()
+    .from(practiceSessions)
+    .where(eq(practiceSessions.userId, userId));
 }
 
-export async function getPracticeSessionsBySubjectId(userId: number, subjectId: number) {
+export async function getPracticeSessionsBySubjectId(
+  userId: number,
+  subjectId: number
+) {
   const db = await getDb();
   if (!db) return [];
-  
+
   // Get all questions for this subject
-  const subjectQuestions = await db.select().from(questions).where(eq(questions.subjectId, subjectId));
+  const subjectQuestions = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.subjectId, subjectId));
   const questionIds = subjectQuestions.map(q => q.id);
-  
+
   if (questionIds.length === 0) return [];
-  
+
   // Get practice sessions for these questions
-  const sessions = await db.select().from(practiceSessions)
+  const sessions = await db
+    .select()
+    .from(practiceSessions)
     .where(eq(practiceSessions.userId, userId));
-  
+
   return sessions.filter(s => questionIds.includes(s.questionId));
 }
 
@@ -405,7 +529,11 @@ export async function createPracticeSession(session: InsertPracticeSession) {
   if (!db) throw new Error("Database not available");
   const result = await db.insert(practiceSessions).values(session);
   const insertId = Number(result[0].insertId);
-  const created = await db.select().from(practiceSessions).where(eq(practiceSessions.id, insertId)).limit(1);
+  const created = await db
+    .select()
+    .from(practiceSessions)
+    .where(eq(practiceSessions.id, insertId))
+    .limit(1);
   return created[0];
 }
 
@@ -413,16 +541,27 @@ export async function createPracticeSession(session: InsertPracticeSession) {
 export async function getTestSessionsByQuestionId(questionId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(testSessions).where(eq(testSessions.questionId, questionId));
+  return db
+    .select()
+    .from(testSessions)
+    .where(eq(testSessions.questionId, questionId));
 }
 
-export async function getTestSessionsByQuestionIdForUser(questionId: number, userId: number) {
+export async function getTestSessionsByQuestionIdForUser(
+  questionId: number,
+  userId: number
+) {
   const db = await getDb();
   if (!db) return [];
   return db
     .select()
     .from(testSessions)
-    .where(and(eq(testSessions.questionId, questionId), eq(testSessions.userId, userId)));
+    .where(
+      and(
+        eq(testSessions.questionId, questionId),
+        eq(testSessions.userId, userId)
+      )
+    );
 }
 
 export async function getTestSessionsByUserId(userId: number) {
@@ -447,16 +586,27 @@ export async function deleteAllTestSessions(userId: number) {
 export async function getReviewSchedulesByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(reviewSchedules).where(eq(reviewSchedules.userId, userId));
+  return db
+    .select()
+    .from(reviewSchedules)
+    .where(eq(reviewSchedules.userId, userId));
 }
 
-export async function getReviewScheduleByQuestionId(questionId: number, userId: number) {
+export async function getReviewScheduleByQuestionId(
+  questionId: number,
+  userId: number
+) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db
     .select()
     .from(reviewSchedules)
-    .where(and(eq(reviewSchedules.questionId, questionId), eq(reviewSchedules.userId, userId)))
+    .where(
+      and(
+        eq(reviewSchedules.questionId, questionId),
+        eq(reviewSchedules.userId, userId)
+      )
+    )
     .limit(1);
   return result[0];
 }
@@ -467,12 +617,14 @@ export async function createReviewSchedule(schedule: InsertReviewSchedule) {
   return db.insert(reviewSchedules).values(schedule);
 }
 
-export async function updateReviewSchedule(id: number, data: Partial<InsertReviewSchedule>) {
+export async function updateReviewSchedule(
+  id: number,
+  data: Partial<InsertReviewSchedule>
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db.update(reviewSchedules).set(data).where(eq(reviewSchedules.id, id));
 }
-
 
 // ========== Auto-delete expired questions ==========
 const EXPIRED_QUESTION_CLEANUP_PAUSED = true;
@@ -488,12 +640,13 @@ export async function deleteExpiredQuestions() {
 
   const db = await getDb();
   if (!db) return { deletedCount: 0, checkedSubjects: 0 };
-  
+
   const now = new Date();
   const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  
+
   // 시험 종료일이 1달 이상 지난 과목 조회
-  const expiredSubjects = await db.select()
+  const expiredSubjects = await db
+    .select()
     .from(subjects)
     .where(
       and(
@@ -501,28 +654,31 @@ export async function deleteExpiredQuestions() {
         lte(subjects.examEndDate, oneMonthAgo)
       )
     );
-  
+
   let deletedCount = 0;
-  
+
   for (const subject of expiredSubjects) {
     // 해당 과목의 모든 문제 조회
-    const subjectQuestions = await db.select()
+    const subjectQuestions = await db
+      .select()
       .from(questions)
       .where(eq(questions.subjectId, subject.id));
-    
+
     for (const question of subjectQuestions) {
       // 연습 기록 확인
-      const practiceRecords = await db.select()
+      const practiceRecords = await db
+        .select()
         .from(practiceSessions)
         .where(eq(practiceSessions.questionId, question.id))
         .limit(1);
-      
+
       // 시험 기록 확인
-      const testRecords = await db.select()
+      const testRecords = await db
+        .select()
         .from(testSessions)
         .where(eq(testSessions.questionId, question.id))
         .limit(1);
-      
+
       // 연습/시험 기록이 모두 없으면 삭제
       if (practiceRecords.length === 0 && testRecords.length === 0) {
         await db.delete(questions).where(eq(questions.id, question.id));
@@ -530,7 +686,7 @@ export async function deleteExpiredQuestions() {
       }
     }
   }
-  
+
   return { deletedCount, checkedSubjects: expiredSubjects.length };
 }
 
@@ -543,75 +699,96 @@ export async function getExpiringQuestions(userId: number) {
 
   const db = await getDb();
   if (!db) return [];
-  
+
   const now = new Date();
   const oneMonthLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-  
+
   // 시험 종료일이 지났지만 1달이 안 된 과목 조회
-  const expiringSubjects = await db.select()
+  const expiringSubjects = await db
+    .select()
     .from(subjects)
     .where(
       and(
         eq(subjects.userId, userId),
         isNotNull(subjects.examEndDate),
         lte(subjects.examEndDate, now),
-        gte(subjects.examEndDate, new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000))
+        gte(
+          subjects.examEndDate,
+          new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        )
       )
     );
-  
+
   const expiringQuestions: any[] = [];
-  
+
   for (const subject of expiringSubjects) {
-    const subjectQuestions = await db.select()
+    const subjectQuestions = await db
+      .select()
       .from(questions)
       .where(eq(questions.subjectId, subject.id));
-    
+
     for (const question of subjectQuestions) {
-      const practiceRecords = await db.select()
+      const practiceRecords = await db
+        .select()
         .from(practiceSessions)
         .where(eq(practiceSessions.questionId, question.id))
         .limit(1);
-      
-      const testRecords = await db.select()
+
+      const testRecords = await db
+        .select()
         .from(testSessions)
         .where(eq(testSessions.questionId, question.id))
         .limit(1);
-      
+
       if (practiceRecords.length === 0 && testRecords.length === 0) {
-        const expirationDate = new Date(subject.examEndDate!.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const expirationDate = new Date(
+          subject.examEndDate!.getTime() + 30 * 24 * 60 * 60 * 1000
+        );
         expiringQuestions.push({
           ...question,
           subjectName: subject.name,
           expirationDate,
-          daysUntilExpiration: Math.ceil((expirationDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)),
+          daysUntilExpiration: Math.ceil(
+            (expirationDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)
+          ),
         });
       }
     }
   }
-  
+
   return expiringQuestions;
 }
-
 
 // Demo mode functions
 export async function getDemoSubjects() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(subjects).where(eq(subjects.isDemo, 1)).orderBy(subjects.displayOrder);
+  return db
+    .select()
+    .from(subjects)
+    .where(eq(subjects.isDemo, 1))
+    .orderBy(subjects.displayOrder);
 }
 
 export async function getAllDemoQuestions() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(questions).where(eq(questions.isDemo, 1)).orderBy(questions.displayOrder);
+  return db
+    .select()
+    .from(questions)
+    .where(eq(questions.isDemo, 1))
+    .orderBy(questions.displayOrder);
 }
 
 export async function getDemoQuestions(subjectId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(questions).where(and(eq(questions.subjectId, subjectId), eq(questions.isDemo, 1))).orderBy(questions.displayOrder);
+  return db
+    .select()
+    .from(questions)
+    .where(and(eq(questions.subjectId, subjectId), eq(questions.isDemo, 1)))
+    .orderBy(questions.displayOrder);
 }
-
 
 // OCR Job functions
 export async function createOcrJob(job: InsertOcrJob): Promise<OcrJob> {
@@ -622,7 +799,7 @@ export async function createOcrJob(job: InsertOcrJob): Promise<OcrJob> {
 
   const result = await db.insert(ocrJobs).values(job);
   const jobId = result[0].insertId;
-  
+
   return getOcrJobById(jobId as number) as Promise<OcrJob>;
 }
 
@@ -636,7 +813,7 @@ export async function getOcrJobById(id: number): Promise<OcrJob | undefined> {
 
 export async function updateOcrJob(
   id: number,
-  updates: Partial<Omit<OcrJob, 'id' | 'createdAt'>>
+  updates: Partial<Omit<OcrJob, "id" | "createdAt">>
 ): Promise<void> {
   const db = await getDb();
   if (!db) {
@@ -650,7 +827,11 @@ export async function getOcrJobsByUserId(userId: number): Promise<OcrJob[]> {
   const db = await getDb();
   if (!db) return [];
 
-  return db.select().from(ocrJobs).where(eq(ocrJobs.userId, userId)).orderBy(desc(ocrJobs.createdAt));
+  return db
+    .select()
+    .from(ocrJobs)
+    .where(eq(ocrJobs.userId, userId))
+    .orderBy(desc(ocrJobs.createdAt));
 }
 
 export async function deleteOcrJob(id: number): Promise<void> {
@@ -670,14 +851,25 @@ export async function getAllDemoSubjects() {
 export async function getDemoQuestionsBySubjectId(subjectId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(questions).where(and(eq(questions.subjectId, subjectId), eq(questions.isDemo, 1))).orderBy(questions.displayOrder);
+  return db
+    .select()
+    .from(questions)
+    .where(and(eq(questions.subjectId, subjectId), eq(questions.isDemo, 1)))
+    .orderBy(questions.displayOrder);
 }
 
-export async function updateDemoQuestion(id: number, data: Partial<InsertQuestion>) {
+export async function updateDemoQuestion(
+  id: number,
+  data: Partial<InsertQuestion>
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(questions).set(data).where(eq(questions.id, id));
-  const result = await db.select().from(questions).where(eq(questions.id, id)).limit(1);
+  const result = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.id, id))
+    .limit(1);
   return result[0];
 }
 
@@ -692,7 +884,11 @@ export async function createDemoQuestion(data: InsertQuestion) {
   if (!db) throw new Error("Database not available");
   const result = await db.insert(questions).values(data);
   const insertId = Number(result[0].insertId);
-  const created = await db.select().from(questions).where(eq(questions.id, insertId)).limit(1);
+  const created = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.id, insertId))
+    .limit(1);
   return created[0];
 }
 
@@ -701,15 +897,26 @@ export async function createDemoSubject(data: InsertSubject) {
   if (!db) throw new Error("Database not available");
   const result = await db.insert(subjects).values(data);
   const insertId = Number(result[0].insertId);
-  const created = await db.select().from(subjects).where(eq(subjects.id, insertId)).limit(1);
+  const created = await db
+    .select()
+    .from(subjects)
+    .where(eq(subjects.id, insertId))
+    .limit(1);
   return created[0];
 }
 
-export async function updateDemoSubject(id: number, data: Partial<InsertSubject>) {
+export async function updateDemoSubject(
+  id: number,
+  data: Partial<InsertSubject>
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(subjects).set(data).where(eq(subjects.id, id));
-  const result = await db.select().from(subjects).where(eq(subjects.id, id)).limit(1);
+  const result = await db
+    .select()
+    .from(subjects)
+    .where(eq(subjects.id, id))
+    .limit(1);
   return result[0];
 }
 
@@ -729,7 +936,9 @@ export async function deleteDemoSubject(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   // 과목에 속한 데모 문제도 함께 삭제
-  await db.delete(questions).where(and(eq(questions.subjectId, id), eq(questions.isDemo, 1)));
+  await db
+    .delete(questions)
+    .where(and(eq(questions.subjectId, id), eq(questions.isDemo, 1)));
   await db.delete(subjects).where(eq(subjects.id, id));
 }
 
@@ -753,7 +962,7 @@ export async function createTypingAttempt(data: InsertTypingAttempt) {
     )
     .orderBy(desc(typingAttempts.createdAt));
   if (rows.length > 50) {
-    const toDelete = rows.slice(50).map((r) => r.id);
+    const toDelete = rows.slice(50).map(r => r.id);
     for (const id of toDelete) {
       await db.delete(typingAttempts).where(eq(typingAttempts.id, id));
     }
@@ -782,7 +991,7 @@ export async function getTypingAttempts(
     )
     .orderBy(desc(typingAttempts.createdAt))
     .limit(limit);
-  return rows.map((r) => r.effectiveSpeed);
+  return rows.map(r => r.effectiveSpeed);
 }
 
 /** 베이스라인 조회 */
@@ -805,7 +1014,10 @@ export async function getTypingBaseline(
     )
     .limit(1);
   if (rows.length === 0) return null;
-  return { baselineSpeed: rows[0].baselineSpeed, sampleCount: rows[0].sampleCount };
+  return {
+    baselineSpeed: rows[0].baselineSpeed,
+    sampleCount: rows[0].sampleCount,
+  };
 }
 
 /** 베이스라인 upsert */
@@ -831,6 +1043,8 @@ export async function upsertTypingBaseline(
         )
       );
   } else {
-    await db.insert(typingBaselines).values({ userId, mode, lengthBucket, baselineSpeed, sampleCount });
+    await db
+      .insert(typingBaselines)
+      .values({ userId, mode, lengthBucket, baselineSpeed, sampleCount });
   }
 }

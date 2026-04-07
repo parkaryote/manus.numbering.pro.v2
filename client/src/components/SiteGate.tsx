@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -65,16 +71,22 @@ export function SiteGate({ onGranted }: SiteGateProps) {
             </div>
           </div>
           <div className="flex items-center justify-center gap-2">
-            <h1 className="text-[28px] font-extrabold tracking-tight text-black dark:text-white">numbering.pro</h1>
+            <h1 className="text-[28px] font-extrabold tracking-tight text-black dark:text-white">
+              numbering.pro
+            </h1>
             <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500 dark:text-neutral-400">
               Beta Test
             </span>
           </div>
-          <p className="text-sm text-muted-foreground">서술형 문제 암기 도우미</p>
+          <p className="text-sm text-muted-foreground">
+            서술형 문제 암기 도우미
+          </p>
         </div>
 
         {/* 비밀번호 카드 */}
-        <Card className={`shadow-elegant transition-all ${shaking ? "animate-shake" : ""}`}>
+        <Card
+          className={`shadow-elegant transition-all ${shaking ? "animate-shake" : ""}`}
+        >
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Lock className="w-4 h-4" />
@@ -86,14 +98,19 @@ export function SiteGate({ onGranted }: SiteGateProps) {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="site-password" className="sr-only">비밀번호</Label>
+              <Label htmlFor="site-password" className="sr-only">
+                비밀번호
+              </Label>
               <Input
                 id="site-password"
                 type="password"
                 placeholder="비밀번호 입력"
                 value={password}
-                onChange={(e) => { setPassword(e.target.value); setError(""); }}
-                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                onChange={e => {
+                  setPassword(e.target.value);
+                  setError("");
+                }}
+                onKeyDown={e => e.key === "Enter" && handleSubmit()}
                 autoFocus
               />
               {error && <p className="text-xs text-destructive">{error}</p>}

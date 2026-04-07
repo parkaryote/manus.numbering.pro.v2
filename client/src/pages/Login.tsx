@@ -1,5 +1,11 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -64,7 +70,7 @@ export default function Login() {
       toast.success("로그인되었습니다.");
       setLocation("/");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(error.message || "소셜 로그인 실패");
     },
   });
@@ -74,7 +80,7 @@ export default function Login() {
       toast.success("로그인되었습니다.");
       setLocation("/");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(error.message || "로그인 실패");
     },
   });
@@ -84,7 +90,7 @@ export default function Login() {
       toast.success("가입 완료! 로그인되었습니다.");
       setLocation("/");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(error.message || "가입 실패");
     },
   });
@@ -112,7 +118,9 @@ export default function Login() {
           <Button
             key={provider}
             onClick={() => {
-              const socialId = getOrCreateId(`${SOCIAL_ID_KEY_PREFIX}${provider}`);
+              const socialId = getOrCreateId(
+                `${SOCIAL_ID_KEY_PREFIX}${provider}`
+              );
               socialLogin.mutate({ provider, socialId });
             }}
             className={`w-full justify-start gap-2 ${meta.className}`}
@@ -165,7 +173,10 @@ export default function Login() {
           <CardDescription>계정을 선택해 계속 진행하세요.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Tabs value={tab} onValueChange={v => setTab(v as "social" | "account")}>
+          <Tabs
+            value={tab}
+            onValueChange={v => setTab(v as "social" | "account")}
+          >
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="social">소셜</TabsTrigger>
               <TabsTrigger value="account">아이디</TabsTrigger>
@@ -209,7 +220,11 @@ export default function Login() {
                   disabled={isPending}
                 />
               </div>
-              <Button className="w-full" onClick={handleLogin} disabled={isPending}>
+              <Button
+                className="w-full"
+                onClick={handleLogin}
+                disabled={isPending}
+              >
                 로그인
               </Button>
 
@@ -245,7 +260,12 @@ export default function Login() {
                   disabled={isPending}
                 />
               </div>
-              <Button variant="outline" className="w-full" onClick={handleSignup} disabled={isPending}>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={handleSignup}
+                disabled={isPending}
+              >
                 가입 후 시작
               </Button>
             </TabsContent>

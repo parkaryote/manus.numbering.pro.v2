@@ -36,7 +36,9 @@ function createTestContext(userId: number = TEST_USER_ID): TrpcContext {
 describe("Statistics Reset", () => {
   beforeEach(() => {
     // deleteAll은 실제 DB를 건드리지 않도록 mock 처리
-    vi.spyOn(db, "deleteAllPracticeSessions").mockResolvedValue(undefined as any);
+    vi.spyOn(db, "deleteAllPracticeSessions").mockResolvedValue(
+      undefined as any
+    );
     vi.spyOn(db, "deleteAllTestSessions").mockResolvedValue(undefined as any);
     vi.spyOn(db, "getPracticeSessionsByUserId").mockResolvedValue([]);
   });

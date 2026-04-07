@@ -4,7 +4,10 @@ import { storagePut } from "./storage.js";
 import { nanoid } from "nanoid";
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 16 * 1024 * 1024 },
+});
 
 router.post("/upload-audio", upload.single("file"), async (req, res) => {
   try {

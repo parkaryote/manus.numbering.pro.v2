@@ -20,12 +20,21 @@ interface ImageLabelEditorProps {
   onChange: (labels: ImageLabel[]) => void;
 }
 
-function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: ImageLabelEditorProps) {
+function ImageLabelEditorComponent({
+  imageUrl,
+  initialLabels = [],
+  onChange,
+}: ImageLabelEditorProps) {
   const [labels, setLabels] = useState<ImageLabel[]>(initialLabels);
   const [selectedLabelId, setSelectedLabelId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
-  const [dragCurrent, setDragCurrent] = useState<{ x: number; y: number } | null>(null);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(
+    null
+  );
+  const [dragCurrent, setDragCurrent] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const imageRef = useRef<HTMLDivElement>(null);
 
   // useEffect removed to prevent infinite loop
@@ -36,7 +45,10 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
     const rect = imageRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
-    return { x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) };
+    return {
+      x: Math.max(0, Math.min(100, x)),
+      y: Math.max(0, Math.min(100, y)),
+    };
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -89,13 +101,13 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
   };
 
   const handleLabelUpdate = (id: string, answer: string) => {
-    const updatedLabels = labels.map((l) => (l.id === id ? { ...l, answer } : l));
+    const updatedLabels = labels.map(l => (l.id === id ? { ...l, answer } : l));
     setLabels(updatedLabels);
     onChange(updatedLabels);
   };
 
   const handleLabelDelete = (id: string) => {
-    const updatedLabels = labels.filter((l) => l.id !== id);
+    const updatedLabels = labels.filter(l => l.id !== id);
     setLabels(updatedLabels);
     onChange(updatedLabels);
     if (selectedLabelId === id) {
@@ -134,8 +146,13 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
             }
           }}
         >
-          <img src={imageUrl} alt="Question" className="w-full h-auto pointer-events-none" draggable={false} />
-          
+          <img
+            src={imageUrl}
+            alt="Question"
+            className="w-full h-auto pointer-events-none"
+            draggable={false}
+          />
+
           {/* Existing labels */}
           {labels.map((label, index) => (
             <div
@@ -151,7 +168,7 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
                 width: `${label.width}%`,
                 height: `${label.height}%`,
               }}
-              onClick={(e) => {
+              onClick={e => {
                 e.stopPropagation();
                 setSelectedLabelId(label.id);
               }}
@@ -193,7 +210,9 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
               <div
                 key={label.id}
                 className={`p-4 border rounded-lg space-y-3 cursor-pointer transition-all ${
-                  selectedLabelId === label.id ? "border-primary bg-primary/5" : ""
+                  selectedLabelId === label.id
+                    ? "border-primary bg-primary/5"
+                    : ""
                 }`}
                 onClick={() => setSelectedLabelId(label.id)}
               >
@@ -202,7 +221,7 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={(e) => {
+                    onClick={e => {
                       e.stopPropagation();
                       handleLabelDelete(label.id);
                     }}
@@ -212,21 +231,29 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
                 </div>
                 <div className="space-y-2">
                   <div>
-                    <Label className="text-xs">정답 (이 영역에 가려진 텍스트)</Label>
+                    <Label className="text-xs">
+                      정답 (이 영역에 가려진 텍스트)
+                    </Label>
                     <Input
                       defaultValue={label.answer}
-                      onBlur={(e) => handleLabelUpdate(label.id, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Tab') {
+                      onBlur={e => handleLabelUpdate(label.id, e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Tab") {
                           e.preventDefault();
-                          const currentIndex = labels.findIndex(l => l.id === label.id);
-                          const nextIndex = e.shiftKey ? currentIndex - 1 : currentIndex + 1;
+                          const currentIndex = labels.findIndex(
+                            l => l.id === label.id
+                          );
+                          const nextIndex = e.shiftKey
+                            ? currentIndex - 1
+                            : currentIndex + 1;
                           if (nextIndex >= 0 && nextIndex < labels.length) {
                             const nextLabel = labels[nextIndex];
                             setSelectedLabelId(nextLabel.id);
                             // Focus next input after state update
                             setTimeout(() => {
-                              const nextInput = document.querySelector(`input[data-label-id="${nextLabel.id}"]`) as HTMLInputElement;
+                              const nextInput = document.querySelector(
+                                `input[data-label-id="${nextLabel.id}"]`
+                              ) as HTMLInputElement;
                               nextInput?.focus();
                             }, 0);
                           }
@@ -235,11 +262,13 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
                       data-label-id={label.id}
                       placeholder="예: Cerebral cortex"
                       className="mt-1"
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={e => e.stopPropagation()}
                     />
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    위치: ({Math.round(label.x)}%, {Math.round(label.y)}%) | 크기: {Math.round(label.width)}% × {Math.round(label.height)}%
+                    위치: ({Math.round(label.x)}%, {Math.round(label.y)}%) |
+                    크기: {Math.round(label.width)}% ×{" "}
+                    {Math.round(label.height)}%
                   </div>
                 </div>
               </div>

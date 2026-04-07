@@ -23,7 +23,8 @@ describe("test.evaluate - Line-by-line grading with similarity", () => {
       userId: testUserId,
       subjectId: testSubjectId,
       question: "안정된 교합의 조건 5가지를 나열하시오.",
-      answer: "악관절이 건강하고 안정\n모든 치아가 견고\n상하악 치아가 최대 교두감합위에서 균등 접촉\n교합력이 치아 장축 방향\n전방 및 측방 운동 시 구치 이개",
+      answer:
+        "악관절이 건강하고 안정\n모든 치아가 견고\n상하악 치아가 최대 교두감합위에서 균등 접촉\n교합력이 치아 장축 방향\n전방 및 측방 운동 시 구치 이개",
       questionType: "text",
       imageUrl: null,
       imageLabels: null,
@@ -76,7 +77,8 @@ describe("test.evaluate - Line-by-line grading with similarity", () => {
   it("should return both accuracyRate and similarityScore for all correct", async () => {
     const result = await caller.test.evaluate({
       questionId: testQuestionId,
-      userAnswer: "악관절이 건강하고 안정\n모든 치아가 견고\n상하악 치아가 최대 교두감합위에서 균등 접촉\n교합력이 치아 장축 방향\n전방 및 측방 운동 시 구치 이개",
+      userAnswer:
+        "악관절이 건강하고 안정\n모든 치아가 견고\n상하악 치아가 최대 교두감합위에서 균등 접촉\n교합력이 치아 장축 방향\n전방 및 측방 운동 시 구치 이개",
       recallTime: 30,
     });
 
@@ -109,7 +111,8 @@ describe("test.evaluate - Line-by-line grading with similarity", () => {
   it("should return high similarity for slightly wrong answer", async () => {
     const result = await caller.test.evaluate({
       questionId: testQuestionId,
-      userAnswer: "악관절이 건강하고 안정\n모든 치아가 견고\n상하악 치아가 최대 교두감합위에서 균등 접촉\n교합력이 치아 장축 방향\n전방 및 측방 운동 시 구치 이겨", // 이개 → 이겨
+      userAnswer:
+        "악관절이 건강하고 안정\n모든 치아가 견고\n상하악 치아가 최대 교두감합위에서 균등 접촉\n교합력이 치아 장축 방향\n전방 및 측방 운동 시 구치 이겨", // 이개 → 이겨
       recallTime: 30,
     });
 

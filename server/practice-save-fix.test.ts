@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from "vitest";
 
-describe('Practice Session - Save Fix (No duplicate, no auto-navigate)', () => {
+describe("Practice Session - Save Fix (No duplicate, no auto-navigate)", () => {
   let hasBeenSaved: boolean;
   let practiceCount: number;
   let elapsedTime: number;
@@ -13,8 +13,8 @@ describe('Practice Session - Save Fix (No duplicate, no auto-navigate)', () => {
     saveAttempts = 0;
   });
 
-  describe('Duplicate save prevention', () => {
-    it('should only save once even if called multiple times', () => {
+  describe("Duplicate save prevention", () => {
+    it("should only save once even if called multiple times", () => {
       practiceCount = 3;
       elapsedTime = 60;
 
@@ -39,7 +39,7 @@ describe('Practice Session - Save Fix (No duplicate, no auto-navigate)', () => {
       expect(saveAttempts).toBe(1);
     });
 
-    it('should prevent duplicate saves on page unmount', () => {
+    it("should prevent duplicate saves on page unmount", () => {
       practiceCount = 2;
       elapsedTime = 45;
 
@@ -59,7 +59,7 @@ describe('Practice Session - Save Fix (No duplicate, no auto-navigate)', () => {
       expect(saveAttempts).toBe(1);
     });
 
-    it('should allow retry on save failure', () => {
+    it("should allow retry on save failure", () => {
       practiceCount = 2;
       elapsedTime = 30;
 
@@ -82,8 +82,8 @@ describe('Practice Session - Save Fix (No duplicate, no auto-navigate)', () => {
     });
   });
 
-  describe('No auto-navigate after save', () => {
-    it('should not auto-navigate when save completes', () => {
+  describe("No auto-navigate after save", () => {
+    it("should not auto-navigate when save completes", () => {
       let navigated = false;
       let saved = false;
 
@@ -101,7 +101,7 @@ describe('Practice Session - Save Fix (No duplicate, no auto-navigate)', () => {
       expect(navigated).toBe(false);
     });
 
-    it('should only navigate when go back button is clicked', () => {
+    it("should only navigate when go back button is clicked", () => {
       let navigated = false;
 
       practiceCount = 2;
@@ -126,7 +126,7 @@ describe('Practice Session - Save Fix (No duplicate, no auto-navigate)', () => {
       expect(navigated).toBe(true);
     });
 
-    it('should not save again if already saved when go back is clicked', () => {
+    it("should not save again if already saved when go back is clicked", () => {
       practiceCount = 3;
       elapsedTime = 60;
 
@@ -149,8 +149,8 @@ describe('Practice Session - Save Fix (No duplicate, no auto-navigate)', () => {
     });
   });
 
-  describe('Save conditions', () => {
-    it('should not save if practice count is 0', () => {
+  describe("Save conditions", () => {
+    it("should not save if practice count is 0", () => {
       practiceCount = 0;
       elapsedTime = 60;
 
@@ -162,7 +162,7 @@ describe('Practice Session - Save Fix (No duplicate, no auto-navigate)', () => {
       expect(saveAttempts).toBe(0);
     });
 
-    it('should not save if elapsed time is 0', () => {
+    it("should not save if elapsed time is 0", () => {
       practiceCount = 3;
       elapsedTime = 0;
 
@@ -174,7 +174,7 @@ describe('Practice Session - Save Fix (No duplicate, no auto-navigate)', () => {
       expect(saveAttempts).toBe(0);
     });
 
-    it('should save if both practice count and elapsed time are positive', () => {
+    it("should save if both practice count and elapsed time are positive", () => {
       practiceCount = 5;
       elapsedTime = 120;
 
@@ -187,8 +187,8 @@ describe('Practice Session - Save Fix (No duplicate, no auto-navigate)', () => {
     });
   });
 
-  describe('Multiple practice sessions', () => {
-    it('should track separate sessions correctly', () => {
+  describe("Multiple practice sessions", () => {
+    it("should track separate sessions correctly", () => {
       // Session 1
       hasBeenSaved = false;
       practiceCount = 3;

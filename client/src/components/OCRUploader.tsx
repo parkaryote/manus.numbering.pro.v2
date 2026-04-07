@@ -11,18 +11,20 @@ interface OCRUploaderProps {
 export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
   const [jobId, setJobId] = useState<number | null>(null);
-  const [status, setStatus] = useState<"idle" | "uploading" | "processing" | "completed" | "failed">("idle");
+  const [status, setStatus] = useState<
+    "idle" | "uploading" | "processing" | "completed" | "failed"
+  >("idle");
   const [extractedText, setExtractedText] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
 
   // Start OCR job
   const startJobMutation = trpc.ocr.startJob.useMutation({
-    onSuccess: (data) => {
+    onSuccess: data => {
       setJobId(data.jobId);
       setStatus("processing");
       setErrorMessage("");
     },
-    onError: (error) => {
+    onError: error => {
       setStatus("failed");
       setErrorMessage(error.message);
     },
@@ -70,14 +72,14 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
 
   // Upload file to S3 using tRPC
   const uploadFileMutation = trpc.ocr.uploadFile.useMutation({
-    onSuccess: (data) => {
+    onSuccess: data => {
       // Start OCR job with S3 URL
       startJobMutation.mutate({
         s3Url: data.s3Url,
         fileName: file!.name,
       });
     },
-    onError: (error) => {
+    onError: error => {
       setStatus("failed");
       setErrorMessage(error.message);
     },
@@ -92,7 +94,7 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
     try {
       // Read file as buffer and upload via tRPC
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = e => {
         const arrayBuffer = e.target?.result as ArrayBuffer;
         uploadFileMutation.mutate({
           fileBuffer: new Uint8Array(arrayBuffer),
@@ -138,8 +140,12 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
             <label htmlFor="ocr-file-input" className="cursor-pointer">
               <div className="space-y-2">
                 <Upload className="w-8 h-8 mx-auto text-muted-foreground" />
-                <p className="text-sm font-medium">PDF 또는 이미지 파일을 선택하세요</p>
-                <p className="text-xs text-muted-foreground">PDF, JPG, PNG 지원</p>
+                <p className="text-sm font-medium">
+                  PDF 또는 이미지 파일을 선택하세요
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  PDF, JPG, PNG 지원
+                </p>
               </div>
             </label>
           </div>
@@ -150,7 +156,9 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
           <div className="space-y-4">
             <div className="bg-muted p-3 rounded-lg">
               <p className="text-sm font-medium">{file.name}</p>
-              <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+              <p className="text-xs text-muted-foreground">
+                {(file.size / 1024 / 1024).toFixed(2)} MB
+              </p>
             </div>
             <div className="flex gap-2">
               <Button onClick={handleUpload} className="flex-1">
@@ -167,7 +175,9 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
         {status === "processing" && (
           <div className="flex items-center justify-center gap-2 py-8">
             <Loader2 className="w-5 h-5 animate-spin" />
-            <p className="text-sm text-muted-foreground">문서를 인식 중입니다...</p>
+            <p className="text-sm text-muted-foreground">
+              문서를 인식 중입니다...
+            </p>
           </div>
         )}
 
@@ -182,7 +192,10 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
               <p className="text-sm whitespace-pre-wrap">{extractedText}</p>
             </div>
             <div className="flex gap-2">
-              <Button onClick={() => onExtractedText?.(extractedText)} className="flex-1">
+              <Button
+                onClick={() => onExtractedText?.(extractedText)}
+                className="flex-1"
+              >
                 이 텍스트로 문제 생성
               </Button>
               <Button onClick={handleReset} variant="outline">

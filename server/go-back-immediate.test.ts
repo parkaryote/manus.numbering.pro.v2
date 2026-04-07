@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from "vitest";
 
-describe('Go Back Button - Immediate Navigation', () => {
+describe("Go Back Button - Immediate Navigation", () => {
   let hasBeenSaved: boolean;
   let practiceCount: number;
   let elapsedTime: number;
@@ -15,8 +15,8 @@ describe('Go Back Button - Immediate Navigation', () => {
     saveAttempts = 0;
   });
 
-  describe('Go back with practice data', () => {
-    it('should save and navigate immediately in one call', async () => {
+  describe("Go back with practice data", () => {
+    it("should save and navigate immediately in one call", async () => {
       practiceCount = 3;
       elapsedTime = 60;
 
@@ -25,7 +25,7 @@ describe('Go Back Button - Immediate Navigation', () => {
         // Save
         hasBeenSaved = true;
         saveAttempts += 1;
-        
+
         // Navigate immediately after save
         navigated = true;
       }
@@ -35,7 +35,7 @@ describe('Go Back Button - Immediate Navigation', () => {
       expect(hasBeenSaved).toBe(true);
     });
 
-    it('should not require multiple button clicks', async () => {
+    it("should not require multiple button clicks", async () => {
       let clickCount = 0;
       practiceCount = 2;
       elapsedTime = 45;
@@ -52,7 +52,7 @@ describe('Go Back Button - Immediate Navigation', () => {
       expect(navigated).toBe(true);
     });
 
-    it('should navigate immediately after save completes', async () => {
+    it("should navigate immediately after save completes", async () => {
       practiceCount = 5;
       elapsedTime = 120;
 
@@ -69,8 +69,8 @@ describe('Go Back Button - Immediate Navigation', () => {
     });
   });
 
-  describe('Go back without practice data', () => {
-    it('should navigate immediately if no practice was done', () => {
+  describe("Go back without practice data", () => {
+    it("should navigate immediately if no practice was done", () => {
       practiceCount = 0;
       elapsedTime = 0;
 
@@ -86,7 +86,7 @@ describe('Go Back Button - Immediate Navigation', () => {
       expect(navigated).toBe(true);
     });
 
-    it('should navigate immediately if already saved', () => {
+    it("should navigate immediately if already saved", () => {
       practiceCount = 3;
       elapsedTime = 60;
       hasBeenSaved = true; // Already saved
@@ -103,9 +103,9 @@ describe('Go Back Button - Immediate Navigation', () => {
     });
   });
 
-  describe('Navigation path verification', () => {
-    it('should navigate to correct path', () => {
-      let navigationPath = '';
+  describe("Navigation path verification", () => {
+    it("should navigate to correct path", () => {
+      let navigationPath = "";
       const subjectId = 1;
 
       practiceCount = 2;
@@ -118,11 +118,11 @@ describe('Go Back Button - Immediate Navigation', () => {
       // Navigate to questions page
       navigationPath = `/questions/${subjectId}`;
 
-      expect(navigationPath).toBe('/questions/1');
+      expect(navigationPath).toBe("/questions/1");
     });
 
-    it('should handle missing subject ID gracefully', () => {
-      let navigationPath = '';
+    it("should handle missing subject ID gracefully", () => {
+      let navigationPath = "";
       const subjectId = undefined;
 
       practiceCount = 1;
@@ -135,12 +135,12 @@ describe('Go Back Button - Immediate Navigation', () => {
       // Navigate with fallback
       navigationPath = `/questions/${subjectId || 1}`;
 
-      expect(navigationPath).toBe('/questions/1');
+      expect(navigationPath).toBe("/questions/1");
     });
   });
 
-  describe('Single button click behavior', () => {
-    it('should complete save and navigate in single button click', () => {
+  describe("Single button click behavior", () => {
+    it("should complete save and navigate in single button click", () => {
       let operations: string[] = [];
 
       practiceCount = 4;
@@ -148,17 +148,17 @@ describe('Go Back Button - Immediate Navigation', () => {
 
       // Single handleGoBack call
       if (practiceCount > 0 && elapsedTime > 0 && !hasBeenSaved) {
-        operations.push('save');
+        operations.push("save");
         hasBeenSaved = true;
-        operations.push('navigate');
+        operations.push("navigate");
         navigated = true;
       }
 
-      expect(operations).toEqual(['save', 'navigate']);
+      expect(operations).toEqual(["save", "navigate"]);
       expect(operations.length).toBe(2);
     });
 
-    it('should not require waiting between save and navigate', () => {
+    it("should not require waiting between save and navigate", () => {
       let timeline: string[] = [];
 
       practiceCount = 3;
@@ -166,20 +166,25 @@ describe('Go Back Button - Immediate Navigation', () => {
 
       // Immediate execution without waiting
       if (practiceCount > 0 && elapsedTime > 0 && !hasBeenSaved) {
-        timeline.push('save_start');
+        timeline.push("save_start");
         hasBeenSaved = true;
-        timeline.push('save_end');
-        timeline.push('navigate_start');
+        timeline.push("save_end");
+        timeline.push("navigate_start");
         navigated = true;
-        timeline.push('navigate_end');
+        timeline.push("navigate_end");
       }
 
-      expect(timeline).toEqual(['save_start', 'save_end', 'navigate_start', 'navigate_end']);
+      expect(timeline).toEqual([
+        "save_start",
+        "save_end",
+        "navigate_start",
+        "navigate_end",
+      ]);
     });
   });
 
-  describe('Edge cases', () => {
-    it('should handle rapid button clicks', () => {
+  describe("Edge cases", () => {
+    it("should handle rapid button clicks", () => {
       practiceCount = 2;
       elapsedTime = 45;
 
@@ -198,7 +203,7 @@ describe('Go Back Button - Immediate Navigation', () => {
       expect(navigated).toBe(true);
     });
 
-    it('should handle zero elapsed time', () => {
+    it("should handle zero elapsed time", () => {
       practiceCount = 3;
       elapsedTime = 0;
 

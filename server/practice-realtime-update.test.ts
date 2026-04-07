@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from "vitest";
 
-describe('Practice Session - Cumulative Save and Realtime Update', () => {
+describe("Practice Session - Cumulative Save and Realtime Update", () => {
   let practiceCount: number;
   let cumulativePracticeCount: number;
   let elapsedTime: number;
@@ -17,8 +17,8 @@ describe('Practice Session - Cumulative Save and Realtime Update', () => {
     invalidateAttempts = 0;
   });
 
-  describe('Multiple sessions cumulative save', () => {
-    it('should save multiple sessions independently', () => {
+  describe("Multiple sessions cumulative save", () => {
+    it("should save multiple sessions independently", () => {
       // Session 1
       practiceCount = 3;
       elapsedTime = 60;
@@ -48,7 +48,7 @@ describe('Practice Session - Cumulative Save and Realtime Update', () => {
       expect(cumulativePracticeCount).toBe(5);
     });
 
-    it('should reset hasBeenSaved when changing questions', () => {
+    it("should reset hasBeenSaved when changing questions", () => {
       let currentQuestionId = 1;
 
       // Session 1
@@ -81,7 +81,7 @@ describe('Practice Session - Cumulative Save and Realtime Update', () => {
       expect(saveAttempts).toBe(2);
     });
 
-    it('should not double-save on same session', () => {
+    it("should not double-save on same session", () => {
       practiceCount = 3;
       elapsedTime = 60;
 
@@ -100,8 +100,8 @@ describe('Practice Session - Cumulative Save and Realtime Update', () => {
     });
   });
 
-  describe('Realtime update on correct answer', () => {
-    it('should invalidate cache when correct answer is matched', () => {
+  describe("Realtime update on correct answer", () => {
+    it("should invalidate cache when correct answer is matched", () => {
       const questionId = 1;
       cumulativePracticeCount = 5;
 
@@ -113,7 +113,7 @@ describe('Practice Session - Cumulative Save and Realtime Update', () => {
       expect(invalidateAttempts).toBe(1);
     });
 
-    it('should update cumulative count in realtime', () => {
+    it("should update cumulative count in realtime", () => {
       cumulativePracticeCount = 10;
 
       // Correct answer 1
@@ -132,7 +132,7 @@ describe('Practice Session - Cumulative Save and Realtime Update', () => {
       expect(invalidateAttempts).toBe(3);
     });
 
-    it('should invalidate on both correct answer and save', () => {
+    it("should invalidate on both correct answer and save", () => {
       practiceCount = 0;
       elapsedTime = 0;
 
@@ -164,8 +164,8 @@ describe('Practice Session - Cumulative Save and Realtime Update', () => {
     });
   });
 
-  describe('Session lifecycle', () => {
-    it('should handle complete session lifecycle', () => {
+  describe("Session lifecycle", () => {
+    it("should handle complete session lifecycle", () => {
       const questionId = 1;
 
       // Start session
@@ -197,7 +197,7 @@ describe('Practice Session - Cumulative Save and Realtime Update', () => {
       expect(invalidateAttempts).toBe(3); // 2 correct answers + 1 save
     });
 
-    it('should handle page unmount with unsaved session', () => {
+    it("should handle page unmount with unsaved session", () => {
       // Session in progress
       practiceCount = 3;
       elapsedTime = 120;
@@ -215,8 +215,8 @@ describe('Practice Session - Cumulative Save and Realtime Update', () => {
     });
   });
 
-  describe('Edge cases', () => {
-    it('should not invalidate if no question data', () => {
+  describe("Edge cases", () => {
+    it("should not invalidate if no question data", () => {
       const question = null;
 
       practiceCount = 1;
@@ -227,7 +227,7 @@ describe('Practice Session - Cumulative Save and Realtime Update', () => {
       expect(invalidateAttempts).toBe(0);
     });
 
-    it('should handle rapid correct answers', () => {
+    it("should handle rapid correct answers", () => {
       // Simulate rapid correct answers
       for (let i = 0; i < 5; i++) {
         practiceCount = i + 1;
@@ -238,7 +238,7 @@ describe('Practice Session - Cumulative Save and Realtime Update', () => {
       expect(invalidateAttempts).toBe(5);
     });
 
-    it('should maintain state across multiple operations', () => {
+    it("should maintain state across multiple operations", () => {
       // Session 1
       practiceCount = 2;
       elapsedTime = 60;

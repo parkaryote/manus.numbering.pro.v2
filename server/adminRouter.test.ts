@@ -20,8 +20,20 @@ describe("Admin Router - Demo Management", () => {
   describe("Demo Subjects", () => {
     it("should return all demo subjects", async () => {
       const mockSubjects = [
-        { id: 1, name: "데모 과목 1", description: "설명 1", isDemo: 1, displayOrder: 1 },
-        { id: 2, name: "데모 과목 2", description: "설명 2", isDemo: 1, displayOrder: 2 },
+        {
+          id: 1,
+          name: "데모 과목 1",
+          description: "설명 1",
+          isDemo: 1,
+          displayOrder: 1,
+        },
+        {
+          id: 2,
+          name: "데모 과목 2",
+          description: "설명 2",
+          isDemo: 1,
+          displayOrder: 2,
+        },
       ];
 
       vi.mocked(db.getAllDemoSubjects).mockResolvedValue(mockSubjects as any);
@@ -53,7 +65,9 @@ describe("Admin Router - Demo Management", () => {
         },
       ];
 
-      vi.mocked(db.getDemoQuestionsBySubjectId).mockResolvedValue(mockQuestions as any);
+      vi.mocked(db.getDemoQuestionsBySubjectId).mockResolvedValue(
+        mockQuestions as any
+      );
 
       const questions = await db.getDemoQuestionsBySubjectId(1);
       expect(questions).toEqual(mockQuestions);
@@ -69,7 +83,9 @@ describe("Admin Router - Demo Management", () => {
         isDemo: 1,
       };
 
-      vi.mocked(db.updateDemoQuestion).mockResolvedValue(updatedQuestion as any);
+      vi.mocked(db.updateDemoQuestion).mockResolvedValue(
+        updatedQuestion as any
+      );
 
       const result = await db.updateDemoQuestion(1, {
         question: "수정된 문제",

@@ -58,8 +58,14 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   );
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
   const [isSelecting, setIsSelecting] = useState(false);
-  const [selectionStart, setSelectionStart] = useState<{ row: number; col: number } | null>(null);
-  const [activeCell, setActiveCell] = useState<{ row: number; col: number } | null>(null);
+  const [selectionStart, setSelectionStart] = useState<{
+    row: number;
+    col: number;
+  } | null>(null);
+  const [activeCell, setActiveCell] = useState<{
+    row: number;
+    col: number;
+  } | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
@@ -87,7 +93,10 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   // 컨텍스트 메뉴 외부 클릭 닫기
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+      if (
+        contextMenuRef.current &&
+        !contextMenuRef.current.contains(e.target as Node)
+      ) {
         setContextMenu(null);
       }
     };
@@ -101,7 +110,9 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   const addRow = useCallback(
     (afterIndex: number) => {
       const newCells = [...tableData.cells];
-      const newRow = Array.from({ length: tableData.cols }, () => createEmptyCell());
+      const newRow = Array.from({ length: tableData.cols }, () =>
+        createEmptyCell()
+      );
       newCells.splice(afterIndex + 1, 0, newRow);
       updateTable({ ...tableData, rows: tableData.rows + 1, cells: newCells });
     },
@@ -111,7 +122,9 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   const addRowBefore = useCallback(
     (beforeIndex: number) => {
       const newCells = [...tableData.cells];
-      const newRow = Array.from({ length: tableData.cols }, () => createEmptyCell());
+      const newRow = Array.from({ length: tableData.cols }, () =>
+        createEmptyCell()
+      );
       newCells.splice(beforeIndex, 0, newRow);
       updateTable({ ...tableData, rows: tableData.rows + 1, cells: newCells });
     },
@@ -121,7 +134,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   // 열 추가 (특정 위치)
   const addCol = useCallback(
     (afterIndex: number) => {
-      const newCells = tableData.cells.map((row) => {
+      const newCells = tableData.cells.map(row => {
         const newRow = [...row];
         newRow.splice(afterIndex + 1, 0, createEmptyCell());
         return newRow;
@@ -133,7 +146,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
 
   const addColBefore = useCallback(
     (beforeIndex: number) => {
-      const newCells = tableData.cells.map((row) => {
+      const newCells = tableData.cells.map(row => {
         const newRow = [...row];
         newRow.splice(beforeIndex, 0, createEmptyCell());
         return newRow;
@@ -146,7 +159,10 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   // 행 삭제
   const removeRow = useCallback(
     (index: number) => {
-      if (tableData.rows <= 1) { toast.error("최소 1행이 필요합니다"); return; }
+      if (tableData.rows <= 1) {
+        toast.error("최소 1행이 필요합니다");
+        return;
+      }
       const newCells = tableData.cells.filter((_, i) => i !== index);
       updateTable({ ...tableData, rows: tableData.rows - 1, cells: newCells });
       setSelectedCells(new Set());
@@ -157,8 +173,13 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   // 열 삭제
   const removeCol = useCallback(
     (index: number) => {
-      if (tableData.cols <= 1) { toast.error("최소 1열이 필요합니다"); return; }
-      const newCells = tableData.cells.map((row) => row.filter((_, i) => i !== index));
+      if (tableData.cols <= 1) {
+        toast.error("최소 1열이 필요합니다");
+        return;
+      }
+      const newCells = tableData.cells.map(row =>
+        row.filter((_, i) => i !== index)
+      );
       updateTable({ ...tableData, cols: tableData.cols - 1, cells: newCells });
       setSelectedCells(new Set());
     },
@@ -194,31 +215,55 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
 
   // 셀 병합
   const mergeCells = useCallback(() => {
-    if (selectedCells.size < 2) { toast.error("2개 이상의 셀을 선택하세요"); return; }
-    const positions = Array.from(selectedCells).map((key) => {
+    if (selectedCells.size < 2) {
+      toast.error("2개 이상의 셀을 선택하세요");
+      return;
+    }
+    const positions = Array.from(selectedCells).map(key => {
       const [r, c] = key.split("-").map(Number);
       return { row: r, col: c };
     });
-    const minRow = Math.min(...positions.map((p) => p.row));
-    const maxRow = Math.max(...positions.map((p) => p.row));
-    const minCol = Math.min(...positions.map((p) => p.col));
-    const maxCol = Math.max(...positions.map((p) => p.col));
+    const minRow = Math.min(...positions.map(p => p.row));
+    const maxRow = Math.max(...positions.map(p => p.row));
+    const minCol = Math.min(...positions.map(p => p.col));
+    const maxCol = Math.max(...positions.map(p => p.col));
     const expectedCount = (maxRow - minRow + 1) * (maxCol - minCol + 1);
-    if (selectedCells.size !== expectedCount) { toast.error("직사각형 영역만 병합할 수 있습니다"); return; }
+    if (selectedCells.size !== expectedCount) {
+      toast.error("직사각형 영역만 병합할 수 있습니다");
+      return;
+    }
     for (const pos of positions) {
       const cell = tableData.cells[pos.row][pos.col];
-      if (cell.isMerged || (cell.rowSpan && cell.rowSpan > 1) || (cell.colSpan && cell.colSpan > 1)) {
-        toast.error("이미 병합된 셀은 다시 병합할 수 없습니다"); return;
+      if (
+        cell.isMerged ||
+        (cell.rowSpan && cell.rowSpan > 1) ||
+        (cell.colSpan && cell.colSpan > 1)
+      ) {
+        toast.error("이미 병합된 셀은 다시 병합할 수 없습니다");
+        return;
       }
     }
     const newCells = tableData.cells.map((r, ri) =>
       r.map((c, ci) => {
         if (ri === minRow && ci === minCol) {
-          const mergedContent = positions.map((p) => tableData.cells[p.row][p.col].content).filter(Boolean).join(" ");
-          return { ...c, content: mergedContent || c.content, rowSpan: maxRow - minRow + 1, colSpan: maxCol - minCol + 1 };
+          const mergedContent = positions
+            .map(p => tableData.cells[p.row][p.col].content)
+            .filter(Boolean)
+            .join(" ");
+          return {
+            ...c,
+            content: mergedContent || c.content,
+            rowSpan: maxRow - minRow + 1,
+            colSpan: maxCol - minCol + 1,
+          };
         }
         if (ri >= minRow && ri <= maxRow && ci >= minCol && ci <= maxCol) {
-          return { ...c, isMerged: true, mergeParent: { row: minRow, col: minCol }, content: "" };
+          return {
+            ...c,
+            isMerged: true,
+            mergeParent: { row: minRow, col: minCol },
+            content: "",
+          };
         }
         return c;
       })
@@ -230,19 +275,30 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
 
   // 셀 병합 해제 (버그 수정: isMerged 셀을 createEmptyCell로 복원)
   const splitCells = useCallback(() => {
-    if (selectedCells.size !== 1) { toast.error("병합 해제할 셀 1개를 선택하세요"); return; }
+    if (selectedCells.size !== 1) {
+      toast.error("병합 해제할 셀 1개를 선택하세요");
+      return;
+    }
     const [key] = Array.from(selectedCells);
     const [row, col] = key.split("-").map(Number);
     const cell = tableData.cells[row][col];
-    const isParent = (cell.rowSpan && cell.rowSpan > 1) || (cell.colSpan && cell.colSpan > 1);
-    if (!isParent) { toast.error("병합된 셀이 아닙니다"); return; }
+    const isParent =
+      (cell.rowSpan && cell.rowSpan > 1) || (cell.colSpan && cell.colSpan > 1);
+    if (!isParent) {
+      toast.error("병합된 셀이 아닙니다");
+      return;
+    }
 
     const newCells = tableData.cells.map((r, ri) =>
       r.map((c, ci) => {
         if (ri === row && ci === col) {
           return { ...c, rowSpan: 1, colSpan: 1 };
         }
-        if (c.isMerged && c.mergeParent?.row === row && c.mergeParent?.col === col) {
+        if (
+          c.isMerged &&
+          c.mergeParent?.row === row &&
+          c.mergeParent?.col === col
+        ) {
           // 병합 해제 시 빈 셀로 복원 (날아가는 버그 수정)
           return createEmptyCell();
         }
@@ -260,15 +316,15 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
     setContextMenu(null);
 
     if (e.shiftKey && selectedCells.size > 0) {
-      const existing = Array.from(selectedCells).map((k) => {
+      const existing = Array.from(selectedCells).map(k => {
         const [r, c] = k.split("-").map(Number);
         return { row: r, col: c };
       });
       const allPositions = [...existing, { row, col }];
-      const minR = Math.min(...allPositions.map((p) => p.row));
-      const maxR = Math.max(...allPositions.map((p) => p.row));
-      const minC = Math.min(...allPositions.map((p) => p.col));
-      const maxC = Math.max(...allPositions.map((p) => p.col));
+      const minR = Math.min(...allPositions.map(p => p.row));
+      const maxR = Math.max(...allPositions.map(p => p.row));
+      const minC = Math.min(...allPositions.map(p => p.col));
+      const maxC = Math.max(...allPositions.map(p => p.col));
       const newSelection = new Set<string>();
       for (let r = minR; r <= maxR; r++) {
         for (let c = minC; c <= maxC; c++) {
@@ -282,7 +338,8 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
     if (e.ctrlKey || e.metaKey) {
       const k = `${row}-${col}`;
       const newSel = new Set(selectedCells);
-      if (newSel.has(k)) newSel.delete(k); else newSel.add(k);
+      if (newSel.has(k)) newSel.delete(k);
+      else newSel.add(k);
       setSelectedCells(newSel);
       return;
     }
@@ -292,7 +349,11 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   };
 
   // 드래그 선택
-  const handleCellMouseDown = (row: number, col: number, e: React.MouseEvent) => {
+  const handleCellMouseDown = (
+    row: number,
+    col: number,
+    e: React.MouseEvent
+  ) => {
     if (e.button !== 0) return;
     if (previewMode) return;
     setIsSelecting(true);
@@ -330,7 +391,11 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   };
 
   // 키보드 네비게이션
-  const handleKeyDown = (row: number, col: number, e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (
+    row: number,
+    col: number,
+    e: React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
     const cell = tableData.cells[row][col];
     const colSpan = cell.colSpan || 1;
     const rowSpan = cell.rowSpan || 1;
@@ -340,12 +405,14 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
       if (e.shiftKey) {
         // 이전 셀
         if (col > 0) setActiveCell({ row, col: col - 1 });
-        else if (row > 0) setActiveCell({ row: row - 1, col: tableData.cols - 1 });
+        else if (row > 0)
+          setActiveCell({ row: row - 1, col: tableData.cols - 1 });
       } else {
         // 다음 셀
         const nextCol = col + colSpan;
         if (nextCol < tableData.cols) setActiveCell({ row, col: nextCol });
-        else if (row + rowSpan < tableData.rows) setActiveCell({ row: row + rowSpan, col: 0 });
+        else if (row + rowSpan < tableData.rows)
+          setActiveCell({ row: row + rowSpan, col: 0 });
       }
       return;
     }
@@ -367,7 +434,12 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
     }
 
     // 화살표 키: 텍스트 커서가 끝/시작에 있을 때만 셀 이동
-    if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowUp" || e.key === "ArrowDown") {
+    if (
+      e.key === "ArrowRight" ||
+      e.key === "ArrowLeft" ||
+      e.key === "ArrowUp" ||
+      e.key === "ArrowDown"
+    ) {
       const ta = textareaRefs.current[`${row}-${col}`];
       if (!ta) return;
       const { selectionStart: ss, selectionEnd: se, value } = ta;
@@ -401,8 +473,10 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
     }
   };
 
-  const toggleHeaderRow = () => updateTable({ ...tableData, headerRow: !tableData.headerRow });
-  const toggleHeaderCol = () => updateTable({ ...tableData, headerCol: !tableData.headerCol });
+  const toggleHeaderRow = () =>
+    updateTable({ ...tableData, headerRow: !tableData.headerRow });
+  const toggleHeaderCol = () =>
+    updateTable({ ...tableData, headerCol: !tableData.headerCol });
   const resetTable = () => {
     const t = createDefaultTable();
     setTableData(t);
@@ -411,43 +485,101 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
     setActiveCell(null);
   };
 
-  const blankCount = tableData.cells.flat().filter((c) => c.isBlank && !c.isMerged).length;
+  const blankCount = tableData.cells
+    .flat()
+    .filter(c => c.isBlank && !c.isMerged).length;
 
   return (
     <div className="space-y-3" onClick={() => setContextMenu(null)}>
       {/* 도구 모음 */}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="flex gap-1 items-center border rounded-md p-1">
-          <Button type="button" variant="ghost" size="sm" onClick={toggleSelectedBlanks} disabled={selectedCells.size === 0} title="선택 셀 연습 셀 토글">
-            <EyeOff className="h-3 w-3 mr-1" />연습
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={toggleSelectedBlanks}
+            disabled={selectedCells.size === 0}
+            title="선택 셀 연습 셀 토글"
+          >
+            <EyeOff className="h-3 w-3 mr-1" />
+            연습
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={mergeCells} disabled={selectedCells.size < 2} title="셀 병합">
-            <Merge className="h-3 w-3 mr-1" />병합
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={mergeCells}
+            disabled={selectedCells.size < 2}
+            title="셀 병합"
+          >
+            <Merge className="h-3 w-3 mr-1" />
+            병합
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={splitCells} disabled={selectedCells.size !== 1} title="병합 해제">
-            <Split className="h-3 w-3 mr-1" />해제
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={splitCells}
+            disabled={selectedCells.size !== 1}
+            title="병합 해제"
+          >
+            <Split className="h-3 w-3 mr-1" />
+            해제
           </Button>
         </div>
 
         <div className="flex gap-1 items-center border rounded-md p-1">
-          <Button type="button" variant={tableData.headerRow ? "secondary" : "ghost"} size="sm" onClick={toggleHeaderRow}>헤더행</Button>
-          <Button type="button" variant={tableData.headerCol ? "secondary" : "ghost"} size="sm" onClick={toggleHeaderCol}>헤더열</Button>
+          <Button
+            type="button"
+            variant={tableData.headerRow ? "secondary" : "ghost"}
+            size="sm"
+            onClick={toggleHeaderRow}
+          >
+            헤더행
+          </Button>
+          <Button
+            type="button"
+            variant={tableData.headerCol ? "secondary" : "ghost"}
+            size="sm"
+            onClick={toggleHeaderCol}
+          >
+            헤더열
+          </Button>
         </div>
 
         <div className="flex gap-1 items-center border rounded-md p-1">
-          <Button type="button" variant={previewMode ? "secondary" : "ghost"} size="sm" onClick={() => setPreviewMode(!previewMode)}>
-            <Eye className="h-3 w-3 mr-1" />미리보기
+          <Button
+            type="button"
+            variant={previewMode ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setPreviewMode(!previewMode)}
+          >
+            <Eye className="h-3 w-3 mr-1" />
+            미리보기
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={resetTable} className="text-red-500 hover:text-red-700">
-            <RotateCcw className="h-3 w-3 mr-1" />초기화
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={resetTable}
+            className="text-red-500 hover:text-red-700"
+          >
+            <RotateCcw className="h-3 w-3 mr-1" />
+            초기화
           </Button>
         </div>
       </div>
 
       {/* 안내 텍스트 */}
       <div className="text-xs text-muted-foreground">
-        클릭: 셀 편집 | Tab: 다음 셀 | Ctrl+Enter: 아래 셀 | 우클릭: 행/열 추가·삭제 | Shift+클릭/드래그: 범위 선택
-        {blankCount > 0 && <span className="ml-2 text-amber-600 font-medium">연습 셀: {blankCount}개</span>}
+        클릭: 셀 편집 | Tab: 다음 셀 | Ctrl+Enter: 아래 셀 | 우클릭: 행/열
+        추가·삭제 | Shift+클릭/드래그: 범위 선택
+        {blankCount > 0 && (
+          <span className="ml-2 text-amber-600 font-medium">
+            연습 셀: {blankCount}개
+          </span>
+        )}
       </div>
 
       {/* 표 편집 영역 */}
@@ -459,11 +591,14 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
                 {row.map((cell, ci) => {
                   if (cell.isMerged) return null;
 
-                  const isHeader = (tableData.headerRow && ri === 0) || (tableData.headerCol && ci === 0);
+                  const isHeader =
+                    (tableData.headerRow && ri === 0) ||
+                    (tableData.headerCol && ci === 0);
                   const CellTag = isHeader ? "th" : "td";
                   const cellKey = `${ri}-${ci}`;
                   const isSelected = selectedCells.has(cellKey);
-                  const isActive = activeCell?.row === ri && activeCell?.col === ci;
+                  const isActive =
+                    activeCell?.row === ri && activeCell?.col === ci;
 
                   let bg = "bg-white";
                   if (isHeader) bg = "bg-slate-100";
@@ -474,8 +609,8 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
                   const borderCls = isActive
                     ? "border-2 border-blue-500"
                     : isSelected
-                    ? "border-2 border-blue-400"
-                    : "border border-slate-300";
+                      ? "border-2 border-blue-400"
+                      : "border border-slate-300";
 
                   return (
                     <CellTag
@@ -483,22 +618,34 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
                       rowSpan={cell.rowSpan || 1}
                       colSpan={cell.colSpan || 1}
                       className={`${bg} ${borderCls} px-0 py-0 text-sm relative min-w-[60px] min-h-[36px] align-top`}
-                      onMouseDown={(e) => handleCellMouseDown(ri, ci, e)}
+                      onMouseDown={e => handleCellMouseDown(ri, ci, e)}
                       onMouseEnter={() => handleCellMouseEnter(ri, ci)}
-                      onClick={(e) => handleCellClick(ri, ci, e)}
-                      onContextMenu={(e) => handleContextMenu(ri, ci, e)}
+                      onClick={e => handleCellClick(ri, ci, e)}
+                      onContextMenu={e => handleContextMenu(ri, ci, e)}
                     >
                       {previewMode ? (
-                        <div className={`px-2 py-1.5 min-h-[36px] ${isHeader ? "font-semibold text-slate-700" : "text-slate-600"} ${cell.isBlank ? "text-yellow-600 italic text-xs" : ""}`}>
-                          {cell.isBlank ? "연습" : (cell.content || <span className="text-slate-300 italic text-xs">{isHeader ? "헤더" : "내용"}</span>)}
+                        <div
+                          className={`px-2 py-1.5 min-h-[36px] ${isHeader ? "font-semibold text-slate-700" : "text-slate-600"} ${cell.isBlank ? "text-yellow-600 italic text-xs" : ""}`}
+                        >
+                          {cell.isBlank
+                            ? "연습"
+                            : cell.content || (
+                                <span className="text-slate-300 italic text-xs">
+                                  {isHeader ? "헤더" : "내용"}
+                                </span>
+                              )}
                         </div>
                       ) : (
                         <div className="relative">
                           <textarea
-                            ref={(el) => { textareaRefs.current[cellKey] = el; }}
+                            ref={el => {
+                              textareaRefs.current[cellKey] = el;
+                            }}
                             value={cell.content}
-                            onChange={(e) => updateCellContent(ri, ci, e.target.value)}
-                            onKeyDown={(e) => handleKeyDown(ri, ci, e)}
+                            onChange={e =>
+                              updateCellContent(ri, ci, e.target.value)
+                            }
+                            onKeyDown={e => handleKeyDown(ri, ci, e)}
                             onFocus={() => {
                               setActiveCell({ row: ri, col: ci });
                               setSelectedCells(new Set([cellKey]));
@@ -507,14 +654,17 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
                             className={`w-full resize-none bg-transparent outline-none text-sm px-2 py-1.5 min-h-[36px] ${isHeader ? "font-semibold text-slate-700" : "text-slate-700"} ${cell.isBlank ? "underline decoration-amber-400 decoration-2" : ""}`}
                             placeholder={isHeader ? "헤더" : "내용"}
                             style={{ height: "auto", overflow: "hidden" }}
-                            onInput={(e) => {
+                            onInput={e => {
                               const ta = e.currentTarget;
                               ta.style.height = "auto";
                               ta.style.height = ta.scrollHeight + "px";
                             }}
                           />
                           {cell.isBlank && (
-                            <div className="absolute top-0 right-0 w-2 h-2 bg-amber-400 rounded-bl" title="연습 셀" />
+                            <div
+                              className="absolute top-0 right-0 w-2 h-2 bg-amber-400 rounded-bl"
+                              title="연습 셀"
+                            />
                           )}
                         </div>
                       )}
@@ -528,7 +678,9 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
       </div>
 
       {/* 표 크기 정보 */}
-      <div className="text-xs text-muted-foreground text-right">{tableData.rows}행 × {tableData.cols}열</div>
+      <div className="text-xs text-muted-foreground text-right">
+        {tableData.rows}행 × {tableData.cols}열
+      </div>
 
       {/* 우클릭 컨텍스트 메뉴 */}
       {contextMenu && (
@@ -536,34 +688,76 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
           ref={contextMenuRef}
           className="fixed z-50 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[160px]"
           style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
         >
           <div className="px-3 py-1 text-xs text-muted-foreground font-medium border-b mb-1">
             행 {contextMenu.row + 1}, 열 {contextMenu.col + 1}
           </div>
-          <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100" onClick={() => { addRowBefore(contextMenu.row); setContextMenu(null); }}>
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100"
+            onClick={() => {
+              addRowBefore(contextMenu.row);
+              setContextMenu(null);
+            }}
+          >
             ↑ 위에 행 추가
           </button>
-          <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100" onClick={() => { addRow(contextMenu.row); setContextMenu(null); }}>
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100"
+            onClick={() => {
+              addRow(contextMenu.row);
+              setContextMenu(null);
+            }}
+          >
             ↓ 아래에 행 추가
           </button>
-          <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100" onClick={() => { addColBefore(contextMenu.col); setContextMenu(null); }}>
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100"
+            onClick={() => {
+              addColBefore(contextMenu.col);
+              setContextMenu(null);
+            }}
+          >
             ← 왼쪽에 열 추가
           </button>
-          <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100" onClick={() => { addCol(contextMenu.col); setContextMenu(null); }}>
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100"
+            onClick={() => {
+              addCol(contextMenu.col);
+              setContextMenu(null);
+            }}
+          >
             → 오른쪽에 열 추가
           </button>
           <div className="border-t my-1" />
-          <button className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50" onClick={() => { removeRow(contextMenu.row); setContextMenu(null); }}>
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+            onClick={() => {
+              removeRow(contextMenu.row);
+              setContextMenu(null);
+            }}
+          >
             행 삭제
           </button>
-          <button className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50" onClick={() => { removeCol(contextMenu.col); setContextMenu(null); }}>
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+            onClick={() => {
+              removeCol(contextMenu.col);
+              setContextMenu(null);
+            }}
+          >
             열 삭제
           </button>
           {selectedCells.size > 0 && (
             <>
               <div className="border-t my-1" />
-              <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100" onClick={() => { toggleSelectedBlanks(); setContextMenu(null); }}>
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100"
+                onClick={() => {
+                  toggleSelectedBlanks();
+                  setContextMenu(null);
+                }}
+              >
                 연습 셀 토글
               </button>
             </>
@@ -592,7 +786,7 @@ interface TableViewProps {
   onCellActivate?: (key: string) => void; // 셀 클릭 시 활성화
   onCellCheck?: (key: string) => void; // 셀 체크박스 토글
   partialInput?: string; // 현재 입력 중인 텍스트 (채점 시각화용)
-  cellSubmittedResult?: 'correct' | 'wrong' | 'typing' | null; // 실시간 채점 결과 (null: 미입력, typing: 입력중, correct: 정답, wrong: 오답)
+  cellSubmittedResult?: "correct" | "wrong" | "typing" | null; // 실시간 채점 결과 (null: 미입력, typing: 입력중, correct: 정답, wrong: 오답)
   wrongCells?: Set<string>; // 오답 제출 이력이 있는 셀
 }
 
@@ -611,7 +805,7 @@ export function TableView({
   checkedCells = new Set(),
   onCellCheck,
   onCellActivate,
-  partialInput = '',
+  partialInput = "",
   cellSubmittedResult = null,
   wrongCells = new Set(),
 }: TableViewProps) {
@@ -622,7 +816,7 @@ export function TableView({
   const handleKeyDown = (key: string, e: React.KeyboardEvent) => {
     if (e.key === "Tab") {
       e.preventDefault();
-      const currentIdx = blankCells.findIndex((k) => k === key);
+      const currentIdx = blankCells.findIndex(k => k === key);
       const nextIdx = e.shiftKey
         ? (currentIdx - 1 + blankCells.length) % blankCells.length
         : (currentIdx + 1) % blankCells.length;
@@ -631,7 +825,7 @@ export function TableView({
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      const currentIdx = blankCells.findIndex((k) => k === key);
+      const currentIdx = blankCells.findIndex(k => k === key);
       const nextIdx = (currentIdx + 1) % blankCells.length;
       const nextKey = blankCells[nextIdx];
       inputRefs.current[nextKey]?.focus();
@@ -656,10 +850,13 @@ export function TableView({
                 const userAnswer = answers[cellKey] || "";
                 const isCorrect = results?.[cellKey];
 
-                const normalizeText = (text: string) => text.replace(/\s+/g, "");
-                const isTypingCorrect = practiceMode && isBlank
-                  ? normalizeText(userAnswer) === normalizeText(cell.content.slice(0, userAnswer.length))
-                  : undefined;
+                const normalizeText = (text: string) =>
+                  text.replace(/\s+/g, "");
+                const isTypingCorrect =
+                  practiceMode && isBlank
+                    ? normalizeText(userAnswer) ===
+                      normalizeText(cell.content.slice(0, userAnswer.length))
+                    : undefined;
 
                 // 하단 입력창 연습 모드 셀 상태
                 const isActiveCell = activeCellKey === cellKey;
@@ -670,19 +867,30 @@ export function TableView({
                 let bgColor = "bg-white";
                 if (isHeader) bgColor = "bg-slate-100";
                 if (practiceMode && isBlank) bgColor = "bg-slate-50";
-                if (!practiceMode && isBlank && !showAnswers) bgColor = "bg-yellow-50";
+                if (!practiceMode && isBlank && !showAnswers)
+                  bgColor = "bg-yellow-50";
                 if (isCorrect === true) bgColor = "bg-green-50";
                 if (isCorrect === false) bgColor = "bg-red-50";
-                if (activeCellKey !== null && isBlank && isWrongCell && !isCompleted) bgColor = "bg-red-50/50";
+                if (
+                  activeCellKey !== null &&
+                  isBlank &&
+                  isWrongCell &&
+                  !isCompleted
+                )
+                  bgColor = "bg-red-50/50";
                 // 하단 입력창 모드: 집중 연습 선택된 셀은 연한 보라 배경 tint (인라인 스타일로 적용)
-                const isFocusCell = activeCellKey !== null && isBlank && isCellChecked && !isActiveCell;
+                const isFocusCell =
+                  activeCellKey !== null &&
+                  isBlank &&
+                  isCellChecked &&
+                  !isActiveCell;
 
                 // 하단 입력창 모드에서 활성 셀 테두리 강조 (active: 두꺼운 보라 + glow)
                 const cellBorderClass = isActiveCell
-                  ? cellSubmittedResult === 'wrong'
-                    ? 'border-2 border-red-500 shadow-[0_0_0_2px_oklch(0.62_0.23_24_/_0.18)]'
-                    : 'border-2 border-purple-500 shadow-[0_0_0_2px_oklch(0.55_0.2_290_/_0.2)]'
-                  : 'border border-slate-300';
+                  ? cellSubmittedResult === "wrong"
+                    ? "border-2 border-red-500 shadow-[0_0_0_2px_oklch(0.62_0.23_24_/_0.18)]"
+                    : "border-2 border-purple-500 shadow-[0_0_0_2px_oklch(0.55_0.2_290_/_0.2)]"
+                  : "border border-slate-300";
 
                 return (
                   <CellTag
@@ -691,10 +899,10 @@ export function TableView({
                     colSpan={cell.colSpan || 1}
                     className={`${bgColor} ${cellBorderClass} px-2 py-1.5 text-sm min-w-[60px] align-top relative`}
                     style={{
-                      wordBreak: 'keep-all',
-                      overflowWrap: 'break-word',
-                      whiteSpace: 'pre-wrap',
-                      verticalAlign: 'top',
+                      wordBreak: "keep-all",
+                      overflowWrap: "break-word",
+                      whiteSpace: "pre-wrap",
+                      verticalAlign: "top",
                     }}
                   >
                     {/* 하단 입력창 모드: 빈칸 셀에 코너 플래그 + 채점 시각화 */}
@@ -705,9 +913,10 @@ export function TableView({
                           <div
                             className="absolute top-0 right-0 w-0 h-0 z-10 pointer-events-none"
                             style={{
-                              borderStyle: 'solid',
-                              borderWidth: '0 10px 10px 0',
-                              borderColor: 'transparent oklch(0.55 0.2 290) transparent transparent',
+                              borderStyle: "solid",
+                              borderWidth: "0 10px 10px 0",
+                              borderColor:
+                                "transparent oklch(0.55 0.2 290) transparent transparent",
                             }}
                             title="집중 연습 선택됨"
                           />
@@ -715,60 +924,95 @@ export function TableView({
                         {/* 채점 시각화: 활성 셀 - 실시간 글자별 색상 표시 (isPartialMatch 기반) */}
                         {isActiveCell && !isCompleted && (
                           <div className="text-sm font-semibold cursor-text">
-                            {cellSubmittedResult === 'correct' ? (
+                            {cellSubmittedResult === "correct" ? (
                               // 정답: 전체 검정 (텍스트 모드와 동일)
-                              <span className="text-foreground">{cell.content}</span>
+                              <span className="text-foreground">
+                                {cell.content}
+                              </span>
                             ) : partialInput.length > 0 ? (
                               // 입력 중: isPartialMatch 기반 글자별 실시간 색상 (텍스트 모드와 동일 로직)
                               (() => {
-                                const targetChars = splitGraphemes(cell.content.replace(/\s+/g, ''));
-                                const userChars = splitGraphemes(partialInput.replace(/\s+/g, ''));
+                                const targetChars = splitGraphemes(
+                                  cell.content.replace(/\s+/g, "")
+                                );
+                                const userChars = splitGraphemes(
+                                  partialInput.replace(/\s+/g, "")
+                                );
                                 let charIdx = 0; // 띄어쓰기 제외 인덱스
-                                return cell.content.split('').map((ch, i) => {
-                                  if (ch === ' ' || ch === '\n') {
+                                return cell.content.split("").map((ch, i) => {
+                                  if (ch === " " || ch === "\n") {
                                     return <span key={i}>{ch}</span>;
                                   }
                                   const currentCharIdx = charIdx;
                                   charIdx++;
                                   // 아직 입력하지 않은 글자
                                   if (currentCharIdx >= userChars.length) {
-                                    return <span key={i} className="text-slate-300">{ch}</span>;
+                                    return (
+                                      <span key={i} className="text-slate-300">
+                                        {ch}
+                                      </span>
+                                    );
                                   }
                                   // 입력한 글자 채점 (isPartialMatch 사용)
                                   const userChar = userChars[currentCharIdx];
-                                  const targetChar = targetChars[currentCharIdx];
-                                  const nextTargetChar = targetChars[currentCharIdx + 1];
-                                  const matchResult = isPartialMatch(userChar, targetChar, nextTargetChar);
-                                  if (matchResult === 'complete' || matchResult === 'partial_complete') {
-                                    return <span key={i} className="text-foreground">{ch}</span>;
-                                  } else if (matchResult === 'partial') {
+                                  const targetChar =
+                                    targetChars[currentCharIdx];
+                                  const nextTargetChar =
+                                    targetChars[currentCharIdx + 1];
+                                  const matchResult = isPartialMatch(
+                                    userChar,
+                                    targetChar,
+                                    nextTargetChar
+                                  );
+                                  if (
+                                    matchResult === "complete" ||
+                                    matchResult === "partial_complete"
+                                  ) {
+                                    return (
+                                      <span key={i} className="text-foreground">
+                                        {ch}
+                                      </span>
+                                    );
+                                  } else if (matchResult === "partial") {
                                     // 조합 중 (초성/중성만 입력) - 회색 유지
-                                    return <span key={i} className="text-slate-400">{ch}</span>;
+                                    return (
+                                      <span key={i} className="text-slate-400">
+                                        {ch}
+                                      </span>
+                                    );
                                   } else {
                                     // 오답 - 빨간색
-                                    return <span key={i} className="text-red-500">{ch}</span>;
+                                    return (
+                                      <span key={i} className="text-red-500">
+                                        {ch}
+                                      </span>
+                                    );
                                   }
                                 });
                               })()
                             ) : (
                               // 미입력: 회색
-                              <span className="text-slate-300">{cell.content}</span>
+                              <span className="text-slate-300">
+                                {cell.content}
+                              </span>
                             )}
                           </div>
                         )}
                         {/* 완성 셀 - 텍스트 문제처럼 검정색 */}
                         {isCompleted && (
-                          <div className="text-sm font-semibold text-foreground">{cell.content}</div>
+                          <div className="text-sm font-semibold text-foreground">
+                            {cell.content}
+                          </div>
                         )}
                         {/* 미입력 셀 - 단일 클릭으로 셀 이동, 더블 클릭으로 집중 연습 토글 */}
                         {!isActiveCell && !isCompleted && (
                           <div
                             className={`text-sm cursor-pointer transition-colors ${
                               isWrongCell
-                                ? 'text-red-500 hover:text-red-600'
-                                : 'text-slate-300 hover:text-slate-400'
+                                ? "text-red-500 hover:text-red-600"
+                                : "text-slate-300 hover:text-slate-400"
                             }`}
-                            onClick={(e) => {
+                            onClick={e => {
                               if (e.detail === 2) {
                                 // 더블 클릭: 집중 연습 토글
                                 onCellCheck?.(cellKey);
@@ -777,16 +1021,19 @@ export function TableView({
                                 onCellActivate?.(cellKey);
                               }
                             }}
-                            onContextMenu={(e) => {
+                            onContextMenu={e => {
                               e.preventDefault();
                               onCellCheck?.(cellKey);
                             }}
                             title="클릭: 이 셀 연습 / 더블클릭: 집중 연습 토글"
-                          >{cell.content}</div>
+                          >
+                            {cell.content}
+                          </div>
                         )}
                       </>
                     )}
-                    {activeCellKey !== null && isBlank ? null : practiceMode && isBlank ? (
+                    {activeCellKey !== null && isBlank ? null : practiceMode &&
+                      isBlank ? (
                       <div className="relative min-h-[28px]">
                         {!userAnswer && (
                           <div className="absolute inset-0 text-slate-400 text-sm whitespace-pre-wrap px-2 py-1.5 pointer-events-none">
@@ -794,26 +1041,36 @@ export function TableView({
                           </div>
                         )}
                         <input
-                          ref={(el) => { inputRefs.current[cellKey] = el; }}
+                          ref={el => {
+                            inputRefs.current[cellKey] = el;
+                          }}
                           type="text"
                           value={userAnswer}
-                          onChange={(e) => {
+                          onChange={e => {
                             const newValue = e.target.value;
                             onAnswerChange?.(cellKey, newValue);
-                            if (normalizeText(newValue) === normalizeText(cell.content)) {
+                            if (
+                              normalizeText(newValue) ===
+                              normalizeText(cell.content)
+                            ) {
                               onCorrectAnswer?.(cellKey);
-                              const currentIdx = blankCells.findIndex((k) => k === cellKey);
+                              const currentIdx = blankCells.findIndex(
+                                k => k === cellKey
+                              );
                               if (currentIdx < blankCells.length - 1) {
                                 const nextKey = blankCells[currentIdx + 1];
-                                setTimeout(() => { inputRefs.current[nextKey]?.focus(); }, 100);
+                                setTimeout(() => {
+                                  inputRefs.current[nextKey]?.focus();
+                                }, 100);
                               }
                             }
                           }}
                           onFocus={() => onCellFocus?.(cellKey)}
-                          onKeyDown={(e) => handleKeyDown(cellKey, e)}
+                          onKeyDown={e => handleKeyDown(cellKey, e)}
                           readOnly={readOnly}
                           className={`relative z-10 w-full bg-transparent outline-none text-sm px-2 py-1.5 ${
-                            normalizeText(userAnswer) === normalizeText(cell.content)
+                            normalizeText(userAnswer) ===
+                            normalizeText(cell.content)
                               ? "text-green-600 font-semibold"
                               : "text-black"
                           }`}
@@ -822,32 +1079,45 @@ export function TableView({
                     ) : isBlank && !showAnswers ? (
                       <div className="relative">
                         <input
-                          ref={(el) => { inputRefs.current[cellKey] = el; }}
+                          ref={el => {
+                            inputRefs.current[cellKey] = el;
+                          }}
                           type="text"
                           value={userAnswer}
-                          onChange={(e) => onAnswerChange?.(cellKey, e.target.value)}
+                          onChange={e =>
+                            onAnswerChange?.(cellKey, e.target.value)
+                          }
                           onFocus={() => onCellFocus?.(cellKey)}
-                          onKeyDown={(e) => handleKeyDown(cellKey, e)}
+                          onKeyDown={e => handleKeyDown(cellKey, e)}
                           readOnly={readOnly}
                           placeholder="?"
                           className={`w-full bg-transparent border-b-2 ${
                             isCorrect === true
                               ? "border-green-500 text-green-700"
                               : isCorrect === false
-                              ? "border-red-500 text-red-700"
-                              : "border-amber-300 text-slate-700"
+                                ? "border-red-500 text-red-700"
+                                : "border-amber-300 text-slate-700"
                           } outline-none text-sm px-0 py-0.5 text-center placeholder:text-amber-300`}
                         />
                         {showAnswers && isCorrect === false && (
-                          <div className="text-xs text-green-600 mt-0.5 text-center">{cell.content}</div>
+                          <div className="text-xs text-green-600 mt-0.5 text-center">
+                            {cell.content}
+                          </div>
                         )}
                       </div>
                     ) : (
-                      <span className={`block ${isHeader ? "font-semibold text-slate-700 text-center" : "text-slate-600"}`}
-                        style={{ whiteSpace: 'pre-wrap', wordBreak: 'keep-all', overflowWrap: 'break-word' }}
+                      <span
+                        className={`block ${isHeader ? "font-semibold text-slate-700 text-center" : "text-slate-600"}`}
+                        style={{
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "keep-all",
+                          overflowWrap: "break-word",
+                        }}
                       >
                         {showAnswers && isBlank ? (
-                          <span className="text-green-600 font-medium">{cell.content}</span>
+                          <span className="text-green-600 font-medium">
+                            {cell.content}
+                          </span>
                         ) : (
                           cell.content
                         )}
@@ -892,7 +1162,8 @@ export function gradeTable(
         const key = `${ri}-${ci}`;
         const userAnswer = (answers[key] || "").trim().replace(/\s+/g, "");
         const correctAnswer = cell.content.trim().replace(/\s+/g, "");
-        const isCorrect = userAnswer.toLowerCase() === correctAnswer.toLowerCase();
+        const isCorrect =
+          userAnswer.toLowerCase() === correctAnswer.toLowerCase();
         results[key] = isCorrect;
         if (isCorrect) correct++;
         total++;

@@ -17,8 +17,14 @@ async function main() {
     console.log("question:", row.question);
     console.log("answer:", row.answer ? row.answer.substring(0, 100) : null);
     console.log("imageUrl:", row.imageUrl);
-    console.log("imageLabels:", row.imageLabels ? row.imageLabels.substring(0, 500) : null);
-    console.log("tableData:", row.tableData ? row.tableData.substring(0, 500) : null);
+    console.log(
+      "imageLabels:",
+      row.imageLabels ? row.imageLabels.substring(0, 500) : null
+    );
+    console.log(
+      "tableData:",
+      row.tableData ? row.tableData.substring(0, 500) : null
+    );
     console.log("difficulty:", row.difficulty);
     console.log("isDemo:", row.isDemo);
     console.log("useAIGrading:", row.useAIGrading);

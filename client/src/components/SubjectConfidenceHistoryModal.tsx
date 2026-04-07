@@ -1,4 +1,9 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import {
   LineChart,
@@ -54,7 +59,14 @@ const CustomDot = (props: any) => {
         {isLatest && (
           <circle cx={cx} cy={cy} r={12} fill={color} fillOpacity={0.15} />
         )}
-        <circle cx={cx} cy={cy} r={isLatest ? 7 : 5.5} fill={color} stroke="white" strokeWidth={2} />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={isLatest ? 7 : 5.5}
+          fill={color}
+          stroke="white"
+          strokeWidth={2}
+        />
       </g>
     );
   }
@@ -62,7 +74,14 @@ const CustomDot = (props: any) => {
     return (
       <g key={`dot-${cx}-${cy}`}>
         <circle cx={cx} cy={cy} r={12} fill={BRAND_COLOR} fillOpacity={0.15} />
-        <circle cx={cx} cy={cy} r={6} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={6}
+          fill={BRAND_COLOR}
+          stroke="white"
+          strokeWidth={2}
+        />
       </g>
     );
   }
@@ -75,14 +94,41 @@ const CustomActiveDot = (props: any) => {
   if (!cx || !cy) return null;
 
   if (payload.eventType === "practice") {
-    return <circle cx={cx} cy={cy} r={4.5} fill="#9ca3af" stroke="white" strokeWidth={1.5} />;
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={4.5}
+        fill="#9ca3af"
+        stroke="white"
+        strokeWidth={1.5}
+      />
+    );
   }
   if (payload.eventType === "test") {
     const isSuccess = payload.score >= SUCCESS_THRESHOLD;
     const color = isSuccess ? "#22c55e" : "#ef4444";
-    return <circle cx={cx} cy={cy} r={7} fill={color} stroke="white" strokeWidth={2} />;
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={7}
+        fill={color}
+        stroke="white"
+        strokeWidth={2}
+      />
+    );
   }
-  return <circle cx={cx} cy={cy} r={7} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />;
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      r={7}
+      fill={BRAND_COLOR}
+      stroke="white"
+      strokeWidth={2}
+    />
+  );
 };
 
 const CustomTooltip = ({ active, payload }: any) => {
@@ -102,7 +148,9 @@ const CustomTooltip = ({ active, payload }: any) => {
           <span className="font-semibold text-sm">{d.score}점</span>
         </div>
         {d.questionCount && (
-          <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {d.questionCount}개 문제 평균
+          </div>
         )}
       </div>
     );
@@ -117,14 +165,19 @@ const CustomTooltip = ({ active, payload }: any) => {
           {format(date, "yyyy.MM.dd HH:mm", { locale: ko })}
         </div>
         <div className="flex items-center gap-2 mb-1">
-          <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: color }} />
+          <span
+            className="w-2.5 h-2.5 rounded-full inline-block"
+            style={{ backgroundColor: color }}
+          />
           <span className="font-semibold text-sm" style={{ color }}>
             시험: {isSuccess ? "성공" : "실패"}
           </span>
         </div>
         <div className="text-xs text-muted-foreground">안정도 {d.score}점</div>
         {d.questionCount && (
-          <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {d.questionCount}개 문제 평균
+          </div>
         )}
       </div>
     );
@@ -134,17 +187,29 @@ const CustomTooltip = ({ active, payload }: any) => {
     <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[130px]">
       <div className="text-muted-foreground text-xs mb-1">현재</div>
       <div className="flex items-center gap-2">
-        <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: BRAND_COLOR }} />
-        <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>안정도 {d.score}점</span>
+        <span
+          className="w-2.5 h-2.5 rounded-full inline-block"
+          style={{ backgroundColor: BRAND_COLOR }}
+        />
+        <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>
+          안정도 {d.score}점
+        </span>
       </div>
       {d.questionCount && (
-        <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
+        <div className="text-xs text-muted-foreground mt-1">
+          {d.questionCount}개 문제 평균
+        </div>
       )}
     </div>
   );
 };
 
-export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, onClose }: Props) {
+export function SubjectConfidenceHistoryModal({
+  subjectId,
+  subjectName,
+  open,
+  onClose,
+}: Props) {
   const { data, isLoading } = trpc.confidence.getHistoryBySubject.useQuery(
     { subjectId: subjectId! },
     { enabled: open && subjectId !== null }
@@ -153,9 +218,14 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
   const points = data?.points ?? [];
 
   const testPoints = points.filter(p => p.eventType === "test");
-  const latestTestAt = testPoints.length > 0 ? testPoints[testPoints.length - 1].at : null;
-  const firstTs = points.length > 0 ? new Date(points[0].at).getTime() : Date.now();
-  const lastTs = points.length > 0 ? new Date(points[points.length - 1].at).getTime() : firstTs;
+  const latestTestAt =
+    testPoints.length > 0 ? testPoints[testPoints.length - 1].at : null;
+  const firstTs =
+    points.length > 0 ? new Date(points[0].at).getTime() : Date.now();
+  const lastTs =
+    points.length > 0
+      ? new Date(points[points.length - 1].at).getTime()
+      : firstTs;
   const rawRange = Math.max(1, lastTs - firstTs);
   const xPadding = Math.max(Math.round(rawRange * 0.04), 5 * 60 * 1000);
   const xDomainMin = firstTs;
@@ -170,7 +240,8 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
 
   const hasData = chartData.length > 0;
   const currentScore = hasData ? chartData[chartData.length - 1].score : null;
-  const currentStateColor = currentScore !== null ? getStateColor(currentScore) : "#6b7280";
+  const currentStateColor =
+    currentScore !== null ? getStateColor(currentScore) : "#6b7280";
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
@@ -198,14 +269,19 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
         ) : !hasData ? (
           <div className="h-64 flex flex-col items-center justify-center text-muted-foreground gap-2">
             <span className="text-4xl">📊</span>
-            <span className="text-sm">아직 연습 또는 시험 기록이 없습니다.</span>
+            <span className="text-sm">
+              아직 연습 또는 시험 기록이 없습니다.
+            </span>
           </div>
         ) : (
           <>
             {/* 범례 */}
             <div className="flex items-center gap-4 text-sm text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
+                <span
+                  className="inline-block w-3 h-0.5 rounded"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                />
                 안정도 흐름
               </span>
               <span className="flex items-center gap-1.5">
@@ -220,7 +296,9 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
                 <span className="inline-block w-3 h-3 rounded-full bg-gray-400" />
                 연습 (호버 시만)
               </span>
-              <span className="ml-auto text-xs text-muted-foreground">과목 내 문제 평균</span>
+              <span className="ml-auto text-xs text-muted-foreground">
+                과목 내 문제 평균
+              </span>
             </div>
 
             <div className="h-[58vh] min-h-[460px] max-h-[760px] w-full mt-2 overflow-hidden">
@@ -230,11 +308,30 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
                   margin={{ top: 14, right: 76, left: 18, bottom: 12 }}
                 >
                   {/* 상태 구간 배경 영역 */}
-                  <ReferenceArea y1={0} y2={40} fill="#ef4444" fillOpacity={0.06} />
-                  <ReferenceArea y1={40} y2={80} fill="#f59e0b" fillOpacity={0.06} />
-                  <ReferenceArea y1={80} y2={100} fill="#22c55e" fillOpacity={0.06} />
+                  <ReferenceArea
+                    y1={0}
+                    y2={40}
+                    fill="#ef4444"
+                    fillOpacity={0.06}
+                  />
+                  <ReferenceArea
+                    y1={40}
+                    y2={80}
+                    fill="#f59e0b"
+                    fillOpacity={0.06}
+                  />
+                  <ReferenceArea
+                    y1={80}
+                    y2={100}
+                    fill="#22c55e"
+                    fillOpacity={0.06}
+                  />
 
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="hsl(var(--border))"
+                    opacity={0.4}
+                  />
                   <XAxis
                     type="number"
                     dataKey="xTs"
@@ -243,15 +340,23 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
                     tickCount={8}
                     interval="preserveStartEnd"
                     minTickGap={24}
-                    tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                    tick={{
+                      fontSize: 12,
+                      fill: "hsl(var(--muted-foreground))",
+                    }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(value) => formatRelativeTick(Number(value), firstTs)}
+                    tickFormatter={value =>
+                      formatRelativeTick(Number(value), firstTs)
+                    }
                   />
                   <YAxis
                     domain={[0, 100]}
                     ticks={[0, 40, 80, 100]}
-                    tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                    tick={{
+                      fontSize: 12,
+                      fill: "hsl(var(--muted-foreground))",
+                    }}
                     tickLine={false}
                     axisLine={false}
                     width={48}
@@ -262,14 +367,28 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
                     stroke="#22c55e"
                     strokeDasharray="4 3"
                     strokeOpacity={0.4}
-                    label={{ value: "안정", position: "insideTopRight", fontSize: 12, fill: "#22c55e", fillOpacity: 0.75, dx: -14 }}
+                    label={{
+                      value: "안정",
+                      position: "insideTopRight",
+                      fontSize: 12,
+                      fill: "#22c55e",
+                      fillOpacity: 0.75,
+                      dx: -14,
+                    }}
                   />
                   <ReferenceLine
                     y={40}
                     stroke="#f59e0b"
                     strokeDasharray="4 3"
                     strokeOpacity={0.4}
-                    label={{ value: "위험", position: "insideBottomRight", fontSize: 12, fill: "#f59e0b", fillOpacity: 0.75, dx: -14 }}
+                    label={{
+                      value: "위험",
+                      position: "insideBottomRight",
+                      fontSize: 12,
+                      fill: "#f59e0b",
+                      fillOpacity: 0.75,
+                      dx: -14,
+                    }}
                   />
 
                   <Tooltip
@@ -296,12 +415,26 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
             {/* 요약 통계 */}
             <div className="grid grid-cols-3 gap-3 mt-1">
               {[
-                { label: "연습 이벤트", value: `${chartData.filter(p => p.eventType === "practice").length}회` },
-                { label: "시험 이벤트", value: `${chartData.filter(p => p.eventType === "test").length}회` },
-                { label: "최고 안정도", value: `${Math.max(...chartData.map(p => p.score))}점` },
+                {
+                  label: "연습 이벤트",
+                  value: `${chartData.filter(p => p.eventType === "practice").length}회`,
+                },
+                {
+                  label: "시험 이벤트",
+                  value: `${chartData.filter(p => p.eventType === "test").length}회`,
+                },
+                {
+                  label: "최고 안정도",
+                  value: `${Math.max(...chartData.map(p => p.score))}점`,
+                },
               ].map(stat => (
-                <div key={stat.label} className="bg-muted/40 rounded-lg p-3 text-center">
-                  <div className="text-xs text-muted-foreground mb-1">{stat.label}</div>
+                <div
+                  key={stat.label}
+                  className="bg-muted/40 rounded-lg p-3 text-center"
+                >
+                  <div className="text-xs text-muted-foreground mb-1">
+                    {stat.label}
+                  </div>
                   <div className="text-lg font-bold">{stat.value}</div>
                 </div>
               ))}

@@ -23,11 +23,22 @@ const connection = await mysql.createConnection(DATABASE_URL);
 const db = drizzle(connection);
 
 // 테스트 과목 이름 목록
-const TEST_SUBJECT_NAMES = ["역사", "과학", "영어", "수학", "테스트 과목", "[TEST] 역사", "[TEST] 과학", "[TEST] 영어", "[TEST] 수학", "[TEST] 테스트 과목"];
+const TEST_SUBJECT_NAMES = [
+  "역사",
+  "과학",
+  "영어",
+  "수학",
+  "테스트 과목",
+  "[TEST] 역사",
+  "[TEST] 과학",
+  "[TEST] 영어",
+  "[TEST] 수학",
+  "[TEST] 테스트 과목",
+];
 
 // userId=1인 과목 중 테스트 과목 이름과 일치하는 것 조회
 const [rows] = await connection.execute(
-  `SELECT id, name, userId FROM subjects WHERE name IN (${TEST_SUBJECT_NAMES.map(() => '?').join(',')}) AND userId = 1`,
+  `SELECT id, name, userId FROM subjects WHERE name IN (${TEST_SUBJECT_NAMES.map(() => "?").join(",")}) AND userId = 1`,
   TEST_SUBJECT_NAMES
 );
 
@@ -44,7 +55,7 @@ console.log("Subject IDs to delete:", subjectIds);
 
 // 관련 문제 조회
 const [questionRows] = await connection.execute(
-  `SELECT id FROM questions WHERE subjectId IN (${subjectIds.map(() => '?').join(',')})`,
+  `SELECT id FROM questions WHERE subjectId IN (${subjectIds.map(() => "?").join(",")})`,
   subjectIds
 );
 const questionIds = questionRows.map(r => r.id);
@@ -53,28 +64,28 @@ console.log("Question IDs to delete:", questionIds);
 if (questionIds.length > 0) {
   // 연습 세션 삭제
   const [psDel] = await connection.execute(
-    `DELETE FROM practiceSessions WHERE questionId IN (${questionIds.map(() => '?').join(',')})`,
+    `DELETE FROM practiceSessions WHERE questionId IN (${questionIds.map(() => "?").join(",")})`,
     questionIds
   );
   console.log("Deleted practice sessions:", psDel.affectedRows);
 
   // 시험 세션 삭제
   const [tsDel] = await connection.execute(
-    `DELETE FROM testSessions WHERE questionId IN (${questionIds.map(() => '?').join(',')})`,
+    `DELETE FROM testSessions WHERE questionId IN (${questionIds.map(() => "?").join(",")})`,
     questionIds
   );
   console.log("Deleted test sessions:", tsDel.affectedRows);
 
   // 복습 스케줄 삭제
   const [rsDel] = await connection.execute(
-    `DELETE FROM reviewSchedules WHERE questionId IN (${questionIds.map(() => '?').join(',')})`,
+    `DELETE FROM reviewSchedules WHERE questionId IN (${questionIds.map(() => "?").join(",")})`,
     questionIds
   );
   console.log("Deleted review schedules:", rsDel.affectedRows);
 
   // 문제 삭제
   const [qDel] = await connection.execute(
-    `DELETE FROM questions WHERE id IN (${questionIds.map(() => '?').join(',')})`,
+    `DELETE FROM questions WHERE id IN (${questionIds.map(() => "?").join(",")})`,
     questionIds
   );
   console.log("Deleted questions:", qDel.affectedRows);
@@ -82,7 +93,7 @@ if (questionIds.length > 0) {
 
 // 과목 삭제
 const [sDel] = await connection.execute(
-  `DELETE FROM subjects WHERE id IN (${subjectIds.map(() => '?').join(',')})`,
+  `DELETE FROM subjects WHERE id IN (${subjectIds.map(() => "?").join(",")})`,
   subjectIds
 );
 console.log("Deleted subjects:", sDel.affectedRows);

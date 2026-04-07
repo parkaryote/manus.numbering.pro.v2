@@ -9,14 +9,21 @@ type OAuthRequestLike = {
 
 type OAuthResponseLike = {
   status: (code: number) => { json: (payload: unknown) => void };
-  cookie: (name: string, value: string, options?: Record<string, unknown>) => void;
+  cookie: (
+    name: string,
+    value: string,
+    options?: Record<string, unknown>
+  ) => void;
   redirect: (status: number, path: string) => void;
 };
 
 type OAuthAppLike = {
   get: (
     path: string,
-    handler: (req: OAuthRequestLike, res: OAuthResponseLike) => Promise<void> | void
+    handler: (
+      req: OAuthRequestLike,
+      res: OAuthResponseLike
+    ) => Promise<void> | void
   ) => void;
 };
 
@@ -26,7 +33,10 @@ function getQueryParam(req: OAuthRequestLike, key: string): string | undefined {
 }
 
 export function registerOAuthRoutes(app: OAuthAppLike) {
-  const handleOAuthCallback = async (req: OAuthRequestLike, res: OAuthResponseLike) => {
+  const handleOAuthCallback = async (
+    req: OAuthRequestLike,
+    res: OAuthResponseLike
+  ) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
 
@@ -58,7 +68,10 @@ export function registerOAuthRoutes(app: OAuthAppLike) {
       });
 
       const cookieOptions = getSessionCookieOptions(req as any);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.cookie(COOKIE_NAME, sessionToken, {
+        ...cookieOptions,
+        maxAge: ONE_YEAR_MS,
+      });
 
       res.redirect(302, "/");
     } catch (error) {
