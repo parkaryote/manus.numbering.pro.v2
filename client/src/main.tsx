@@ -8,17 +8,6 @@ import App from "./App";
 import { getLoginUrl } from "./const";
 import "./index.css";
 
-// Initialize GA4 if measurement ID is available
-if (typeof window !== 'undefined' && window.gtag) {
-  const measurementId = import.meta.env.VITE_GA4_MEASUREMENT_ID as string;
-  if (measurementId) {
-    window.gtag('config', measurementId, {
-      'anonymize_ip': true,
-      'allow_google_signals': false
-    });
-  }
-}
-
 // Declare gtag for TypeScript
 declare global {
   interface Window {
@@ -26,6 +15,47 @@ declare global {
     dataLayer?: any[];
   }
 }
+
+const GA4_MEASUREMENT_ID = (import.meta.env.VITE_GA4_MEASUREMENT_ID as string | undefined)?.trim() ?? "";
+const UMAMI_ENDPOINT = (import.meta.env.VITE_ANALYTICS_ENDPOINT as string | undefined)?.trim() ?? "";
+const UMAMI_WEBSITE_ID = (import.meta.env.VITE_ANALYTICS_WEBSITE_ID as string | undefined)?.trim() ?? "";
+
+function initAnalytics() {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+
+  if (UMAMI_ENDPOINT && UMAMI_WEBSITE_ID) {
+    const umamiScript = document.createElement("script");
+    umamiScript.defer = true;
+    umamiScript.src = `${UMAMI_ENDPOINT.replace(/\/+$/, "")}/umami`;
+    umamiScript.setAttribute("data-website-id", UMAMI_WEBSITE_ID);
+    document.head.appendChild(umamiScript);
+  }
+
+  if (!GA4_MEASUREMENT_ID) {
+    return;
+  }
+
+  const gaScript = document.createElement("script");
+  gaScript.async = true;
+  gaScript.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(
+    GA4_MEASUREMENT_ID
+  )}`;
+  document.head.appendChild(gaScript);
+
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = (...args: any[]) => {
+    window.dataLayer!.push(args);
+  };
+  window.gtag("js", new Date());
+  window.gtag("config", GA4_MEASUREMENT_ID, {
+    anonymize_ip: true,
+    allow_google_signals: false,
+  });
+}
+
+initAnalytics();
 
 const queryClient = new QueryClient();
 const GUEST_ID_KEY = "numbering_guest_id";
@@ -65,10 +95,10 @@ queryClient.getMutationCache().subscribe(event => {
 });
 
 // Track page views with GA4
-if (typeof window !== 'undefined' && window.gtag) {
-  window.gtag('event', 'page_view', {
-    'page_path': window.location.pathname,
-    'page_title': document.title
+if (typeof window !== "undefined" && window.gtag) {
+  window.gtag("event", "page_view", {
+    page_path: window.location.pathname,
+    page_title: document.title,
   });
 }
 
