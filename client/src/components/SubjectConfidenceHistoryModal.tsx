@@ -129,7 +129,7 @@ const CustomTooltip = ({ active, payload }: any) => {
             시험: {isSuccess ? "성공" : "실패"}
           </span>
         </div>
-        <div className="text-xs text-muted-foreground">안정도 {d.score}%</div>
+        <div className="text-xs text-muted-foreground">안정도 {d.score}점</div>
         {d.questionCount && (
           <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
         )}
@@ -142,7 +142,7 @@ const CustomTooltip = ({ active, payload }: any) => {
       <div className="text-muted-foreground text-xs mb-1">현재</div>
       <div className="flex items-center gap-2">
         <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: BRAND_COLOR }} />
-        <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>안정도 {d.score}%</span>
+        <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>안정도 {d.score}점</span>
       </div>
       {d.questionCount && (
         <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
@@ -175,7 +175,7 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="max-w-2xl w-full">
+      <DialogContent className="w-[calc(100vw-28px)] max-w-[1240px] sm:max-w-[1240px] max-h-[94vh] overflow-visible !p-4 sm:!p-5">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <span className="text-base font-semibold truncate max-w-[320px]">
@@ -204,7 +204,7 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
         ) : (
           <>
             {/* 범례 */}
-            <div className="flex items-center gap-4 text-xs text-muted-foreground px-1 flex-wrap">
+            <div className="flex items-center gap-4 text-sm text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
                 안정도 흐름
@@ -224,11 +224,11 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
               <span className="ml-auto text-xs text-muted-foreground">과목 내 문제 평균</span>
             </div>
 
-            <div className="h-64 w-full mt-2">
+            <div className="h-[58vh] min-h-[460px] max-h-[760px] w-full mt-2 overflow-hidden">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart
                   data={chartData}
-                  margin={{ top: 10, right: 20, left: -10, bottom: 0 }}
+                  margin={{ top: 14, right: 76, left: 18, bottom: 12 }}
                 >
                   {/* 상태 구간 배경 영역 */}
                   <ReferenceArea y1={0} y2={40} fill="#ef4444" fillOpacity={0.06} />
@@ -238,18 +238,19 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
                   <XAxis
                     dataKey="label"
-                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
                     interval="preserveStartEnd"
+                    minTickGap={24}
                   />
                   <YAxis
                     domain={[0, 100]}
                     ticks={[0, 40, 80, 100]}
-                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
-                    width={32}
+                    width={48}
                   />
 
                   <ReferenceLine
@@ -257,17 +258,21 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
                     stroke="#22c55e"
                     strokeDasharray="4 3"
                     strokeOpacity={0.4}
-                    label={{ value: "안정", position: "right", fontSize: 10, fill: "#22c55e", fillOpacity: 0.7 }}
+                    label={{ value: "안정", position: "insideTopRight", fontSize: 12, fill: "#22c55e", fillOpacity: 0.75, dx: -14 }}
                   />
                   <ReferenceLine
                     y={40}
                     stroke="#f59e0b"
                     strokeDasharray="4 3"
                     strokeOpacity={0.4}
-                    label={{ value: "위험", position: "right", fontSize: 10, fill: "#f59e0b", fillOpacity: 0.7 }}
+                    label={{ value: "위험", position: "insideBottomRight", fontSize: 12, fill: "#f59e0b", fillOpacity: 0.75, dx: -14 }}
                   />
 
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip
+                    content={<CustomTooltip />}
+                    wrapperStyle={{ zIndex: 90 }}
+                    allowEscapeViewBox={{ x: true, y: true }}
+                  />
 
                   {/* 그래프 선: 단일 브랜드 컬러 */}
                   <Line

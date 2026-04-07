@@ -36,6 +36,7 @@ export type InsertUser = typeof users.$inferInsert;
 export const subjects = mysqlTable("subjects", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
+  demoSourceSubjectId: int("demoSourceSubjectId"), // 원본 데모 과목 ID (개인 복사본 동기화용)
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   color: varchar("color", { length: 7 }).default("#3B82F6"),
@@ -56,6 +57,7 @@ export const questions = mysqlTable("questions", {
   id: int("id").autoincrement().primaryKey(),
   subjectId: int("subjectId").notNull(),
   userId: int("userId").notNull(),
+  demoSourceQuestionId: int("demoSourceQuestionId"), // 원본 데모 문제 ID (개인 복사본 동기화용)
   question: text("question").notNull(),
   answer: text("answer").notNull(),
   imageUrl: text("imageUrl"), // Optional image attachment

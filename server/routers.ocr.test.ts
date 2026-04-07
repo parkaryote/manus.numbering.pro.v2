@@ -7,6 +7,8 @@ import { inArray } from "drizzle-orm";
 
 // 테스트에서 생성된 OCR job ID 추적 - 테스트 후 정리용
 const createdJobIds: number[] = [];
+const hasDatabase = Boolean(process.env.DATABASE_URL);
+const describeIfDb = hasDatabase ? describe : describe.skip;
 
 async function createTestOcrJob(overrides: Partial<Parameters<typeof db.createOcrJob>[0]> = {}) {
   const job = await db.createOcrJob({
@@ -35,7 +37,7 @@ describe("OCR Router - Integration Tests", () => {
     }
   });
 
-  describe("Database Operations", () => {
+  describeIfDb("Database Operations", () => {
     it("should create OCR job record", async () => {
       const job = await createTestOcrJob();
 
@@ -109,7 +111,7 @@ describe("OCR Router - Integration Tests", () => {
     });
   });
 
-  describe("Job Status Workflow", () => {
+  describeIfDb("Job Status Workflow", () => {
     it("should track job lifecycle: pending -> processing -> completed", async () => {
       const job = await createTestOcrJob({ status: "pending", operationName: "op123" });
 

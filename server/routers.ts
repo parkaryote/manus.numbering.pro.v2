@@ -7,6 +7,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
+import { ENV } from "./_core/env";
 import { invokeLLM } from "./_core/llm";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { storagePut } from "./storage";
@@ -50,76 +51,726 @@ function calcCharSimilarity(userText: string, correctText: string): number {
   return Math.round((lcsLen / Math.max(m, n)) * 100);
 }
 
-// 데모 과목·문제를 사용자 계정으로 복사하는 헬퍼 함수
-async function copyDemoDataToUser(userId: number) {
-  const demoSubjects = await db.getDemoSubjects();
-  const now = new Date();
-  for (const demoSubject of demoSubjects) {
-    // 사용자 계정에 과목 생성
-    const newSubject = await db.createSubject({
-      userId,
-      name: demoSubject.name,
-      description: demoSubject.description ?? undefined,
-      color: demoSubject.color ?? "#3B82F6",
-      isDemo: 0,
-      displayOrder: demoSubject.displayOrder,
+function parseExamEndDateInput(raw: string): Date {
+  const value = raw.trim();
+
+  // 날짜만 입력하면 해당 날짜의 마지막 시각으로 해석해 D-0에서 예측이 사라지지 않게 함
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [y, m, d] = value.split("-").map(Number);
+    return new Date(y, (m || 1) - 1, d || 1, 23, 59, 59, 999);
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "유효한 시험일시 형식이 아닙니다. (예: 2026-04-08T14:30)",
     });
-    // 해당 과목의 데모 문제 복사
-    const demoQuestions = await db.getDemoQuestions(demoSubject.id);
-    for (let qi = 0; qi < demoQuestions.length; qi++) {
-      const dq = demoQuestions[qi];
-      const newQuestion = await db.createQuestion({
-        subjectId: newSubject.id,
-        userId,
-        question: dq.question,
-        answer: dq.answer,
-        difficulty: dq.difficulty ?? "medium",
-        imageUrl: dq.imageUrl ?? undefined,
-        imageLabels: dq.imageLabels ?? undefined,
-        autoNumbering: dq.autoNumbering,
-        tableData: dq.tableData ?? undefined,
-        displayOrder: dq.displayOrder,
-        isDemo: 0,
-        isStarred: 0,
-      });
-      // 예시 안정도 데이터: 앞 문제일수록 더 많이 연습한 realistic 분포
-      const practiceCount = Math.max(0, 5 - Math.floor(qi / 2));
-      const testCount = Math.max(0, 3 - Math.floor(qi / 3));
-      for (let j = 0; j < practiceCount; j++) {
-        const daysAgo = Math.floor(Math.random() * 21) + 1;
-        const sessionDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
-        await db.createPracticeSession({
-          userId,
-          questionId: newQuestion.id,
-          duration: 30 + Math.floor(Math.random() * 60),
-          typingSpeed: 200 + Math.floor(Math.random() * 150),
-          accuracy: 75 + Math.floor(Math.random() * 25),
-          errorCount: Math.floor(Math.random() * 4),
-          completedAt: sessionDate,
-        });
+  }
+  return parsed;
+}
+
+function makeQuestionSignature(q: {
+  displayOrder?: number | null;
+  question?: string | null;
+  answer?: string | null;
+  imageUrl?: string | null;
+  imageLabels?: string | null;
+  tableData?: string | null;
+}) {
+  return [
+    q.displayOrder ?? 0,
+    q.question ?? "",
+    q.answer ?? "",
+    q.imageUrl ?? "",
+    q.imageLabels ?? "",
+    q.tableData ?? "",
+  ].join("||");
+}
+
+function getNormalizedCharLength(text: string | null | undefined): number {
+  if (!text) return 0;
+  return Array.from(text.replace(/\s+/g, "")).length;
+}
+
+function buildInitialConfidenceEstimate(question: {
+  answer?: string | null;
+  difficulty?: "easy" | "medium" | "hard" | null;
+  tableData?: string | null;
+}) {
+  const answer = question.answer ?? "";
+  const answerLength = getNormalizedCharLength(answer);
+  const lineCount = Math.max(
+    1,
+    answer.split("\n").filter((line) => line.trim().length > 0).length || (answer.trim().length > 0 ? 1 : 0)
+  );
+
+  let hasTable = false;
+  let blankCount = 0;
+  let tableBlankChars = 0;
+
+  if (question.tableData) {
+    hasTable = true;
+    try {
+      const parsed = JSON.parse(question.tableData) as { cells?: Array<Array<{ isBlank?: boolean; isMerged?: boolean; content?: string }>> };
+      const rows = Array.isArray(parsed?.cells) ? parsed.cells : [];
+      for (const row of rows) {
+        if (!Array.isArray(row)) continue;
+        for (const cell of row) {
+          if (!cell?.isBlank || cell?.isMerged) continue;
+          blankCount += 1;
+          tableBlankChars += getNormalizedCharLength(cell.content ?? "");
+        }
       }
-      for (let j = 0; j < testCount; j++) {
-        const daysAgo = Math.floor(Math.random() * 14) + 1;
-        const sessionDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
-        const isCorrect = Math.random() > 0.3 ? 1 : 0;
-        await db.createTestSession({
-          userId,
-          questionId: newQuestion.id,
-          userAnswer: isCorrect ? (dq.answer || "") : "(오답)",
-          isCorrect,
-          similarityScore: isCorrect ? 75 + Math.floor(Math.random() * 25) : 20 + Math.floor(Math.random() * 30),
-          recallTime: 3 + Math.floor(Math.random() * 10),
-          completedAt: sessionDate,
-        });
+    } catch {
+      // ignore malformed table data
+    }
+  }
+
+  return {
+    answerLength: Math.max(1, Math.max(answerLength, tableBlankChars)),
+    lineCount,
+    blankCount,
+    difficulty: question.difficulty ?? "medium",
+    hasTable,
+  };
+}
+
+function extractWarnZoneLinesFromTests(
+  tests: Array<{ mistakeHighlights?: string | null }>
+): Array<{ lineIndex: number; wrongCount: number }> {
+  const lineWrongCount: Record<number, number> = {};
+
+  for (const t of tests) {
+    if (!t.mistakeHighlights) continue;
+    try {
+      const highlights = JSON.parse(t.mistakeHighlights as string);
+      if (!Array.isArray(highlights)) continue;
+      for (const h of highlights) {
+        if (h?.isCorrect !== false) continue;
+        const rawIdx = h.lineIndex ?? h.labelIndex ?? 1;
+        const idx = Number(rawIdx);
+        if (!Number.isFinite(idx) || idx < 1) continue;
+        lineWrongCount[idx] = (lineWrongCount[idx] || 0) + 1;
+      }
+    } catch {
+      // ignore malformed highlights
+    }
+  }
+
+  return Object.entries(lineWrongCount)
+    .filter(([, cnt]) => cnt >= 2)
+    .map(([idx, cnt]) => ({ lineIndex: Number(idx), wrongCount: cnt }))
+    .sort((a, b) => b.wrongCount - a.wrongCount);
+}
+
+const TOOTH_MORPHOLOGY_SUBJECT_NAME = "치아형태학";
+const TOOTH_MORPHOLOGY_FIXED_EXAM_DATE = new Date("2026-04-08T07:30:00+09:00");
+
+function toDateOrNull(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const parsed = new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getStarterExamDateForSubject(demoSubject: { name: string; examEndDate?: Date | string | null }): Date | null {
+  if (demoSubject.name === TOOTH_MORPHOLOGY_SUBJECT_NAME) {
+    return new Date(TOOTH_MORPHOLOGY_FIXED_EXAM_DATE);
+  }
+  return toDateOrNull(demoSubject.examEndDate ?? null);
+}
+
+async function syncDemoQuestionsToSubject(
+  userId: number,
+  userSubjectId: number,
+  demoQuestions: Array<{
+    id: number;
+    question: string;
+    answer: string;
+    difficulty: "easy" | "medium" | "hard" | null;
+    imageUrl: string | null;
+    imageLabels: string | null;
+    autoNumbering: number;
+    tableData: string | null;
+    displayOrder: number;
+    isStarred: number;
+    useAIGrading: number;
+  }>
+) {
+  const userQuestions = await db.getQuestionsBySubjectId(userSubjectId);
+  const linkedQuestionsBySourceId = new Map(
+    userQuestions
+      .filter((q) => typeof q.demoSourceQuestionId === "number" && q.demoSourceQuestionId > 0)
+      .map((q) => [q.demoSourceQuestionId as number, q] as const)
+  );
+  const unlinkedQuestions = userQuestions.filter(
+    (q) => !(typeof q.demoSourceQuestionId === "number" && q.demoSourceQuestionId > 0)
+  );
+  const consumedUnlinkedQuestionIds = new Set<number>();
+  const unlinkedByDisplayOrder = new Map<number, typeof unlinkedQuestions>();
+  for (const q of unlinkedQuestions) {
+    const arr = unlinkedByDisplayOrder.get(q.displayOrder) ?? [];
+    arr.push(q);
+    unlinkedByDisplayOrder.set(q.displayOrder, arr);
+  }
+
+  const hasLearningHistory = async (questionId: number): Promise<boolean> => {
+    const [practiceSessions, testSessions] = await Promise.all([
+      db.getPracticeSessionsByQuestionId(questionId),
+      db.getTestSessionsByQuestionId(questionId),
+    ]);
+    return practiceSessions.length > 0 || testSessions.length > 0;
+  };
+
+  for (const dq of demoQuestions) {
+    let targetQuestion = linkedQuestionsBySourceId.get(dq.id);
+
+    if (!targetQuestion) {
+      const signature = makeQuestionSignature(dq);
+      const signatureMatchedQuestion = unlinkedQuestions.find(
+        (q) => !consumedUnlinkedQuestionIds.has(q.id) && makeQuestionSignature(q) === signature
+      );
+      if (signatureMatchedQuestion) {
+        targetQuestion = signatureMatchedQuestion;
+        consumedUnlinkedQuestionIds.add(signatureMatchedQuestion.id);
       }
     }
+
+    // 기존 사용자 데이터가 소스 ID 없이 남아있는 경우를 위해,
+    // displayOrder가 유일하면 동일 문제로 간주하여 링크 복구한다.
+    if (!targetQuestion) {
+      const candidates = (unlinkedByDisplayOrder.get(dq.displayOrder) ?? []).filter(
+        (q) => !consumedUnlinkedQuestionIds.has(q.id)
+      );
+      if (candidates.length === 1) {
+        targetQuestion = candidates[0];
+        consumedUnlinkedQuestionIds.add(candidates[0].id);
+      }
+    }
+
+    const syncedData = {
+      question: dq.question,
+      answer: dq.answer,
+      difficulty: dq.difficulty ?? "medium",
+      imageUrl: dq.imageUrl ?? null,
+      imageLabels: dq.imageLabels ?? null,
+      autoNumbering: dq.autoNumbering,
+      tableData: dq.tableData ?? null,
+      displayOrder: dq.displayOrder,
+      isDemo: 0,
+      isStarred: dq.isStarred ?? 0,
+      useAIGrading: dq.useAIGrading ?? 0,
+      demoSourceQuestionId: dq.id,
+    } as const;
+
+    if (!targetQuestion) {
+      await db.createQuestion({
+        subjectId: userSubjectId,
+        userId,
+        ...syncedData,
+      });
+      continue;
+    }
+
+    await db.updateQuestion(targetQuestion.id, syncedData);
+  }
+
+  const activeDemoQuestionIds = new Set(demoQuestions.map((q) => q.id));
+  for (const question of userQuestions) {
+    if (!(typeof question.demoSourceQuestionId === "number" && question.demoSourceQuestionId > 0)) continue;
+    if (activeDemoQuestionIds.has(question.demoSourceQuestionId)) continue;
+
+    const hasMemo = Boolean(question.memo && question.memo.trim().length > 0);
+    const hasHistory = await hasLearningHistory(question.id);
+    if (hasMemo || hasHistory) {
+      await db.updateQuestion(question.id, { demoSourceQuestionId: null });
+      continue;
+    }
+
+    await db.deleteQuestion(question.id);
+  }
+}
+
+async function cleanupStaleDemoLinkedSubjects(userId: number, activeDemoSubjectIds: Set<number>) {
+  const userSubjects = await db.getSubjectsByUserId(userId);
+  for (const subject of userSubjects) {
+    if (!(typeof subject.demoSourceSubjectId === "number" && subject.demoSourceSubjectId > 0)) continue;
+    if (activeDemoSubjectIds.has(subject.demoSourceSubjectId)) continue;
+
+    const subjectQuestions = await db.getQuestionsBySubjectId(subject.id);
+
+    for (const question of subjectQuestions) {
+      if (!(typeof question.demoSourceQuestionId === "number" && question.demoSourceQuestionId > 0)) continue;
+
+      const hasMemo = Boolean(question.memo && question.memo.trim().length > 0);
+      const [practiceSessions, testSessions] = await Promise.all([
+        db.getPracticeSessionsByQuestionId(question.id),
+        db.getTestSessionsByQuestionId(question.id),
+      ]);
+      const hasHistory = practiceSessions.length > 0 || testSessions.length > 0;
+
+      if (hasMemo || hasHistory) {
+        await db.updateQuestion(question.id, { demoSourceQuestionId: null });
+        continue;
+      }
+
+      await db.deleteQuestion(question.id);
+    }
+
+    const remainingQuestions = await db.getQuestionsBySubjectId(subject.id);
+    if (remainingQuestions.length === 0) {
+      await db.deleteSubject(subject.id);
+      continue;
+    }
+
+    await db.updateSubject(subject.id, { demoSourceSubjectId: null });
+  }
+}
+
+async function ensureStarterDataForUser(userId: number) {
+  const demoSubjects = await db.getDemoSubjects();
+  const activeDemoSubjectIds = new Set(demoSubjects.map((subject) => subject.id));
+  if (demoSubjects.length === 0) {
+    await cleanupStaleDemoLinkedSubjects(userId, activeDemoSubjectIds);
+    console.warn("[StarterData] No demo subjects configured. Skipping starter copy.");
+    return;
+  }
+
+  const userSubjects = await db.getSubjectsByUserId(userId);
+  const userSubjectByName = new Map(userSubjects.map((s) => [s.name, s] as const));
+  const userSubjectByDemoSourceId = new Map(
+    userSubjects
+      .filter((s) => typeof s.demoSourceSubjectId === "number" && s.demoSourceSubjectId > 0)
+      .map((s) => [s.demoSourceSubjectId as number, s] as const)
+  );
+
+  for (const demoSubject of demoSubjects) {
+    const demoQuestions = await db.getDemoQuestions(demoSubject.id);
+    if (demoQuestions.length === 0) continue;
+
+    const starterExamDate = getStarterExamDateForSubject(demoSubject);
+    let targetSubject =
+      userSubjectByDemoSourceId.get(demoSubject.id) ??
+      userSubjectByName.get(demoSubject.name);
+
+    if (!targetSubject) {
+      targetSubject = await db.createSubject({
+        userId,
+        demoSourceSubjectId: demoSubject.id,
+        name: demoSubject.name,
+        description: demoSubject.description ?? undefined,
+        color: demoSubject.color ?? "#3B82F6",
+        isDemo: 0,
+        displayOrder: demoSubject.displayOrder,
+        examEndDate: starterExamDate ?? undefined,
+      });
+    } else {
+      await db.updateSubject(targetSubject.id, {
+        demoSourceSubjectId: demoSubject.id,
+        name: demoSubject.name,
+        description: demoSubject.description ?? null,
+        color: demoSubject.color ?? "#3B82F6",
+        displayOrder: demoSubject.displayOrder,
+        examEndDate: starterExamDate ?? null,
+        isDemo: 0,
+      });
+
+      const refreshed = await db.getSubjectById(targetSubject.id);
+      if (refreshed) {
+        targetSubject = refreshed;
+      }
+    }
+
+    await syncDemoQuestionsToSubject(userId, targetSubject.id, demoQuestions);
+  }
+
+  await cleanupStaleDemoLinkedSubjects(userId, activeDemoSubjectIds);
+}
+
+async function syncStarterDataSafely(userId: number) {
+  try {
+    await ensureStarterDataForUser(userId);
+  } catch (error) {
+    console.error("[StarterData] Failed to sync demo starter data:", error);
+  }
+}
+
+function makePracticeSignature(s: {
+  questionId: number;
+  completedAt: Date;
+  duration: number;
+  typingSpeed: number;
+  accuracy: number;
+  errorCount: number;
+}) {
+  return [
+    s.questionId,
+    new Date(s.completedAt).toISOString(),
+    s.duration,
+    s.typingSpeed,
+    s.accuracy,
+    s.errorCount,
+  ].join("||");
+}
+
+function makeTestSignature(s: {
+  questionId: number;
+  completedAt: Date;
+  userAnswer: string;
+  isCorrect: number;
+  similarityScore: number | null;
+  recallTime: number;
+}) {
+  return [
+    s.questionId,
+    new Date(s.completedAt).toISOString(),
+    s.userAnswer,
+    s.isCorrect,
+    s.similarityScore ?? "",
+    s.recallTime,
+  ].join("||");
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function pearsonCorrelation(pairs: Array<{ x: number; y: number }>): number | null {
+  if (pairs.length < 3) return null;
+  const n = pairs.length;
+  const meanX = pairs.reduce((s, p) => s + p.x, 0) / n;
+  const meanY = pairs.reduce((s, p) => s + p.y, 0) / n;
+  let numerator = 0;
+  let denomX = 0;
+  let denomY = 0;
+  for (const p of pairs) {
+    const dx = p.x - meanX;
+    const dy = p.y - meanY;
+    numerator += dx * dy;
+    denomX += dx * dx;
+    denomY += dy * dy;
+  }
+  if (denomX <= 0 || denomY <= 0) return null;
+  return clampNumber(numerator / Math.sqrt(denomX * denomY), -1, 1);
+}
+
+function computeStd(values: number[]): number {
+  if (values.length <= 1) return 0;
+  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+function buildUserAdaptiveProfile(
+  allPractice: Array<{ questionId: number; completedAt: Date | string }>,
+  allTests: Array<{ questionId: number; completedAt: Date | string; isCorrect: number; similarityScore: number | null }>
+) {
+  if (allPractice.length === 0 && allTests.length === 0) {
+    return {
+      practiceEffectiveness: 1,
+      testReliability: 1,
+      recoveryPower: 1,
+      pacingDiscipline: 1,
+    };
+  }
+
+  // 1) 연습 효과성: 연습량이 높은 문제일수록 최근 시험 품질이 높았는지
+  const practiceCountByQuestion = new Map<number, number>();
+  for (const p of allPractice) {
+    practiceCountByQuestion.set(p.questionId, (practiceCountByQuestion.get(p.questionId) ?? 0) + 1);
+  }
+
+  const latestTestByQuestion = new Map<number, { at: number; similarity: number }>();
+  for (const t of allTests) {
+    const at = new Date(t.completedAt).getTime();
+    const prev = latestTestByQuestion.get(t.questionId);
+    if (!prev || at > prev.at) {
+      latestTestByQuestion.set(t.questionId, {
+        at,
+        similarity: clampNumber(Math.round(t.similarityScore ?? 0), 0, 100),
+      });
+    }
+  }
+
+  const transferPairs: Array<{ x: number; y: number }> = [];
+  for (const [questionId, latest] of Array.from(latestTestByQuestion.entries())) {
+    transferPairs.push({
+      x: practiceCountByQuestion.get(questionId) ?? 0,
+      y: latest.similarity,
+    });
+  }
+  const transferCorr = pearsonCorrelation(transferPairs);
+  const practiceEffectiveness = transferCorr === null
+    ? 1
+    : clampNumber(1 + transferCorr * 0.18, 0.8, 1.2);
+
+  // 2) 시험 신뢰도: 최근 시험 유사도의 변동성이 낮을수록 신뢰도 상승
+  const recentSims = [...allTests]
+    .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+    .slice(0, 80)
+    .map((t) => clampNumber(Math.round(t.similarityScore ?? 0), 0, 100));
+  const simStd = computeStd(recentSims);
+  const consistencyRaw = clampNumber(1.15 - simStd / 50, 0.85, 1.15);
+  const consistencyWeight = clampNumber(recentSims.length / 24, 0, 1);
+  const testReliability = 1 + (consistencyRaw - 1) * consistencyWeight;
+
+  // 3) 회복력: 오답 후 다음 시도에서 회복하는 비율
+  const testsByQuestion = new Map<number, Array<{ at: number; isCorrect: boolean; sim: number }>>();
+  for (const t of allTests) {
+    const arr = testsByQuestion.get(t.questionId) ?? [];
+    arr.push({
+      at: new Date(t.completedAt).getTime(),
+      isCorrect: t.isCorrect === 1,
+      sim: clampNumber(Math.round(t.similarityScore ?? 0), 0, 100),
+    });
+    testsByQuestion.set(t.questionId, arr);
+  }
+
+  let recoveryTrials = 0;
+  let recoverySuccess = 0;
+  for (const arr of Array.from(testsByQuestion.values())) {
+    arr.sort((a, b) => a.at - b.at);
+    for (let i = 0; i < arr.length - 1; i++) {
+      const cur = arr[i];
+      const next = arr[i + 1];
+      if (cur.isCorrect) continue;
+      const gapHours = (next.at - cur.at) / (1000 * 60 * 60);
+      if (gapHours > 72) continue;
+      recoveryTrials += 1;
+      if (next.isCorrect || next.sim >= cur.sim + 12) recoverySuccess += 1;
+    }
+  }
+  const recoveryRate = recoveryTrials > 0 ? recoverySuccess / recoveryTrials : 0.5;
+  const recoveryWeight = clampNumber(recoveryTrials / 12, 0, 1);
+  const recoveryPower = 1 + (recoveryRate - 0.5) * 0.3 * recoveryWeight;
+
+  // 4) 페이싱: 세션 간격이 너무 촘촘/너무 긴 경우 감점
+  const allSessionTimes = [
+    ...allPractice.map((p) => new Date(p.completedAt).getTime()),
+    ...allTests.map((t) => new Date(t.completedAt).getTime()),
+  ].sort((a, b) => a - b);
+  const gapsHours: number[] = [];
+  for (let i = 1; i < allSessionTimes.length; i++) {
+    gapsHours.push((allSessionTimes[i] - allSessionTimes[i - 1]) / (1000 * 60 * 60));
+  }
+  const medianGap = gapsHours.length === 0
+    ? Number.NaN
+    : gapsHours[Math.floor(gapsHours.length / 2)];
+  let pacingBase = 1;
+  if (Number.isFinite(medianGap)) {
+    if (medianGap < 0.2) pacingBase = 0.9;
+    else if (medianGap < 1) pacingBase = 0.97;
+    else if (medianGap < 12) pacingBase = 1.12;
+    else if (medianGap < 24) pacingBase = 1.03;
+    else if (medianGap < 48) pacingBase = 0.95;
+    else pacingBase = 0.88;
+  }
+  const pacingWeight = clampNumber(gapsHours.length / 20, 0, 1);
+  const pacingDiscipline = 1 + (pacingBase - 1) * pacingWeight;
+
+  return {
+    practiceEffectiveness: clampNumber(practiceEffectiveness, 0.8, 1.2),
+    testReliability: clampNumber(testReliability, 0.85, 1.15),
+    recoveryPower: clampNumber(recoveryPower, 0.85, 1.15),
+    pacingDiscipline: clampNumber(pacingDiscipline, 0.85, 1.15),
+  };
+}
+
+async function mergeGuestDataToUser(sourceUserId: number, targetUserId: number) {
+  if (sourceUserId === targetUserId) return;
+
+  const sourceSubjects = await db.getSubjectsByUserId(sourceUserId);
+  if (sourceSubjects.length === 0) return;
+
+  const targetSubjects = await db.getSubjectsByUserId(targetUserId);
+  const targetSubjectByName = new Map<string, (typeof targetSubjects)[number]>();
+  for (const s of targetSubjects) {
+    if (!targetSubjectByName.has(s.name)) targetSubjectByName.set(s.name, s);
+  }
+
+  const questionIdMap = new Map<number, number>();
+
+  for (const sourceSubject of sourceSubjects) {
+    let targetSubject = targetSubjectByName.get(sourceSubject.name);
+    if (!targetSubject) {
+      targetSubject = await db.createSubject({
+        userId: targetUserId,
+        name: sourceSubject.name,
+        description: sourceSubject.description ?? undefined,
+        color: sourceSubject.color ?? "#3B82F6",
+        displayOrder: sourceSubject.displayOrder ?? 0,
+        isDemo: 0,
+        examEndDate: sourceSubject.examEndDate ?? undefined,
+      });
+      targetSubjectByName.set(targetSubject.name, targetSubject);
+    }
+
+    const sourceQuestions = await db.getQuestionsBySubjectId(sourceSubject.id);
+    const targetQuestions = await db.getQuestionsBySubjectId(targetSubject.id);
+    const targetQuestionBySignature = new Map(
+      targetQuestions.map((q) => [makeQuestionSignature(q), q] as const)
+    );
+
+    for (const sourceQuestion of sourceQuestions) {
+      const signature = makeQuestionSignature(sourceQuestion);
+      let targetQuestion = targetQuestionBySignature.get(signature);
+
+      if (!targetQuestion) {
+        targetQuestion = await db.createQuestion({
+          subjectId: targetSubject.id,
+          userId: targetUserId,
+          question: sourceQuestion.question,
+          answer: sourceQuestion.answer,
+          difficulty: sourceQuestion.difficulty ?? "medium",
+          imageUrl: sourceQuestion.imageUrl ?? undefined,
+          imageLabels: sourceQuestion.imageLabels ?? undefined,
+          autoNumbering: sourceQuestion.autoNumbering,
+          tableData: sourceQuestion.tableData ?? undefined,
+          displayOrder: sourceQuestion.displayOrder,
+          isDemo: 0,
+          isStarred: sourceQuestion.isStarred ?? 0,
+          useAIGrading: sourceQuestion.useAIGrading ?? 0,
+          memo: sourceQuestion.memo ?? undefined,
+        });
+        targetQuestionBySignature.set(signature, targetQuestion);
+      }
+
+      questionIdMap.set(sourceQuestion.id, targetQuestion.id);
+    }
+  }
+
+  const sourcePracticeSessions = await db.getPracticeSessionsByUserId(sourceUserId);
+  const targetPracticeSessions = await db.getPracticeSessionsByUserId(targetUserId);
+  const targetPracticeSignatures = new Set(
+    targetPracticeSessions.map((s) => makePracticeSignature({
+      questionId: s.questionId,
+      completedAt: new Date(s.completedAt),
+      duration: s.duration,
+      typingSpeed: s.typingSpeed,
+      accuracy: s.accuracy,
+      errorCount: s.errorCount,
+    }))
+  );
+
+  for (const session of sourcePracticeSessions) {
+    const mappedQuestionId = questionIdMap.get(session.questionId);
+    if (!mappedQuestionId) continue;
+
+    const signature = makePracticeSignature({
+      questionId: mappedQuestionId,
+      completedAt: new Date(session.completedAt),
+      duration: session.duration,
+      typingSpeed: session.typingSpeed,
+      accuracy: session.accuracy,
+      errorCount: session.errorCount,
+    });
+    if (targetPracticeSignatures.has(signature)) continue;
+
+    await db.createPracticeSession({
+      questionId: mappedQuestionId,
+      userId: targetUserId,
+      duration: session.duration,
+      typingSpeed: session.typingSpeed,
+      accuracy: session.accuracy,
+      errorCount: session.errorCount,
+      completedAt: new Date(session.completedAt),
+    });
+    targetPracticeSignatures.add(signature);
+  }
+
+  const sourceTestSessions = await db.getTestSessionsByUserId(sourceUserId);
+  const targetTestSessions = await db.getTestSessionsByUserId(targetUserId);
+  const targetTestSignatures = new Set(
+    targetTestSessions.map((s) => makeTestSignature({
+      questionId: s.questionId,
+      completedAt: new Date(s.completedAt),
+      userAnswer: s.userAnswer,
+      isCorrect: s.isCorrect,
+      similarityScore: s.similarityScore ?? null,
+      recallTime: s.recallTime,
+    }))
+  );
+
+  for (const session of sourceTestSessions) {
+    const mappedQuestionId = questionIdMap.get(session.questionId);
+    if (!mappedQuestionId) continue;
+
+    const signature = makeTestSignature({
+      questionId: mappedQuestionId,
+      completedAt: new Date(session.completedAt),
+      userAnswer: session.userAnswer,
+      isCorrect: session.isCorrect,
+      similarityScore: session.similarityScore ?? null,
+      recallTime: session.recallTime,
+    });
+    if (targetTestSignatures.has(signature)) continue;
+
+    await db.createTestSession({
+      questionId: mappedQuestionId,
+      userId: targetUserId,
+      userAnswer: session.userAnswer,
+      isCorrect: session.isCorrect,
+      similarityScore: session.similarityScore ?? undefined,
+      recallTime: session.recallTime,
+      mistakeHighlights: session.mistakeHighlights ?? undefined,
+      llmFeedback: session.llmFeedback ?? undefined,
+      completedAt: new Date(session.completedAt),
+    });
+    targetTestSignatures.add(signature);
+  }
+
+  const sourceSchedules = await db.getReviewSchedulesByUserId(sourceUserId);
+  for (const schedule of sourceSchedules) {
+    const mappedQuestionId = questionIdMap.get(schedule.questionId);
+    if (!mappedQuestionId) continue;
+
+    const existing = await db.getReviewScheduleByQuestionId(mappedQuestionId, targetUserId);
+    if (!existing) {
+      await db.createReviewSchedule({
+        questionId: mappedQuestionId,
+        userId: targetUserId,
+        nextReviewDate: schedule.nextReviewDate,
+        repetitionCount: schedule.repetitionCount,
+        easeFactor: schedule.easeFactor,
+        interval: schedule.interval,
+        lastReviewedAt: schedule.lastReviewedAt ?? undefined,
+      });
+      continue;
+    }
+
+    const shouldUpdate = new Date(existing.nextReviewDate).getTime() < new Date(schedule.nextReviewDate).getTime();
+    if (shouldUpdate) {
+      await db.updateReviewSchedule(existing.id, {
+        nextReviewDate: schedule.nextReviewDate,
+        repetitionCount: Math.max(existing.repetitionCount, schedule.repetitionCount),
+        easeFactor: Math.max(existing.easeFactor, schedule.easeFactor),
+        interval: Math.max(existing.interval, schedule.interval),
+        lastReviewedAt: schedule.lastReviewedAt ?? existing.lastReviewedAt ?? undefined,
+      });
+    }
+  }
+}
+
+function ensureOCREnabled() {
+  if (!ocrModule.isOCREnabled()) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "OCR is temporarily disabled.",
+    });
   }
 }
 
 export const appRouter = router({
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(async (opts) => {
+      const user = opts.ctx.user;
+      if (user) {
+        await syncStarterDataSafely(user.id);
+      }
+      return user;
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -180,8 +831,13 @@ export const appRouter = router({
         // 아이디/비밀번호 저장
         await db.setUserCredentials(user.id, input.username, passwordHash);
 
-        // 데모 과목·문제를 사용자 계정으로 복사
-        await copyDemoDataToUser(user.id);
+        // 게스트에서 바로 가입한 경우, 학습 이력을 신규 계정으로 병합해 통계 유실을 방지한다.
+        if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
+          await mergeGuestDataToUser(ctx.user.id, user.id);
+        }
+
+        // 신규 사용자 초기 학습 데이터 보장
+        await syncStarterDataSafely(user.id);
 
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(simpleOpenId, {
@@ -201,11 +857,31 @@ export const appRouter = router({
     // 간편 로그인: 개인 아이디/비밀번호로 재로그인
     simpleLogin: publicProcedure
       .input(z.object({
-        username: z.string(),
+        identifier: z.string().optional(),
+        username: z.string().optional(), // 하위 호환성 유지
         password: z.string(),
       }))
       .mutation(async ({ input, ctx }) => {
-        const user = await db.getUserByUsername(input.username);
+        const loginIdentifier = (input.identifier ?? input.username ?? "").trim();
+        if (!loginIdentifier) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "아이디 또는 이메일을 입력해주세요",
+          });
+        }
+
+        const isEmailIdentifier = loginIdentifier.includes("@");
+        const normalizedIdentifier = loginIdentifier.toLowerCase();
+        let user = await db.getUserByLoginIdentifier(loginIdentifier);
+
+        // 이메일 로그인 도입 이전 계정 호환: owner 이메일로 로그인 시 username(local-part) 계정도 허용
+        if (!user && isEmailIdentifier) {
+          const localPart = loginIdentifier.split("@")[0];
+          if (localPart) {
+            user = await db.getUserByUsername(localPart);
+          }
+        }
+
         if (!user || !user.passwordHash) {
           throw new TRPCError({
             code: "UNAUTHORIZED",
@@ -222,9 +898,32 @@ export const appRouter = router({
           });
         }
 
+        const ownerEmail = ENV.ownerEmail.toLowerCase();
+        const isOwnerEmailLogin = normalizedIdentifier === ownerEmail;
+        const isOwnerAccountByEmail =
+          Boolean(user.email) && String(user.email).toLowerCase() === ownerEmail;
+
+        if (isOwnerEmailLogin || isOwnerAccountByEmail) {
+          const nextEmail = user.email ?? (isEmailIdentifier ? loginIdentifier : ENV.ownerEmail);
+          if (user.role !== "admin" || user.email !== nextEmail) {
+            await db.updateUserEmailAndRole(user.id, nextEmail, "admin");
+            user = { ...user, email: nextEmail, role: "admin" };
+          }
+        } else {
+          await db.updateUserEmailAndRole(user.id, user.email ?? null);
+        }
+
+        // 게스트 진행 데이터가 있으면 로그인 계정으로 병합
+        if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
+          await mergeGuestDataToUser(ctx.user.id, user.id);
+        }
+
+        // 로그인 사용자도 과목 0개 상태면 데모 기반 스타터 데이터 자동 복구
+        await syncStarterDataSafely(user.id);
+
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(user.openId, {
-          name: user.name || input.username,
+          name: user.name || loginIdentifier,
           expiresInMs: ONE_YEAR_MS,
         });
 
@@ -235,6 +934,66 @@ export const appRouter = router({
         });
 
         return { success: true, userId: user.id };
+      }),
+
+    // 소셜 로그인(내부 제공) - 외부 OAuth 리다이렉트 없이 세션 생성
+    socialLogin: publicProcedure
+      .input(
+        z.object({
+          provider: z.enum(["google", "apple", "kakao", "naver"]),
+          socialId: z.string().min(6).max(128),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const openId = `social_${input.provider}_${input.socialId}`;
+        const providerName =
+          input.provider === "google"
+            ? "Google"
+            : input.provider === "apple"
+              ? "Apple"
+              : input.provider === "kakao"
+                ? "Kakao"
+                : "Naver";
+
+        let user = await db.getUserByOpenId(openId);
+        let isNewSocialUser = false;
+        if (!user) {
+          isNewSocialUser = true;
+          await db.upsertUser({
+            openId,
+            name: `${providerName} 사용자`,
+            email: null,
+            loginMethod: input.provider,
+            lastSignedIn: new Date(),
+          });
+          user = await db.getUserByOpenId(openId);
+          if (!user) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "소셜 계정 생성 실패",
+            });
+          }
+        }
+
+        // 게스트에서 소셜로 전환할 때는 신규/기존 소셜 계정 모두 진행 데이터를 병합한다.
+        if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
+          await mergeGuestDataToUser(ctx.user.id, user.id);
+        }
+
+        await syncStarterDataSafely(user.id);
+
+        const sessionToken = await sdk.createSessionToken(openId, {
+          name: user.name || `${providerName} 사용자`,
+          expiresInMs: ONE_YEAR_MS,
+        });
+
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return { success: true, userId: user.id, provider: input.provider };
       }),
 
     // 자동 게스트 로그인: 접속 비밀번호 통과 후 자동으로 게스트 계정 생성/로그인
@@ -248,11 +1007,13 @@ export const appRouter = router({
           return { success: true, userId: ctx.user.id, isNewGuest: false, skipped: true };
         }
         const guestOpenId = `guest_${input.guestId}`;
+        let isNewGuest = false;
 
         // 기존 게스트 계정 조회
         let user = await db.getUserByOpenId(guestOpenId);
 
         if (!user) {
+          isNewGuest = true;
           // 새 게스트 계정 생성
           await db.upsertUser({
             openId: guestOpenId,
@@ -263,10 +1024,10 @@ export const appRouter = router({
           });
           user = await db.getUserByOpenId(guestOpenId);
           if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "게스트 계정 생성 실패" });
-
-          // 데모 과목·문제 복사
-          await copyDemoDataToUser(user.id);
         }
+
+        // 신규/기존 사용자 모두 과목 0개 상태를 자동 복구
+        await syncStarterDataSafely(user.id);
 
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(guestOpenId, {
@@ -280,7 +1041,7 @@ export const appRouter = router({
           maxAge: ONE_YEAR_MS,
         });
 
-        return { success: true, userId: user.id, isNewGuest: !user };
+        return { success: true, userId: user.id, isNewGuest };
       }),
   }),
 
@@ -406,6 +1167,7 @@ export const appRouter = router({
   // Subject management
   subjects: router({
     list: protectedProcedure.query(async ({ ctx }) => {
+      await syncStarterDataSafely(ctx.user.id);
       return db.getSubjectsByUserId(ctx.user.id);
     }),
     
@@ -424,7 +1186,7 @@ export const appRouter = router({
         name: z.string().min(1),
         description: z.string().optional(),
         color: z.string().optional(),
-        examEndDate: z.string().optional(), // ISO date string
+        examEndDate: z.string().optional(), // ISO date/time string
         isDemo: z.number().optional(), // 0 or 1
       }))
       .mutation(async ({ ctx, input }) => {
@@ -433,7 +1195,7 @@ export const appRouter = router({
           name: input.name,
           description: input.description,
           color: input.color,
-          examEndDate: input.examEndDate ? new Date(input.examEndDate) : undefined,
+          examEndDate: input.examEndDate ? parseExamEndDateInput(input.examEndDate) : undefined,
           isDemo: input.isDemo ?? 0,
         });
       }),
@@ -444,14 +1206,14 @@ export const appRouter = router({
         name: z.string().min(1).optional(),
         description: z.string().optional(),
         color: z.string().optional(),
-        examEndDate: z.string().nullable().optional(), // ISO date string or null to clear
+        examEndDate: z.string().nullable().optional(), // ISO date/time string or null to clear
         isDemo: z.number().optional(), // 0 or 1
       }))
       .mutation(async ({ input }) => {
         const { id, examEndDate, ...data } = input;
         const updateData: any = { ...data };
         if (examEndDate !== undefined) {
-          updateData.examEndDate = examEndDate ? new Date(examEndDate) : null;
+          updateData.examEndDate = examEndDate ? parseExamEndDateInput(examEndDate) : null;
         }
         return db.updateSubject(id, updateData);
       }),
@@ -618,8 +1380,12 @@ export const appRouter = router({
   practice: router({
     getByQuestion: protectedProcedure
       .input(z.object({ questionId: z.number() }))
-      .query(async ({ input }) => {
-        return db.getPracticeSessionsByQuestionId(input.questionId);
+      .query(async ({ ctx, input }) => {
+        const question = await db.getQuestionById(input.questionId);
+        if (!question || question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 조회할 수 있습니다" });
+        }
+        return db.getPracticeSessionsByQuestionIdForUser(input.questionId, ctx.user.id);
       }),
     
     getByUser: protectedProcedure.query(async ({ ctx }) => {
@@ -641,6 +1407,10 @@ export const appRouter = router({
         errorCount: z.number(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const question = await db.getQuestionById(input.questionId);
+        if (!question || question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 기록할 수 있습니다" });
+        }
         return db.createPracticeSession({
           userId: ctx.user.id,
           questionId: input.questionId,
@@ -659,7 +1429,11 @@ export const appRouter = router({
     countByQuestion: protectedProcedure
       .input(z.object({ questionId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const sessions = await db.getPracticeSessionsByQuestionId(input.questionId);
+        const question = await db.getQuestionById(input.questionId);
+        if (!question || question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 조회할 수 있습니다" });
+        }
+        const sessions = await db.getPracticeSessionsByQuestionIdForUser(input.questionId, ctx.user.id);
         return { count: sessions.length };
       })
   }),
@@ -693,8 +1467,12 @@ export const appRouter = router({
   test: router({
     getByQuestion: protectedProcedure
       .input(z.object({ questionId: z.number() }))
-      .query(async ({ input }) => {
-        return db.getTestSessionsByQuestionId(input.questionId);
+      .query(async ({ ctx, input }) => {
+        const question = await db.getQuestionById(input.questionId);
+        if (!question || question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 조회할 수 있습니다" });
+        }
+        return db.getTestSessionsByQuestionIdForUser(input.questionId, ctx.user.id);
       }),
     
     getByUser: protectedProcedure.query(async ({ ctx }) => {
@@ -712,6 +1490,10 @@ export const appRouter = router({
         llmFeedback: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const question = await db.getQuestionById(input.questionId);
+        if (!question || question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 기록할 수 있습니다" });
+        }
         return db.createTestSession({
           userId: ctx.user.id,
           questionId: input.questionId,
@@ -1235,6 +2017,7 @@ ${input.userAnswer}
     uploadFile: protectedProcedure
       .input(z.object({ fileBuffer: z.instanceof(Uint8Array), fileName: z.string(), mimeType: z.string() }))
       .mutation(async ({ ctx, input }) => {
+        ensureOCREnabled();
         try {
           const fileKey = `ocr/${ctx.user.id}/${Date.now()}-${input.fileName}`;
           const { url } = await storagePut(fileKey, Buffer.from(input.fileBuffer), input.mimeType);
@@ -1253,6 +2036,7 @@ ${input.userAnswer}
     startJob: protectedProcedure
       .input(z.object({ s3Url: z.string(), fileName: z.string() }))
       .mutation(async ({ ctx, input }) => {
+        ensureOCREnabled();
         try {
           // Download file from S3
           const response = await fetch(input.s3Url);
@@ -1295,6 +2079,7 @@ ${input.userAnswer}
     getStatus: protectedProcedure
       .input(z.object({ jobId: z.number() }))
       .query(async ({ ctx, input }) => {
+        ensureOCREnabled();
         const job = await db.getOcrJobById(input.jobId);
         if (!job) {
           throw new TRPCError({
@@ -1374,6 +2159,7 @@ ${input.userAnswer}
     getResult: protectedProcedure
       .input(z.object({ jobId: z.number() }))
       .query(async ({ ctx, input }) => {
+        ensureOCREnabled();
         const job = await db.getOcrJobById(input.jobId);
         if (!job) {
           throw new TRPCError({
@@ -1406,6 +2192,7 @@ ${input.userAnswer}
 
     // List user's OCR jobs
     listJobs: protectedProcedure.query(async ({ ctx }) => {
+      ensureOCREnabled();
       return db.getOcrJobsByUserId(ctx.user.id);
     }),
 
@@ -1413,6 +2200,7 @@ ${input.userAnswer}
     deleteJob: protectedProcedure
       .input(z.object({ jobId: z.number() }))
       .mutation(async ({ ctx, input }) => {
+        ensureOCREnabled();
         const job = await db.getOcrJobById(input.jobId);
         if (!job) {
           throw new TRPCError({
@@ -1459,23 +2247,6 @@ ${input.userAnswer}
         const totalPracticeTime = practices.reduce((sum, p) => sum + p.duration, 0);
         const practiceCount = practices.length;
 
-        // 난도별 시험 성과
-        const difficultyStats = ["easy", "medium", "hard"].map(diff => {
-          const diffQIds = subjectQs.filter(q => q.difficulty === diff).map(q => q.id);
-          const diffTests = tests.filter(t => diffQIds.includes(t.questionId));
-          const correct = diffTests.filter(t => t.isCorrect === 1).length;
-          const avgSimilarity = diffTests.length > 0
-            ? Math.round(diffTests.reduce((s, t) => s + (t.similarityScore || 0), 0) / diffTests.length)
-            : 0;
-          return {
-            difficulty: diff,
-            totalTests: diffTests.length,
-            correctCount: correct,
-            correctRate: diffTests.length > 0 ? Math.round((correct / diffTests.length) * 100) : 0,
-            avgSimilarity,
-          };
-        });
-
         // 문제별 분석 (연습 횟수 vs 시험 정답률)
         const questionAnalysis = subjectQs.map(q => {
           const qPractices = practices.filter(p => p.questionId === q.id);
@@ -1484,7 +2255,6 @@ ${input.userAnswer}
           return {
             questionId: q.id,
             question: q.question.substring(0, 50),
-            difficulty: q.difficulty,
             practiceCount: qPractices.length,
             practiceTime: qPractices.reduce((s, p) => s + p.duration, 0),
             testCount: qTests.length,
@@ -1534,7 +2304,6 @@ ${input.userAnswer}
           overallAvgSimilarity: tests.length > 0
             ? Math.round(tests.reduce((s, t) => s + (t.similarityScore || 0), 0) / tests.length)
             : 0,
-          difficultyStats,
           questionAnalysis,
           performanceTrend,
         };
@@ -1551,6 +2320,12 @@ ${input.userAnswer}
       const totalPracticeCount = allPractice.length;
       const totalTestCount = allTests.length;
       const totalCorrect = allTests.filter(t => t.isCorrect === 1).length;
+      const validTypingSpeeds = allPractice
+        .map((p) => p.typingSpeed)
+        .filter((speed) => Number.isFinite(speed) && speed > 0);
+      const avgPracticeTypingSpeed = validTypingSpeeds.length > 0
+        ? Math.round(validTypingSpeeds.reduce((sum, speed) => sum + speed, 0) / validTypingSpeeds.length)
+        : 0;
 
       // 연습 횟수 구간별 시험 정답률
       const practiceCountBuckets = allQuestions.map(q => {
@@ -1594,7 +2369,6 @@ ${input.userAnswer}
             questionId: q.id,
             question: q.question.substring(0, 60),
             subjectId: q.subjectId,
-            difficulty: q.difficulty,
             practiceCount: qPractices.length,
             testCount: qTests.length,
             correctRate: qTests.length > 0 ? Math.round((correct / qTests.length) * 100) : -1,
@@ -1610,6 +2384,7 @@ ${input.userAnswer}
         totalPracticeCount,
         totalTestCount,
         totalCorrect,
+        avgPracticeTypingSpeed,
         overallCorrectRate: totalTestCount > 0 ? Math.round((totalCorrect / totalTestCount) * 100) : 0,
         practiceVsTestData,
         weakQuestions,
@@ -1639,6 +2414,12 @@ ${input.userAnswer}
         const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
         const allTests = await db.getTestSessionsByUserId(ctx.user.id);
         const now = new Date();
+        const userProfile = buildUserAdaptiveProfile(allPractice, allTests);
+
+        const question = await db.getQuestionById(input.questionId);
+        const subject = question?.subjectId ? await db.getSubjectById(question.subjectId) : null;
+        const examDate = subject?.examEndDate ? new Date(subject.examEndDate) : null;
+        const initialEstimate = question ? buildInitialConfidenceEstimate(question) : undefined;
 
         const qPractice = allPractice.filter(p => p.questionId === input.questionId);
         const qTests = allTests.filter(t => t.questionId === input.questionId);
@@ -1689,19 +2470,19 @@ ${input.userAnswer}
           })),
         };
 
-        const confidence = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
+        const confidence = computeExamConfidence({
+          practice: practiceSignal,
+          test: testSignal,
+          now,
+          examDate,
+          userProfile,
+          initialEstimate,
+        });
 
         // 시험일 예측: question의 subjectId를 통해 과목의 examEndDate 조회
-        const question = await db.getQuestionById(input.questionId);
         let examDatePrediction: ReturnType<typeof predictExamDayConfidence> | null = null;
-        if (question?.subjectId) {
-          const subject = await db.getSubjectById(question.subjectId);
-          if (subject?.examEndDate) {
-            const examDate = new Date(subject.examEndDate);
-            if (examDate > now) {
-              examDatePrediction = predictExamDayConfidence(confidence, examDate, now);
-            }
-          }
+        if (examDate) {
+          examDatePrediction = predictExamDayConfidence(confidence, examDate, now);
         }
 
         // 배지 계산
@@ -1711,26 +2492,7 @@ ${input.userAnswer}
         const frequentlyWrong = qTests.length >= 3 && wrongCount / qTests.length >= 0.5;
 
         // 주의구간: 여러 시험에서 반복적으로 틀린 줄 집계
-        const lineWrongCount: Record<number, number> = {};
-        for (const t of qTests) {
-          if (!t.mistakeHighlights) continue;
-          try {
-            const highlights = JSON.parse(t.mistakeHighlights as string);
-            if (Array.isArray(highlights)) {
-              for (const h of highlights) {
-                if (h.isCorrect === false) {
-                  const idx = h.lineIndex ?? h.labelIndex ?? 1;
-                  lineWrongCount[idx] = (lineWrongCount[idx] || 0) + 1;
-                }
-              }
-            }
-          } catch {}
-        }
-        // 2회 이상 틀린 줄을 주의구간으로 판단
-        const warnZoneLines = Object.entries(lineWrongCount)
-          .filter(([, cnt]) => cnt >= 2)
-          .map(([idx, cnt]) => ({ lineIndex: Number(idx), wrongCount: cnt }))
-          .sort((a, b) => b.wrongCount - a.wrongCount);
+        const warnZoneLines = extractWarnZoneLinesFromTests(qTests);
         const hasWarnZone = warnZoneLines.length > 0;
 
         // 마지막 시험의 오답 줄 정보 파싱
@@ -1766,10 +2528,15 @@ ${input.userAnswer}
         const subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
         const questionIds = subjectQuestions.map(q => q.id);
         if (questionIds.length === 0) return { questions: [], aggregate: aggregateConfidence([]) };
+        const questionById = new Map(subjectQuestions.map((q) => [q.id, q]));
+
+        const subject = await db.getSubjectById(input.subjectId);
+        const examDate = subject?.examEndDate ? new Date(subject.examEndDate) : null;
 
         const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
         const allTests = await db.getTestSessionsByUserId(ctx.user.id);
         const now = new Date();
+        const userProfile = buildUserAdaptiveProfile(allPractice, allTests);
 
         const results: { questionId: number; confidence: ConfidenceResult }[] = [];
 
@@ -1828,7 +2595,14 @@ ${input.userAnswer}
               similarityScore: t.similarityScore ?? 0,
             })),
           };
-          const confidence = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
+          const confidence = computeExamConfidence({
+            practice: practiceSignal,
+            test: testSignal,
+            now,
+            examDate,
+            userProfile,
+            initialEstimate: buildInitialConfidenceEstimate(questionById.get(qId) ?? {}),
+          });
           results.push({ questionId: qId, confidence });
         }
 
@@ -1844,7 +2618,7 @@ ${input.userAnswer}
           const lastTestWrong = !!lastTest && lastTest.isCorrect === 0;
           const wrongCount = qTests.filter(t => t.isCorrect === 0).length;
           const frequentlyWrong = qTests.length >= 3 && wrongCount / qTests.length >= 0.5;
-          const hasWarnZone = qTests.some(t => t.mistakeHighlights && t.mistakeHighlights.length > 2);
+          const hasWarnZone = extractWarnZoneLinesFromTests(qTests).length > 0;
           badgeMap[qId] = { lastTestWrong, frequentlyWrong, hasWarnZone };
         }
 
@@ -1866,6 +2640,11 @@ ${input.userAnswer}
       .query(async ({ ctx, input }) => {
         const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
         const allTests = await db.getTestSessionsByUserId(ctx.user.id);
+        const userProfile = buildUserAdaptiveProfile(allPractice, allTests);
+        const question = await db.getQuestionById(input.questionId);
+        const subject = question?.subjectId ? await db.getSubjectById(question.subjectId) : null;
+        const examDate = subject?.examEndDate ? new Date(subject.examEndDate) : null;
+        const initialEstimate = question ? buildInitialConfidenceEstimate(question) : undefined;
         const qPractice = allPractice
           .filter(p => p.questionId === input.questionId)
           .sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
@@ -1927,7 +2706,14 @@ ${input.userAnswer}
             })),
           };
 
-          const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now: ev.at });
+          const result = computeExamConfidence({
+            practice: practiceSignal,
+            test: testSignal,
+            now: ev.at,
+            examDate,
+            userProfile,
+            initialEstimate,
+          });
           const lastTest = ev.type === 'test' ? qTests[ev.idx] : undefined;
           // 시험 정답률: similarityScore를 accuracyRate로 사용 (evaluate 시 저장됨)
           const testAccuracyRate = lastTest?.similarityScore ?? undefined;
@@ -1973,7 +2759,14 @@ ${input.userAnswer}
               similarityScore: t.similarityScore ?? 0,
             })),
           };
-          const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now });
+          const result = computeExamConfidence({
+            practice: practiceSignal,
+            test: testSignal,
+            now,
+            examDate,
+            userProfile,
+            initialEstimate,
+          });
           points.push({ at: now.toISOString(), score: result.displayScore, state: result.state, eventType: 'now' });
         }
 
@@ -1987,8 +2780,11 @@ ${input.userAnswer}
         const subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
         const questionIds = subjectQuestions.map(q => q.id);
         if (questionIds.length === 0) return { points: [] };
+        const subject = await db.getSubjectById(input.subjectId);
+        const examDate = subject?.examEndDate ? new Date(subject.examEndDate) : null;
         const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
         const allTests = await db.getTestSessionsByUserId(ctx.user.id);
+        const userProfile = buildUserAdaptiveProfile(allPractice, allTests);
         const qPractice = allPractice.filter(p => questionIds.includes(p.questionId));
         const qTests = allTests.filter(t => questionIds.includes(t.questionId));
         // 모든 이벤트를 시간순으로 합치기
@@ -2048,7 +2844,13 @@ ${input.userAnswer}
                 similarityScore: t.similarityScore ?? 0,
               })),
             };
-            const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now: ev.at });
+            const result = computeExamConfidence({
+              practice: practiceSignal,
+              test: testSignal,
+              now: ev.at,
+              examDate,
+              userProfile,
+            });
             totalScore += result.displayScore;
           }
           if (activeCount === 0) continue;
@@ -2084,7 +2886,13 @@ ${input.userAnswer}
               recentCorrectStreak: streak,
               mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
             };
-            const result = computeExamConfidence({ practice: practiceSignal, test: testSignal, now: nowDate });
+            const result = computeExamConfidence({
+              practice: practiceSignal,
+              test: testSignal,
+              now: nowDate,
+              examDate,
+              userProfile,
+            });
             totalScore += result.displayScore;
           }
           if (activeCount > 0) {

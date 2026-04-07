@@ -8,7 +8,6 @@ import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { BookOpen, Star, LogIn, UserPlus, Zap, X } from "lucide-react";
 import { toast } from "sonner";
-import { getLoginUrl } from "@/const";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // 과목별 미니 그리드 (데모용 — 안정도 데이터 없이 회색 점만 표시)
@@ -42,7 +41,7 @@ export default function Demo() {
   const [passwordConfirm, setPasswordConfirm] = useState("");
 
   // 로그인 폼
-  const [loginUsername, setLoginUsername] = useState("");
+  const [loginIdentifier, setLoginIdentifier] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
 
   const { data: subjects, isLoading } = trpc.demo.subjects.useQuery();
@@ -75,14 +74,14 @@ export default function Demo() {
   };
 
   const handleLogin = () => {
-    if (!loginUsername.trim()) { toast.error("아이디를 입력해주세요"); return; }
+    if (!loginIdentifier.trim()) { toast.error("아이디 또는 이메일을 입력해주세요"); return; }
     if (!loginPassword.trim()) { toast.error("비밀번호를 입력해주세요"); return; }
-    simpleLoginMutation.mutate({ username: loginUsername, password: loginPassword });
+    simpleLoginMutation.mutate({ identifier: loginIdentifier, password: loginPassword });
   };
 
   const resetForms = () => {
     setUsername(""); setPassword(""); setPasswordConfirm("");
-    setLoginUsername(""); setLoginPassword("");
+    setLoginIdentifier(""); setLoginPassword("");
     setAuthMode("none");
   };
 
@@ -148,9 +147,9 @@ export default function Demo() {
               <TabsContent value="login">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
                   <div className="space-y-1">
-                    <Label htmlFor="loginUsername">아이디</Label>
-                    <Input id="loginUsername" placeholder="아이디" value={loginUsername}
-                      onChange={(e) => setLoginUsername(e.target.value)} disabled={simpleLoginMutation.isPending} />
+                    <Label htmlFor="loginIdentifier">아이디 또는 이메일</Label>
+                    <Input id="loginIdentifier" placeholder="아이디 또는 이메일" value={loginIdentifier}
+                      onChange={(e) => setLoginIdentifier(e.target.value)} disabled={simpleLoginMutation.isPending} />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="loginPassword">비밀번호</Label>
@@ -165,9 +164,9 @@ export default function Demo() {
                       {simpleLoginMutation.isPending ? "처리중..." : "로그인"}
                     </Button>
                     <Button variant="outline" onClick={resetForms}>취소</Button>
-                    <Button variant="ghost" onClick={() => { window.location.href = getLoginUrl(); }} className="ml-auto gap-1.5 text-muted-foreground">
+                    <Button variant="ghost" onClick={() => { setLocation("/login"); }} className="ml-auto gap-1.5 text-muted-foreground">
                       <LogIn className="h-3.5 w-3.5" />
-                      Manus 계정으로 로그인
+                      소셜 로그인으로 전환
                     </Button>
                   </div>
                 </div>

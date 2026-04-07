@@ -28,6 +28,7 @@ declare global {
 }
 
 const queryClient = new QueryClient();
+const GUEST_ID_KEY = "numbering_guest_id";
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
@@ -36,6 +37,13 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
 
   if (!isUnauthorized) return;
+
+  const hasGuestId = Boolean(localStorage.getItem(GUEST_ID_KEY));
+  if (hasGuestId) {
+    // Guest mode should never hard-redirect to login.
+    window.location.href = `${window.location.origin}/`;
+    return;
+  }
 
   window.location.href = getLoginUrl();
 };

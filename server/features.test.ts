@@ -9,6 +9,8 @@ type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
 // 테스트 전용 userId - 실제 사용자(1번)와 충돌하지 않는 값 사용
 const TEST_USER_ID = 99999;
+const hasDatabase = Boolean(process.env.DATABASE_URL);
+const describeIfDb = hasDatabase ? describe : describe.skip;
 
 function createAuthContext(): { ctx: TrpcContext } {
   const user: AuthenticatedUser = {
@@ -57,7 +59,7 @@ afterAll(async () => {
   }
 });
 
-describe("Subject Management", () => {
+describeIfDb("Subject Management", () => {
   it("should create a subject", async () => {
     const { ctx } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
@@ -81,7 +83,7 @@ describe("Subject Management", () => {
   });
 });
 
-describe("Question Management", () => {
+describeIfDb("Question Management", () => {
   it("should create a question", async () => {
     const { ctx } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
@@ -113,7 +115,7 @@ describe("Question Management", () => {
   });
 });
 
-describe("Practice Session", () => {
+describeIfDb("Practice Session", () => {
   it("should create a practice session", async () => {
     const { ctx } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
@@ -153,7 +155,7 @@ describe("Practice Session", () => {
   });
 });
 
-describe("Test Session and Evaluation", () => {
+describeIfDb("Test Session and Evaluation", () => {
   it("should evaluate an answer", { timeout: 15000 }, async () => {
     const { ctx } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
@@ -191,7 +193,7 @@ describe("Test Session and Evaluation", () => {
   });
 });
 
-describe("Review Schedule", () => {
+describeIfDb("Review Schedule", () => {
   it("should update review schedule after test", async () => {
     const { ctx } = createAuthContext();
     const caller = appRouter.createCaller(ctx);

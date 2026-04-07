@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, lte, gte, isNotNull } from "drizzle-orm";
+import { eq, and, or, desc, sql, lte, gte, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -74,7 +74,12 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     if (user.role !== undefined) {
       values.role = user.role;
       updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
+    } else if (
+      user.openId === ENV.ownerOpenId ||
+      (Boolean(user.email) &&
+        Boolean(ENV.ownerEmail) &&
+        String(user.email).toLowerCase() === ENV.ownerEmail.toLowerCase())
+    ) {
       values.role = 'admin';
       updateSet.role = 'admin';
     }
@@ -113,6 +118,31 @@ export async function getUserByUsername(username: string) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
   return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserByLoginIdentifier(identifier: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(
+    or(eq(users.username, identifier), eq(users.email, identifier))
+  ).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function updateUserEmailAndRole(userId: number, email: string | null, role?: "user" | "admin") {
+  const db = await getDb();
+  if (!db) return;
+  const updateSet: Record<string, unknown> = { lastSignedIn: new Date() };
+  updateSet.email = email;
+  if (role) updateSet.role = role;
+  await db.update(users).set(updateSet).where(eq(users.id, userId));
 }
 
 export async function setUserCredentials(userId: number, username: string, passwordHash: string) {
@@ -301,6 +331,15 @@ export async function getPracticeSessionsByQuestionId(questionId: number) {
   return db.select().from(practiceSessions).where(eq(practiceSessions.questionId, questionId));
 }
 
+export async function getPracticeSessionsByQuestionIdForUser(questionId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(practiceSessions)
+    .where(and(eq(practiceSessions.questionId, questionId), eq(practiceSessions.userId, userId)));
+}
+
 export async function getPracticeSessionsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -344,6 +383,15 @@ export async function getTestSessionsByQuestionId(questionId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(testSessions).where(eq(testSessions.questionId, questionId));
+}
+
+export async function getTestSessionsByQuestionIdForUser(questionId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(testSessions)
+    .where(and(eq(testSessions.questionId, questionId), eq(testSessions.userId, userId)));
 }
 
 export async function getTestSessionsByUserId(userId: number) {
@@ -396,11 +444,17 @@ export async function updateReviewSchedule(id: number, data: Partial<InsertRevie
 
 
 // ========== Auto-delete expired questions ==========
+const EXPIRED_QUESTION_CLEANUP_PAUSED = true;
+
 /**
  * 시험 종료일 + 1달이 지난 과목의 문제 중
  * 연습/시험 기록이 없는 문제를 자동 삭제합니다.
  */
 export async function deleteExpiredQuestions() {
+  if (EXPIRED_QUESTION_CLEANUP_PAUSED) {
+    return { deletedCount: 0, checkedSubjects: 0 };
+  }
+
   const db = await getDb();
   if (!db) return { deletedCount: 0, checkedSubjects: 0 };
   
@@ -454,6 +508,8 @@ export async function deleteExpiredQuestions() {
  * 시험 종료일이 지났지만 아직 1달이 안 된 과목의 미사용 문제
  */
 export async function getExpiringQuestions(userId: number) {
+  if (EXPIRED_QUESTION_CLEANUP_PAUSED) return [];
+
   const db = await getDb();
   if (!db) return [];
   
@@ -577,9 +633,7 @@ export async function deleteOcrJob(id: number): Promise<void> {
 
 // Admin demo management functions
 export async function getAllDemoSubjects() {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(subjects).where(eq(subjects.isDemo, 1)).orderBy(subjects.displayOrder);
+  return getDemoSubjects();
 }
 
 export async function getDemoQuestionsBySubjectId(subjectId: number) {

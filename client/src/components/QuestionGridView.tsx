@@ -31,10 +31,10 @@ export function QuestionGridView({
     }
   };
 
-  // 중요도 border 색상 (노란색과 다른 색 → 인디고)
+  // 중요도 border 색상: 검정 + 굵은 테두리
   const getBorderColor = (isStarred: boolean) => {
     if (!isStarred) return "border-neutral-200 dark:border-neutral-700 border";
-    return "border-indigo-600 dark:border-indigo-500 border-2";
+    return "border-black dark:border-black border-[3px]";
   };
 
   // 텍스트 색상 (흰색 또는 다크)
@@ -56,22 +56,22 @@ export function QuestionGridView({
   return (
     <div className="mb-4 p-4 bg-card rounded-xl border border-border shadow-sm">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-foreground">문제 순서별 안정도</h3>
-        <div className="flex gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1 cursor-help" title="초록(안정): 80% 이상">
-            <span className="inline-block w-3 h-3 rounded bg-emerald-500" />
+        <h3 className="text-base font-semibold text-foreground">문제 순서별 안정도</h3>
+        <div className="flex gap-3 text-sm text-muted-foreground">
+          <span className="flex items-center gap-1 cursor-help" title="초록(안정): 80점 이상">
+            <span className="inline-block w-3.5 h-3.5 rounded bg-emerald-500" />
             안정
           </span>
-          <span className="flex items-center gap-1 cursor-help" title="노랑(학습중): 40~80%">
-            <span className="inline-block w-3 h-3 rounded bg-amber-400" />
+          <span className="flex items-center gap-1 cursor-help" title="노랑(학습중): 40~79점">
+            <span className="inline-block w-3.5 h-3.5 rounded bg-amber-400" />
             학습중
           </span>
-          <span className="flex items-center gap-1 cursor-help" title="빨강(취약): 40% 미만">
-            <span className="inline-block w-3 h-3 rounded bg-red-500" />
+          <span className="flex items-center gap-1 cursor-help" title="빨강(취약): 39점 이하">
+            <span className="inline-block w-3.5 h-3.5 rounded bg-red-500" />
             취약
           </span>
           <span className="flex items-center gap-1 cursor-help" title="미학습">
-            <span className="inline-block w-3 h-3 rounded bg-neutral-200 dark:bg-neutral-700" />
+            <span className="inline-block w-3.5 h-3.5 rounded bg-neutral-200 dark:bg-neutral-700" />
             미학습
           </span>
         </div>
@@ -92,7 +92,7 @@ export function QuestionGridView({
               onClick={() => onSelectQuestion(q.id)}
               className={`
                 flex flex-col items-center justify-center gap-0.5
-                w-14 h-14 rounded-lg
+                w-16 h-16 rounded-lg
                 transition-all duration-150
                 hover:shadow-md hover:-translate-y-0.5
                 focus:outline-none focus:ring-2 focus:ring-primary/30
@@ -101,25 +101,25 @@ export function QuestionGridView({
               `}
               title={
                 score !== undefined
-                  ? `문제 ${q.displayOrder} — 안정도 ${Math.round(score)}% — ${
+                  ? `문제 ${q.displayOrder} — 안정도 ${Math.round(score)}점 — ${
                       state === "green" ? "안정" :
                       state === "yellow" ? "학습중" :
                       state === "red" ? "취약" : "미학습"
                     }${starred ? " (중요)" : ""}`
                   : `문제 ${q.displayOrder}${starred ? " (중요)" : ""}`
               }
-            >
+              >
               {/* 번호 */}
-              <span className={`text-sm font-bold leading-none ${textColor}`}>
+              <span className={`text-base font-bold leading-none ${textColor}`}>
                 {q.displayOrder}
               </span>
-              {/* 안정도 % */}
+              {/* 안정도 점수 */}
               {score !== undefined ? (
-                <span className={`text-xs font-medium leading-none ${textColor}`}>
-                  {Math.round(score)}%
+                <span className={`inline-block w-[50px] text-center text-sm font-semibold font-mono tabular-nums tracking-tight leading-none ${textColor}`}>
+                  {Math.round(score)}점
                 </span>
               ) : (
-                <span className={`text-xs leading-none ${textColor}/50`}>
+                <span className={`inline-block w-[50px] text-center text-sm leading-none ${textColor}/50`}>
                   —
                 </span>
               )}

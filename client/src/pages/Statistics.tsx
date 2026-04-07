@@ -3,12 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, Cell, LineChart, Line } from "recharts";
-import { Target, BookOpen, TrendingUp, AlertTriangle, Dumbbell, ClipboardCheck, Timer, Brain, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
+import { Target, BookOpen, TrendingUp, AlertTriangle, Dumbbell, ClipboardCheck, Timer, Brain, ChevronDown, ChevronUp, RotateCcw, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useMemo, useRef } from "react";
-
-const difficultyLabel: Record<string, string> = { easy: "쉬움", medium: "보통", hard: "어려움" };
-const difficultyColor: Record<string, string> = { easy: "#10B981", medium: "#F59E0B", hard: "#EF4444" };
+import { useLocation } from "wouter";
 
 function formatDuration(seconds: number) {
   if (seconds < 60) return `${seconds}초`;
@@ -19,6 +17,7 @@ function formatDuration(seconds: number) {
 }
 
 export default function Statistics() {
+  const [, setLocation] = useLocation();
   const { data: summary, isLoading: summaryLoading } = trpc.statistics.getSummary.useQuery();
   const { data: subjectAnalysis, isLoading: analysisLoading } = trpc.statistics.getSubjectAnalysis.useQuery();
   const [expandedSubject, setExpandedSubject] = useState<number | null>(null);
@@ -202,7 +201,7 @@ export default function Statistics() {
       ) : (
         <>
           {/* 핵심 요약 카드 */}
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-5">
             <Card className="shadow-elegant">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">총 연습</CardTitle>
@@ -248,6 +247,17 @@ export default function Statistics() {
                     : "0"}회
                 </div>
                 <p className="text-xs text-muted-foreground">전체 문제 기준</p>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-elegant">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">연습 평균 타속</CardTitle>
+                <Keyboard className="h-4 w-4 text-indigo-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{summary!.avgPracticeTypingSpeed} CPM</div>
+                <p className="text-xs text-muted-foreground">연습 모드 전체 평균</p>
               </CardContent>
             </Card>
           </div>
@@ -367,29 +377,6 @@ export default function Statistics() {
 
                     {expandedSubject === subject.subjectId && (
                       <CardContent className="pt-0 space-y-4">
-                        {/* 난도별 시험 성과 */}
-                        <div>
-                          <h4 className="text-sm font-semibold mb-2">난도별 시험 성과</h4>
-                          <div className="grid grid-cols-3 gap-3">
-                            {subject.difficultyStats.map((ds) => (
-                              <div
-                                key={ds.difficulty}
-                                className="p-3 rounded-lg border text-center"
-                              >
-                                <p className="text-xs font-medium mb-1" style={{ color: difficultyColor[ds.difficulty] }}>
-                                  {difficultyLabel[ds.difficulty]}
-                                </p>
-                                <p className="text-xl font-bold">
-                                  {ds.totalTests > 0 ? `${ds.correctRate}%` : "-"}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {ds.totalTests > 0 ? `${ds.correctCount}/${ds.totalTests}` : "미응시"}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
                         {/* 성과 추이 그래프 */}
                         {subject.performanceTrend.length > 1 && (
                           <div>
@@ -431,7 +418,6 @@ export default function Statistics() {
                                 <thead>
                                   <tr className="border-b">
                                     <th className="text-left py-2 pr-2">문제</th>
-                                    <th className="text-center py-2 px-2">난도</th>
                                     <th className="text-center py-2 px-2">연습</th>
                                     <th className="text-center py-2 px-2">시험</th>
                                     <th className="text-center py-2 px-2">정답률</th>
@@ -443,11 +429,6 @@ export default function Statistics() {
                                     .map((q) => (
                                       <tr key={q.questionId} className="border-b last:border-0">
                                         <td className="py-2 pr-2 max-w-[200px] truncate">{q.question}</td>
-                                        <td className="text-center py-2 px-2">
-                                          <span className="text-xs" style={{ color: difficultyColor[q.difficulty || "medium"] }}>
-                                            {difficultyLabel[q.difficulty || "medium"]}
-                                          </span>
-                                        </td>
                                         <td className="text-center py-2 px-2">{q.practiceCount}회</td>
                                         <td className="text-center py-2 px-2">{q.testCount}회</td>
                                         <td className="text-center py-2 px-2">
@@ -491,14 +472,17 @@ export default function Statistics() {
                 <CardContent>
                   {summary!.weakQuestions.length > 0 ? (
                     <div className="space-y-2">
-                      {summary!.weakQuestions.map((q, i) => (
-                        <div key={q.questionId} className="flex items-center justify-between p-3 rounded-lg border">
+                      {summary!.weakQuestions.map((q) => (
+                        <button
+                          key={q.questionId}
+                          type="button"
+                          onClick={() => setLocation(`/practice/${q.questionId}`)}
+                          className="w-full text-left flex items-center justify-between p-3 rounded-lg border hover:bg-muted/40 transition-colors"
+                          title="클릭하여 연습으로 이동"
+                        >
                           <div className="flex-1 min-w-0">
                             <p className="text-sm truncate font-medium">{q.question}</p>
                             <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs" style={{ color: difficultyColor[q.difficulty || "medium"] }}>
-                                {difficultyLabel[q.difficulty || "medium"]}
-                              </span>
                               <span className="text-xs text-muted-foreground">연습 {q.practiceCount}회</span>
                             </div>
                           </div>
@@ -508,7 +492,7 @@ export default function Statistics() {
                             </p>
                             <p className="text-xs text-muted-foreground">{q.testCount}회 시험</p>
                           </div>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   ) : (

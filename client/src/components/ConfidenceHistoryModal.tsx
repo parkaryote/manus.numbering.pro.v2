@@ -19,6 +19,9 @@ interface ExamDatePrediction {
   predictedState: "green" | "yellow" | "red";
   predictedLabel: string;
   daysUntilExam: number;
+  hoursUntilExam: number;
+  minutesUntilExam: number;
+  examAtISO: string;
   currentScore: number;
   scoreDelta: number;
   canReachGreen: boolean;
@@ -31,6 +34,17 @@ interface Props {
   onClose: () => void;
   examDatePrediction?: ExamDatePrediction | null;
 }
+
+type HistoryPoint = {
+  at: string;
+  score: number;
+  state: string;
+  eventType: string;
+  isCorrect?: boolean;
+  accuracyRate?: number;
+  practiceSessionCount?: number;
+  practiceDelta?: number;
+};
 
 // 시간 축 레이블 포맷
 function formatTimeLabel(isoStr: string, allPoints: { at: string }[]): string {
@@ -47,6 +61,91 @@ function formatTimeLabel(isoStr: string, allPoints: { at: string }[]): string {
   }
   if (diffDays < 30) return `+${diffDays}일`;
   return format(date, "M/d", { locale: ko });
+}
+
+function formatRelativeTick(ts: number, firstTs: number): string {
+  const diffMin = Math.max(0, Math.round((ts - firstTs) / 60000));
+  if (diffMin < 60) return `+${diffMin}분`;
+  if (diffMin < 60 * 24) return `+${Math.round(diffMin / 60)}시간`;
+  const diffDays = Math.round(diffMin / (60 * 24));
+  if (diffDays < 30) return `+${diffDays}일`;
+  return format(new Date(ts), "M/d", { locale: ko });
+}
+
+function getAdaptiveMinStep(totalPoints: number): number {
+  if (totalPoints <= 16) return 74;
+  if (totalPoints <= 30) return 56;
+  if (totalPoints <= 55) return 42;
+  if (totalPoints <= 90) return 30;
+  return 22;
+}
+
+function getAdaptiveMaxStep(totalPoints: number): number {
+  if (totalPoints <= 20) return 300;
+  if (totalPoints <= 50) return 240;
+  return 190;
+}
+
+function buildAdaptiveXPositions(points: Array<{ at: string; eventType?: string }>): number[] {
+  if (points.length === 0) return [];
+
+  const minStep = getAdaptiveMinStep(points.length);
+  const maxStep = getAdaptiveMaxStep(points.length);
+  const xPositions: number[] = [0];
+
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const cur = points[i];
+    const prevTs = new Date(prev.at).getTime();
+    const curTs = new Date(cur.at).getTime();
+    const gapMinutes = Math.max(0, (curTs - prevTs) / 60000);
+
+    let step = Math.log1p(gapMinutes + 1) * (minStep * 0.9);
+    step = Math.max(minStep, Math.min(step, maxStep));
+
+    const densePracticePair =
+      prev.eventType === "practice" &&
+      cur.eventType === "practice" &&
+      gapMinutes <= 4;
+
+    if (densePracticePair && points.length > 45) {
+      step = Math.max(minStep * 0.55, step * 0.78);
+    }
+
+    if (gapMinutes >= 180) {
+      step = Math.max(step, minStep * 2.1);
+    }
+
+    xPositions.push(xPositions[i - 1] + step);
+  }
+
+  return xPositions;
+}
+
+function formatAdaptiveTick(value: number, data: Array<{ xPos: number; xTs: number }>, firstTs: number): string {
+  if (data.length === 0) return "";
+
+  let nearest = data[0];
+  let minDiff = Math.abs(data[0].xPos - value);
+  for (let i = 1; i < data.length; i++) {
+    const diff = Math.abs(data[i].xPos - value);
+    if (diff < minDiff) {
+      minDiff = diff;
+      nearest = data[i];
+    }
+  }
+
+  return formatRelativeTick(nearest.xTs, firstTs);
+}
+
+function formatExamCountdown(minutesUntilExam: number): string {
+  if (minutesUntilExam <= 0) return "D-Day";
+  const days = Math.floor(minutesUntilExam / (60 * 24));
+  const hours = Math.floor((minutesUntilExam % (60 * 24)) / 60);
+  const minutes = minutesUntilExam % 60;
+  if (days > 0) return `D-${days} · ${hours}시간 ${minutes}분 후`;
+  if (hours > 0) return `D-Day · ${hours}시간 ${minutes}분 후`;
+  return `D-Day · ${minutes}분 후`;
 }
 
 // 성공 기준: 시험 정답률 ≥ 80% (accuracyRate 기준)
@@ -126,6 +225,8 @@ const CustomTooltip = ({ active, payload }: any) => {
   const date = new Date(d.at);
 
   if (d.eventType === "practice") {
+    const practiceCount = d.practiceSessionCount ?? 1;
+    const delta = typeof d.practiceDelta === "number" ? d.practiceDelta : null;
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[130px]">
         <div className="text-muted-foreground text-xs mb-1">
@@ -133,9 +234,14 @@ const CustomTooltip = ({ active, payload }: any) => {
         </div>
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-gray-400 inline-block" />
-          <span className="text-muted-foreground text-xs">연습</span>
+          <span className="text-muted-foreground text-xs">연습 {practiceCount}회</span>
           <span className="font-semibold text-sm">{d.score}점</span>
         </div>
+        {delta !== null && (
+          <div className="text-xs text-muted-foreground mt-1">
+            연속 연습 누적 {delta >= 0 ? `+${delta}` : delta}점
+          </div>
+        )}
       </div>
     );
   }
@@ -159,7 +265,7 @@ const CustomTooltip = ({ active, payload }: any) => {
         {d.accuracyRate !== undefined && (
           <div className="text-xs text-muted-foreground">정답률 {d.accuracyRate}%</div>
         )}
-        <div className="text-xs text-muted-foreground">안정도 {d.score}%</div>
+        <div className="text-xs text-muted-foreground">안정도 {d.score}점</div>
       </div>
     );
   }
@@ -168,11 +274,11 @@ const CustomTooltip = ({ active, payload }: any) => {
     const stateColor = d.predictedState === "green" ? "#22c55e" : d.predictedState === "yellow" ? "#f59e0b" : "#ef4444";
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[160px]">
-        <div className="text-muted-foreground text-xs mb-1.5">시험일 예측 (D-{d.daysUntilExam})</div>
+        <div className="text-muted-foreground text-xs mb-1.5">시험일 예측 ({formatExamCountdown(d.minutesUntilExam ?? d.daysUntilExam * 24 * 60)})</div>
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: stateColor }} />
           <span className="font-semibold text-sm" style={{ color: stateColor }}>
-            예상 안정도 {d.score}%
+            예상 안정도 {d.score}점
           </span>
         </div>
         {d.scoreDelta < 0 && (
@@ -188,7 +294,7 @@ const CustomTooltip = ({ active, payload }: any) => {
       <div className="text-muted-foreground text-xs mb-1">현재</div>
       <div className="flex items-center gap-2">
         <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: BRAND_COLOR }} />
-        <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>안정도 {d.score}%</span>
+        <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>안정도 {d.score}점</span>
       </div>
     </div>
   );
@@ -199,22 +305,53 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
     { questionId: questionId! },
     { enabled: open && questionId !== null }
   );
+  const { data: latestConfidence } = trpc.confidence.getByQuestion.useQuery(
+    { questionId: questionId! },
+    {
+      enabled: open && questionId !== null && !examDatePrediction,
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    }
+  );
+  const effectiveExamDatePrediction =
+    examDatePrediction ?? ((latestConfidence as any)?.examDatePrediction ?? null);
 
-  const points = data?.points ?? [];
+  const points = (data?.points ?? []) as HistoryPoint[];
+  const pointsWithFallback: HistoryPoint[] = [...points];
+  if (pointsWithFallback.length === 0 && effectiveExamDatePrediction) {
+    const state =
+      effectiveExamDatePrediction.currentScore >= 80
+        ? "green"
+        : effectiveExamDatePrediction.currentScore >= 40
+          ? "yellow"
+          : "red";
+    pointsWithFallback.push({
+      at: new Date().toISOString(),
+      score: effectiveExamDatePrediction.currentScore,
+      state,
+      eventType: "now",
+    } as any);
+  }
 
   // 최신 시험 점 표시를 위해 isLatest 플래그 추가
-  const testPoints = points.filter(p => p.eventType === "test");
+  const testPoints = pointsWithFallback.filter(p => p.eventType === "test");
   const latestTestAt = testPoints.length > 0 ? testPoints[testPoints.length - 1].at : null;
 
   // 시험일 예측 포인트 추가 (현재 시점 이후에 점선으로 표시)
-  const allPoints = [...points];
-  if (examDatePrediction && points.length > 0) {
-    const examDate = new Date();
-    examDate.setDate(examDate.getDate() + examDatePrediction.daysUntilExam);
+  const allPoints: HistoryPoint[] = [...pointsWithFallback];
+  if (effectiveExamDatePrediction) {
+    let examDate = new Date(effectiveExamDatePrediction.examAtISO);
+    if (Number.isNaN(examDate.getTime())) {
+      examDate = new Date(Date.now() + (effectiveExamDatePrediction.minutesUntilExam ?? effectiveExamDatePrediction.daysUntilExam * 24 * 60) * 60_000);
+    }
+    const lastAt = allPoints.length > 0 ? new Date(allPoints[allPoints.length - 1].at).getTime() : Date.now();
+    if (examDate.getTime() <= lastAt) {
+      examDate = new Date(lastAt + 60_000);
+    }
     allPoints.push({
       at: examDate.toISOString(),
-      score: examDatePrediction.predictedScore,
-      state: examDatePrediction.predictedState,
+      score: effectiveExamDatePrediction.predictedScore,
+      state: effectiveExamDatePrediction.predictedState,
       eventType: "exam_predict",
     } as any);
   }
@@ -225,6 +362,8 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
   const predictPoint = allPoints.find(p => (p as any).eventType === "exam_predict");
 
   // mergedData: 모든 포인트를 하나의 배열로, solidScore/dashedScore 필드 분리
+  const firstTs = allPoints.length > 0 ? new Date(allPoints[0].at).getTime() : Date.now();
+  const adaptiveXPositions = buildAdaptiveXPositions(allPoints);
   const chartData = allPoints.map((p, i) => {
     const isPredict = (p as any).eventType === "exam_predict";
     const isJunction = lastSolidPoint && p.at === lastSolidPoint.at && !isPredict;
@@ -232,20 +371,25 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
       ...p,
       idx: i,
       label: allPoints.length > 0 ? formatTimeLabel(p.at, allPoints) : "",
+      xTs: new Date(p.at).getTime(),
+      xPos: adaptiveXPositions[i] ?? i,
       isLatest: p.at === latestTestAt && (p as any).eventType === "test",
       solidScore: isPredict ? null : p.score,
       // 점선은 마지막 실선 포인트부터 예측 포인트까지
       dashedScore: isPredict ? p.score : (isJunction ? p.score : null),
-      ...(isPredict && examDatePrediction ? {
-        predictedState: examDatePrediction.predictedState,
-        scoreDelta: examDatePrediction.scoreDelta,
-        daysUntilExam: examDatePrediction.daysUntilExam,
+      ...(isPredict && effectiveExamDatePrediction ? {
+        predictedState: effectiveExamDatePrediction.predictedState,
+        scoreDelta: effectiveExamDatePrediction.scoreDelta,
+        daysUntilExam: effectiveExamDatePrediction.daysUntilExam,
+        hoursUntilExam: effectiveExamDatePrediction.hoursUntilExam,
+        minutesUntilExam: effectiveExamDatePrediction.minutesUntilExam,
       } : {}),
     };
   });
 
   const hasData = solidData.length > 0;
   const currentScore = hasData ? solidData[solidData.length - 1].score : null;
+  const xDomainMax = chartData.length > 0 ? (chartData[chartData.length - 1].xPos + 80) : 80;
 
   // 현재 상태 색상 (점수 기반)
   const currentStateColor = currentScore === null
@@ -261,7 +405,7 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="max-w-2xl w-full">
+      <DialogContent className="w-[calc(100vw-28px)] max-w-[1240px] sm:max-w-[1240px] max-h-[94vh] overflow-visible !p-4 sm:!p-5">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <span className="text-base font-semibold truncate max-w-[320px]">
@@ -290,7 +434,7 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
         ) : (
           <>
             {/* 범례 */}
-            <div className="flex items-center gap-4 text-xs text-muted-foreground px-1 flex-wrap">
+            <div className="flex items-center gap-4 text-sm text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
                 안정도 흐름
@@ -303,7 +447,7 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                 <span className="inline-block w-3 h-3 rounded-full bg-red-500" />
                 시험 실패 (&lt;80%)
               </span>
-              {examDatePrediction && (
+              {effectiveExamDatePrediction && (
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-5 h-0.5" style={{ background: `repeating-linear-gradient(90deg, ${PREDICT_COLOR} 0, ${PREDICT_COLOR} 4px, transparent 4px, transparent 7px)` }} />
                   시험일 예측
@@ -315,11 +459,11 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
               </span>
             </div>
 
-            <div className="h-64 w-full mt-2">
+            <div className="h-[58vh] min-h-[460px] max-h-[760px] w-full mt-2 overflow-hidden">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart
                   data={chartData}
-                  margin={{ top: 10, right: 20, left: -10, bottom: 0 }}
+                  margin={{ top: 14, right: 76, left: 18, bottom: 12 }}
                 >
                   {/* 상태 구간 배경 영역 */}
                   <ReferenceArea y1={0} y2={40} fill="#ef4444" fillOpacity={0.06} />
@@ -328,19 +472,26 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
 
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
                   <XAxis
-                    dataKey="label"
-                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    type="number"
+                    dataKey="xPos"
+                    domain={[0, xDomainMax]}
+                    scale="linear"
+                    tickCount={8}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
+                    padding={{ left: 4, right: 18 }}
+                    tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
-                    interval="preserveStartEnd"
+                    tickFormatter={(value) => formatAdaptiveTick(Number(value), chartData, firstTs)}
                   />
                   <YAxis
                     domain={[0, 100]}
                     ticks={[0, 40, 80, 100]}
-                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
-                    width={32}
+                    width={48}
                   />
 
                   {/* 구간 경계선 */}
@@ -349,17 +500,21 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                     stroke="#22c55e"
                     strokeDasharray="4 3"
                     strokeOpacity={0.4}
-                    label={{ value: "안정", position: "right", fontSize: 10, fill: "#22c55e", fillOpacity: 0.7 }}
+                    label={{ value: "안정", position: "insideTopRight", fontSize: 12, fill: "#22c55e", fillOpacity: 0.75, dx: -14 }}
                   />
                   <ReferenceLine
                     y={40}
                     stroke="#f59e0b"
                     strokeDasharray="4 3"
                     strokeOpacity={0.4}
-                    label={{ value: "위험", position: "right", fontSize: 10, fill: "#f59e0b", fillOpacity: 0.7 }}
+                    label={{ value: "위험", position: "insideBottomRight", fontSize: 12, fill: "#f59e0b", fillOpacity: 0.75, dx: -14 }}
                   />
 
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip
+                    content={<CustomTooltip />}
+                    wrapperStyle={{ zIndex: 90 }}
+                    allowEscapeViewBox={{ x: true, y: true }}
+                  />
 
                   {/* 실선: 실제 안정도 흐름 */}
                   <Line
@@ -391,28 +546,30 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
             </div>
 
             {/* 시험일 예측 요약 (있을 경우) */}
-            {examDatePrediction && (
+            {effectiveExamDatePrediction && (
               <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm">
-                <span className="text-muted-foreground text-xs">D-{examDatePrediction.daysUntilExam} 예측</span>
+                <span className="text-muted-foreground text-xs">{formatExamCountdown(effectiveExamDatePrediction.minutesUntilExam)} 예측</span>
                 <span
                   className="font-bold text-base tabular-nums"
-                  style={{ color: examDatePrediction.predictedState === "green" ? "#22c55e" : examDatePrediction.predictedState === "yellow" ? "#f59e0b" : "#ef4444" }}
+                  style={{ color: effectiveExamDatePrediction.predictedState === "green" ? "#22c55e" : effectiveExamDatePrediction.predictedState === "yellow" ? "#f59e0b" : "#ef4444" }}
                 >
-                  {examDatePrediction.predictedScore}%
+                  {effectiveExamDatePrediction.predictedScore}점
                 </span>
-                {examDatePrediction.scoreDelta < 0 && (
-                  <span className="text-red-400 text-xs font-medium">{examDatePrediction.scoreDelta}점 예상 감소</span>
+                {effectiveExamDatePrediction.scoreDelta < 0 && (
+                  <span className="text-red-400 text-xs font-medium">{effectiveExamDatePrediction.scoreDelta}점 예상 감소</span>
                 )}
-                <span className="text-muted-foreground text-xs ml-auto">
-                  {examDatePrediction.canReachGreen ? "시험 전 안정 구간 도달 가능" : "추가 학습 필요"}
-                </span>
               </div>
             )}
 
             {/* 요약 통계 */}
             <div className="grid grid-cols-3 gap-3 mt-1">
               {[
-                { label: "연습 횟수", value: `${solidData.filter(p => p.eventType === "practice").length}회` },
+                {
+                  label: "연습 세션",
+                  value: `${solidData
+                    .filter(p => p.eventType === "practice")
+                    .reduce((sum, p: any) => sum + (p.practiceSessionCount ?? 1), 0)}회`,
+                },
                 { label: "시험 횟수", value: `${solidData.filter(p => p.eventType === "test").length}회` },
                 { label: "시험 성공률", value: (() => {
                   const tests = solidData.filter(p => p.eventType === "test");

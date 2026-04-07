@@ -12,10 +12,71 @@ import { Streamdown } from "streamdown";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { trackTestSubmit } from "@/lib/ga4Events";
 import { ConfidencePopup } from "@/components/ConfidencePopup";
+import { estimateTestConfidenceDelta } from "@shared/examConfidence";
 
 interface TestProps {
   questionId: number;
   isDemo?: boolean;
+}
+
+function deleteCurrentLineAtCursor(
+  value: string,
+  selectionStart: number,
+  selectionEnd: number
+): { nextValue: string; nextCursor: number } {
+  if (value.length === 0) return { nextValue: value, nextCursor: 0 };
+
+  if (selectionStart !== selectionEnd) {
+    return {
+      nextValue: value.slice(0, selectionStart) + value.slice(selectionEnd),
+      nextCursor: selectionStart,
+    };
+  }
+
+  const cursor = selectionStart;
+  const lineStart = value.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
+  const rawLineEnd = value.indexOf("\n", cursor);
+  const lineEnd = rawLineEnd === -1 ? value.length : rawLineEnd;
+
+  let removeStart = lineStart;
+  let removeEnd = lineEnd;
+
+  if (lineStart === 0 && lineEnd < value.length) {
+    removeEnd = lineEnd + 1;
+  } else if (lineStart > 0 && lineEnd === value.length) {
+    removeStart = lineStart - 1;
+  } else if (lineStart > 0 && lineEnd < value.length) {
+    removeEnd = lineEnd + 1;
+  }
+
+  return {
+    nextValue: value.slice(0, removeStart) + value.slice(removeEnd),
+    nextCursor: removeStart,
+  };
+}
+
+function deleteWordBeforeCursor(
+  value: string,
+  selectionStart: number,
+  selectionEnd: number
+): { nextValue: string; nextCursor: number } {
+  if (value.length === 0) return { nextValue: value, nextCursor: 0 };
+
+  if (selectionStart !== selectionEnd) {
+    return {
+      nextValue: value.slice(0, selectionStart) + value.slice(selectionEnd),
+      nextCursor: selectionStart,
+    };
+  }
+
+  let cursor = selectionStart;
+  while (cursor > 0 && /\s/.test(value[cursor - 1])) cursor--;
+  while (cursor > 0 && !/\s/.test(value[cursor - 1])) cursor--;
+
+  return {
+    nextValue: value.slice(0, cursor) + value.slice(selectionEnd),
+    nextCursor: cursor,
+  };
 }
 
 export default function Test({ questionId, isDemo = false }: TestProps) {
@@ -52,6 +113,10 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     { questionId },
     { enabled: !!questionId && !isDemo }
   );
+  const examPrediction = (confidenceData as any)?.examDatePrediction;
+  const estimatedHoursUntilExam = typeof examPrediction?.hoursUntilExam === "number"
+    ? examPrediction.hoursUntilExam
+    : (typeof examPrediction?.daysUntilExam === "number" ? examPrediction.daysUntilExam * 24 : null);
 
   // confidenceData가 로드되면 confidenceBefore 초기화
   useEffect(() => {
@@ -83,35 +148,31 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
         const result = await refetchConfidence();
         newScore = Math.round(result.data?.displayScore ?? prevScore);
       } catch {
-        // refetch 실패 시 로컬 계산으로 fallback
-        let scoreChange = data.isCorrect
-          ? (5 + Math.floor((data.similarityScore || 0) / 20))
-          : -(8 + Math.floor((100 - (data.similarityScore || 0)) / 15));
-        if (data.isCorrect && recallTime > 0) {
-          if (recallTime <= 10) scoreChange += 5;
-          else if (recallTime <= 20) scoreChange += 3;
-          else if (recallTime <= 30) scoreChange += 2;
-          else if (recallTime <= 45) scoreChange += 1;
-        }
+        // refetch 실패 시, 공유 추정식(서버 정책 기반)으로 fallback
+        const scoreChange = estimateTestConfidenceDelta({
+          currentScore: prevScore,
+          isCorrect: !!data.isCorrect,
+          similarityScore: data.similarityScore || 0,
+          recallTime,
+          hoursUntilExam: estimatedHoursUntilExam,
+        });
         newScore = Math.max(0, Math.min(100, prevScore + scoreChange));
       }
     } else {
-      // 데모 모드: 로컬 계산
-      let scoreChange = data.isCorrect
-        ? (5 + Math.floor((data.similarityScore || 0) / 20))
-        : -(8 + Math.floor((100 - (data.similarityScore || 0)) / 15));
-      if (data.isCorrect && recallTime > 0) {
-        if (recallTime <= 10) scoreChange += 5;
-        else if (recallTime <= 20) scoreChange += 3;
-        else if (recallTime <= 30) scoreChange += 2;
-        else if (recallTime <= 45) scoreChange += 1;
-      }
+      // 데모 모드: 공유 추정식 사용
+      const scoreChange = estimateTestConfidenceDelta({
+        currentScore: prevScore,
+        isCorrect: !!data.isCorrect,
+        similarityScore: data.similarityScore || 0,
+        recallTime,
+        hoursUntilExam: estimatedHoursUntilExam,
+      });
       newScore = Math.max(0, Math.min(100, prevScore + scoreChange));
     }
     setConfidenceBefore(prevScore);
     setConfidenceAfter(newScore);
     setShowConfidencePopup(true);
-  }, [confidenceBefore, recallTime, isDemo, refetchConfidence]);
+  }, [confidenceBefore, recallTime, isDemo, refetchConfidence, estimatedHoursUntilExam]);
 
   const recordAttemptMutation = trpc.typing.recordAttempt.useMutation({
     onSuccess: (data) => {
@@ -129,7 +190,10 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       
       // Update review schedule based on performance
       if (question) {
-        const quality = data.isCorrect ? 5 : Math.max(0, Math.floor(data.similarityScore / 20));
+        const similarity = data.similarityScore ?? 0;
+        const quality = data.isCorrect
+          ? (recallTime <= 15 ? 5 : recallTime <= 35 ? 4 : 3)
+          : (similarity >= 80 ? 2 : similarity >= 60 ? 1 : 0);
         await updateReviewMutation.mutateAsync({
           questionId: question.id,
           quality,
@@ -238,7 +302,10 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       );
 
       // Update review schedule
-      const quality = score === total ? 5 : Math.max(0, Math.floor((score / total) * 5));
+      const accuracyRate = Math.round((score / total) * 100);
+      const quality = score === total
+        ? (recallTime <= 15 ? 5 : 4)
+        : (accuracyRate >= 80 ? 2 : accuracyRate >= 60 ? 1 : 0);
       await updateReviewMutation.mutateAsync({
         questionId: question.id,
         quality,
@@ -383,6 +450,10 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const speedBonusText = speedBonus && speedBonus.bonus > 0
+    ? `⚡ 속도 보너스 +${speedBonus.bonus} (${speedBonus.label === "great" ? "매우 빠름" : "빠름"})`
+    : null;
+
   // 단축키 안내 표시 설정 (localStorage)
   const [showShortcutHelp, setShowShortcutHelp] = useState(() => {
     const saved = localStorage.getItem("showShortcutHelp");
@@ -396,6 +467,22 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const keyLower = e.key.toLowerCase();
+    const hasPrimaryModifier = e.ctrlKey || e.metaKey;
+    const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+
+    const pushAnswerHistory = (nextValue: string) => {
+      const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
+      if (newHistory[newHistory.length - 1] !== nextValue) {
+        newHistory.push(nextValue);
+        if (newHistory.length > 50) {
+          newHistory.shift();
+        }
+      }
+      setAnswerHistory(newHistory);
+      setAnswerHistoryIndex(Math.max(0, newHistory.length - 1));
+    };
+
     // Enter: 줄바꿈 추가 (autoNumbering=1인 경우, 답안 줄 수만큼 허용)
     if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey && question?.autoNumbering === 1) {
       const targetText = question?.answer || '';
@@ -414,8 +501,8 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       }
     }
     
-    // Ctrl+Z: Undo
-    if (e.ctrlKey && e.key === "z") {
+    // Cmd/Ctrl+Z: Undo
+    if (hasPrimaryModifier && !e.shiftKey && !e.altKey && keyLower === "z") {
       e.preventDefault();
       e.stopPropagation();
       
@@ -433,8 +520,13 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       return;
     }
     
-    // Ctrl+Shift+Z: Redo
-    if (e.ctrlKey && e.shiftKey && e.key === "z") {
+    // Redo:
+    // - Mac: Cmd+Shift+Z
+    // - Windows/Linux: Ctrl+Shift+Z 또는 Ctrl+Y
+    const isRedoShortcut =
+      (hasPrimaryModifier && e.shiftKey && !e.altKey && keyLower === "z") ||
+      (!isMac && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && keyLower === "y");
+    if (isRedoShortcut) {
       e.preventDefault();
       e.stopPropagation();
       
@@ -452,132 +544,72 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       return;
     }
     
-    // Shift+Backspace: 문장 삭제 (마지막 줄 삭제) - Alt+Backspace처럼 즉시 작동
-    if (e.shiftKey && !e.altKey && !e.ctrlKey && e.key === "Backspace") {
+    // Shift+Backspace: 현재 커서 줄 삭제 (Mac Option+Shift+Backspace 포함)
+    if (e.key === "Backspace" && e.shiftKey && !hasPrimaryModifier) {
       e.preventDefault();
       e.stopPropagation();
       
       const textarea = e.currentTarget;
       const composing = e.nativeEvent.isComposing;
-      
-      const deleteLine = (value: string) => {
-        const lines = value.split("\n");
-        if (lines.length > 1) {
-          lines.pop();
-          return lines.join("\n");
-        } else {
-          return "";
-        }
-      };
-      
-      if (composing) {
-        // 조합 중일 때: blur로 조합 강제 종료 후 삭제
-        textarea.blur();
-        setTimeout(() => {
-          const currentValue = textarea.value;
-          const newValue = deleteLine(currentValue);
-          setUserAnswer(newValue);
-          
-          // 히스토리에 기록
-          const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
-          if (newHistory[newHistory.length - 1] !== newValue) {
-            newHistory.push(newValue);
-            if (newHistory.length > 50) {
-              newHistory.shift();
-            }
-          }
-          setAnswerHistory(newHistory);
-          setAnswerHistoryIndex(newHistory.length - 1);
-          
-          textarea.focus();
-        }, 10);
-      } else {
-        // 조합 중이 아닐 때: 즉시 삭제
+
+      const applyDeleteLine = () => {
         const currentValue = textarea.value;
-        const newValue = deleteLine(currentValue);
-        setUserAnswer(newValue);
-        
-        // 히스토리에 기록
-        const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
-        if (newHistory[newHistory.length - 1] !== newValue) {
-          newHistory.push(newValue);
-          if (newHistory.length > 50) {
-            newHistory.shift();
-          }
-        }
-        setAnswerHistory(newHistory);
-        setAnswerHistoryIndex(newHistory.length - 1);
+        const selectionStart = textarea.selectionStart ?? currentValue.length;
+        const selectionEnd = textarea.selectionEnd ?? selectionStart;
+        const { nextValue, nextCursor } = deleteCurrentLineAtCursor(
+          currentValue,
+          selectionStart,
+          selectionEnd
+        );
+        setUserAnswer(nextValue);
+        pushAnswerHistory(nextValue);
+
+        requestAnimationFrame(() => {
+          textarea.focus();
+          textarea.setSelectionRange(nextCursor, nextCursor);
+        });
+      };
+
+      if (composing) {
+        textarea.blur();
+        setTimeout(applyDeleteLine, 10);
+      } else {
+        applyDeleteLine();
       }
       return;
     }
     
-    // Alt+Backspace: 띄어쓰기 단위 단어 삭제
-    if (e.altKey && !e.shiftKey && !e.ctrlKey && e.key === "Backspace") {
+    // Alt/Option+Backspace: 현재 커서 기준 이전 단어 삭제
+    if (e.key === "Backspace" && e.altKey && !e.shiftKey && !hasPrimaryModifier) {
       e.preventDefault();
       e.stopPropagation();
       
       const textarea = e.currentTarget;
-      
-      // 한글 조합 중인지 확인
       const composing = e.nativeEvent.isComposing;
-      
-      if (composing) {
-        // 조합 중일 때: blur로 조합 강제 종료 후 삭제
-        textarea.blur();
-        
-        // blur 후 약간의 지연 후 삭제 처리
-        setTimeout(() => {
-          const currentValue = textarea.value;
-          const trimmed = currentValue.trimEnd();
-          const lastSpaceIndex = trimmed.lastIndexOf(" ");
-          
-          let newValue: string;
-          if (lastSpaceIndex === -1) {
-            newValue = "";
-          } else {
-            newValue = currentValue.substring(0, lastSpaceIndex + 1);
-          }
-          
-          setUserAnswer(newValue);
-          
-          // 히스토리에 기록
-          const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
-          if (newHistory[newHistory.length - 1] !== newValue) {
-            newHistory.push(newValue);
-            if (newHistory.length > 50) {
-              newHistory.shift();
-            }
-          }
-          setAnswerHistory(newHistory);
-          setAnswerHistoryIndex(newHistory.length - 1);
-          
-          textarea.focus();
-        }, 10);
-      } else {
-        // 조합 중이 아닐 때: 즉시 삭제
+
+      const applyDeleteWord = () => {
         const currentValue = textarea.value;
-        const trimmed = currentValue.trimEnd();
-        const lastSpaceIndex = trimmed.lastIndexOf(" ");
-        
-        let newValue: string;
-        if (lastSpaceIndex === -1) {
-          newValue = "";
-        } else {
-          newValue = currentValue.substring(0, lastSpaceIndex + 1);
-        }
-        
-        setUserAnswer(newValue);
-        
-        // 히스토리에 기록
-        const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
-        if (newHistory[newHistory.length - 1] !== newValue) {
-          newHistory.push(newValue);
-          if (newHistory.length > 50) {
-            newHistory.shift();
-          }
-        }
-        setAnswerHistory(newHistory);
-        setAnswerHistoryIndex(newHistory.length - 1);
+        const selectionStart = textarea.selectionStart ?? currentValue.length;
+        const selectionEnd = textarea.selectionEnd ?? selectionStart;
+        const { nextValue, nextCursor } = deleteWordBeforeCursor(
+          currentValue,
+          selectionStart,
+          selectionEnd
+        );
+        setUserAnswer(nextValue);
+        pushAnswerHistory(nextValue);
+
+        requestAnimationFrame(() => {
+          textarea.focus();
+          textarea.setSelectionRange(nextCursor, nextCursor);
+        });
+      };
+
+      if (composing) {
+        textarea.blur();
+        setTimeout(applyDeleteWord, 10);
+      } else {
+        applyDeleteWord();
       }
       return;
     }
@@ -621,14 +653,14 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
           <CardTitle>문제를 찾을 수 없습니다</CardTitle>
         </CardHeader>
         <CardContent>
-          <Button onClick={() => setLocation("/subjects")}>과목 목록으로</Button>
+          <Button onClick={() => setLocation("/")}>메인으로</Button>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6">
       <ConfidencePopup
         show={showConfidencePopup}
         previousScore={confidenceBefore}
@@ -849,10 +881,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   />
                   {showShortcutHelp && (
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
-                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 실행 취소</span>
-                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Alt</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 단어 삭제</span>
-                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 문장 삭제</span>
-                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">A</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 전체 삭제</span>
+                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Cmd/Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 실행 취소</span>
+                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Cmd/Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 다시 실행</span>
+                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Option(Alt)</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 이전 단어 삭제</span>
+                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 현재 줄 삭제</span>
+                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Y</kbd> 다시 실행(Windows)</span>
                       <button onClick={toggleShortcutHelp} className="text-muted-foreground/50 hover:text-muted-foreground underline">숨기기</button>
                     </div>
                   )}
@@ -951,11 +984,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                     <div className="text-center p-4 bg-muted/30 rounded-lg">
                       <p className="text-3xl font-bold">{formatTime(recallTime)}</p>
                       <p className="text-sm text-muted-foreground mt-1">회상 시간</p>
-                      {tableScore && tableScore.score === tableScore.total && recallTime > 0 && recallTime <= 45 && (
-                        <p className="text-xs font-bold text-emerald-500 mt-1">
-                          ⚡ 속도 보너스 +{recallTime <= 10 ? 5 : recallTime <= 20 ? 3 : recallTime <= 30 ? 2 : 1}
-                        </p>
-                      )}
+                      {speedBonusText && <p className="text-xs font-bold text-blue-500 mt-1">{speedBonusText}</p>}
                     </div>
                   </div>
                   <div className="space-y-3">
@@ -991,16 +1020,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-3xl font-bold">{formatTime(recallTime)}</p>
                   <p className="text-sm text-muted-foreground mt-1">회상 시간</p>
-                  {result?.isCorrect && recallTime > 0 && recallTime <= 45 && (
-                    <p className="text-xs font-bold text-emerald-500 mt-1">
-                      ⚡ 속도 보너스 +{recallTime <= 10 ? 5 : recallTime <= 20 ? 3 : recallTime <= 30 ? 2 : 1}
-                    </p>
-                  )}
-                  {speedBonus && speedBonus.bonus > 0 && (
-                    <p className="text-xs font-bold text-blue-500 mt-1">
-                      ⚡ 타이핑 +{speedBonus.bonus} ({speedBonus.label === 'great' ? '매우 빠름' : '빠름'})
-                    </p>
-                  )}
+                  {speedBonusText && <p className="text-xs font-bold text-blue-500 mt-1">{speedBonusText}</p>}
                 </div>
               </div>
 

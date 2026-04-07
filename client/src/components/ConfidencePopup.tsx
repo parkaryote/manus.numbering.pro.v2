@@ -155,13 +155,13 @@ export function ConfidencePopup({
         <div className="mb-3">
           <div className="text-6xl font-black text-white tracking-tight">
             {displayScore}
-            <span className="text-3xl font-bold text-slate-300">%</span>
+            <span className="text-3xl font-bold text-slate-300">점</span>
           </div>
           <div
             className="text-2xl font-bold mt-1"
             style={{ color: isIncrease ? "#34d399" : "#f87171" }}
           >
-            {isIncrease ? "▲" : "▼"}&nbsp;{absScoreDiff}%
+            {isIncrease ? "▲" : "▼"}&nbsp;{absScoreDiff}점
           </div>
         </div>
 

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Star,
@@ -14,6 +14,16 @@ import {
   Zap,
   Clock,
 } from "lucide-react";
+
+const TOOTH_MORPHOLOGY_NAME = "치아형태학";
+
+function formatCountdownHMS(diffMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(diffMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours}시간 ${minutes}분 ${seconds}초`;
+}
 
 // 과목별 미니 그리드 (Subjects.tsx에서 재사용)
 function SubjectMiniGrid({
@@ -56,7 +66,7 @@ function SubjectMiniGrid({
           <div
             key={q.id}
             className={`rounded-md w-3 h-3 ${fillColor} ${borderColor}`}
-            title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}%` : ""}${starred ? " (중요)" : ""}`}
+            title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}점` : ""}${starred ? " (중요)" : ""}`}
           />
         );
       })}
@@ -65,7 +75,13 @@ function SubjectMiniGrid({
 }
 
 // 과목 카드 컴포넌트
-function SubjectStudyCard({ subject }: { subject: any }) {
+function SubjectStudyCard({
+  subject,
+  nowMs,
+}: {
+  subject: any;
+  nowMs: number;
+}) {
   const [, setLocation] = useLocation();
   const { data: questions } = trpc.questions.listBySubject.useQuery({
     subjectId: subject.id,
@@ -91,12 +107,14 @@ function SubjectStudyCard({ subject }: { subject: any }) {
   const greenCount = agg?.greenCount || 0;
   const coldCount = totalQ - redCount - yellowCount - greenCount;
 
-  // 시험일까지 남은 일수
-  const daysLeft = useMemo(() => {
-    if (!subject.examEndDate) return null;
-    const diff = new Date(subject.examEndDate).getTime() - Date.now();
-    return Math.ceil(diff / (1000 * 60 * 60 * 24));
-  }, [subject.examEndDate]);
+  const examDiffMs = subject.examEndDate
+    ? new Date(subject.examEndDate).getTime() - nowMs
+    : null;
+  const daysLeft = examDiffMs === null
+    ? null
+    : Math.ceil(examDiffMs / (1000 * 60 * 60 * 24));
+  const isToothMorphology = String(subject?.name ?? "").includes(TOOTH_MORPHOLOGY_NAME);
+  const toothCountdown = examDiffMs && examDiffMs > 0 ? formatCountdownHMS(examDiffMs) : null;
 
   const stateColor =
     agg?.state === "green"
@@ -131,7 +149,9 @@ function SubjectStudyCard({ subject }: { subject: any }) {
             <Badge
               variant="outline"
               className={`text-xs flex-shrink-0 ${
-                daysLeft <= 3
+                isToothMorphology
+                  ? "border-red-400 text-red-700 bg-red-100/90 dark:bg-red-950/40 dark:text-red-300 animate-pulse"
+                  : daysLeft <= 3
                   ? "border-red-300 text-red-600 bg-red-50 dark:bg-red-950/30 dark:text-red-400"
                   : daysLeft <= 7
                     ? "border-amber-300 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400"
@@ -139,7 +159,9 @@ function SubjectStudyCard({ subject }: { subject: any }) {
               }`}
             >
               <Clock className="w-3 h-3 mr-1" />
-              D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}
+              {isToothMorphology && toothCountdown
+                ? `D${daysLeft > 0 ? `-${daysLeft}` : "-Day"} · ${toothCountdown}`
+                : `D${daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}`}
             </Badge>
           )}
         </div>
@@ -150,7 +172,7 @@ function SubjectStudyCard({ subject }: { subject: any }) {
             <div className="flex items-center gap-3 mb-2">
               {agg && agg.totalQuestions > 0 ? (
                 <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium ${stateBg} ${stateColor}`}>
-                  <span className="text-base font-bold">{agg.averageScore}%</span>
+                  <span className="text-base font-bold">{agg.averageScore}점</span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-muted text-muted-foreground">
@@ -229,9 +251,15 @@ function SubjectStudyCard({ subject }: { subject: any }) {
 
 export default function Home() {
   const [, setLocation] = useLocation();
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const { data: subjects, isLoading: subjectsLoading } = trpc.subjects.list.useQuery();
   const { data: dueReviews } = trpc.review.getDue.useQuery();
   const { data: allQuestions } = trpc.questions.listAll.useQuery();
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // 별표 문제 추출
   const starredQuestions = useMemo(() => {
@@ -256,7 +284,7 @@ export default function Home() {
     return subjects
       .filter((s) => {
         if (!s.examEndDate) return false;
-        const diff = new Date(s.examEndDate).getTime() - Date.now();
+        const diff = new Date(s.examEndDate).getTime() - nowMs;
         const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
         return days >= 0 && days <= 7;
       })
@@ -265,7 +293,7 @@ export default function Home() {
         const dB = new Date(b.examEndDate!).getTime();
         return dA - dB;
       });
-  }, [subjects]);
+  }, [subjects, nowMs]);
 
   const hasContent = subjects && subjects.length > 0;
 
@@ -303,8 +331,10 @@ export default function Home() {
           </div>
           <div className="space-y-1.5">
             {urgentSubjects.map((s) => {
-              const diff = new Date(s.examEndDate!).getTime() - Date.now();
+              const diff = new Date(s.examEndDate!).getTime() - nowMs;
               const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+              const isToothMorphology = String(s?.name ?? "").includes(TOOTH_MORPHOLOGY_NAME);
+              const countdown = diff > 0 ? formatCountdownHMS(diff) : null;
               return (
                 <div
                   key={s.id}
@@ -320,9 +350,11 @@ export default function Home() {
                   </div>
                   <Badge
                     variant="destructive"
-                    className="text-xs"
+                    className={`text-xs ${isToothMorphology ? "animate-pulse" : ""}`}
                   >
-                    {days === 0 ? "D-Day" : `D-${days}`}
+                    {isToothMorphology && countdown
+                      ? `${days === 0 ? "D-Day" : `D-${days}`} · ${countdown}`
+                      : (days === 0 ? "D-Day" : `D-${days}`)}
                   </Badge>
                 </div>
               );
@@ -353,7 +385,7 @@ export default function Home() {
                 <div
                   key={review.id}
                   className="flex items-center justify-between text-sm cursor-pointer hover:bg-amber-100/50 dark:hover:bg-amber-900/20 rounded px-2 py-1 -mx-1 transition-colors"
-                  onClick={() => setLocation(`/practice/${question.id}`)}
+                  onClick={() => setLocation(`/practice/${question.id}?scrollNav=1`)}
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     {subj && (
@@ -396,7 +428,7 @@ export default function Home() {
                   key={q.id}
                   variant="outline"
                   className="cursor-pointer hover:bg-accent transition-colors text-xs gap-1 py-0.5"
-                  onClick={() => setLocation(`/practice/${q.id}`)}
+                  onClick={() => setLocation(`/practice/${q.id}?scrollNav=1`)}
                 >
                   {subj && (
                     <div
@@ -444,7 +476,7 @@ export default function Home() {
           </h2>
           <div className="grid gap-3 md:grid-cols-2">
             {subjects.map((subject) => (
-              <SubjectStudyCard key={subject.id} subject={subject} />
+              <SubjectStudyCard key={subject.id} subject={subject} nowMs={nowMs} />
             ))}
           </div>
         </div>

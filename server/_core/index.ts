@@ -30,6 +30,12 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  if (!process.env.DATABASE_URL) {
+    throw new Error(
+      "DATABASE_URL is required. Configure .env before running `pnpm dev`."
+    );
+  }
+
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads

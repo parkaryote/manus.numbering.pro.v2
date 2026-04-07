@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { SiteGate, useSiteAccess } from "./components/SiteGate";
@@ -17,8 +17,8 @@ import Test from "./pages/Test";
 import Statistics from "./pages/Statistics";
 import Demo from "./pages/Demo";
 import AdminDemoManagement from "./pages/AdminDemoManagement";
-import SubjectPractice from "./pages/SubjectPractice";
 import SubjectExam from "./pages/SubjectExam";
+import Login from "./pages/Login";
 
 const GUEST_ID_KEY = "numbering_guest_id";
 
@@ -61,7 +61,46 @@ function Layout({
   return <DashboardLayout>{children}</DashboardLayout>;
 }
 
+function RouteRedirect({ to }: { to: string }) {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    setLocation(to);
+  }, [setLocation, to]);
+
+  return null;
+}
+
+function SubjectPracticeRedirect({ subjectId }: { subjectId: number }) {
+  const [, setLocation] = useLocation();
+  const { data: questions } = trpc.questions.listBySubject.useQuery(
+    { subjectId },
+    { enabled: Number.isFinite(subjectId) }
+  );
+
+  useEffect(() => {
+    if (!questions) return;
+    if (questions.length === 0) {
+      setLocation(`/questions/${subjectId}`);
+      return;
+    }
+
+    const queryId = Number(new URLSearchParams(window.location.search).get("q"));
+    const hasQueryTarget = Number.isFinite(queryId) && questions.some((q) => q.id === queryId);
+    const targetQuestionId = hasQueryTarget ? queryId : questions[0].id;
+    setLocation(`/practice/${targetQuestionId}?scrollNav=1`);
+  }, [questions, setLocation, subjectId]);
+
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="text-muted-foreground text-sm">연속 연습 여는 중...</div>
+    </div>
+  );
+}
+
 function Router({ user, onAuthSuccess }: { user: { openId?: string; loginMethod?: string | null } | null | undefined; onAuthSuccess?: () => void }) {
+  const canAccessDemo = !user || isGuestUser(user);
+
   return (
     <Switch>
       <Route path={"/"}>
@@ -84,15 +123,7 @@ function Router({ user, onAuthSuccess }: { user: { openId?: string; loginMethod?
       <Route path={"/subject-practice/:subjectId"}>
         {(params) => (
           <Layout user={user} onAuthSuccess={onAuthSuccess}>
-            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
-              <div className="text-4xl">🚧</div>
-              <h2 className="text-xl font-bold">준비 중입니다</h2>
-              <p className="text-muted-foreground text-sm max-w-xs">수직 스크롤 연습 모드는 현재 준비 중입니다. 곧 업데이트될 예정입니다.</p>
-              <button
-                className="mt-2 text-sm text-primary hover:underline"
-                onClick={() => window.history.back()}
-              >← 돌아가기</button>
-            </div>
+            <SubjectPracticeRedirect subjectId={parseInt(params.subjectId)} />
           </Layout>
         )}
       </Route>
@@ -123,30 +154,67 @@ function Router({ user, onAuthSuccess }: { user: { openId?: string; loginMethod?
         </Layout>
       </Route>
       <Route path={"/demo"}>
-        <DemoDashboardLayout>
-          <Demo />
-        </DemoDashboardLayout>
-      </Route>
-      <Route path={"/demo/practice/:questionId"}>
-        {(params) => (
-          <DemoDashboardLayout>
-            <Practice questionId={parseInt(params.questionId)} isDemo={true} />
-          </DemoDashboardLayout>
+        {canAccessDemo ? (
+          <Layout user={user} onAuthSuccess={onAuthSuccess}>
+            <Demo />
+          </Layout>
+        ) : (
+          <RouteRedirect to="/subjects" />
         )}
       </Route>
+      <Route path={"/login"}>
+        <Login />
+      </Route>
+      <Route path={"/demo/practice/:questionId"}>
+        {(params) =>
+          canAccessDemo ? (
+            <Layout user={user} onAuthSuccess={onAuthSuccess}>
+              <Practice questionId={parseInt(params.questionId)} isDemo={true} />
+            </Layout>
+          ) : (
+            <RouteRedirect to={`/practice/${parseInt(params.questionId)}`} />
+          )
+        }
+      </Route>
       <Route path={"/demo/test/:questionId"}>
-        {(params) => (
-          <DemoDashboardLayout>
-            <Test questionId={parseInt(params.questionId)} isDemo={true} />
-          </DemoDashboardLayout>
+        {(params) =>
+          canAccessDemo ? (
+            <Layout user={user} onAuthSuccess={onAuthSuccess}>
+              <Test questionId={parseInt(params.questionId)} isDemo={true} />
+            </Layout>
+          ) : (
+            <RouteRedirect to={`/test/${parseInt(params.questionId)}`} />
+          )
+        }
+      </Route>
+      <Route path={"/demo/questions"}>
+        {canAccessDemo ? (
+          <Layout user={user} onAuthSuccess={onAuthSuccess}>
+            <Demo />
+          </Layout>
+        ) : (
+          <RouteRedirect to="/subjects" />
+        )}
+      </Route>
+      <Route path={"/demo/questions/"}>
+        {canAccessDemo ? (
+          <Layout user={user} onAuthSuccess={onAuthSuccess}>
+            <Demo />
+          </Layout>
+        ) : (
+          <RouteRedirect to="/subjects" />
         )}
       </Route>
       <Route path={"/demo/questions/:subjectId"}>
-        {(params) => (
-          <DemoDashboardLayout>
-            <Questions subjectId={parseInt(params.subjectId)} isDemo={true} />
-          </DemoDashboardLayout>
-        )}
+        {(params) =>
+          canAccessDemo ? (
+            <Layout user={user} onAuthSuccess={onAuthSuccess}>
+              <Questions subjectId={parseInt(params.subjectId)} isDemo={true} />
+            </Layout>
+          ) : (
+            <RouteRedirect to="/subjects" />
+          )
+        }
       </Route>
       <Route path={"/admin/demo-management"}>
         <DashboardLayout>
@@ -164,21 +232,18 @@ function AppContent() {
   // 먼저 현재 세션 확인 (이미 로그인된 경우 게스트 로그인 건너뜀)
   const [initDone, setInitDone] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const meQuery = trpc.auth.me.useQuery(undefined, {
+    enabled: initDone,
+    retry: false,
+    refetchOnWindowFocus: true,
+  });
 
   // 로그인/가입 성공 후 currentUser를 업데이트하는 함수 (reload 없이 레이아웃 전환)
   const handleAuthSuccess = async () => {
     try {
-      const res = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const user = data?.[0]?.result?.data?.json;
-        if (user) {
-          setCurrentUser(user);
-          return;
-        }
-      }
+      const latest = await meQuery.refetch();
+      setCurrentUser(latest.data ?? null);
+      return;
     } catch { /* ignore */ }
     window.location.reload();
   };
@@ -226,6 +291,12 @@ function AppContent() {
     init();
   }, []);
 
+  useEffect(() => {
+    if (!initDone) return;
+    if (meQuery.isLoading) return;
+    setCurrentUser(meQuery.data ?? null);
+  }, [initDone, meQuery.data, meQuery.isLoading]);
+
   if (!initDone) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -246,13 +317,22 @@ function AppContent() {
 }
 
 function App() {
+  // 임시 비활성화: 베타 테스트 동안 접속 비밀번호 게이트를 우회합니다.
+  // 다시 사용할 때 false로 변경하세요.
+  const TEMP_DISABLE_SITE_GATE = true;
   const { granted, grant } = useSiteAccess();
+  const globalFooterNotice = (
+    <p className="pointer-events-none fixed bottom-1.5 left-1/2 z-50 -translate-x-1/2 select-none text-[10px] text-muted-foreground/45">
+      본 자료는 내부 학습용이며, 요청 시 삭제됩니다.
+    </p>
+  );
 
-  if (!granted) {
+  if (!TEMP_DISABLE_SITE_GATE && !granted) {
     return (
       <ErrorBoundary>
         <ThemeProvider defaultTheme="light" switchable={false}>
           <SiteGate onGranted={grant} />
+          {globalFooterNotice}
         </ThemeProvider>
       </ErrorBoundary>
     );
@@ -262,6 +342,7 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light" switchable={true}>
         <AppContent />
+        {globalFooterNotice}
       </ThemeProvider>
     </ErrorBoundary>
   );

@@ -40,6 +40,14 @@ const colorOptions = [
   "#14B8A6", // Teal
 ];
 
+function toDateTimeLocalValue(value?: string | Date | null): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // 과목별 미니 그리드: 색상 점 + 별표만 표시
 function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
   const { data: questions } = trpc.questions.listBySubject.useQuery({ subjectId });
@@ -85,7 +93,7 @@ function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
           <div
             key={q.id}
             className={`rounded-md w-3 h-3 ${fillColor} ${borderColor}`}
-            title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}%` : ""}${starred ? " (중요)" : ""}`}
+            title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}점` : ""}${starred ? " (중요)" : ""}`}
           />
         );
       })}
@@ -154,7 +162,7 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
           {/* 안정도 요약 */}
           {subjectConfidence?.aggregate && subjectConfidence.aggregate.totalQuestions > 0 && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <span className="font-semibold">{subjectConfidence.aggregate.averageScore}%</span>
+              <span className="font-semibold">{subjectConfidence.aggregate.averageScore}점</span>
               <div className="flex items-center gap-2">
                 {subjectConfidence.aggregate.redCount > 0 && (
                   <span className="flex items-center gap-0.5" title="취약">
@@ -304,7 +312,7 @@ export default function Subjects() {
       name: subject.name,
       description: subject.description || "",
       color: subject.color || colorOptions[0],
-      examEndDate: subject.examEndDate ? new Date(subject.examEndDate).toISOString().split('T')[0] : "",
+      examEndDate: toDateTimeLocalValue(subject.examEndDate),
       isDemo: subject.isDemo === 1,
     });
     setIsEditOpen(true);
@@ -407,15 +415,15 @@ export default function Subjects() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="examEndDate">시험 종료일</Label>
+                <Label htmlFor="examEndDate">시험 일시</Label>
                 <Input
                   id="examEndDate"
-                  type="date"
+                  type="datetime-local"
                   value={formData.examEndDate}
                   onChange={(e) => setFormData({ ...formData, examEndDate: e.target.value })}
                 />
                 <p className="text-xs text-muted-foreground">
-                  시험 종료일로부터 1달 후, 연습/시험 기록이 없는 문제는 자동 삭제됩니다.
+                  시험 일시를 기준으로 예측을 계산합니다. 시험 후 1달이 지나고 미사용이면 자동 삭제됩니다.
                 </p>
               </div>
               {isAdmin && (
@@ -530,15 +538,15 @@ export default function Subjects() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-examEndDate">시험 종료일</Label>
+              <Label htmlFor="edit-examEndDate">시험 일시</Label>
               <Input
                 id="edit-examEndDate"
-                type="date"
+                type="datetime-local"
                 value={formData.examEndDate}
                 onChange={(e) => setFormData({ ...formData, examEndDate: e.target.value })}
               />
               <p className="text-xs text-muted-foreground">
-                시험 종료일로부터 1달 후, 연습/시험 기록이 없는 문제는 자동 삭제됩니다.
+                시험 일시를 기준으로 예측을 계산합니다. 시험 후 1달이 지나고 미사용이면 자동 삭제됩니다.
               </p>
             </div>
             {isAdmin && (

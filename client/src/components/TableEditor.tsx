@@ -593,6 +593,7 @@ interface TableViewProps {
   onCellCheck?: (key: string) => void; // 셀 체크박스 토글
   partialInput?: string; // 현재 입력 중인 텍스트 (채점 시각화용)
   cellSubmittedResult?: 'correct' | 'wrong' | 'typing' | null; // 실시간 채점 결과 (null: 미입력, typing: 입력중, correct: 정답, wrong: 오답)
+  wrongCells?: Set<string>; // 오답 제출 이력이 있는 셀
 }
 
 export function TableView({
@@ -612,6 +613,7 @@ export function TableView({
   onCellActivate,
   partialInput = '',
   cellSubmittedResult = null,
+  wrongCells = new Set(),
 }: TableViewProps) {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const blankCells = getBlankCells(tableData);
@@ -663,6 +665,7 @@ export function TableView({
                 const isActiveCell = activeCellKey === cellKey;
                 const isCompleted = completedCells.has(cellKey);
                 const isCellChecked = checkedCells.has(cellKey);
+                const isWrongCell = wrongCells.has(cellKey);
 
                 let bgColor = "bg-white";
                 if (isHeader) bgColor = "bg-slate-100";
@@ -670,12 +673,15 @@ export function TableView({
                 if (!practiceMode && isBlank && !showAnswers) bgColor = "bg-yellow-50";
                 if (isCorrect === true) bgColor = "bg-green-50";
                 if (isCorrect === false) bgColor = "bg-red-50";
+                if (activeCellKey !== null && isBlank && isWrongCell && !isCompleted) bgColor = "bg-red-50/50";
                 // 하단 입력창 모드: 집중 연습 선택된 셀은 연한 보라 배경 tint (인라인 스타일로 적용)
                 const isFocusCell = activeCellKey !== null && isBlank && isCellChecked && !isActiveCell;
 
                 // 하단 입력창 모드에서 활성 셀 테두리 강조 (active: 두꺼운 보라 + glow)
                 const cellBorderClass = isActiveCell
-                  ? 'border-2 border-purple-500 shadow-[0_0_0_2px_oklch(0.55_0.2_290_/_0.2)]'
+                  ? cellSubmittedResult === 'wrong'
+                    ? 'border-2 border-red-500 shadow-[0_0_0_2px_oklch(0.62_0.23_24_/_0.18)]'
+                    : 'border-2 border-purple-500 shadow-[0_0_0_2px_oklch(0.55_0.2_290_/_0.2)]'
                   : 'border border-slate-300';
 
                 return (
@@ -757,7 +763,11 @@ export function TableView({
                         {/* 미입력 셀 - 단일 클릭으로 셀 이동, 더블 클릭으로 집중 연습 토글 */}
                         {!isActiveCell && !isCompleted && (
                           <div
-                            className="text-sm cursor-pointer text-slate-300 hover:text-slate-400 transition-colors"
+                            className={`text-sm cursor-pointer transition-colors ${
+                              isWrongCell
+                                ? 'text-red-500 hover:text-red-600'
+                                : 'text-slate-300 hover:text-slate-400'
+                            }`}
                             onClick={(e) => {
                               if (e.detail === 2) {
                                 // 더블 클릭: 집중 연습 토글

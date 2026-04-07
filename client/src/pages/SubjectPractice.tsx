@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ClipboardCheck, BookOpen, RotateCcw } from "lucide-react";
+import { ArrowLeft, ClipboardCheck, BookOpen } from "lucide-react";
 import { isPartialMatch, splitGraphemes } from "@/lib/hangul";
 import { toast } from "sonner";
 
@@ -11,52 +11,110 @@ interface SubjectPracticeProps {
   subjectId: number;
 }
 
-// 텍스트 정규화 (공백 무시)
+interface PracticeQuestion {
+  id: number;
+  subjectId: number;
+  displayOrder: number;
+  question: string;
+  answer?: string | null;
+  tableData?: string | null;
+  imageUrl?: string | null;
+  imageLabels?: string | null;
+}
+
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, "");
 }
 
-// 문제 타입 판별
-function getQuestionType(q: { imageUrl?: string | null; imageLabels?: string | null; tableData?: string | null; answer?: string | null }) {
-  if (q.imageUrl) return "image";
-  if (q.tableData) return "table";
-  return "text";
+function getQuestionType(q: Pick<PracticeQuestion, "imageUrl" | "tableData">) {
+  if (q.imageUrl) return "image" as const;
+  if (q.tableData) return "table" as const;
+  return "text" as const;
 }
 
-// 안정도 색상 (accent 바 스타일)
 function getStateBarColor(state?: string) {
   if (state === "green") return "bg-emerald-500";
   if (state === "yellow") return "bg-amber-400";
   return "bg-red-500";
 }
 
-// 글자별 채점 렌더링 (텍스트 모드)
-function renderColoredText(
-  targetText: string,
-  userInput: string,
-  isComposing: boolean
-) {
+function isCompleteCharMatch(match: ReturnType<typeof isPartialMatch>) {
+  return match === "complete" || match === "partial_complete";
+}
+
+function computeTextCompletionRatio(targetText: string, userInput: string): number {
+  const targetLinesRaw = targetText.split("\n");
+  const userLinesRaw = userInput.split("\n");
+
+  const meaningfulTargetLines = targetLinesRaw
+    .map((line, idx) => ({ line, idx, normalized: normalizeText(line) }))
+    .filter((item) => item.normalized.length > 0);
+
+  if (meaningfulTargetLines.length === 0) return 0;
+
+  // 한 줄 문제는 문자 진행률로도 부분점수 인정
+  if (meaningfulTargetLines.length === 1) {
+    const line = meaningfulTargetLines[0];
+    const targetChars = splitGraphemes(line.normalized);
+    const userChars = splitGraphemes(normalizeText(userLinesRaw[line.idx] || ""));
+    if (targetChars.length === 0) return 0;
+
+    let matched = 0;
+    for (let i = 0; i < Math.min(targetChars.length, userChars.length); i++) {
+      const result = isPartialMatch(userChars[i], targetChars[i], targetChars[i + 1]);
+      if (isCompleteCharMatch(result)) matched++;
+      else break;
+    }
+    return Math.max(0, Math.min(1, matched / targetChars.length));
+  }
+
+  // 여러 줄 문제는 "완성한 줄 비율" 기반
+  let completedLines = 0;
+
+  for (const item of meaningfulTargetLines) {
+    const targetChars = splitGraphemes(item.normalized);
+    const userChars = splitGraphemes(normalizeText(userLinesRaw[item.idx] || ""));
+    if (targetChars.length === 0) continue;
+    if (userChars.length < targetChars.length) continue;
+
+    let lineComplete = true;
+    for (let i = 0; i < targetChars.length; i++) {
+      const result = isPartialMatch(userChars[i] || "", targetChars[i], targetChars[i + 1]);
+      if (!isCompleteCharMatch(result)) {
+        lineComplete = false;
+        break;
+      }
+    }
+
+    if (lineComplete) completedLines++;
+  }
+
+  return Math.max(0, Math.min(1, completedLines / meaningfulTargetLines.length));
+}
+
+function renderColoredText(targetText: string, userInput: string, isComposing: boolean) {
   const targetLines = targetText.split("\n");
   const userLines = userInput.split("\n");
 
   return targetLines.map((line, lineIdx) => {
-    const tChars = splitGraphemes(line);
-    const uChars = splitGraphemes(userLines[lineIdx] || "");
+    const targetChars = splitGraphemes(line);
+    const userChars = splitGraphemes(userLines[lineIdx] || "");
 
     return (
       <div key={lineIdx} className="font-semibold text-base leading-relaxed">
-        {tChars.map((ch, i) => {
-          const uch = uChars[i];
+        {targetChars.map((ch, i) => {
+          const uch = userChars[i];
           let colorClass = "text-muted-foreground/40";
+
           if (uch !== undefined) {
-            if (isComposing && i === uChars.length - 1) {
+            if (isComposing && i === userChars.length - 1) {
               colorClass = "text-muted-foreground";
-            } else if (isPartialMatch(ch, uch)) {
-              colorClass = "text-foreground";
             } else {
-              colorClass = "text-red-500";
+              const match = isPartialMatch(uch, ch, targetChars[i + 1]);
+              colorClass = isCompleteCharMatch(match) ? "text-foreground" : "text-red-500";
             }
           }
+
           return (
             <span key={i} className={`transition-colors duration-150 ${colorClass}`}>
               {ch}
@@ -69,24 +127,54 @@ function renderColoredText(
   });
 }
 
-// 개별 문제 연습 섹션
+function TablePreview({ tableData }: { tableData: string }) {
+  try {
+    const td = JSON.parse(tableData);
+    const rows: string[][] = td.rows || [];
+    const headers: string[] = td.headers || [];
+
+    return (
+      <div className="overflow-x-auto">
+        <table className="text-sm border-collapse w-full">
+          {headers.length > 0 && (
+            <thead>
+              <tr>
+                {headers.map((h: string, i: number) => (
+                  <th key={i} className="border border-border px-3 py-1.5 bg-muted text-left font-medium text-xs">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+          )}
+          <tbody>
+            {rows.map((row: string[], ri: number) => (
+              <tr key={ri}>
+                {row.map((cell: string, ci: number) => (
+                  <td key={ci} className="border border-border px-3 py-1.5 text-sm">
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  } catch {
+    return <div className="text-sm text-muted-foreground italic">표 데이터 파싱 오류</div>;
+  }
+}
+
 function QuestionPracticeSection({
   question,
   confidenceInfo,
-  practiceCount: savedPracticeCount,
+  practiceCount,
   isFocused,
   onFocus,
   sectionRef,
 }: {
-  question: {
-    id: number;
-    displayOrder: number;
-    question: string;
-    answer?: string | null;
-    tableData?: string | null;
-    imageUrl?: string | null;
-    imageLabels?: string | null;
-  };
+  question: PracticeQuestion;
   confidenceInfo?: { displayScore: number; state: string; isColdStart: boolean };
   practiceCount: number;
   isFocused: boolean;
@@ -103,9 +191,12 @@ function QuestionPracticeSection({
       onClick={onFocus}
       data-question-id={question.id}
     >
-      {/* 문제 헤더 */}
-      <div className={`sticky top-0 z-10 flex items-center gap-3 px-6 py-3 border-b border-border/50 backdrop-blur-sm ${isFocused ? "bg-background/95" : "bg-muted/80"}`}>
-        <span className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${isFocused ? "bg-primary" : "bg-muted-foreground/40"}`}>
+      <div
+        className={`sticky top-0 z-10 flex items-center gap-3 px-6 py-3 border-b border-border/50 backdrop-blur-sm ${isFocused ? "bg-background/95" : "bg-muted/80"}`}
+      >
+        <span
+          className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${isFocused ? "bg-primary" : "bg-muted-foreground/40"}`}
+        >
           {question.displayOrder}
         </span>
         <span className="text-sm font-medium text-foreground truncate flex-1">
@@ -113,14 +204,12 @@ function QuestionPracticeSection({
         </span>
         <div className="flex items-center gap-2 flex-shrink-0">
           {confidenceInfo && !confidenceInfo.isColdStart && (
-            <span className="text-xs text-muted-foreground font-mono">
-              {confidenceInfo.displayScore}%
-            </span>
+            <span className="text-xs text-muted-foreground font-mono">{confidenceInfo.displayScore}점</span>
           )}
           <div className={`w-3 h-[3px] rounded-full ${getStateBarColor(confidenceInfo?.state)}`} />
-          {savedPracticeCount > 0 && (
+          {practiceCount > 0 && (
             <Badge variant="secondary" className="text-xs h-5 px-1.5">
-              {savedPracticeCount}회
+              {practiceCount}회
             </Badge>
           )}
           {qType !== "text" && (
@@ -131,16 +220,13 @@ function QuestionPracticeSection({
         </div>
       </div>
 
-      {/* 문제 본문 */}
       <div className="px-6 py-5">
         {isText && question.answer ? (
-          <div className="text-base font-semibold leading-relaxed text-foreground whitespace-pre-wrap">
-            {question.answer}
-          </div>
+          <div className="text-base font-semibold leading-relaxed text-foreground whitespace-pre-wrap">{question.answer}</div>
         ) : qType === "table" && question.tableData ? (
           <TablePreview tableData={question.tableData} />
         ) : qType === "image" ? (
-          <div className="text-sm text-muted-foreground italic">이미지 문제 — 개별 연습 페이지에서 진행하세요</div>
+          <div className="text-sm text-muted-foreground italic">이미지 문제 — 하단 패널에서 백지시험으로 이동하세요</div>
         ) : (
           <div className="text-sm text-muted-foreground italic">답안 없음</div>
         )}
@@ -149,193 +235,113 @@ function QuestionPracticeSection({
   );
 }
 
-// 표 미리보기
-function TablePreview({ tableData }: { tableData: string }) {
-  try {
-    const td = JSON.parse(tableData);
-    const rows: string[][] = td.rows || [];
-    const headers: string[] = td.headers || [];
-    return (
-      <div className="overflow-x-auto">
-        <table className="text-sm border-collapse w-full">
-          {headers.length > 0 && (
-            <thead>
-              <tr>
-                {headers.map((h: string, i: number) => (
-                  <th key={i} className="border border-border px-3 py-1.5 bg-muted text-left font-medium text-xs">{h}</th>
-                ))}
-              </tr>
-            </thead>
-          )}
-          <tbody>
-            {rows.map((row: string[], ri: number) => (
-              <tr key={ri}>
-                {row.map((cell: string, ci: number) => (
-                  <td key={ci} className="border border-border px-3 py-1.5 text-sm">{cell}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  } catch {
-    return <div className="text-sm text-muted-foreground italic">표 데이터 파싱 오류</div>;
-  }
-}
-
-// 하단 sticky 입력 패널
 function StickyInputPanel({
   question,
+  draftValue,
+  onDraftChange,
   onCorrect,
   onGoToTest,
 }: {
-  question: {
-    id: number;
-    displayOrder: number;
-    question: string;
-    answer?: string | null;
-    tableData?: string | null;
-    imageUrl?: string | null;
-  } | null;
+  question: PracticeQuestion | null;
+  draftValue: string;
+  onDraftChange: (questionId: number, value: string) => void;
   onCorrect: (questionId: number) => void;
   onGoToTest: (questionId: number) => void;
 }) {
-  const [userInput, setUserInput] = useState("");
+  const [userInput, setUserInput] = useState(draftValue);
   const [isComposing, setIsComposing] = useState(false);
   const [isFadingOut, setIsFadingOut] = useState(false);
   const [damageValue, setDamageValue] = useState(0);
   const [showDamage, setShowDamage] = useState(false);
-  const [localPracticeCount, setLocalPracticeCount] = useState(0);
+  const [localCompleteCountByQuestion, setLocalCompleteCountByQuestion] = useState<Record<number, number>>({});
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const prevQuestionIdRef = useRef<number | null>(null);
   const isResettingRef = useRef(false);
-
-  const utils = trpc.useUtils();
-  const createSession = trpc.practice.create.useMutation();
-
-  // 문제 바뀌면 입력창 초기화
-  useEffect(() => {
-    if (question && question.id !== prevQuestionIdRef.current) {
-      prevQuestionIdRef.current = question.id;
-      setUserInput("");
-      setLocalPracticeCount(0);
-      setIsFadingOut(false);
-      setShowDamage(false);
-      if (textareaRef.current) {
-        textareaRef.current.value = "";
-        textareaRef.current.focus();
-      }
-    }
-  }, [question?.id]);
-
-  const targetText = useMemo(() => {
-    if (!question?.answer) return "";
-    return question.answer;
-  }, [question?.answer]);
 
   const qType = question ? getQuestionType(question) : "text";
   const isText = qType === "text";
+  const targetText = useMemo(() => (question?.answer ? question.answer : ""), [question?.answer]);
+
+  useEffect(() => {
+    setUserInput(draftValue || "");
+    setIsFadingOut(false);
+    isResettingRef.current = false;
+  }, [question?.id, draftValue]);
 
   const handleCorrectAnswer = useCallback(() => {
-    if (!question) return;
-    const newCount = localPracticeCount + 1;
-    setLocalPracticeCount(newCount);
+    if (!question || isResettingRef.current) return;
 
-    setTimeout(() => setIsFadingOut(true), 150);
+    isResettingRef.current = true;
+    const qid = question.id;
+    setLocalCompleteCountByQuestion((prev) => ({ ...prev, [qid]: (prev[qid] || 0) + 1 }));
+
+    setTimeout(() => setIsFadingOut(true), 120);
     setTimeout(() => {
-      isResettingRef.current = true;
       setIsComposing(false);
       setUserInput("");
-      if (textareaRef.current) {
-        textareaRef.current.blur();
-        textareaRef.current.value = "";
-      }
-      // 증감 애니메이션
+      onDraftChange(qid, "");
+
       setShowDamage(false);
       requestAnimationFrame(() => {
-        const prevScore = Math.round(25 * (1 - Math.exp(-(newCount - 1) * 0.25)));
-        const nextScore = Math.round(25 * (1 - Math.exp(-newCount * 0.25)));
-        setDamageValue(Math.max(1, nextScore - prevScore));
+        setDamageValue(1);
         setShowDamage(true);
       });
+
       setTimeout(() => {
         setIsFadingOut(false);
         isResettingRef.current = false;
-        if (textareaRef.current) {
-          textareaRef.current.focus();
-        }
+        textareaRef.current?.focus();
       }, 50);
-    }, 400);
 
-    // DB 저장
-    createSession.mutate(
-      { questionId: question.id, duration: 1, typingSpeed: 0, accuracy: 100, errorCount: 0 },
-      {
-        onSuccess: () => {
-          utils.confidence.getBySubject.invalidate({ subjectId: question ? (question as any).subjectId : 0 });
-          utils.practice.countByQuestion.invalidate({ questionId: question.id });
-        },
+      onCorrect(qid);
+    }, 320);
+  }, [question, onDraftChange, onCorrect]);
+
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      if (!question || isResettingRef.current) return;
+
+      const next = e.target.value;
+      setUserInput(next);
+      onDraftChange(question.id, next);
+
+      if (!isText || !targetText || isComposing) return;
+
+      const ratio = computeTextCompletionRatio(targetText, next);
+      if (ratio >= 0.999) {
+        handleCorrectAnswer();
       }
-    );
-    onCorrect(question.id);
-  }, [question, localPracticeCount, createSession, utils, onCorrect]);
+    },
+    [question, onDraftChange, isText, targetText, isComposing, handleCorrectAnswer]
+  );
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (isResettingRef.current) return;
-    const newValue = e.target.value;
-    setUserInput(newValue);
+  const handleCompositionEnd = useCallback(
+    (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+      if (!question || isResettingRef.current) return;
 
-    if (!isText || !targetText || isComposing) return;
+      setIsComposing(false);
+      const next = (e.target as HTMLTextAreaElement).value;
+      setUserInput(next);
+      onDraftChange(question.id, next);
 
-    // 자동 완료 감지
-    const targetLines = targetText.split("\n");
-    const userLines = newValue.split("\n");
-    let allComplete = true;
-    for (let li = 0; li < targetLines.length; li++) {
-      const tChars = splitGraphemes(targetLines[li].replace(/\s+/g, ""));
-      const uChars = splitGraphemes((userLines[li] || "").replace(/\s+/g, ""));
-      if (tChars.length === 0) continue;
-      if (uChars.length < tChars.length) { allComplete = false; break; }
-      for (let i = 0; i < tChars.length; i++) {
-        if (!isPartialMatch(tChars[i], uChars[i] || "")) { allComplete = false; break; }
+      if (!isText || !targetText) return;
+
+      const ratio = computeTextCompletionRatio(targetText, next);
+      if (ratio >= 0.999) {
+        handleCorrectAnswer();
       }
-      if (!allComplete) break;
-    }
-    if (allComplete && normalizeText(targetText).length > 0) {
-      handleCorrectAnswer();
-    }
-  }, [isText, targetText, isComposing, handleCorrectAnswer]);
+    },
+    [question, onDraftChange, isText, targetText, handleCorrectAnswer]
+  );
 
-  const handleCompositionEnd = useCallback((e: React.CompositionEvent<HTMLTextAreaElement>) => {
-    setIsComposing(false);
-    const newValue = (e.target as HTMLTextAreaElement).value;
-    if (!isText || !targetText) return;
-
-    const targetLines = targetText.split("\n");
-    const userLines = newValue.split("\n");
-    let allComplete = true;
-    for (let li = 0; li < targetLines.length; li++) {
-      const tChars = splitGraphemes(targetLines[li].replace(/\s+/g, ""));
-      const uChars = splitGraphemes((userLines[li] || "").replace(/\s+/g, ""));
-      if (tChars.length === 0) continue;
-      if (uChars.length < tChars.length) { allComplete = false; break; }
-      for (let i = 0; i < tChars.length; i++) {
-        if (!isPartialMatch(tChars[i], uChars[i] || "")) { allComplete = false; break; }
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && e.shiftKey && question) {
+        e.preventDefault();
+        onGoToTest(question.id);
       }
-      if (!allComplete) break;
-    }
-    if (allComplete && normalizeText(targetText).length > 0) {
-      handleCorrectAnswer();
-    }
-  }, [isText, targetText, handleCorrectAnswer]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && e.shiftKey && question) {
-      e.preventDefault();
-      onGoToTest(question.id);
-    }
-  }, [question, onGoToTest]);
+    },
+    [question, onGoToTest]
+  );
 
   if (!question) {
     return (
@@ -346,39 +352,38 @@ function StickyInputPanel({
   }
 
   const isImageOrTable = qType === "image" || qType === "table";
+  const localCompleteCount = localCompleteCountByQuestion[question.id] || 0;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 bg-background/98 backdrop-blur-md border-t border-border shadow-lg">
-      {/* 데미지 숫자 애니메이션 */}
       {showDamage && (
         <div
           className="absolute -top-8 left-1/2 -translate-x-1/2 text-green-500 font-bold text-lg animate-in fade-in slide-in-from-bottom-2 duration-300 pointer-events-none"
-          onAnimationEnd={() => setTimeout(() => setShowDamage(false), 800)}
+          onAnimationEnd={() => setTimeout(() => setShowDamage(false), 600)}
         >
-          +{damageValue}
+          +{damageValue}점
         </div>
       )}
 
-      <div className="max-w-3xl mx-auto px-4 py-3">
-        {/* 현재 문제 표시 */}
+      <div className="max-w-4xl mx-auto px-4 py-3">
         <div className="flex items-center gap-2 mb-2">
           <span className="text-xs font-bold text-primary">#{question.displayOrder}</span>
           <span className="text-xs text-muted-foreground truncate flex-1">
-            {question.question.length > 50 ? question.question.slice(0, 50) + "…" : question.question}
+            {question.question.length > 70 ? question.question.slice(0, 70) + "…" : question.question}
           </span>
-          {localPracticeCount > 0 && (
+          {localCompleteCount > 0 && (
             <Badge variant="secondary" className="text-xs h-5 px-1.5 flex-shrink-0">
-              이번 {localPracticeCount}회
+              이번 {localCompleteCount}회
             </Badge>
           )}
           <Button
             variant="ghost"
             size="sm"
             className="h-6 px-2 text-xs flex-shrink-0"
-            onClick={() => question && onGoToTest(question.id)}
+            onClick={() => onGoToTest(question.id)}
           >
             <ClipboardCheck className="h-3 w-3 mr-1" />
-            시험
+            백지시험
             <span className="ml-1 text-muted-foreground">(Shift+↵)</span>
           </Button>
         </div>
@@ -399,7 +404,6 @@ function StickyInputPanel({
           </div>
         ) : (
           <div className="relative">
-            {/* 채점 오버레이 */}
             <div
               className={`absolute inset-0 pointer-events-none px-3 py-2 font-semibold text-base leading-relaxed whitespace-pre-wrap break-words overflow-hidden transition-opacity duration-300 ${isFadingOut ? "opacity-0" : "opacity-100"}`}
               aria-hidden
@@ -414,7 +418,6 @@ function StickyInputPanel({
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={handleCompositionEnd}
               onKeyDown={handleKeyDown}
-              placeholder=""
               spellCheck={false}
               autoComplete="off"
               autoCorrect="off"
@@ -431,16 +434,33 @@ export default function SubjectPractice({ subjectId }: SubjectPracticeProps) {
   const [, setLocation] = useLocation();
   const [focusedQuestionId, setFocusedQuestionId] = useState<number | null>(null);
   const [practiceCounts, setPracticeCounts] = useState<Record<number, number>>({});
+  const [draftsByQuestion, setDraftsByQuestion] = useState<Record<number, string>>({});
+
   const sectionRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const observerRef = useRef<IntersectionObserver | null>(null);
   const visibleQuestionsRef = useRef<Set<number>>(new Set());
+  const prevFocusedQuestionRef = useRef<number | null>(null);
+  const savedProgressRatioRef = useRef<Record<number, number>>({});
+  const draftStartedAtRef = useRef<Record<number, number>>({});
+  const appliedInitialFocusRef = useRef(false);
 
-  // 데이터 로드
+  const utils = trpc.useUtils();
+
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
   const { data: questions } = trpc.questions.listBySubject.useQuery({ subjectId });
   const { data: confidenceData } = trpc.confidence.getBySubject.useQuery({ subjectId });
+  const { data: subjectPracticeSessions } = trpc.practice.getBySubject.useQuery({ subjectId });
 
-  // 안정도 맵
+  const createSession = trpc.practice.create.useMutation();
+
+  const questionMap = useMemo(() => {
+    const map: Record<number, PracticeQuestion> = {};
+    (questions || []).forEach((q) => {
+      map[q.id] = q as PracticeQuestion;
+    });
+    return map;
+  }, [questions]);
+
   const confidenceMap = useMemo(() => {
     const map: Record<number, { displayScore: number; state: string; isColdStart: boolean }> = {};
     confidenceData?.questions.forEach((q) => {
@@ -449,35 +469,144 @@ export default function SubjectPractice({ subjectId }: SubjectPracticeProps) {
     return map;
   }, [confidenceData]);
 
-  // 연습 횟수 맵 (DB에서)
-  const practiceCountQueries = useMemo(() => {
-    return questions?.map((q) => q.id) || [];
+  useEffect(() => {
+    if (!subjectPracticeSessions) return;
+    const byQuestion: Record<number, number> = {};
+    for (const session of subjectPracticeSessions) {
+      byQuestion[session.questionId] = (byQuestion[session.questionId] || 0) + 1;
+    }
+
+    setPracticeCounts((prev) => {
+      const next = { ...prev };
+      for (const [qid, cnt] of Object.entries(byQuestion)) {
+        const numQid = Number(qid);
+        next[numQid] = Math.max(next[numQid] || 0, cnt);
+      }
+      return next;
+    });
+  }, [subjectPracticeSessions]);
+
+  useEffect(() => {
+    if (!questions || questions.length === 0 || appliedInitialFocusRef.current) return;
+
+    const queryId = Number(new URLSearchParams(window.location.search).get("q"));
+    const hasQueryTarget = Number.isFinite(queryId) && questions.some((q) => q.id === queryId);
+    const initialId = hasQueryTarget ? queryId : questions[0].id;
+
+    setFocusedQuestionId(initialId);
+
+    requestAnimationFrame(() => {
+      sectionRefs.current[initialId]?.scrollIntoView({ behavior: "auto", block: "start" });
+    });
+
+    appliedInitialFocusRef.current = true;
   }, [questions]);
 
-  // 첫 번째 문제로 포커스 초기화
-  useEffect(() => {
-    if (questions && questions.length > 0 && focusedQuestionId === null) {
-      setFocusedQuestionId(questions[0].id);
-    }
-  }, [questions, focusedQuestionId]);
+  const recordPracticeSession = useCallback(
+    async (questionId: number, completionRatio: number): Promise<boolean> => {
+      const question = questionMap[questionId];
+      if (!question) return false;
 
-  // IntersectionObserver로 화면에 보이는 문제 추적
+      const ratio = Math.max(0, Math.min(1, completionRatio));
+      const answerChars = splitGraphemes(normalizeText(question.answer || "")).length;
+      const now = Date.now();
+      const startedAt = draftStartedAtRef.current[questionId] || now;
+      const elapsedSec = Math.max(1, Math.round((now - startedAt) / 1000));
+
+      const duration = ratio >= 0.999
+        ? elapsedSec
+        : Math.max(1, Math.round(elapsedSec * Math.max(0.25, ratio)));
+      const typedChars = Math.max(1, Math.round(Math.max(answerChars, 20) * Math.max(ratio, 0.1)));
+      const typingSpeed = Math.max(1, Math.round(typedChars / (duration / 60)));
+      const accuracy = Math.max(1, Math.min(100, Math.round(ratio * 100)));
+      const errorCount = Math.max(0, Math.round((1 - ratio) * Math.max(1, answerChars)));
+
+      try {
+        await createSession.mutateAsync({
+          questionId,
+          duration,
+          typingSpeed,
+          accuracy,
+          errorCount,
+        });
+
+        setPracticeCounts((prev) => ({ ...prev, [questionId]: (prev[questionId] || 0) + 1 }));
+
+        await Promise.all([
+          utils.confidence.getBySubject.invalidate({ subjectId }),
+          utils.confidence.getByQuestion.invalidate({ questionId }),
+          utils.practice.countByQuestion.invalidate({ questionId }),
+          utils.practice.getBySubject.invalidate({ subjectId }),
+        ]);
+
+        draftStartedAtRef.current[questionId] = Date.now();
+        return true;
+      } catch (error: any) {
+        toast.error(error?.message || "연습 기록 저장 실패");
+        return false;
+      }
+    },
+    [questionMap, createSession, utils, subjectId]
+  );
+
+  const maybeSavePartialProgress = useCallback(
+    (questionId: number | null) => {
+      if (!questionId) return;
+      const question = questionMap[questionId];
+      if (!question || getQuestionType(question) !== "text" || !question.answer) return;
+
+      const draft = draftsByQuestion[questionId] || "";
+      if (!draft.trim()) return;
+
+      const ratio = computeTextCompletionRatio(question.answer, draft);
+      if (ratio >= 0.999) return;
+
+      const persistedRatio = Math.max(0.1, Math.min(0.98, Math.round(ratio * 100) / 100));
+      const prevRatio = savedProgressRatioRef.current[questionId] || 0;
+      if (persistedRatio <= prevRatio + 0.04) return;
+
+      savedProgressRatioRef.current[questionId] = persistedRatio;
+      void recordPracticeSession(questionId, persistedRatio).then((ok) => {
+        if (!ok) savedProgressRatioRef.current[questionId] = prevRatio;
+      });
+    },
+    [questionMap, draftsByQuestion, recordPracticeSession]
+  );
+
+  useEffect(() => {
+    const prev = prevFocusedQuestionRef.current;
+    if (prev && prev !== focusedQuestionId) {
+      maybeSavePartialProgress(prev);
+    }
+    prevFocusedQuestionRef.current = focusedQuestionId;
+  }, [focusedQuestionId, maybeSavePartialProgress]);
+
+  useEffect(() => {
+    return () => {
+      const currentFocused = prevFocusedQuestionRef.current;
+      if (currentFocused) {
+        maybeSavePartialProgress(currentFocused);
+      }
+    };
+  }, [maybeSavePartialProgress]);
+
   useEffect(() => {
     if (!questions || questions.length === 0) return;
 
     observerRef.current = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          const qId = parseInt((entry.target as HTMLElement).dataset.questionId || "0");
+          const qId = parseInt((entry.target as HTMLElement).dataset.questionId || "0", 10);
           if (!qId) return;
+
           if (entry.isIntersecting) {
             visibleQuestionsRef.current.add(qId);
           } else {
             visibleQuestionsRef.current.delete(qId);
           }
         });
-        // 가장 위에 있는 visible 문제를 focused로 설정
-        if (visibleQuestionsRef.current.size > 0 && questions) {
+
+        if (visibleQuestionsRef.current.size > 0) {
           const orderedVisible = questions
             .filter((q) => visibleQuestionsRef.current.has(q.id))
             .map((q) => q.id);
@@ -496,25 +625,45 @@ export default function SubjectPractice({ subjectId }: SubjectPracticeProps) {
     return () => observerRef.current?.disconnect();
   }, [questions]);
 
-  const scrollToQuestion = useCallback((questionId: number) => {
-    const el = sectionRefs.current[questionId];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-      setFocusedQuestionId(questionId);
+  const handleCorrect = useCallback(
+    (questionId: number) => {
+      savedProgressRatioRef.current[questionId] = 1;
+      void recordPracticeSession(questionId, 1).then((ok) => {
+        if (ok) {
+          savedProgressRatioRef.current[questionId] = 0;
+          setDraftsByQuestion((prev) => ({ ...prev, [questionId]: "" }));
+        }
+      });
+    },
+    [recordPracticeSession]
+  );
+
+  const handleDraftChange = useCallback((questionId: number, value: string) => {
+    setDraftsByQuestion((prev) => ({ ...prev, [questionId]: value }));
+
+    if (value.trim().length > 0) {
+      if (!draftStartedAtRef.current[questionId]) {
+        draftStartedAtRef.current[questionId] = Date.now();
+      }
+    } else {
+      savedProgressRatioRef.current[questionId] = 0;
+      draftStartedAtRef.current[questionId] = Date.now();
     }
   }, []);
 
-  const handleCorrect = useCallback((questionId: number) => {
-    setPracticeCounts((prev) => ({ ...prev, [questionId]: (prev[questionId] || 0) + 1 }));
-  }, []);
-
-  const handleGoToTest = useCallback((questionId: number) => {
-    setLocation(`/test/${questionId}`);
-  }, [setLocation]);
+  const handleGoToTest = useCallback(
+    (questionId: number) => {
+      maybeSavePartialProgress(questionId);
+      setLocation(`/test/${questionId}`);
+    },
+    [maybeSavePartialProgress, setLocation]
+  );
 
   const focusedQuestion = useMemo(() => {
     return questions?.find((q) => q.id === focusedQuestionId) || null;
   }, [questions, focusedQuestionId]);
+
+  const focusedDraft = focusedQuestion ? draftsByQuestion[focusedQuestion.id] || "" : "";
 
   if (!questions) {
     return (
@@ -525,48 +674,55 @@ export default function SubjectPractice({ subjectId }: SubjectPracticeProps) {
   }
 
   return (
-    <div className="flex h-full relative">
-      {/* 메인 스크롤 영역 */}
+    <div className="flex h-full relative min-h-0">
       <div className="flex-1 overflow-y-auto pb-40">
-        {/* 상단 헤더 */}
         <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b border-border px-6 py-3 flex items-center gap-3">
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8 flex-shrink-0"
-            onClick={() => setLocation(`/questions/${subjectId}`)}
+            onClick={() => {
+              if (focusedQuestionId) maybeSavePartialProgress(focusedQuestionId);
+              setLocation(`/questions/${subjectId}`);
+            }}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
+
           <div className="flex-1 min-w-0">
-            <h1 className="text-sm font-semibold truncate">{subject?.name || "과목 연습"}</h1>
-            <p className="text-xs text-muted-foreground">{questions.length}개 문제</p>
+            <h1 className="text-sm font-semibold truncate">{subject?.name || "연속 연습"}</h1>
+            <p className="text-xs text-muted-foreground">{questions.length}개 문제 · 스크롤로 이동</p>
           </div>
+
           <Button
             variant="outline"
             size="sm"
             className="gap-1.5 h-8 flex-shrink-0"
-            onClick={() => setLocation(`/subject-exam/${subjectId}`)}
+            onClick={() => {
+              if (focusedQuestionId) maybeSavePartialProgress(focusedQuestionId);
+              setLocation(`/subject-exam/${subjectId}`);
+            }}
           >
             <BookOpen className="h-3.5 w-3.5" />
             모의고사
           </Button>
+
           <Button
             variant="outline"
             size="sm"
             className="gap-1.5 h-8 flex-shrink-0"
             onClick={() => focusedQuestion && handleGoToTest(focusedQuestion.id)}
+            disabled={!focusedQuestion}
           >
             <ClipboardCheck className="h-3.5 w-3.5" />
             백지시험
           </Button>
         </div>
 
-        {/* 문제 목록 */}
         {questions.map((q) => (
           <QuestionPracticeSection
             key={q.id}
-            question={q}
+            question={q as PracticeQuestion}
             confidenceInfo={confidenceMap[q.id]}
             practiceCount={practiceCounts[q.id] || 0}
             isFocused={focusedQuestionId === q.id}
@@ -580,17 +736,13 @@ export default function SubjectPractice({ subjectId }: SubjectPracticeProps) {
           />
         ))}
 
-        {/* 하단 여백 */}
         <div className="h-4" />
       </div>
 
-      {/* 우측 북마크 패널 */}
-      <div className="hidden lg:flex flex-col w-12 border-l border-border bg-muted/30 overflow-y-auto py-3 gap-1 items-center flex-shrink-0">
-      </div>
-
-      {/* 하단 sticky 입력 패널 */}
       <StickyInputPanel
-        question={focusedQuestion}
+        question={focusedQuestion as PracticeQuestion | null}
+        draftValue={focusedDraft}
+        onDraftChange={handleDraftChange}
         onCorrect={handleCorrect}
         onGoToTest={handleGoToTest}
       />

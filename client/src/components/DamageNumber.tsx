@@ -27,7 +27,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
     setVisible(true);
     setAnimKey(prev => prev + 1); // 새 key로 애니메이션 재시작
 
-    // 1% 미만이면 더 짧게 표시
+    // 1점 미만이면 더 짧게 표시
     const duration = Math.abs(value) < 1 ? 700 : 850;
 
     timerRef.current = setTimeout(() => {
@@ -48,13 +48,13 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
 
   const isPositive = displayValue >= 0;
   const absValue = Math.abs(displayValue);
-  const isSmall = absValue < 1; // 1% 미만
+  const isSmall = absValue < 1; // 1점 미만
 
   // 정수 반올림 표시 (소수점 제거)
   const displayStr = String(Math.round(absValue));
 
   if (isSmall) {
-    // 1% 미만 전용 애니메이션: 작은 반짝임 + 물결 효과
+    // 1점 미만 전용 애니메이션: 작은 반짝임 + 물결 효과
     return (
       <div
         key={animKey}
@@ -82,7 +82,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
         >
           {isPositive ? "▲" : "▼"}
           <span style={{ fontSize: "1.5rem", marginLeft: "4px" }}>
-            {isPositive ? "+1" : "-1"}%
+            {isPositive ? "+1" : "-1"}점
           </span>
           <span style={{ fontSize: "1rem", marginLeft: "6px", opacity: 0.7 }}>
             미만
@@ -140,7 +140,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
         }}
       >
         {isPositive ? "+" : "-"}
-        {displayStr}%
+        {displayStr}점
       </div>
 
       <style>{`

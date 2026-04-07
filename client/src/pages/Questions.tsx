@@ -62,6 +62,7 @@ interface ConfidenceData {
 interface SortableQuestionCardProps {
   question: any;
   confidence?: ConfidenceData;
+  readOnly?: boolean;
   onEdit: (question: any) => void;
   onDelete: (id: number) => void;
   onPractice: (id: number) => void;
@@ -72,9 +73,59 @@ interface SortableQuestionCardProps {
   onConfidenceClick: (id: number, title: string) => void;
 }
 
+function toDateTimeLocalValue(value?: string | Date | null): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatRemainingToExam(target: Date): string {
+  const diffMs = target.getTime() - Date.now();
+  if (diffMs <= 0) return "시험 시간이 지났습니다";
+
+  const totalMinutes = Math.ceil(diffMs / 60000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `D-${days} · ${hours}시간 ${minutes}분 남음`;
+  if (hours > 0) return `D-Day · ${hours}시간 ${minutes}분 남음`;
+  return `D-Day · ${minutes}분 남음`;
+}
+
+const NUMBERING_PREFIX_REGEX = /^\s*\d+\.\s*/;
+
+function stripNumberingPrefix(line: string): string {
+  return line.replace(NUMBERING_PREFIX_REGEX, "").trim();
+}
+
+function normalizeAutoNumberedAnswer(answer: string): string {
+  const normalized = answer.replace(/\r\n/g, "\n");
+  const lines = normalized
+    .split("\n")
+    .map((line) => stripNumberingPrefix(line))
+    .filter((line) => line.length > 0);
+  return lines.map((line, idx) => `${idx + 1}. ${line}`).join("\n");
+}
+
+function findNextLineNumber(textBeforeCursor: string): number {
+  const matches = Array.from(textBeforeCursor.matchAll(/(?:^|\n)\s*(\d+)\.\s*/g));
+  if (matches.length > 0) {
+    const last = parseInt(matches[matches.length - 1][1], 10);
+    if (Number.isFinite(last)) return last + 1;
+  }
+  const nonEmptyLineCount = textBeforeCursor
+    .split("\n")
+    .filter((line) => line.trim().length > 0).length;
+  return Math.max(1, nonEmptyLineCount + 1);
+}
+
 function SortableQuestionCard({
   question,
   confidence,
+  readOnly = false,
   onEdit,
   onDelete,
   onPractice,
@@ -91,7 +142,7 @@ function SortableQuestionCard({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: question.id });
+  } = useSortable({ id: question.id, disabled: readOnly });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -112,13 +163,15 @@ function SortableQuestionCard({
       {/* 컴팩트 카드 - 가로 레이아웃 */}
       <div className="flex items-stretch">
         {/* 드래그 핸들 */}
-        <div
-          {...attributes}
-          {...listeners}
-          className="flex items-center px-1.5 cursor-grab active:cursor-grabbing touch-none border-r bg-muted/30 hover:bg-muted/60"
-        >
-          <GripVertical className="h-4 w-4 text-muted-foreground" />
-        </div>
+        {!readOnly && (
+          <div
+            {...attributes}
+            {...listeners}
+            className="flex items-center px-1.5 cursor-grab active:cursor-grabbing touch-none border-r bg-muted/30 hover:bg-muted/60"
+          >
+            <GripVertical className="h-4 w-4 text-muted-foreground" />
+          </div>
+        )}
 
         {/* 이미지 썸네일 (있을 경우) */}
         {hasImage && question.imageUrl && (
@@ -145,50 +198,52 @@ function SortableQuestionCard({
               <Table2 className="h-3 w-3 text-purple-500 flex-shrink-0" />
             )}
             {question.isDemo === 1 && (
-              <span className="text-[10px] text-amber-600 font-medium flex-shrink-0">데모</span>
+              <span className="text-xs text-amber-600 font-medium flex-shrink-0">데모</span>
             )}
-            <p className="text-sm font-medium truncate leading-tight flex-1">{question.question}</p>
-            <button
-              onClick={(e) => { e.stopPropagation(); onToggleStar(question.id); }}
-              className="flex-shrink-0 ml-1 p-0.5 rounded hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors"
-              title={question.isStarred ? '별표 제거' : '별표 추가'}
-            >
-              <Star
-                className={`w-3.5 h-3.5 transition-colors ${
-                  question.isStarred
-                    ? 'fill-amber-400 text-amber-400'
-                    : 'text-muted-foreground/40 hover:text-amber-400'
-                }`}
-              />
-            </button>
+            <p className="text-base font-medium truncate leading-tight flex-1">{question.question}</p>
+            {!readOnly && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleStar(question.id); }}
+                className="flex-shrink-0 ml-1 p-0.5 rounded hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors"
+                title={question.isStarred ? '별표 제거' : '별표 추가'}
+              >
+                <Star
+                  className={`w-3.5 h-3.5 transition-colors ${
+                    question.isStarred
+                      ? 'fill-amber-400 text-amber-400'
+                      : 'text-muted-foreground/40 hover:text-amber-400'
+                  }`}
+                />
+              </button>
+            )}
           </div>
           {!hasImage && !hasTable && question.answer && (
-            <p className="text-xs text-muted-foreground truncate mt-0.5">
-              {question.answer.substring(0, 80).replace(/\n/g, ' / ')}
+            <p className="text-sm text-muted-foreground truncate mt-0.5">
+              {question.answer.replace(/\n/g, ' / ')}
             </p>
           )}
           {/* 학습 계획 추천 배지 */}
           {confidence?.badges && (confidence.badges.lastTestWrong || confidence.badges.frequentlyWrong || confidence.badges.hasWarnZone) && (
             <div className="flex flex-wrap gap-1 mt-1">
               {confidence.badges.lastTestWrong && (
-                <span className="inline-flex items-center text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 leading-none">
+                <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 leading-none">
                   이번 시험 오답
                 </span>
               )}
               {confidence.badges.frequentlyWrong && (
-                <span className="inline-flex items-center text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 leading-none">
+                <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 leading-none">
                   자주 틀림
                 </span>
               )}
               {confidence.badges.hasWarnZone && (
-                <span className="inline-flex items-center text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 leading-none">
+                <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 leading-none">
                   주의 구간 있음
                 </span>
               )}
             </div>
           )}
           {hasTable && (
-            <div className="text-[10px] text-muted-foreground mt-0.5 space-y-0">
+            <div className="text-xs text-muted-foreground mt-0.5 space-y-0">
               {(() => {
                 const td = JSON.parse(question.tableData);
                 const blankCount = td.cells.flat().filter((c: any) => c.isBlank && !c.isMerged).length;
@@ -259,7 +314,7 @@ function SortableQuestionCard({
             </div>
           )}
           {hasLabels && question.imageLabels && (
-            <p className="text-[10px] text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               라벨 {JSON.parse(question.imageLabels).length}개
             </p>
           )}
@@ -268,19 +323,19 @@ function SortableQuestionCard({
         {/* 시험 안정도 (클릭 시 그래프 모달) */}
         {confidence && (
           <button
-            className="flex items-center px-2 border-l hover:bg-muted/50 transition-colors cursor-pointer"
+            className="flex items-center px-2.5 border-l hover:bg-muted/50 transition-colors cursor-pointer"
             title="클릭하여 변화 그래프 보기"
             onClick={(e) => { e.stopPropagation(); onConfidenceClick(question.id, question.question); }}
           >
-            <div className="flex flex-col items-center gap-0.5">
+            <div className="flex flex-col items-center gap-1">
               <div
-                className={`w-2.5 h-2.5 rounded-full ${
+                className={`w-[18px] h-[18px] rounded-full ${
                   confidence.state === 'green' ? 'bg-emerald-500' :
                   confidence.state === 'yellow' ? 'bg-amber-400' :
                   'bg-red-400'
                 } ${confidence.isColdStart ? 'opacity-40' : ''}`}
               />
-              <span className={`text-[9px] font-mono leading-none ${
+              <span className={`inline-block w-12 text-center text-sm font-semibold font-mono tabular-nums leading-none ${
                 confidence.isColdStart ? 'text-muted-foreground/50' : 'text-muted-foreground'
               }`}>{Math.round(confidence.displayScore)}</span>
             </div>
@@ -298,43 +353,47 @@ function SortableQuestionCard({
           >
             <ClipboardCheck className="h-3.5 w-3.5 text-green-600" />
           </Button>
-          <div className="w-px h-4 bg-border mx-0.5" />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => { e.stopPropagation(); onCopy(question); }}
-            title="복사"
-          >
-            <Copy className="h-3 w-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => { e.stopPropagation(); onMove(question); }}
-            title="이동"
-          >
-            <MoveRight className="h-3 w-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => { e.stopPropagation(); onEdit(question); }}
-            title="수정"
-          >
-            <Edit className="h-3 w-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => { e.stopPropagation(); onDelete(question.id); }}
-            title="삭제"
-          >
-            <Trash2 className="h-3 w-3 text-destructive" />
-          </Button>
+          {!readOnly && (
+            <>
+              <div className="w-px h-4 bg-border mx-0.5" />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => { e.stopPropagation(); onCopy(question); }}
+                title="복사"
+              >
+                <Copy className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => { e.stopPropagation(); onMove(question); }}
+                title="이동"
+              >
+                <MoveRight className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => { e.stopPropagation(); onEdit(question); }}
+                title="수정"
+              >
+                <Edit className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => { e.stopPropagation(); onDelete(question.id); }}
+                title="삭제"
+              >
+                <Trash2 className="h-3 w-3 text-destructive" />
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -374,8 +433,14 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     isStarred: false,
   });
 
-  const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
-  const { data: questions, isLoading } = trpc.questions.listBySubject.useQuery({ subjectId });
+  const { data: subject } = trpc.subjects.getById.useQuery(
+    { id: subjectId },
+    { enabled: Number.isFinite(subjectId) }
+  );
+  const { data: questions, isLoading } = trpc.questions.listBySubject.useQuery(
+    { subjectId },
+    { enabled: Number.isFinite(subjectId) }
+  );
   const updateSubjectMutation = trpc.subjects.update.useMutation({
     onSuccess: () => {
       utils.subjects.getById.invalidate({ id: subjectId });
@@ -389,7 +454,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   });
   const { data: confidenceData } = trpc.confidence.getBySubject.useQuery(
     { subjectId },
-    { enabled: !!user }
+    { enabled: !!user && !isDemo }
   );
   const utils = trpc.useUtils();
 
@@ -487,7 +552,9 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     },
   });
 
-  const { data: allSubjects } = trpc.subjects.list.useQuery();
+  const { data: allSubjects } = trpc.subjects.list.useQuery(undefined, {
+    enabled: !isDemo && isCopyMoveOpen,
+  });
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -497,6 +564,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (isDemo) return;
     const { active, over } = event;
 
     if (!over || active.id === over.id || !questions) {
@@ -601,11 +669,70 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     setFormData((prev) => ({ ...prev, answer: value }));
   }, []);
 
+  const handleAnswerKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!formData.autoNumbering) return;
+    if (e.key !== "Enter" || e.ctrlKey || e.altKey || e.shiftKey) return;
+    if ((e.nativeEvent as any).isComposing) return;
+
+    e.preventDefault();
+    const textarea = e.currentTarget;
+    const selectionStart = textarea.selectionStart ?? 0;
+    const selectionEnd = textarea.selectionEnd ?? selectionStart;
+    const rawValue = textarea.value;
+
+    if (rawValue.trim().length === 0) {
+      const seeded = "1. ";
+      handleAnswerChange(seeded);
+      requestAnimationFrame(() => {
+        textarea.value = seeded;
+        textarea.setSelectionRange(seeded.length, seeded.length);
+      });
+      return;
+    }
+
+    let workingValue = rawValue;
+    let start = selectionStart;
+    let end = selectionEnd;
+    const hasAnyNumbering = /(^|\n)\s*\d+\.\s/.test(workingValue);
+    if (!hasAnyNumbering && workingValue.trim().length > 0) {
+      // 첫 엔터 시에도 1번 라인을 자동으로 붙여준다.
+      workingValue = `1. ${workingValue}`;
+      start += 3;
+      end += 3;
+    }
+
+    const before = workingValue.slice(0, start);
+    const after = workingValue.slice(end);
+    const nextNumber = findNextLineNumber(before);
+    const insertText = `\n${nextNumber}. `;
+    const nextValue = `${before}${insertText}${after}`;
+    const nextCursor = before.length + insertText.length;
+
+    handleAnswerChange(nextValue);
+    requestAnimationFrame(() => {
+      textarea.value = nextValue;
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [formData.autoNumbering, handleAnswerChange]);
+
+  const handleAutoNumberingToggle = useCallback((checked: boolean) => {
+    setFormData((prev) => {
+      if (!checked) return { ...prev, autoNumbering: false };
+      if (activeTab !== "text") return { ...prev, autoNumbering: true };
+      const nextAnswer = prev.answer.trim().length > 0
+        ? normalizeAutoNumberedAnswer(prev.answer)
+        : "1. ";
+      return { ...prev, autoNumbering: true, answer: nextAnswer };
+    });
+  }, [activeTab]);
+
 
 
   const handleCreate = useCallback(() => {
     const question = formData.question;
-    const answer = formData.answer;
+    const answer = formData.autoNumbering
+      ? normalizeAutoNumberedAnswer(formData.answer)
+      : formData.answer.trim();
 
     if (!question.trim()) {
       toast.error("질문을 입력하세요");
@@ -725,10 +852,14 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       return;
     }
 
+    const updatedAnswer = formData.autoNumbering
+      ? normalizeAutoNumberedAnswer(formData.answer)
+      : formData.answer.trim();
+
     updateMutation.mutate({
       id: editingQuestion.id,
       question: formData.question,
-      answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : formData.answer,
+      answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : updatedAnswer,
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       tableData: undefined,
@@ -806,6 +937,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             id="answer"
             value={formData.answer}
             onChange={(e) => handleAnswerChange(e.target.value)}
+            onKeyDown={handleAnswerKeyDown}
             placeholder="모범 답안을 입력하세요"
             rows={6}
           />
@@ -815,7 +947,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             type="checkbox"
             id="autoNumbering"
             checked={formData.autoNumbering}
-            onChange={(e) => setFormData({ ...formData, autoNumbering: e.target.checked })}
+            onChange={(e) => handleAutoNumberingToggle(e.target.checked)}
             className="w-4 h-4 rounded border-gray-300 cursor-pointer"
           />
           <Label htmlFor="autoNumbering" className="cursor-pointer text-sm font-normal">
@@ -890,7 +1022,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             type="checkbox"
             id="autoNumbering-image"
             checked={formData.autoNumbering}
-            onChange={(e) => setFormData({ ...formData, autoNumbering: e.target.checked })}
+            onChange={(e) => handleAutoNumberingToggle(e.target.checked)}
             className="w-4 h-4 rounded border-gray-300 cursor-pointer"
           />
           <Label htmlFor="autoNumbering-image" className="cursor-pointer text-sm font-normal">
@@ -938,7 +1070,12 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation("/subjects")}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setLocation(isDemo ? "/demo" : "/")}
+        >
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -949,21 +1086,21 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 style={{ backgroundColor: subject.color || "#3B82F6" }}
               />
             )}
-            <h1 className="text-xl font-semibold tracking-tight truncate">{subject?.name || "문제 관리"}</h1>
-            <span className="text-sm text-muted-foreground flex-shrink-0">
+            <h1 className="text-2xl font-semibold tracking-tight truncate">{subject?.name || "문제 관리"}</h1>
+            <span className="text-base text-muted-foreground flex-shrink-0">
               {questions?.length || 0}문제
             </span>
             {confidenceData?.aggregate && confidenceData.aggregate.totalQuestions > 0 && (
               <button
                 onClick={() => setSubjectConfidenceOpen(true)}
-                className={`text-xs font-medium px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${
+                className={`text-sm font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${
                   confidenceData.aggregate.state === 'green' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
                   confidenceData.aggregate.state === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
                   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                 }`}
                 title="클릭하여 과목 안정도 추이 보기"
               >
-                과목 안정도 {confidenceData.aggregate.averageScore}%
+                과목 안정도 {confidenceData.aggregate.averageScore}점
               </button>
             )}
           </div>
@@ -974,7 +1111,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             <Popover open={isSubjectSettingOpen} onOpenChange={(open) => {
               setIsSubjectSettingOpen(open);
               if (open) {
-                setExamDateInput(subject?.examEndDate ? new Date(subject.examEndDate).toISOString().split('T')[0] : "");
+                setExamDateInput(toDateTimeLocalValue(subject?.examEndDate));
               }
             }}>
               <PopoverTrigger asChild>
@@ -990,13 +1127,13 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                   </div>
                   {subject?.examEndDate && (
                     <p className="text-xs text-muted-foreground">
-                      현재: {new Date(subject.examEndDate).toLocaleDateString('ko-KR')}
-                      {' '}(D-{Math.max(0, Math.ceil((new Date(subject.examEndDate).getTime() - Date.now()) / 86400000))})
+                      현재: {new Date(subject.examEndDate).toLocaleString('ko-KR')}
+                      {' '}({formatRemainingToExam(new Date(subject.examEndDate))})
                     </p>
                   )}
                   <div className="flex gap-2">
                     <Input
-                      type="date"
+                      type="datetime-local"
                       value={examDateInput}
                       onChange={(e) => setExamDateInput(e.target.value)}
                       className="h-8 text-sm"
@@ -1039,6 +1176,21 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 variant="outline"
                 size="sm"
                 className="gap-1.5 h-8"
+                onClick={() => {
+                  const firstId = questions?.[0]?.id;
+                  if (!firstId) return;
+                  setLocation(`/practice/${firstId}?scrollNav=1`);
+                }}
+              >
+                <ScrollText className="h-3.5 w-3.5" />
+                연속 연습
+              </Button>
+              )}
+              {!isDemo && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 h-8"
                 onClick={() => setLocation(`/subject-exam/${subjectId}`)}
               >
                 <ClipboardCheck className="h-3.5 w-3.5" />
@@ -1047,10 +1199,12 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
               )}
             </>
           )}
-          <Button size="sm" className="gap-1.5 h-8" onClick={() => setIsCreateOpen(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            추가
-          </Button>
+          {!isDemo && (
+            <Button size="sm" className="gap-1.5 h-8" onClick={() => setIsCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              추가
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1062,7 +1216,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             displayOrder: q.displayOrder,
             isStarred: q.isStarred || 0,
           }))}
-          onSelectQuestion={(id) => setLocation(isDemo ? `/demo/practice/${id}` : `/practice/${id}`)}
+          onSelectQuestion={(id) => setLocation(isDemo ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
           confidenceData={Object.fromEntries(
             Array.from(confidenceMap.entries()).map(([qId, conf]) => [
               qId,
@@ -1082,14 +1236,18 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         <Card className="shadow-elegant">
           <CardHeader>
             <CardTitle>문제가 없습니다</CardTitle>
-            <CardDescription>첫 문제를 추가하여 학습을 시작하세요</CardDescription>
+            <CardDescription>
+              {isDemo ? "데모 문제가 아직 설정되지 않았습니다" : "첫 문제를 추가하여 학습을 시작하세요"}
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button onClick={() => setIsCreateOpen(true)} className="gap-2">
-              <Plus className="h-4 w-4" />
-              첫 문제 만들기
-            </Button>
-          </CardContent>
+          {!isDemo && (
+            <CardContent>
+              <Button onClick={() => setIsCreateOpen(true)} className="gap-2">
+                <Plus className="h-4 w-4" />
+                첫 문제 만들기
+              </Button>
+            </CardContent>
+          )}
         </Card>
       ) : (
         (() => {
@@ -1110,10 +1268,11 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                     <SortableQuestionCard
                       key={question.id}
                       question={question}
+                      readOnly={isDemo}
                       confidence={confidenceMap.get(question.id)}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
-                      onPractice={(id) => setLocation(isDemo ? `/demo/practice/${id}` : `/practice/${id}`)}
+                      onPractice={(id) => setLocation(isDemo ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
                       onTest={(id) => setLocation(isDemo ? `/demo/test/${id}` : `/test/${id}`)}
                       onCopy={handleCopy}
                       onMove={handleMove}
@@ -1239,45 +1398,47 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       )}
 
       {/* Copy/Move Dialog */}
-      <Dialog open={isCopyMoveOpen} onOpenChange={setIsCopyMoveOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {copyMoveMode === "copy" ? "문제 복사" : "문제 이동"}
-            </DialogTitle>
-            <DialogDescription>
-              {copyMoveMode === "copy"
-                ? "복사할 대상 과목을 선택하세요"
-                : "이동할 대상 과목을 선택하세요"}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <div className="space-y-2">
-              {allSubjects?.filter(s => copyMoveMode === "copy" || s.id !== subjectId).map((subject) => (
-                <Button
-                  key={subject.id}
-                  variant={subject.id === subjectId ? "secondary" : "outline"}
-                  className="w-full justify-start gap-2"
-                  onClick={() => handleCopyMoveSubmit(subject.id)}
-                  disabled={copyMutation.isPending || moveMutation.isPending}
-                >
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: subject.color || "#3B82F6" }}
-                  />
-                  {subject.name}
-                  {subject.id === subjectId && " (현재 과목)"}
-                </Button>
-              ))}
+      {!isDemo && (
+        <Dialog open={isCopyMoveOpen} onOpenChange={setIsCopyMoveOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {copyMoveMode === "copy" ? "문제 복사" : "문제 이동"}
+              </DialogTitle>
+              <DialogDescription>
+                {copyMoveMode === "copy"
+                  ? "복사할 대상 과목을 선택하세요"
+                  : "이동할 대상 과목을 선택하세요"}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <div className="space-y-2">
+                {allSubjects?.filter(s => copyMoveMode === "copy" || s.id !== subjectId).map((subject) => (
+                  <Button
+                    key={subject.id}
+                    variant={subject.id === subjectId ? "secondary" : "outline"}
+                    className="w-full justify-start gap-2"
+                    onClick={() => handleCopyMoveSubmit(subject.id)}
+                    disabled={copyMutation.isPending || moveMutation.isPending}
+                  >
+                    <div
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: subject.color || "#3B82F6" }}
+                    />
+                    {subject.name}
+                    {subject.id === subjectId && " (현재 과목)"}
+                  </Button>
+                ))}
+              </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCopyMoveOpen(false)}>
-              취소
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsCopyMoveOpen(false)}>
+                취소
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* 안정도 변화 그래프 모달 */}
       <ConfidenceHistoryModal

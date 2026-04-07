@@ -3,14 +3,15 @@ import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
 
+const GUEST_ID_KEY = "numbering_guest_id";
+
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
   redirectPath?: string;
 };
 
 export function useAuth(options?: UseAuthOptions) {
-  const { redirectOnUnauthenticated = false, redirectPath = getLoginUrl() } =
-    options ?? {};
+  const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
   const utils = trpc.useUtils();
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
@@ -36,6 +37,9 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
+      try {
+        localStorage.removeItem(GUEST_ID_KEY);
+      } catch {}
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }
@@ -65,9 +69,10 @@ export function useAuth(options?: UseAuthOptions) {
     if (meQuery.isLoading || logoutMutation.isPending) return;
     if (state.user) return;
     if (typeof window === "undefined") return;
-    if (window.location.pathname === redirectPath) return;
+    const targetRedirectPath = redirectPath ?? getLoginUrl();
+    if (window.location.pathname === targetRedirectPath) return;
 
-    window.location.href = redirectPath
+    window.location.href = targetRedirectPath;
   }, [
     redirectOnUnauthenticated,
     redirectPath,

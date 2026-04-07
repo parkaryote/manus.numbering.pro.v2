@@ -14,13 +14,29 @@ import { ImageAnnotatorClient } from "@google-cloud/vision";
 
 const PROJECT_ID = process.env.GCP_PROJECT_ID as string;
 const GCS_TEMP_BUCKET = process.env.GCS_TEMP_BUCKET as string;
+const OCR_ENABLED =
+  process.env.OCR_ENABLED === "true" && Boolean(PROJECT_ID) && Boolean(GCS_TEMP_BUCKET);
 
-if (!PROJECT_ID || !GCS_TEMP_BUCKET) {
-  throw new Error("Missing required env vars: GCP_PROJECT_ID, GCS_TEMP_BUCKET");
+if (!OCR_ENABLED) {
+  console.warn(
+    "[OCR] Disabled. Set OCR_ENABLED=true with GCP_PROJECT_ID and GCS_TEMP_BUCKET to enable."
+  );
 }
 
-const storage = new Storage({ projectId: PROJECT_ID });
-const visionClient = new ImageAnnotatorClient();
+const storage = OCR_ENABLED ? new Storage({ projectId: PROJECT_ID }) : null;
+const visionClient = OCR_ENABLED ? new ImageAnnotatorClient() : null;
+
+export function isOCREnabled(): boolean {
+  return OCR_ENABLED;
+}
+
+function assertOCREnabled(): void {
+  if (!OCR_ENABLED) {
+    throw new Error(
+      "OCR is temporarily disabled. Set OCR_ENABLED=true with GCP_PROJECT_ID and GCS_TEMP_BUCKET to enable."
+    );
+  }
+}
 
 /**
  * Upload file to GCS temporary bucket
@@ -30,7 +46,8 @@ export async function uploadToGCS(
   fileBuffer: Buffer,
   fileName: string
 ): Promise<string> {
-  const bucket = storage.bucket(GCS_TEMP_BUCKET);
+  assertOCREnabled();
+  const bucket = storage!.bucket(GCS_TEMP_BUCKET);
   const file = bucket.file(`ocr-temp/${Date.now()}-${fileName}`);
 
   await file.save(fileBuffer);
@@ -43,6 +60,7 @@ export async function uploadToGCS(
  * Returns: Operation name for polling
  */
 export async function startOCRJob(gcsUri: string): Promise<string> {
+  assertOCREnabled();
   const request = {
     requests: [
       {
@@ -66,7 +84,7 @@ export async function startOCRJob(gcsUri: string): Promise<string> {
     ],
   };
 
-  const [operation] = await visionClient.asyncBatchAnnotateFiles(request);
+  const [operation] = await visionClient!.asyncBatchAnnotateFiles(request);
 
   if (!operation.name) {
     throw new Error("No operation name returned from Vision API");
@@ -80,7 +98,8 @@ export async function startOCRJob(gcsUri: string): Promise<string> {
  * Returns: true if complete, false if still processing
  */
 export async function checkOCRJobStatus(operationName: string): Promise<boolean> {
-  const result = await visionClient.checkAsyncBatchAnnotateFilesProgress(
+  assertOCREnabled();
+  const result = await visionClient!.checkAsyncBatchAnnotateFilesProgress(
     operationName
   );
   const operation = Array.isArray(result) ? result[0] : result;
@@ -93,7 +112,8 @@ export async function checkOCRJobStatus(operationName: string): Promise<boolean>
  * Parses fullTextAnnotation from Vision API output
  */
 export async function getOCRResults(operationName: string): Promise<string> {
-  const result = await visionClient.checkAsyncBatchAnnotateFilesProgress(
+  assertOCREnabled();
+  const result = await visionClient!.checkAsyncBatchAnnotateFilesProgress(
     operationName
   );
   const operation = Array.isArray(result) ? result[0] : result;
@@ -128,6 +148,8 @@ export async function getOCRResults(operationName: string): Promise<string> {
  * Clean up temporary GCS files
  */
 export async function cleanupGCSFiles(gcsUri: string): Promise<void> {
+  if (!OCR_ENABLED) return;
+
   try {
     // Extract bucket and file path from gs:// URI
     const match = gcsUri.match(/^gs:\/\/([^/]+)\/(.+)$/);
@@ -137,7 +159,7 @@ export async function cleanupGCSFiles(gcsUri: string): Promise<void> {
     }
 
     const [, bucketName, filePath] = match;
-    const bucket = storage.bucket(bucketName);
+    const bucket = storage!.bucket(bucketName);
     const file = bucket.file(filePath);
 
     await file.delete().catch(() => {
@@ -154,8 +176,10 @@ export async function cleanupGCSFiles(gcsUri: string): Promise<void> {
  * Called periodically or on demand
  */
 export async function cleanupOldOCRFiles(maxAgeHours: number = 24): Promise<void> {
+  if (!OCR_ENABLED) return;
+
   try {
-    const bucket = storage.bucket(GCS_TEMP_BUCKET);
+    const bucket = storage!.bucket(GCS_TEMP_BUCKET);
     const [files] = await bucket.getFiles({ prefix: "ocr-temp/" });
 
     const now = Date.now();
