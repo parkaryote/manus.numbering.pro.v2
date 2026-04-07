@@ -246,6 +246,14 @@ function AppContent() {
   };
 
   useEffect(() => {
+    let cancelled = false;
+    const safeSetInitDone = () => {
+      if (!cancelled) setInitDone(true);
+    };
+    const initTimeout = window.setTimeout(() => {
+      safeSetInitDone();
+    }, 10000);
+
     async function init() {
       try {
         // 1) 먼저 현재 세션 확인
@@ -258,7 +266,7 @@ function AppContent() {
           if (user && user.loginMethod !== "guest") {
             // 이미 정식 계정으로 로그인됨 → 게스트 로그인 건너뜀
             setCurrentUser(user);
-            setInitDone(true);
+            safeSetInitDone();
             return;
           }
         }
@@ -280,12 +288,16 @@ function AppContent() {
               setCurrentUser(data2?.[0]?.result?.data?.json ?? null);
             }
           } catch { /* ignore */ }
-          setInitDone(true);
+          safeSetInitDone();
         },
-        onError: () => setInitDone(true),
+        onError: () => safeSetInitDone(),
       });
     }
     init();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(initTimeout);
+    };
   }, []);
 
   useEffect(() => {

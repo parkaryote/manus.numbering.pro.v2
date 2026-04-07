@@ -70,8 +70,8 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   const hasGuestId = Boolean(localStorage.getItem(GUEST_ID_KEY));
   if (hasGuestId) {
-    // Guest mode should never hard-redirect to login.
-    window.location.href = `${window.location.origin}/`;
+    // In guest mode, avoid hard redirects that can create reload loops.
+    // App routing/layout already handles fallback to demo pages.
     return;
   }
 
