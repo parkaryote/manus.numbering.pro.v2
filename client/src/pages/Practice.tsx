@@ -7,7 +7,7 @@ import { ArrowLeft, Circle, Image as ImageIcon, Table2, Eye, EyeOff, Zap, Sticky
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { splitGraphemes, isPartialMatch, isHangul, decomposeHangul } from "@/lib/hangul";
-import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
+import { TableEditor, TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { trackQuestionAttempt, trackPracticeComplete } from "@/lib/ga4Events";
 import { DamageNumber } from "@/components/DamageNumber";
 import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
@@ -176,6 +176,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [editMode, setEditMode] = useState(false);
   const [editQuestion, setEditQuestion] = useState('');
   const [editAnswer, setEditAnswer] = useState('');
+  const [editAutoNumbering, setEditAutoNumbering] = useState(true);
+  const [editTableData, setEditTableData] = useState<TableData | null>(null);
   // 이미지 컨테이너 높이 추적 (메모장 높이 동기화)
   useEffect(() => {
     if (!imageContainerRef.current) return;
@@ -535,17 +537,56 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (!question) return;
     setEditQuestion(question.question);
     setEditAnswer(question.answer || '');
+    setEditAutoNumbering((question.autoNumbering ?? 1) === 1);
+    if (question.tableData) {
+      try {
+        const parsed = JSON.parse(question.tableData) as TableData;
+        setEditTableData(parsed);
+      } catch {
+        setEditTableData(null);
+      }
+    } else {
+      setEditTableData(null);
+    }
     setEditMode(true);
   };
 
   // 문제 수정 저장
   const handleSaveEdit = () => {
     if (!question || isDemo) return;
+    if (isTableQuestion) {
+      if (!editTableData) {
+        toast.error("표를 작성하세요");
+        return;
+      }
+      const blankCount = editTableData.cells.flat().filter((c) => c.isBlank && !c.isMerged).length;
+      if (blankCount === 0) {
+        toast.error("연습 셀을 1개 이상 지정하세요");
+        return;
+      }
+      updateQuestionMutation.mutate({
+        id: question.id,
+        question: editQuestion,
+        tableData: JSON.stringify(editTableData),
+      });
+      return;
+    }
     updateQuestionMutation.mutate({
       id: question.id,
       question: editQuestion,
       answer: editAnswer,
+      autoNumbering: editAutoNumbering ? 1 : 0,
     });
+  };
+
+  const toggleHideAll = () => {
+    if (hideMode === 'all') {
+      setHideMode('none');
+      setHiddenLines(new Set());
+    } else {
+      setHideMode('all');
+      setHiddenLines(new Set());
+    }
   };
 
   // 메모장에 미리 줄바꿈 채워넣기 (줄이 그어진 연습장처럼 어디서나 클릭 시 바로 입력 가능)
@@ -753,10 +794,19 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const handleTableKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Tab') {
       e.preventDefault();
-      tableMoveToCell(e.shiftKey ? 'prev' : 'next');
-    } else if (e.key === 'Enter' && !e.shiftKey) {
+      toggleHideAll();
+      return;
+    }
+    if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
-      tableSubmitCurrentCell();
+      if (question) {
+        setLocation(`/test/${question.id}`);
+      }
+      return;
+    }
+    if (e.key === 'Enter' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      tableMoveToCell('next');
     }
   };
 
@@ -954,20 +1004,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const handleGlobalKeyDown = async (e: KeyboardEvent) => {
       // Tab: 답 가리기 토글 (입력창 포커스 여부 관계없이 전역에서 작동)
       if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
-        // 표 문제에서는 Tab을 셀 이동 키로 사용하므로 전역 토글을 막는다.
-        if (isTableQuestion) {
+        // 이미지 문제는 별도 Tab 로직 사용
+        if (isImageQuestion) {
           return;
         }
         e.preventDefault();
         e.stopPropagation();
-        // Tab: 전체 가리기/보이기 토글 (Shift+Tab도 동일하게 처리)
-          if (hideMode === 'all') {
-            setHideMode('none');
-            setHiddenLines(new Set());
-          } else {
-            setHideMode('all');
-            setHiddenLines(new Set());
-          }
+        toggleHideAll();
+        return;
+      }
+
+      if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (question) {
+          e.preventDefault();
+          setLocation(`/test/${question.id}`);
+        }
         return;
       }
       
@@ -981,7 +1032,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown, true);
     };
-  }, [question, userInput, imageLabelAnswers, revealedLabels, elapsedTime, createSession, isDemo, setLocation, hideMode, targetText, isTableQuestion]);
+  }, [question, userInput, imageLabelAnswers, revealedLabels, elapsedTime, createSession, isDemo, setLocation, targetText, isImageQuestion, hideMode]);
 
   const handleCompositionStart = () => {
     setIsComposing(true);
@@ -2342,11 +2393,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 </div>
                 {isTableQuestion && (
                   <CardDescription>
-                    셀 클릭으로 이동 · Enter로 제출 · Tab으로 자유 이동
+                    셀 클릭으로 이동 · Enter: 다음 셀 · Tab: 답 가리기 · Shift+Enter: 백지시험
                   </CardDescription>
                 )}
               </div>
-              {!isTableQuestion && (
+              {!isImageQuestion && (
                 <div className="flex items-center gap-2">
                   {/* 답 가리기 전체 토글 */}
                   <div className="flex flex-col items-center gap-0">
@@ -2354,15 +2405,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       variant="ghost"
                       size="sm"
                       className={`h-8 gap-1.5 text-xs ${hideMode === 'all' ? 'bg-amber-500/10 text-amber-600' : ''}`}
-                      onClick={() => {
-                        if (hideMode === 'all') {
-                          setHideMode('none');
-                          setHiddenLines(new Set());
-                        } else {
-                          setHideMode('all');
-                          setHiddenLines(new Set());
-                        }
-                      }}
+                      onClick={toggleHideAll}
                     >
                       {hideMode === 'all' ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                       {hideMode === 'all' ? '답 보기' : '답 가리기'}
@@ -2389,7 +2432,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         variant="ghost"
                         size="sm"
                         className={`h-8 gap-1.5 text-xs ${memoOpen ? 'bg-blue-500/10 text-blue-600' : ''}`}
-                        onClick={() => setMemoOpen(!memoOpen)}
+                        onClick={() => {
+                          if (isTableQuestion) {
+                            toast.info("표 문제 메모 기능은 개발 중입니다.");
+                            return;
+                          }
+                          setMemoOpen(!memoOpen);
+                        }}
                       >
                         <StickyNote className="h-3.5 w-3.5" />
                         메모
@@ -2448,25 +2497,59 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   </Button>
                 </div>
               </div>
-              <div className="space-y-2">
-                <div>
-                  <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">문제</label>
-                  <input
-                    type="text"
-                    value={editQuestion}
-                    onChange={(e) => setEditQuestion(e.target.value)}
-                    className="w-full p-2 rounded-md border border-orange-200 dark:border-orange-700 bg-white dark:bg-orange-950/30 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                  />
+              {isTableQuestion ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">질문</label>
+                    <Textarea
+                      value={editQuestion}
+                      onChange={(e) => setEditQuestion(e.target.value)}
+                      rows={2}
+                      className="border-orange-200 dark:border-orange-700 bg-white dark:bg-orange-950/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">표 작성</label>
+                    <TableEditor
+                      initialData={editTableData || undefined}
+                      onChange={(data) => setEditTableData(data)}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">답안</label>
-                  <textarea
-                    value={editAnswer}
-                    onChange={(e) => setEditAnswer(e.target.value)}
-                    className="w-full min-h-[120px] p-2 rounded-md border border-orange-200 dark:border-orange-700 bg-white dark:bg-orange-950/30 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-orange-400 font-mono"
-                  />
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">질문</label>
+                    <Textarea
+                      value={editQuestion}
+                      onChange={(e) => setEditQuestion(e.target.value)}
+                      rows={3}
+                      className="border-orange-200 dark:border-orange-700 bg-white dark:bg-orange-950/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">답안</label>
+                    <Textarea
+                      value={editAnswer}
+                      onChange={(e) => setEditAnswer(e.target.value)}
+                      rows={6}
+                      className="border-orange-200 dark:border-orange-700 bg-white dark:bg-orange-950/30 font-mono"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="practice-edit-auto-numbering"
+                      checked={editAutoNumbering}
+                      onChange={(e) => setEditAutoNumbering(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+                    />
+                    <label htmlFor="practice-edit-auto-numbering" className="text-xs text-orange-700 dark:text-orange-400 cursor-pointer">
+                      엔터 기준으로 답안 번호 자동 생성
+                    </label>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -2836,7 +2919,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               {tableActiveCellKey && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span>셀 {tableTargetCells.indexOf(tableActiveCellKey) + 1}/{tableTargetCells.length}</span>
-                  <span className="text-muted-foreground/60">Enter: 제출 · Tab: 셀 이동</span>
+                  <span className="text-muted-foreground/60">Enter: 다음 셀 · Tab: 답 가리기 · Shift+Enter: 백지시험</span>
                   {tableCheckedCells.size > 0 && <span className="text-muted-foreground/80 ml-auto">집중 연습 {tableCheckedCells.size}셀</span>}
                 </div>
               )}
@@ -2856,7 +2939,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   handleTableInputChange((e.target as HTMLTextAreaElement).value);
                 }}
                 className="w-full min-h-[80px] max-h-[200px] p-3 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm"
-                placeholder="여기에 입력하세요... (Tab: 셀 이동)"
+                placeholder="여기에 입력하세요... (Enter: 다음 셀 · Tab: 답 가리기 · Shift+Enter: 백지시험)"
                 autoFocus
               />
               {/* 연습 횟수 + 초기화 */}
