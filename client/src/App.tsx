@@ -317,9 +317,8 @@ function AppContent() {
 }
 
 function App() {
-  // 임시 비활성화: 베타 테스트 동안 접속 비밀번호 게이트를 우회합니다.
-  // 다시 사용할 때 false로 변경하세요.
-  const TEMP_DISABLE_SITE_GATE = true;
+  // 접속 비밀번호 게이트 활성화 상태
+  const TEMP_DISABLE_SITE_GATE = false;
   const { granted, grant } = useSiteAccess();
   const globalFooterNotice = (
     <p className="pointer-events-none fixed bottom-1.5 left-1/2 z-50 -translate-x-1/2 select-none text-[10px] text-muted-foreground/45">
