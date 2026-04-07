@@ -19,6 +19,7 @@ import Demo from "./pages/Demo";
 import AdminDemoManagement from "./pages/AdminDemoManagement";
 import SubjectExam from "./pages/SubjectExam";
 import Login from "./pages/Login";
+import { Analytics } from "@vercel/analytics/react";
 
 const GUEST_ID_KEY = "numbering_guest_id";
 
@@ -26,7 +27,8 @@ function getOrCreateGuestId(): string {
   try {
     let guestId = localStorage.getItem(GUEST_ID_KEY);
     if (!guestId) {
-      guestId = Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
+      guestId =
+        Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
       localStorage.setItem(GUEST_ID_KEY, guestId);
     }
     return guestId;
@@ -35,7 +37,9 @@ function getOrCreateGuestId(): string {
   }
 }
 
-function isGuestUser(user: { loginMethod?: string | null } | null | undefined): boolean {
+function isGuestUser(
+  user: { loginMethod?: string | null } | null | undefined
+): boolean {
   if (!user) return false;
   return user.loginMethod === "guest";
 }
@@ -53,7 +57,11 @@ function Layout({
   onAuthSuccess?: () => void;
 }) {
   if (isGuestUser(user)) {
-    return <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>{children}</DemoDashboardLayout>;
+    return (
+      <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
+        {children}
+      </DemoDashboardLayout>
+    );
   }
   return <DashboardLayout>{children}</DashboardLayout>;
 }
@@ -82,8 +90,11 @@ function SubjectPracticeRedirect({ subjectId }: { subjectId: number }) {
       return;
     }
 
-    const queryId = Number(new URLSearchParams(window.location.search).get("q"));
-    const hasQueryTarget = Number.isFinite(queryId) && questions.some((q) => q.id === queryId);
+    const queryId = Number(
+      new URLSearchParams(window.location.search).get("q")
+    );
+    const hasQueryTarget =
+      Number.isFinite(queryId) && questions.some(q => q.id === queryId);
     const targetQuestionId = hasQueryTarget ? queryId : questions[0].id;
     setLocation(`/practice/${targetQuestionId}?scrollNav=1`);
   }, [questions, setLocation, subjectId]);
@@ -95,7 +106,13 @@ function SubjectPracticeRedirect({ subjectId }: { subjectId: number }) {
   );
 }
 
-function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null } | null | undefined; onAuthSuccess?: () => void }) {
+function Router({
+  user,
+  onAuthSuccess,
+}: {
+  user: { loginMethod?: string | null } | null | undefined;
+  onAuthSuccess?: () => void;
+}) {
   const canAccessDemo = !user || isGuestUser(user);
 
   return (
@@ -111,35 +128,35 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
         </Layout>
       </Route>
       <Route path={"/questions/:subjectId"}>
-        {(params) => (
+        {params => (
           <Layout user={user} onAuthSuccess={onAuthSuccess}>
             <Questions subjectId={parseInt(params.subjectId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/subject-practice/:subjectId"}>
-        {(params) => (
+        {params => (
           <Layout user={user} onAuthSuccess={onAuthSuccess}>
             <SubjectPracticeRedirect subjectId={parseInt(params.subjectId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/subject-exam/:subjectId"}>
-        {(params) => (
+        {params => (
           <Layout user={user} onAuthSuccess={onAuthSuccess}>
             <SubjectExam subjectId={parseInt(params.subjectId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/practice/:questionId"}>
-        {(params) => (
+        {params => (
           <Layout user={user} onAuthSuccess={onAuthSuccess}>
             <Practice questionId={parseInt(params.questionId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/test/:questionId"}>
-        {(params) => (
+        {params => (
           <Layout user={user} onAuthSuccess={onAuthSuccess}>
             <Test questionId={parseInt(params.questionId)} />
           </Layout>
@@ -163,10 +180,13 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
         <Login />
       </Route>
       <Route path={"/demo/practice/:questionId"}>
-        {(params) =>
+        {params =>
           canAccessDemo ? (
             <Layout user={user} onAuthSuccess={onAuthSuccess}>
-              <Practice questionId={parseInt(params.questionId)} isDemo={true} />
+              <Practice
+                questionId={parseInt(params.questionId)}
+                isDemo={true}
+              />
             </Layout>
           ) : (
             <RouteRedirect to={`/practice/${parseInt(params.questionId)}`} />
@@ -174,7 +194,7 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
         }
       </Route>
       <Route path={"/demo/test/:questionId"}>
-        {(params) =>
+        {params =>
           canAccessDemo ? (
             <Layout user={user} onAuthSuccess={onAuthSuccess}>
               <Test questionId={parseInt(params.questionId)} isDemo={true} />
@@ -203,7 +223,7 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
         )}
       </Route>
       <Route path={"/demo/questions/:subjectId"}>
-        {(params) =>
+        {params =>
           canAccessDemo ? (
             <Layout user={user} onAuthSuccess={onAuthSuccess}>
               <Questions subjectId={parseInt(params.subjectId)} isDemo={true} />
@@ -226,7 +246,7 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
 
 function AppContent() {
   const autoGuestLogin = trpc.auth.autoGuestLogin.useMutation();
-  // 먼저 현재 세션 확인 (이미 로그인된 경우 게스트 로그인 건너뜀)
+  // 먼저 현재 세션 확인 (이미 로그인된 경우 게스트 로���인 건너뜀)
   const [initDone, setInitDone] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const meQuery = trpc.auth.me.useQuery(undefined, {
@@ -241,7 +261,9 @@ function AppContent() {
       const latest = await meQuery.refetch();
       setCurrentUser(latest.data ?? null);
       return;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     window.location.reload();
   };
 
@@ -249,9 +271,12 @@ function AppContent() {
     async function init() {
       try {
         // 1) 먼저 현재 세션 확인
-        const res = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
-          credentials: "include",
-        });
+        const res = await fetch(
+          "/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D",
+          {
+            credentials: "include",
+          }
+        );
         if (res.ok) {
           const data = await res.json();
           const user = data?.[0]?.result?.data?.json;
@@ -268,22 +293,30 @@ function AppContent() {
 
       // 2) 정식 계정 없으면 게스트 로그인
       const guestId = getOrCreateGuestId();
-      autoGuestLogin.mutate({ guestId }, {
-        onSuccess: async () => {
-          // 게스트 로그인 후 최신 user 정보 fetch
-          try {
-            const res2 = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
-              credentials: "include",
-            });
-            if (res2.ok) {
-              const data2 = await res2.json();
-              setCurrentUser(data2?.[0]?.result?.data?.json ?? null);
+      autoGuestLogin.mutate(
+        { guestId },
+        {
+          onSuccess: async () => {
+            // 게스트 로그인 후 최신 user 정보 fetch
+            try {
+              const res2 = await fetch(
+                "/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D",
+                {
+                  credentials: "include",
+                }
+              );
+              if (res2.ok) {
+                const data2 = await res2.json();
+                setCurrentUser(data2?.[0]?.result?.data?.json ?? null);
+              }
+            } catch {
+              /* ignore */
             }
-          } catch { /* ignore */ }
-          setInitDone(true);
-        },
-        onError: () => setInitDone(true),
-      });
+            setInitDone(true);
+          },
+          onError: () => setInitDone(true),
+        }
+      );
     }
     init();
   }, []);
@@ -329,6 +362,7 @@ function App() {
         <ThemeProvider defaultTheme="light" switchable={false}>
           <SiteGate onGranted={grant} />
           {globalFooterNotice}
+          <Analytics />
         </ThemeProvider>
       </ErrorBoundary>
     );
@@ -339,6 +373,7 @@ function App() {
       <ThemeProvider defaultTheme="light" switchable={true}>
         <AppContent />
         {globalFooterNotice}
+        <Analytics />
       </ThemeProvider>
     </ErrorBoundary>
   );
