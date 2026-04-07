@@ -1,7 +1,7 @@
-import { protectedProcedure, router } from "./_core/trpc";
+import { protectedProcedure, router } from "./_core/trpc.js";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import * as db from "./db";
+import * as db from "./db.js";
 
 // 관리자 권한 확인 미들웨어
 const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {

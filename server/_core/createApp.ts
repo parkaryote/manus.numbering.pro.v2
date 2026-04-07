@@ -1,10 +1,10 @@
 import express from "express";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { appRouter } from "../routers";
-import uploadAudioRouter from "../uploadAudio";
-import uploadImageRouter from "../uploadImage";
-import { createContext } from "./context";
-import { registerOAuthRoutes } from "./oauth";
+import { appRouter } from "../routers.js";
+import uploadAudioRouter from "../uploadAudio.js";
+import uploadImageRouter from "../uploadImage.js";
+import { createContext } from "./context.js";
+import { registerOAuthRoutes } from "./oauth.js";
 
 export function createApp() {
   const app = express();

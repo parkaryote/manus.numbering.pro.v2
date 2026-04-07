@@ -1,11 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import * as db from "./db";
-import { publicProcedure, router } from "./_core/trpc";
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
-import { getSessionCookieOptions } from "./_core/cookies";
-import { sdk } from "./_core/sdk";
-import { ENV } from "./_core/env";
+import * as db from "./db.js";
+import { publicProcedure, router } from "./_core/trpc.js";
+import { COOKIE_NAME, ONE_YEAR_MS } from "../shared/const.js";
+import { getSessionCookieOptions } from "./_core/cookies.js";
+import { sdk } from "./_core/sdk.js";
+import { ENV } from "./_core/env.js";
 
 /**
  * 초기 안정도 데이터 생성

@@ -1,7 +1,7 @@
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
-import * as db from "../db";
-import { getSessionCookieOptions } from "./cookies";
-import { sdk } from "./sdk";
+import { COOKIE_NAME, ONE_YEAR_MS } from "../../shared/const.js";
+import * as db from "../db.js";
+import { getSessionCookieOptions } from "./cookies.js";
+import { sdk } from "./sdk.js";
 
 type OAuthRequestLike = {
   query?: Record<string, unknown>;

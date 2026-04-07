@@ -1,19 +1,19 @@
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
-import { sdk } from "./_core/sdk";
-import { getSessionCookieOptions } from "./_core/cookies";
-import { systemRouter } from "./_core/systemRouter";
-import { adminRouter } from "./adminRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { COOKIE_NAME, ONE_YEAR_MS } from "../shared/const.js";
+import { sdk } from "./_core/sdk.js";
+import { getSessionCookieOptions } from "./_core/cookies.js";
+import { systemRouter } from "./_core/systemRouter.js";
+import { adminRouter } from "./adminRouter.js";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc.js";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import * as db from "./db";
-import { ENV } from "./_core/env";
+import * as db from "./db.js";
+import { ENV } from "./_core/env.js";
 import type { User } from "../drizzle/schema";
-import { invokeLLM } from "./_core/llm";
-import { transcribeAudio } from "./_core/voiceTranscription";
-import { storagePut } from "./storage";
+import { invokeLLM } from "./_core/llm.js";
+import { transcribeAudio } from "./_core/voiceTranscription.js";
+import { storagePut } from "./storage.js";
 import { nanoid } from "nanoid";
-import * as ocrModule from "./ocr";
+import * as ocrModule from "./ocr.js";
 import {
   computeExamConfidence,
   aggregateConfidence,
@@ -22,7 +22,7 @@ import {
   type PracticeSignal,
   type TestSignal,
   type ConfidenceResult,
-} from "@shared/examConfidence";
+} from "../shared/examConfidence.js";
 import {
   calculateEffectiveSpeed,
   calculateSpeedBonus,
@@ -34,7 +34,7 @@ import {
   intToSpeed,
   getLengthBucket,
   type TypingAttemptInput,
-} from "./typingSpeed";
+} from "./typingSpeed.js";
 
 // 글자 단위 유사도 계산 (대소문자 무시, 띄어쓰기 무시)
 function calcCharSimilarity(userText: string, correctText: string): number {
