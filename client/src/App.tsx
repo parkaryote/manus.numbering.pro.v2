@@ -21,6 +21,24 @@ import SubjectExam from "./pages/SubjectExam";
 import Login from "./pages/Login";
 
 const GUEST_ID_KEY = "numbering_guest_id";
+const INIT_MAX_WAIT_MS = 2_500;
+const AUTH_ME_FETCH_TIMEOUT_MS = 1_800;
+
+async function fetchAuthMeWithTimeout(timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
+      credentials: "include",
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.[0]?.result?.data?.json ?? null;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
 
 function getOrCreateGuestId(): string {
   try {
@@ -232,7 +250,7 @@ function AppContent() {
   const meQuery = trpc.auth.me.useQuery(undefined, {
     enabled: initDone,
     retry: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   });
 
   // 로그인/가입 성공 후 currentUser를 업데이트하는 함수 (reload 없이 레이아웃 전환)
@@ -252,23 +270,17 @@ function AppContent() {
     };
     const initTimeout = window.setTimeout(() => {
       safeSetInitDone();
-    }, 10000);
+    }, INIT_MAX_WAIT_MS);
 
     async function init() {
       try {
         // 1) 먼저 현재 세션 확인
-        const res = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
-          credentials: "include",
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const user = data?.[0]?.result?.data?.json;
-          if (user && user.loginMethod !== "guest") {
-            // 이미 정식 계정으로 로그인됨 → 게스트 로그인 건너뜀
-            setCurrentUser(user);
-            safeSetInitDone();
-            return;
-          }
+        const user = await fetchAuthMeWithTimeout(AUTH_ME_FETCH_TIMEOUT_MS);
+        if (user && user.loginMethod !== "guest") {
+          // 이미 정식 계정으로 로그인됨 → 게스트 로그인 건너뜀
+          setCurrentUser(user);
+          safeSetInitDone();
+          return;
         }
       } catch {
         // 세션 확인 실패 → 게스트 로그인 시도
@@ -284,13 +296,8 @@ function AppContent() {
           // 게스트 로그인 후 최신 user 정보 fetch
           void (async () => {
             try {
-              const res2 = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
-                credentials: "include",
-              });
-              if (res2.ok) {
-                const data2 = await res2.json();
-                setCurrentUser(data2?.[0]?.result?.data?.json ?? null);
-              }
+              const user = await fetchAuthMeWithTimeout(AUTH_ME_FETCH_TIMEOUT_MS);
+              setCurrentUser(user ?? null);
             } catch { /* ignore */ }
           })();
         },
