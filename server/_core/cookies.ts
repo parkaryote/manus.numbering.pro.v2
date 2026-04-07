@@ -1,6 +1,17 @@
-import type { CookieOptions, Request } from "express";
-
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+type RequestLike = {
+  protocol?: string;
+  headers?: Record<string, string | string[] | undefined>;
+};
+
+type SessionCookieOptions = {
+  domain?: string;
+  httpOnly: boolean;
+  path: string;
+  sameSite: "lax" | "none";
+  secure: boolean;
+};
 
 function isIpAddress(host: string) {
   // Basic IPv4 check and IPv6 presence detection.
@@ -8,10 +19,10 @@ function isIpAddress(host: string) {
   return host.includes(":");
 }
 
-function isSecureRequest(req: Request) {
+function isSecureRequest(req: RequestLike) {
   if (req.protocol === "https") return true;
 
-  const forwardedProto = req.headers["x-forwarded-proto"];
+  const forwardedProto = req.headers?.["x-forwarded-proto"];
   if (!forwardedProto) return false;
 
   const protoList = Array.isArray(forwardedProto)
@@ -22,8 +33,8 @@ function isSecureRequest(req: Request) {
 }
 
 export function getSessionCookieOptions(
-  req: Request
-): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure"> {
+  req: RequestLike
+): SessionCookieOptions {
   // const hostname = req.hostname;
   // const shouldSetDomain =
   //   hostname &&

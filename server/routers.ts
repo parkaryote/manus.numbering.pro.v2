@@ -976,6 +976,15 @@ async function assertQuestionOwnershipOrThrow(questionId: number, userId: number
   return question;
 }
 
+type CookieCapableResponse = {
+  cookie: (name: string, value: string, options?: Record<string, unknown>) => void;
+  clearCookie: (name: string, options?: Record<string, unknown>) => void;
+};
+
+function cookieResponse(res: unknown): CookieCapableResponse {
+  return res as CookieCapableResponse;
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -1004,7 +1013,7 @@ export const appRouter = router({
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      cookieResponse(ctx.res).clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return {
         success: true,
       } as const;
@@ -1079,7 +1088,7 @@ export const appRouter = router({
         });
 
         const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+        cookieResponse(ctx.res).cookie(COOKIE_NAME, sessionToken, {
           ...cookieOptions,
           maxAge: ONE_YEAR_MS,
         });
@@ -1161,7 +1170,7 @@ export const appRouter = router({
         });
 
         const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+        cookieResponse(ctx.res).cookie(COOKIE_NAME, sessionToken, {
           ...cookieOptions,
           maxAge: ONE_YEAR_MS,
         });
@@ -1221,7 +1230,7 @@ export const appRouter = router({
         });
 
         const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+        cookieResponse(ctx.res).cookie(COOKIE_NAME, sessionToken, {
           ...cookieOptions,
           maxAge: ONE_YEAR_MS,
         });
@@ -1269,7 +1278,7 @@ export const appRouter = router({
         });
 
         const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+        cookieResponse(ctx.res).cookie(COOKIE_NAME, sessionToken, {
           ...cookieOptions,
           maxAge: ONE_YEAR_MS,
         });

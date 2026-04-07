@@ -1,16 +1,32 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
-import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
 
-function getQueryParam(req: Request, key: string): string | undefined {
-  const value = req.query[key];
+type OAuthRequestLike = {
+  query?: Record<string, unknown>;
+};
+
+type OAuthResponseLike = {
+  status: (code: number) => { json: (payload: unknown) => void };
+  cookie: (name: string, value: string, options?: Record<string, unknown>) => void;
+  redirect: (status: number, path: string) => void;
+};
+
+type OAuthAppLike = {
+  get: (
+    path: string,
+    handler: (req: OAuthRequestLike, res: OAuthResponseLike) => Promise<void> | void
+  ) => void;
+};
+
+function getQueryParam(req: OAuthRequestLike, key: string): string | undefined {
+  const value = req.query?.[key];
   return typeof value === "string" ? value : undefined;
 }
 
-export function registerOAuthRoutes(app: Express) {
-  const handleOAuthCallback = async (req: Request, res: Response) => {
+export function registerOAuthRoutes(app: OAuthAppLike) {
+  const handleOAuthCallback = async (req: OAuthRequestLike, res: OAuthResponseLike) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
 
@@ -41,7 +57,7 @@ export function registerOAuthRoutes(app: Express) {
         expiresInMs: ONE_YEAR_MS,
       });
 
-      const cookieOptions = getSessionCookieOptions(req);
+      const cookieOptions = getSessionCookieOptions(req as any);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
       res.redirect(302, "/");
