@@ -12,6 +12,7 @@ import { trackQuestionAttempt, trackPracticeComplete } from "@/lib/ga4Events";
 import { DamageNumber } from "@/components/DamageNumber";
 import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CONFIDENCE_THRESHOLDS, estimatePracticeConfidenceDelta } from "@shared/examConfidence";
 
 interface PracticeProps {
   questionId: number;
@@ -137,6 +138,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [showDamageNumber, setShowDamageNumber] = useState(false);
   const [damageValue, setDamageValue] = useState(0);
   const confidenceScoreForAnimationRef = useRef<number | null>(null);
+  const [optimisticDisplayScore, setOptimisticDisplayScore] = useState<number | null>(null);
   // 답 가리기 상태: 'none' | 'all'
   // hiddenLines: 개별 줄 가리기/보이기 토글 (hideMode와 독립적으로 동작)
   const [hideMode, setHideMode] = useState<'none' | 'all'>('none');
@@ -256,6 +258,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 문제별 애니메이션 기준 점수 초기화
   useEffect(() => {
     confidenceScoreForAnimationRef.current = null;
+    setOptimisticDisplayScore(null);
   }, [questionId]);
 
   useEffect(() => {
@@ -269,8 +272,20 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (confidenceScoreForAnimationRef.current !== null) return;
     if (typeof confidenceData?.displayScore === "number") {
       confidenceScoreForAnimationRef.current = Math.round(confidenceData.displayScore);
-    }
+      }
   }, [confidenceData?.displayScore, isDemo]);
+
+  const displayedConfidenceScore = useMemo(() => {
+    if (isDemo) return 0;
+    if (optimisticDisplayScore !== null) return optimisticDisplayScore;
+    return Math.round(confidenceData?.displayScore ?? 0);
+  }, [confidenceData?.displayScore, isDemo, optimisticDisplayScore]);
+
+  const displayedConfidenceState = useMemo(() => {
+    if (displayedConfidenceScore >= CONFIDENCE_THRESHOLDS.green) return "green";
+    if (displayedConfidenceScore >= CONFIDENCE_THRESHOLDS.yellow) return "yellow";
+    return "red";
+  }, [displayedConfidenceScore]);
 
   // 이미지 문제: 상호작용 시 practiceCount를 최소 1로 설정
   useEffect(() => {
@@ -1605,13 +1620,37 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }, 50);
     }, 400);
     
-    // 네트워크 요청 후 실제 반영된 안정도 점수 기준으로 애니메이션 표시
+    // 점수/애니메이션은 즉시 반영하고, 서버 동기화는 백그라운드로 처리
     if (question && !isDemo) {
-      (async () => {
-        const baselineScore =
-          confidenceScoreForAnimationRef.current ??
-          Math.round(confidenceData?.displayScore ?? 0);
+      const baselineScore =
+        confidenceScoreForAnimationRef.current ??
+        Math.round(confidenceData?.displayScore ?? 0);
+      const minutesUntilExam = (confidenceData as any)?.examDatePrediction?.minutesUntilExam;
+      const daysUntilExam = (confidenceData as any)?.examDatePrediction?.daysUntilExam;
+      const estimatedHoursUntilExam =
+        typeof minutesUntilExam === "number"
+          ? minutesUntilExam / 60
+          : typeof daysUntilExam === "number"
+            ? daysUntilExam * 24
+            : null;
 
+      const estimatedDelta = estimatePracticeConfidenceDelta({
+        currentScore: baselineScore,
+        sessionPracticeCount: sessionCompleteCount + 1,
+        totalPracticeCount: (practiceCountData?.count || 0) + practiceCount + 1,
+        hoursUntilExam: estimatedHoursUntilExam,
+      });
+
+      const optimisticScore = Math.max(0, Math.min(100, baselineScore + estimatedDelta));
+      confidenceScoreForAnimationRef.current = optimisticScore;
+      setOptimisticDisplayScore(optimisticScore);
+      setShowDamageNumber(false);
+      requestAnimationFrame(() => {
+        setDamageValue(estimatedDelta);
+        setShowDamageNumber(true);
+      });
+
+      (async () => {
         try {
           const timeInMinutes = elapsedTime / 60;
           const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
@@ -1628,17 +1667,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
           // 실제 반영값을 직접 fetch해서 최신 점수 확보
           const latestConfidence = await utils.confidence.getByQuestion.fetch({ questionId: question.id });
-          const latestScore = Math.round(latestConfidence?.displayScore ?? baselineScore);
-          const actualDiff = latestScore - baselineScore;
+          const latestScore = Math.round(latestConfidence?.displayScore ?? optimisticScore);
           confidenceScoreForAnimationRef.current = latestScore;
-
-          // 실제 증감이 0이라도 저장 성공 체감이 있도록 "1점 미만" 애니메이션 표시
-          const animationDelta = actualDiff !== 0 ? actualDiff : 0.4;
-          setShowDamageNumber(false);
-          requestAnimationFrame(() => {
-            setDamageValue(animationDelta);
-            setShowDamageNumber(true);
-          });
+          setOptimisticDisplayScore(latestScore);
         } catch (error) {
           console.error('연습 기록 저장 실패:', error);
         }
@@ -2144,8 +2175,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 onClick={() => setShowConfidenceHistory(true)}
               >
                 <span className="font-bold tabular-nums text-sm" style={{
-                  color: confidenceData.state === 'green' ? '#10b981' : confidenceData.state === 'yellow' ? '#f59e0b' : '#ef4444'
-                }}>{Math.round(confidenceData.displayScore)}점</span>
+                  color: displayedConfidenceState === 'green' ? '#10b981' : displayedConfidenceState === 'yellow' ? '#f59e0b' : '#ef4444'
+                }}>{displayedConfidenceScore}점</span>
                 <span className="text-xs text-muted-foreground">안정도↗</span>
               </button>
             )}
