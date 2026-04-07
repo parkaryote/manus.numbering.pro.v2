@@ -277,18 +277,22 @@ function AppContent() {
       // 2) 정식 계정 없으면 게스트 로그인
       const guestId = getOrCreateGuestId();
       autoGuestLogin.mutate({ guestId }, {
-        onSuccess: async () => {
-          // 게스트 로그인 후 최신 user 정보 fetch
-          try {
-            const res2 = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
-              credentials: "include",
-            });
-            if (res2.ok) {
-              const data2 = await res2.json();
-              setCurrentUser(data2?.[0]?.result?.data?.json ?? null);
-            }
-          } catch { /* ignore */ }
+        onSuccess: () => {
+          // Never block app entry on extra me fetch.
           safeSetInitDone();
+
+          // 게스트 로그인 후 최신 user 정보 fetch
+          void (async () => {
+            try {
+              const res2 = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
+                credentials: "include",
+              });
+              if (res2.ok) {
+                const data2 = await res2.json();
+                setCurrentUser(data2?.[0]?.result?.data?.json ?? null);
+              }
+            } catch { /* ignore */ }
+          })();
         },
         onError: () => safeSetInitDone(),
       });

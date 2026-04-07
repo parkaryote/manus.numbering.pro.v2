@@ -990,9 +990,6 @@ export const appRouter = router({
   auth: router({
     me: publicProcedure.query(async (opts) => {
       const user = opts.ctx.user;
-      if (user) {
-        await syncStarterDataSafely(user.id);
-      }
       return sanitizeUserForClient(user);
     }),
     verifySitePassword: publicProcedure
@@ -1268,8 +1265,8 @@ export const appRouter = router({
           if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "게스트 계정 생성 실패" });
         }
 
-        // 신규/기존 사용자 모두 과목 0개 상태를 자동 복구
-        await syncStarterDataSafely(user.id);
+        // Do not block initial app boot on starter-data sync.
+        // Subject list endpoint performs safe sync when needed.
 
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(guestOpenId, {
