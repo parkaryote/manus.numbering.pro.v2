@@ -668,8 +668,16 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     );
   }
 
+  const isSubmitDisabled = evaluateMutation.isPending || (isTableQuestion && tableData ?
+    !getBlankCells(tableData).every((key) => tableAnswers[key]?.trim()) :
+    isImageQuestion ?
+    !imageLabels.every((_: any, index: number) => imageLabelAnswers[index]?.trim()) :
+    !userAnswer.trim());
+
+  const useFloatingTextInput = isStarted && !isSubmitted && !isImageQuestion && !isTableQuestion;
+
   return (
-    <div className="relative space-y-6">
+    <div className={`relative space-y-6 ${useFloatingTextInput ? "pb-56 md:pb-64" : ""}`}>
       <ConfidencePopup
         show={showConfidencePopup}
         previousScore={confidenceBefore}
@@ -853,58 +861,13 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 </div>
               ) : (
                 <>
-                  <Textarea
-                    ref={textareaRef}
-                    value={userAnswer}
-                    onChange={(e) => {
-                      const newValue = e.target.value;
-                      const now = Date.now();
-                      // 첫 타이핑 시작 시간 기록
-                      if (typingStartTimeRef.current === null && newValue.length > 0) {
-                        typingStartTimeRef.current = now;
-                        if (startTime !== null && timeToFirstKeyRef.current === null) {
-                          timeToFirstKeyRef.current = now - startTime;
-                        }
-                      }
-                      // 입력 글자 수 업데이트
-                      inputCharsRef.current = newValue.length;
-                      setUserAnswer(newValue);
-                      
-                      // 히스토리에 추가
-                      const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
-                      newHistory.push(newValue);
-                      if (newHistory.length > 50) {
-                        newHistory.shift();
-                      }
-                      setAnswerHistory(newHistory);
-                      setAnswerHistoryIndex(newHistory.length - 1);
-                    }}
-                    onPaste={() => { pasteDetectedRef.current = true; }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Backspace') backspaceCountRef.current++;
-                      handleKeyDown(e);
-                    }}
-                    placeholder="답안을 입력하세요..."
-                    rows={12}
-                    className="text-base"
-                  />
-                  {showShortcutHelp && (
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
-                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Cmd/Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 실행 취소</span>
-                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Cmd/Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 다시 실행</span>
-                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Option(Alt)</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 이전 단어 삭제</span>
-                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 현재 줄 삭제</span>
-                      <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Y</kbd> 다시 실행(Windows)</span>
-                      <button onClick={toggleShortcutHelp} className="text-muted-foreground/50 hover:text-muted-foreground underline">숨기기</button>
-                    </div>
-                  )}
-                  {!showShortcutHelp && (
-                    <button onClick={toggleShortcutHelp} className="text-xs text-muted-foreground/50 hover:text-muted-foreground underline mt-2">단축키 안내 보기</button>
-                  )}
+                  <div className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                    입력창은 하단 고정 패널에서 항상 표시됩니다.
+                  </div>
                 </>
               )}
 
-              {!isImageQuestion && (
+              {!isImageQuestion && !useFloatingTextInput && (
                 <>
                   <Separator />
 
@@ -948,14 +911,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
 
               {isImageQuestion && <Separator />}
 
+              {!useFloatingTextInput && (
               <div className="flex gap-2">
                 <Button
                   onClick={handleSubmit}
-                  disabled={evaluateMutation.isPending || (isTableQuestion && tableData ?
-                    !getBlankCells(tableData).every((key) => tableAnswers[key]?.trim()) :
-                    isImageQuestion ? 
-                    !imageLabels.every((_: any, index: number) => imageLabelAnswers[index]?.trim()) : 
-                    !userAnswer.trim())}
+                  disabled={isSubmitDisabled}
                   className="gap-2"
                 >
                   <Send className="h-4 w-4" />
@@ -966,6 +926,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   다시 시작
                 </Button>
               </div>
+              )}
             </CardContent>
           </Card>
         </>
@@ -1118,6 +1079,78 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {useFloatingTextInput && (
+        <div className="fixed bottom-0 left-0 right-0 z-50">
+          <div className="mx-auto w-full max-w-[1280px] px-3 md:px-4 pb-[env(safe-area-inset-bottom)]">
+            <div className="rounded-t-xl border border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 p-3 shadow-lg space-y-2">
+              <Textarea
+                ref={textareaRef}
+                value={userAnswer}
+                onChange={(e) => {
+                  const newValue = e.target.value;
+                  const now = Date.now();
+                  if (typingStartTimeRef.current === null && newValue.length > 0) {
+                    typingStartTimeRef.current = now;
+                    if (startTime !== null && timeToFirstKeyRef.current === null) {
+                      timeToFirstKeyRef.current = now - startTime;
+                    }
+                  }
+                  inputCharsRef.current = newValue.length;
+                  setUserAnswer(newValue);
+
+                  const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
+                  newHistory.push(newValue);
+                  if (newHistory.length > 50) {
+                    newHistory.shift();
+                  }
+                  setAnswerHistory(newHistory);
+                  setAnswerHistoryIndex(newHistory.length - 1);
+                }}
+                onPaste={() => { pasteDetectedRef.current = true; }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Backspace') backspaceCountRef.current++;
+                  handleKeyDown(e);
+                }}
+                placeholder="여기에 입력하세요... (Cmd/Ctrl+Z 실행취소 · Cmd/Ctrl+Shift+Z 다시실행 · Option/Alt+Backspace 단어삭제 · Shift+Backspace 줄삭제)"
+                rows={4}
+                className="text-base min-h-[96px] max-h-[220px]"
+              />
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleSubmit}
+                  disabled={isSubmitDisabled}
+                  className="gap-2"
+                >
+                  <Send className="h-4 w-4" />
+                  {evaluateMutation.isPending ? "평가 중..." : "제출"}
+                </Button>
+                <Button onClick={handleReset} variant="outline" className="gap-2">
+                  <RotateCcw className="h-4 w-4" />
+                  다시 시작
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto text-xs"
+                  onClick={toggleShortcutHelp}
+                >
+                  {showShortcutHelp ? "단축키 숨기기" : "단축키 보기"}
+                </Button>
+              </div>
+              {showShortcutHelp && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Cmd/Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 실행 취소</span>
+                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Cmd/Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 다시 실행</span>
+                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Option(Alt)</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 이전 단어 삭제</span>
+                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 현재 줄 삭제</span>
+                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Y</kbd> 다시 실행(Windows)</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
