@@ -882,10 +882,50 @@ export interface ExamDatePrediction {
   canReachGreen: boolean;
 }
 
+export interface ExamPredictionLengthContext {
+  questionLength?: number | null;
+  minQuestionLength?: number | null;
+  maxQuestionLength?: number | null;
+  /**
+   * 시험기간 판정 시간(기본 72시간)
+   */
+  examPeriodHours?: number;
+}
+
+function getExamPeriodLengthBasedDecay(
+  hoursUntilExam: number,
+  context?: ExamPredictionLengthContext
+): number | null {
+  if (!context) return null;
+  if (hoursUntilExam < 0) return null;
+
+  const examPeriodHours = context.examPeriodHours ?? 72;
+  if (hoursUntilExam > examPeriodHours) return null;
+
+  const questionLength = Math.max(1, Math.round(context.questionLength ?? 0));
+  const minQuestionLength = Math.max(1, Math.round(context.minQuestionLength ?? questionLength));
+  const maxQuestionLength = Math.max(minQuestionLength, Math.round(context.maxQuestionLength ?? questionLength));
+
+  if (maxQuestionLength === minQuestionLength) {
+    return 7;
+  }
+
+  const lengthRatio = clamp(
+    (questionLength - minQuestionLength) / (maxQuestionLength - minQuestionLength),
+    0,
+    1
+  );
+
+  // 시험기간 하드코딩 감쇠:
+  // 최단 문제 -5점, 최장 문제 -10점
+  return Math.round(5 + lengthRatio * 5);
+}
+
 export function predictExamDayConfidence(
   currentResult: ConfidenceResult,
   examDate: Date,
-  now?: Date
+  now?: Date,
+  lengthContext?: ExamPredictionLengthContext
 ): ExamDatePrediction {
   const nowDate = now ?? new Date();
   const rawMinutesUntilExam = Math.max(0, Math.round((examDate.getTime() - nowDate.getTime()) / (1000 * 60)));
@@ -910,6 +950,11 @@ export function predictExamDayConfidence(
   }
   if (currentResult.breakdown.forgettingPenalty >= 12) {
     projectedDecay = Math.max(projectedDecay, currentResult.breakdown.forgettingPenalty);
+  }
+
+  const lengthBasedDecay = getExamPeriodLengthBasedDecay(hoursUntilExam, lengthContext);
+  if (lengthBasedDecay !== null) {
+    projectedDecay = lengthBasedDecay;
   }
 
   const predictedScore = clamp(currentScore - projectedDecay, 0, 100);

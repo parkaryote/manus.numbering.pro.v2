@@ -2759,8 +2759,31 @@ ${input.userAnswer}
 
         // 시험일 예측: question의 subjectId를 통해 과목의 examEndDate 조회
         let examDatePrediction: ReturnType<typeof predictExamDayConfidence> | null = null;
+        const currentQuestionLength = Math.max(1, initialEstimate?.answerLength ?? 1);
+        let minQuestionLength = currentQuestionLength;
+        let maxQuestionLength = currentQuestionLength;
+        if (subject?.id) {
+          const subjectQuestions = await db.getQuestionsBySubjectId(subject.id);
+          if (subjectQuestions.length > 0) {
+            const answerLengths = subjectQuestions.map((q) =>
+              Math.max(1, buildInitialConfidenceEstimate(q).answerLength)
+            );
+            minQuestionLength = Math.min(...answerLengths);
+            maxQuestionLength = Math.max(...answerLengths);
+          }
+        }
         if (examDate) {
-          examDatePrediction = predictExamDayConfidence(effectiveConfidence, examDate, now);
+          examDatePrediction = predictExamDayConfidence(
+            effectiveConfidence,
+            examDate,
+            now,
+            {
+              questionLength: currentQuestionLength,
+              minQuestionLength,
+              maxQuestionLength,
+              examPeriodHours: 72,
+            }
+          );
         }
 
         // 배지 계산
