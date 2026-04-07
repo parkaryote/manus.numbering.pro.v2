@@ -577,13 +577,13 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     const reorderedQuestions = arrayMove(questions, oldIndex, newIndex);
     const questionOrders = reorderedQuestions.map((question, index) => ({
       id: question.id,
-      displayOrder: index,
+      displayOrder: index + 1,
     }));
 
     // Optimistic update
     utils.questions.listBySubject.setData({ subjectId }, reorderedQuestions.map((q, idx) => ({
       ...q,
-      displayOrder: idx,
+      displayOrder: idx + 1,
     })));
 
     updateOrderMutation.mutate({ questionOrders });

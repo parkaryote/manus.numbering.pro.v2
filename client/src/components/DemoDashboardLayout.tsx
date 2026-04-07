@@ -51,12 +51,9 @@ function getOrCreateId(key: string): string {
   }
 }
 
-function isGuestUser(user: { openId?: string; loginMethod?: string | null } | null | undefined): boolean {
+function isGuestUser(user: { loginMethod?: string | null } | null | undefined): boolean {
   if (!user) return false;
-  return (
-    (user.openId?.startsWith("guest_") ?? false) ||
-    user.loginMethod === "guest"
-  );
+  return user.loginMethod === "guest";
 }
 
 function AuthModal({
@@ -116,7 +113,7 @@ function AuthModal({
     if (!username.trim()) { toast.error("아이디를 입력해주세요"); return; }
     if (password.length < 4) { toast.error("비밀번호는 4자 이상이어야 합니다"); return; }
     if (password !== passwordConfirm) { toast.error("비밀번호가 일치하지 않습니다"); return; }
-    signupMutation.mutate({ accessPassword: "wlsgur37", username, password });
+    signupMutation.mutate({ username, password });
   };
 
   const handleLogin = () => {

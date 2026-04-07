@@ -72,72 +72,6 @@ function formatRelativeTick(ts: number, firstTs: number): string {
   return format(new Date(ts), "M/d", { locale: ko });
 }
 
-function getAdaptiveMinStep(totalPoints: number): number {
-  if (totalPoints <= 16) return 74;
-  if (totalPoints <= 30) return 56;
-  if (totalPoints <= 55) return 42;
-  if (totalPoints <= 90) return 30;
-  return 22;
-}
-
-function getAdaptiveMaxStep(totalPoints: number): number {
-  if (totalPoints <= 20) return 300;
-  if (totalPoints <= 50) return 240;
-  return 190;
-}
-
-function buildAdaptiveXPositions(points: Array<{ at: string; eventType?: string }>): number[] {
-  if (points.length === 0) return [];
-
-  const minStep = getAdaptiveMinStep(points.length);
-  const maxStep = getAdaptiveMaxStep(points.length);
-  const xPositions: number[] = [0];
-
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1];
-    const cur = points[i];
-    const prevTs = new Date(prev.at).getTime();
-    const curTs = new Date(cur.at).getTime();
-    const gapMinutes = Math.max(0, (curTs - prevTs) / 60000);
-
-    let step = Math.log1p(gapMinutes + 1) * (minStep * 0.9);
-    step = Math.max(minStep, Math.min(step, maxStep));
-
-    const densePracticePair =
-      prev.eventType === "practice" &&
-      cur.eventType === "practice" &&
-      gapMinutes <= 4;
-
-    if (densePracticePair && points.length > 45) {
-      step = Math.max(minStep * 0.55, step * 0.78);
-    }
-
-    if (gapMinutes >= 180) {
-      step = Math.max(step, minStep * 2.1);
-    }
-
-    xPositions.push(xPositions[i - 1] + step);
-  }
-
-  return xPositions;
-}
-
-function formatAdaptiveTick(value: number, data: Array<{ xPos: number; xTs: number }>, firstTs: number): string {
-  if (data.length === 0) return "";
-
-  let nearest = data[0];
-  let minDiff = Math.abs(data[0].xPos - value);
-  for (let i = 1; i < data.length; i++) {
-    const diff = Math.abs(data[i].xPos - value);
-    if (diff < minDiff) {
-      minDiff = diff;
-      nearest = data[i];
-    }
-  }
-
-  return formatRelativeTick(nearest.xTs, firstTs);
-}
-
 function formatExamCountdown(minutesUntilExam: number): string {
   if (minutesUntilExam <= 0) return "D-Day";
   const days = Math.floor(minutesUntilExam / (60 * 24));
@@ -363,16 +297,20 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
 
   // mergedData: 모든 포인트를 하나의 배열로, solidScore/dashedScore 필드 분리
   const firstTs = allPoints.length > 0 ? new Date(allPoints[0].at).getTime() : Date.now();
-  const adaptiveXPositions = buildAdaptiveXPositions(allPoints);
+  const lastTs = allPoints.length > 0 ? new Date(allPoints[allPoints.length - 1].at).getTime() : firstTs;
+  const rawRange = Math.max(1, lastTs - firstTs);
+  const xPadding = Math.max(Math.round(rawRange * 0.04), 5 * 60 * 1000);
+  const xDomainMin = firstTs;
+  const xDomainMax = lastTs + xPadding;
   const chartData = allPoints.map((p, i) => {
     const isPredict = (p as any).eventType === "exam_predict";
     const isJunction = lastSolidPoint && p.at === lastSolidPoint.at && !isPredict;
+    const xTs = new Date(p.at).getTime();
     return {
       ...p,
       idx: i,
       label: allPoints.length > 0 ? formatTimeLabel(p.at, allPoints) : "",
-      xTs: new Date(p.at).getTime(),
-      xPos: adaptiveXPositions[i] ?? i,
+      xTs,
       isLatest: p.at === latestTestAt && (p as any).eventType === "test",
       solidScore: isPredict ? null : p.score,
       // 점선은 마지막 실선 포인트부터 예측 포인트까지
@@ -389,7 +327,6 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
 
   const hasData = solidData.length > 0;
   const currentScore = hasData ? solidData[solidData.length - 1].score : null;
-  const xDomainMax = chartData.length > 0 ? (chartData[chartData.length - 1].xPos + 80) : 80;
 
   // 현재 상태 색상 (점수 기반)
   const currentStateColor = currentScore === null
@@ -473,8 +410,8 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
                   <XAxis
                     type="number"
-                    dataKey="xPos"
-                    domain={[0, xDomainMax]}
+                    dataKey="xTs"
+                    domain={[xDomainMin, xDomainMax]}
                     scale="linear"
                     tickCount={8}
                     interval="preserveStartEnd"
@@ -483,7 +420,7 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                     tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(value) => formatAdaptiveTick(Number(value), chartData, firstTs)}
+                    tickFormatter={(value) => formatRelativeTick(Number(value), firstTs)}
                   />
                   <YAxis
                     domain={[0, 100]}

@@ -8,12 +8,21 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
 import { ENV } from "./_core/env";
+import type { User } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 import * as ocrModule from "./ocr";
-import { computeExamConfidence, aggregateConfidence, predictExamDayConfidence, type PracticeSignal, type TestSignal, type ConfidenceResult } from "@shared/examConfidence";
+import {
+  computeExamConfidence,
+  aggregateConfidence,
+  predictExamDayConfidence,
+  TRAFFIC_LIGHT_LABELS,
+  type PracticeSignal,
+  type TestSignal,
+  type ConfidenceResult,
+} from "@shared/examConfidence";
 import {
   calculateEffectiveSpeed,
   calculateSpeedBonus,
@@ -165,7 +174,10 @@ function extractWarnZoneLinesFromTests(
 }
 
 const TOOTH_MORPHOLOGY_SUBJECT_NAME = "치아형태학";
+const NUMBERING_SUBJECT_NAME = "넘버링";
+const DRAWING_BBANG_SUBJECT_NAME = "그림빵";
 const TOOTH_MORPHOLOGY_FIXED_EXAM_DATE = new Date("2026-04-08T07:30:00+09:00");
+const CRITICAL_TOOTH_DEMO_QUESTION_TEXT = "표 I-3 하악 치아 크기";
 
 function toDateOrNull(value: unknown): Date | null {
   if (!value) return null;
@@ -179,6 +191,164 @@ function getStarterExamDateForSubject(demoSubject: { name: string; examEndDate?:
     return new Date(TOOTH_MORPHOLOGY_FIXED_EXAM_DATE);
   }
   return toDateOrNull(demoSubject.examEndDate ?? null);
+}
+
+function normalizeQuestionTextValue(value: string | null | undefined): string {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function resolveStateFromScore(score: number): "green" | "yellow" | "red" {
+  if (score >= 80) return "green";
+  if (score >= 40) return "yellow";
+  return "red";
+}
+
+function applyDisplayScoreValue(
+  base: ConfidenceResult,
+  score: number,
+  options?: { isColdStart?: boolean }
+): ConfidenceResult {
+  const displayScore = clampNumber(Math.round(score), 0, 100);
+  const state = resolveStateFromScore(displayScore);
+  return {
+    ...base,
+    rawScore: displayScore,
+    displayScore,
+    state,
+    label: TRAFFIC_LIGHT_LABELS[state],
+    isColdStart: options?.isColdStart ?? base.isColdStart,
+  };
+}
+
+function applyDisplayScoreOverride(base: ConfidenceResult, score: number): ConfidenceResult {
+  return applyDisplayScoreValue(base, score, { isColdStart: true });
+}
+
+function getStarterBaseScoreOverride(input: {
+  subjectName: string | null | undefined;
+  question?: { displayOrder?: number | null; difficulty?: "easy" | "medium" | "hard" | null };
+  userRole?: "admin" | "user";
+}): number | null {
+  if (input.userRole === "admin") return null;
+
+  const subjectName = (input.subjectName ?? "").trim();
+  const difficulty = input.question?.difficulty ?? "medium";
+  const displayOrder = Math.max(0, Math.round(input.question?.displayOrder ?? 0));
+
+  if (subjectName === TOOTH_MORPHOLOGY_SUBJECT_NAME) {
+    const difficultyBase =
+      difficulty === "easy"
+        ? 56
+        : difficulty === "hard"
+          ? 18
+          : 36;
+    const orderOffsets = [-7, -3, 1, 5, -1, 3, -5, 6];
+    const offset = orderOffsets[displayOrder % orderOffsets.length] ?? 0;
+    return clampNumber(difficultyBase + offset, 8, 72);
+  }
+
+  if (subjectName === NUMBERING_SUBJECT_NAME) {
+    const numberingScores = [84, 57, 29, 72, 46, 23];
+    return numberingScores[displayOrder % numberingScores.length] ?? numberingScores[0];
+  }
+
+  if (subjectName === DRAWING_BBANG_SUBJECT_NAME) {
+    const drawingScores = [82, 48, 26, 69, 43, 21];
+    return drawingScores[displayOrder % drawingScores.length] ?? drawingScores[0];
+  }
+
+  return null;
+}
+
+function getStarterInitialScoreOverride(input: {
+  subjectName: string | null | undefined;
+  question?: { displayOrder?: number | null; difficulty?: "easy" | "medium" | "hard" | null };
+  practiceCount: number;
+  testCount: number;
+  userRole?: "admin" | "user";
+}): number | null {
+  if (input.practiceCount > 0 || input.testCount > 0) return null;
+  return getStarterBaseScoreOverride(input);
+}
+
+function applyStarterPracticeFloor(
+  base: ConfidenceResult,
+  starterBaseScore: number,
+  practiceCount: number
+): ConfidenceResult {
+  if (practiceCount <= 0) return base;
+
+  // 연습 구간에서는 스타터 초기값 대비 하락 체감을 막고, 최소한의 상승 흐름을 보장한다.
+  const progressiveGain = Math.max(1, Math.floor(Math.log2(practiceCount + 1)));
+  const floorScore = clampNumber(starterBaseScore + progressiveGain, 0, 100);
+  if (base.displayScore >= floorScore) return base;
+  return applyDisplayScoreValue(base, floorScore, { isColdStart: false });
+}
+
+async function ensureCriticalToothDemoQuestionExists() {
+  const demoSubjects = await db.getDemoSubjects();
+  const toothDemoSubject = demoSubjects.find((subject) => subject.name === TOOTH_MORPHOLOGY_SUBJECT_NAME);
+  if (!toothDemoSubject) return;
+
+  const existingDemoQuestions = await db.getDemoQuestions(toothDemoSubject.id);
+  const targetNormalized = normalizeQuestionTextValue(CRITICAL_TOOTH_DEMO_QUESTION_TEXT);
+  const alreadyExists = existingDemoQuestions.some(
+    (question) => normalizeQuestionTextValue(question.question) === targetNormalized
+  );
+  if (alreadyExists) return;
+
+  const sourceCandidates = await db.getQuestionsByExactQuestionText(CRITICAL_TOOTH_DEMO_QUESTION_TEXT);
+  if (sourceCandidates.length === 0) {
+    console.warn(`[StarterData] Missing source question for demo recovery: ${CRITICAL_TOOTH_DEMO_QUESTION_TEXT}`);
+    return;
+  }
+
+  const ownerUser = ENV.ownerEmail ? await db.getUserByEmail(ENV.ownerEmail) : undefined;
+  const preferredOwnerId = ownerUser?.id ?? null;
+
+  const prioritized = [...sourceCandidates].sort((a, b) => {
+    const score = (row: typeof sourceCandidates[number]) => {
+      let value = 0;
+      if (preferredOwnerId && row.userId === preferredOwnerId) value += 1000;
+      if (row.isDemo === 0) value += 100;
+      if (row.tableData) value += 30;
+      if (row.answer && row.answer.trim().length > 0) value += 20;
+      if (typeof row.displayOrder === "number") value += Math.max(0, row.displayOrder);
+      return value;
+    };
+    return score(b) - score(a);
+  });
+
+  const source = prioritized[0];
+  const fallbackDisplayOrder =
+    existingDemoQuestions.length > 0
+      ? Math.max(...existingDemoQuestions.map((question) => question.displayOrder ?? 0)) + 1
+      : 0;
+  const displayOrder =
+    typeof source.displayOrder === "number" && source.displayOrder >= 0
+      ? source.displayOrder
+      : fallbackDisplayOrder;
+
+  await db.createDemoQuestion({
+    subjectId: toothDemoSubject.id,
+    userId: toothDemoSubject.userId,
+    question: source.question,
+    answer: source.answer ?? "",
+    difficulty: source.difficulty ?? "medium",
+    imageUrl: source.imageUrl ?? undefined,
+    imageLabels: source.imageLabels ?? undefined,
+    autoNumbering: source.autoNumbering ?? 1,
+    tableData: source.tableData ?? undefined,
+    displayOrder,
+    isDemo: 1,
+    isStarred: source.isStarred ?? 0,
+    useAIGrading: source.useAIGrading ?? 0,
+    memo: source.memo ?? undefined,
+  });
+
+  console.log(
+    `[StarterData] Restored demo question "${CRITICAL_TOOTH_DEMO_QUESTION_TEXT}" into "${TOOTH_MORPHOLOGY_SUBJECT_NAME}".`
+  );
 }
 
 async function syncDemoQuestionsToSubject(
@@ -329,7 +499,12 @@ async function cleanupStaleDemoLinkedSubjects(userId: number, activeDemoSubjectI
 }
 
 async function ensureStarterDataForUser(userId: number) {
+  await ensureCriticalToothDemoQuestionExists();
   const demoSubjects = await db.getDemoSubjects();
+  const toothDemoSubject = demoSubjects.find((subject) => subject.name === TOOTH_MORPHOLOGY_SUBJECT_NAME);
+  if (toothDemoSubject) {
+    await db.normalizeQuestionDisplayOrderForSubject(toothDemoSubject.id);
+  }
   const activeDemoSubjectIds = new Set(demoSubjects.map((subject) => subject.id));
   if (demoSubjects.length === 0) {
     await cleanupStaleDemoLinkedSubjects(userId, activeDemoSubjectIds);
@@ -383,6 +558,9 @@ async function ensureStarterDataForUser(userId: number) {
     }
 
     await syncDemoQuestionsToSubject(userId, targetSubject.id, demoQuestions);
+    if (demoSubject.name === TOOTH_MORPHOLOGY_SUBJECT_NAME) {
+      await db.normalizeQuestionDisplayOrderForSubject(targetSubject.id);
+    }
   }
 
   await cleanupStaleDemoLinkedSubjects(userId, activeDemoSubjectIds);
@@ -761,6 +939,43 @@ function ensureOCREnabled() {
   }
 }
 
+type PublicUser = Omit<User, "passwordHash" | "openId">;
+
+function sanitizeUserForClient(user: User | null | undefined): PublicUser | null {
+  if (!user) return null;
+  // Never expose credential hash or raw provider-linked openId to client payloads.
+  const { passwordHash: _passwordHash, openId: _openId, ...safeUser } = user;
+  return safeUser;
+}
+
+async function assertSubjectOwnershipOrThrow(subjectId: number, userId: number) {
+  const subject = await db.getSubjectById(subjectId);
+  if (!subject) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "과목을 찾을 수 없습니다" });
+  }
+  if (subject.isDemo) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "데모 과목은 수정할 수 없습니다" });
+  }
+  if (subject.userId !== userId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "본인 과목만 접근할 수 있습니다" });
+  }
+  return subject;
+}
+
+async function assertQuestionOwnershipOrThrow(questionId: number, userId: number) {
+  const question = await db.getQuestionById(questionId);
+  if (!question) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "문제를 찾을 수 없습니다" });
+  }
+  if (question.isDemo) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "데모 문제는 수정할 수 없습니다" });
+  }
+  if (question.userId !== userId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 접근할 수 있습니다" });
+  }
+  return question;
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -769,8 +984,24 @@ export const appRouter = router({
       if (user) {
         await syncStarterDataSafely(user.id);
       }
-      return user;
+      return sanitizeUserForClient(user);
     }),
+    verifySitePassword: publicProcedure
+      .input(z.object({ password: z.string() }))
+      .mutation(({ input }) => {
+        const expected = ENV.siteGatePassword;
+        if (!expected) {
+          // If no gate password is configured in env, do not block access.
+          return { success: true };
+        }
+        if (input.password !== expected) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "비밀번호가 올바르지 않습니다",
+          });
+        }
+        return { success: true };
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -781,17 +1012,19 @@ export const appRouter = router({
     // 간편 가입: 접속 비밀번호 확인 후 개인 아이디/비밀번호로 계정 생성
     simpleSignup: publicProcedure
       .input(z.object({
-        accessPassword: z.string(), // 접속 비밀번호 (wlsgur37)
+        accessPassword: z.string().optional(),
         username: z.string().min(2).max(20),
         password: z.string().min(4),
       }))
       .mutation(async ({ input, ctx }) => {
-        const ACCESS_PASSWORD = "wlsgur37";
-        if (input.accessPassword !== ACCESS_PASSWORD) {
-          throw new TRPCError({
-            code: "UNAUTHORIZED",
-            message: "접속 비밀번호가 일치하지 않습니다",
-          });
+        if (ENV.signupAccessPassword) {
+          const provided = input.accessPassword ?? "";
+          if (provided !== ENV.signupAccessPassword) {
+            throw new TRPCError({
+              code: "UNAUTHORIZED",
+              message: "접속 비밀번호가 일치하지 않습니다",
+            });
+          }
         }
 
         // 아이디 중복 확인
@@ -1178,6 +1411,9 @@ export const appRouter = router({
         // Allow access to demo subjects without auth
         if (subject?.isDemo) return subject;
         if (!ctx.user) throw new TRPCError({ code: 'UNAUTHORIZED' });
+        if (!subject || subject.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 과목만 조회할 수 있습니다" });
+        }
         return subject;
       }),
     
@@ -1209,8 +1445,9 @@ export const appRouter = router({
         examEndDate: z.string().nullable().optional(), // ISO date/time string or null to clear
         isDemo: z.number().optional(), // 0 or 1
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, examEndDate, ...data } = input;
+        await assertSubjectOwnershipOrThrow(id, ctx.user.id);
         const updateData: any = { ...data };
         if (examEndDate !== undefined) {
           updateData.examEndDate = examEndDate ? parseExamEndDateInput(examEndDate) : null;
@@ -1220,7 +1457,8 @@ export const appRouter = router({
     
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        await assertSubjectOwnershipOrThrow(input.id, ctx.user.id);
         return db.deleteSubject(input.id);
       }),
     
@@ -1247,6 +1485,9 @@ export const appRouter = router({
           return db.getDemoQuestions(input.subjectId);
         }
         if (!ctx.user) throw new TRPCError({ code: 'UNAUTHORIZED' });
+        if (!subject || subject.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 과목만 조회할 수 있습니다" });
+        }
         return db.getQuestionsBySubjectId(input.subjectId);
       }),
     
@@ -1269,6 +1510,9 @@ export const appRouter = router({
         // Require auth for non-demo questions
         if (!ctx.user) {
           throw new TRPCError({ code: 'UNAUTHORIZED' });
+        }
+        if (!question || question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 조회할 수 있습니다" });
         }
         return question;
       }),
@@ -1314,14 +1558,16 @@ export const appRouter = router({
         isStarred: z.number().optional(), // 0 or 1
         memo: z.string().nullable().optional(), // 암기법/설명 메모
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
+        await assertQuestionOwnershipOrThrow(id, ctx.user.id);
         return db.updateQuestion(id, data);
       }),
     
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        await assertQuestionOwnershipOrThrow(input.id, ctx.user.id);
         return db.deleteQuestion(input.id);
       }),
     
@@ -1342,6 +1588,8 @@ export const appRouter = router({
         targetSubjectId: z.number(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await assertQuestionOwnershipOrThrow(input.questionId, ctx.user.id);
+        await assertSubjectOwnershipOrThrow(input.targetSubjectId, ctx.user.id);
         return db.copyQuestion(ctx.user.id, input.questionId, input.targetSubjectId);
       }),
     
@@ -1350,7 +1598,9 @@ export const appRouter = router({
         questionId: z.number(),
         targetSubjectId: z.number(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        await assertQuestionOwnershipOrThrow(input.questionId, ctx.user.id);
+        await assertSubjectOwnershipOrThrow(input.targetSubjectId, ctx.user.id);
         return db.moveQuestion(input.questionId, input.targetSubjectId);
       }),
     
@@ -2417,6 +2667,9 @@ ${input.userAnswer}
         const userProfile = buildUserAdaptiveProfile(allPractice, allTests);
 
         const question = await db.getQuestionById(input.questionId);
+        if (!question || question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 조회할 수 있습니다" });
+        }
         const subject = question?.subjectId ? await db.getSubjectById(question.subjectId) : null;
         const examDate = subject?.examEndDate ? new Date(subject.examEndDate) : null;
         const initialEstimate = question ? buildInitialConfidenceEstimate(question) : undefined;
@@ -2479,10 +2732,29 @@ ${input.userAnswer}
           initialEstimate,
         });
 
+        const starterInitialScoreOverride = getStarterInitialScoreOverride({
+          subjectName: subject?.name,
+          question,
+          practiceCount: qPractice.length,
+          testCount: qTests.length,
+          userRole: ctx.user.role,
+        });
+        let effectiveConfidence = starterInitialScoreOverride === null
+          ? confidence
+          : applyDisplayScoreOverride(confidence, starterInitialScoreOverride);
+        const starterBaseScore = getStarterBaseScoreOverride({
+          subjectName: subject?.name,
+          question,
+          userRole: ctx.user.role,
+        });
+        if (starterBaseScore !== null && qTests.length === 0 && qPractice.length > 0) {
+          effectiveConfidence = applyStarterPracticeFloor(effectiveConfidence, starterBaseScore, qPractice.length);
+        }
+
         // 시험일 예측: question의 subjectId를 통해 과목의 examEndDate 조회
         let examDatePrediction: ReturnType<typeof predictExamDayConfidence> | null = null;
         if (examDate) {
-          examDatePrediction = predictExamDayConfidence(confidence, examDate, now);
+          examDatePrediction = predictExamDayConfidence(effectiveConfidence, examDate, now);
         }
 
         // 배지 계산
@@ -2509,11 +2781,11 @@ ${input.userAnswer}
         }
 
         return {
-          displayScore: confidence.displayScore,
-          state: confidence.state,
-          label: confidence.label,
-          isColdStart: confidence.isColdStart,
-          breakdown: confidence.breakdown,
+          displayScore: effectiveConfidence.displayScore,
+          state: effectiveConfidence.state,
+          label: effectiveConfidence.label,
+          isColdStart: effectiveConfidence.isColdStart,
+          breakdown: effectiveConfidence.breakdown,
           badges: { lastTestWrong, frequentlyWrong, hasWarnZone },
           lastTestWrongLines,
           lastTestAccuracyRate: lastTest ? (lastTest.similarityScore ?? null) : null,
@@ -2525,6 +2797,7 @@ ${input.userAnswer}
     getBySubject: protectedProcedure
       .input(z.object({ subjectId: z.number() }))
       .query(async ({ ctx, input }) => {
+        await assertSubjectOwnershipOrThrow(input.subjectId, ctx.user.id);
         const subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
         const questionIds = subjectQuestions.map(q => q.id);
         if (questionIds.length === 0) return { questions: [], aggregate: aggregateConfidence([]) };
@@ -2595,7 +2868,7 @@ ${input.userAnswer}
               similarityScore: t.similarityScore ?? 0,
             })),
           };
-          const confidence = computeExamConfidence({
+          const confidenceBase = computeExamConfidence({
             practice: practiceSignal,
             test: testSignal,
             now,
@@ -2603,6 +2876,24 @@ ${input.userAnswer}
             userProfile,
             initialEstimate: buildInitialConfidenceEstimate(questionById.get(qId) ?? {}),
           });
+          const starterInitialScoreOverride = getStarterInitialScoreOverride({
+            subjectName: subject?.name,
+            question: questionById.get(qId),
+            practiceCount: qPractice.length,
+            testCount: qTests.length,
+            userRole: ctx.user.role,
+          });
+          let confidence = starterInitialScoreOverride === null
+            ? confidenceBase
+            : applyDisplayScoreOverride(confidenceBase, starterInitialScoreOverride);
+          const starterBaseScore = getStarterBaseScoreOverride({
+            subjectName: subject?.name,
+            question: questionById.get(qId),
+            userRole: ctx.user.role,
+          });
+          if (starterBaseScore !== null && qTests.length === 0 && qPractice.length > 0) {
+            confidence = applyStarterPracticeFloor(confidence, starterBaseScore, qPractice.length);
+          }
           results.push({ questionId: qId, confidence });
         }
 
@@ -2642,6 +2933,9 @@ ${input.userAnswer}
         const allTests = await db.getTestSessionsByUserId(ctx.user.id);
         const userProfile = buildUserAdaptiveProfile(allPractice, allTests);
         const question = await db.getQuestionById(input.questionId);
+        if (!question || question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 조회할 수 있습니다" });
+        }
         const subject = question?.subjectId ? await db.getSubjectById(question.subjectId) : null;
         const examDate = subject?.examEndDate ? new Date(subject.examEndDate) : null;
         const initialEstimate = question ? buildInitialConfidenceEstimate(question) : undefined;
@@ -2651,6 +2945,11 @@ ${input.userAnswer}
         const qTests = allTests
           .filter(t => t.questionId === input.questionId)
           .sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
+        const starterBaseScore = getStarterBaseScoreOverride({
+          subjectName: subject?.name,
+          question,
+          userRole: ctx.user.role,
+        });
 
         // 모든 이벤트를 시간순으로 합치기
         type Ev = { at: Date; type: 'practice' | 'test'; idx: number };
@@ -2706,7 +3005,7 @@ ${input.userAnswer}
             })),
           };
 
-          const result = computeExamConfidence({
+          let result = computeExamConfidence({
             practice: practiceSignal,
             test: testSignal,
             now: ev.at,
@@ -2714,6 +3013,9 @@ ${input.userAnswer}
             userProfile,
             initialEstimate,
           });
+          if (starterBaseScore !== null && cumTests.length === 0 && pCount > 0) {
+            result = applyStarterPracticeFloor(result, starterBaseScore, pCount);
+          }
           const lastTest = ev.type === 'test' ? qTests[ev.idx] : undefined;
           // 시험 정답률: similarityScore를 accuracyRate로 사용 (evaluate 시 저장됨)
           const testAccuracyRate = lastTest?.similarityScore ?? undefined;
@@ -2759,7 +3061,7 @@ ${input.userAnswer}
               similarityScore: t.similarityScore ?? 0,
             })),
           };
-          const result = computeExamConfidence({
+          let result = computeExamConfidence({
             practice: practiceSignal,
             test: testSignal,
             now,
@@ -2767,6 +3069,9 @@ ${input.userAnswer}
             userProfile,
             initialEstimate,
           });
+          if (starterBaseScore !== null && qTests.length === 0 && qPractice.length > 0) {
+            result = applyStarterPracticeFloor(result, starterBaseScore, qPractice.length);
+          }
           points.push({ at: now.toISOString(), score: result.displayScore, state: result.state, eventType: 'now' });
         }
 
@@ -2777,6 +3082,7 @@ ${input.userAnswer}
     getHistoryBySubject: protectedProcedure
       .input(z.object({ subjectId: z.number() }))
       .query(async ({ ctx, input }) => {
+        await assertSubjectOwnershipOrThrow(input.subjectId, ctx.user.id);
         const subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
         const questionIds = subjectQuestions.map(q => q.id);
         if (questionIds.length === 0) return { points: [] };
@@ -2785,6 +3091,18 @@ ${input.userAnswer}
         const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
         const allTests = await db.getTestSessionsByUserId(ctx.user.id);
         const userProfile = buildUserAdaptiveProfile(allPractice, allTests);
+        const questionById = new Map(subjectQuestions.map((q) => [q.id, q]));
+        const starterBaseScoreByQuestionId = new Map<number, number | null>();
+        for (const qId of questionIds) {
+          starterBaseScoreByQuestionId.set(
+            qId,
+            getStarterBaseScoreOverride({
+              subjectName: subject?.name,
+              question: questionById.get(qId),
+              userRole: ctx.user.role,
+            })
+          );
+        }
         const qPractice = allPractice.filter(p => questionIds.includes(p.questionId));
         const qTests = allTests.filter(t => questionIds.includes(t.questionId));
         // 모든 이벤트를 시간순으로 합치기
@@ -2844,13 +3162,17 @@ ${input.userAnswer}
                 similarityScore: t.similarityScore ?? 0,
               })),
             };
-            const result = computeExamConfidence({
+            let result = computeExamConfidence({
               practice: practiceSignal,
               test: testSignal,
               now: ev.at,
               examDate,
               userProfile,
             });
+            const starterBaseScore = starterBaseScoreByQuestionId.get(qId) ?? null;
+            if (starterBaseScore !== null && tList.length === 0 && pList.length > 0) {
+              result = applyStarterPracticeFloor(result, starterBaseScore, pList.length);
+            }
             totalScore += result.displayScore;
           }
           if (activeCount === 0) continue;
@@ -2886,13 +3208,17 @@ ${input.userAnswer}
               recentCorrectStreak: streak,
               mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
             };
-            const result = computeExamConfidence({
+            let result = computeExamConfidence({
               practice: practiceSignal,
               test: testSignal,
               now: nowDate,
               examDate,
               userProfile,
             });
+            const starterBaseScore = starterBaseScoreByQuestionId.get(qId) ?? null;
+            if (starterBaseScore !== null && tList.length === 0 && pList.length > 0) {
+              result = applyStarterPracticeFloor(result, starterBaseScore, pList.length);
+            }
             totalScore += result.displayScore;
           }
           if (activeCount > 0) {

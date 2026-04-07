@@ -35,12 +35,9 @@ function getOrCreateGuestId(): string {
   }
 }
 
-function isGuestUser(user: { openId?: string; loginMethod?: string | null } | null | undefined): boolean {
+function isGuestUser(user: { loginMethod?: string | null } | null | undefined): boolean {
   if (!user) return false;
-  return (
-    (user.openId?.startsWith("guest_") ?? false) ||
-    user.loginMethod === "guest"
-  );
+  return user.loginMethod === "guest";
 }
 
 /**
@@ -51,7 +48,7 @@ function Layout({
   children,
   onAuthSuccess,
 }: {
-  user: { openId?: string; loginMethod?: string | null } | null | undefined;
+  user: { loginMethod?: string | null } | null | undefined;
   children: React.ReactNode;
   onAuthSuccess?: () => void;
 }) {
@@ -98,7 +95,7 @@ function SubjectPracticeRedirect({ subjectId }: { subjectId: number }) {
   );
 }
 
-function Router({ user, onAuthSuccess }: { user: { openId?: string; loginMethod?: string | null } | null | undefined; onAuthSuccess?: () => void }) {
+function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null } | null | undefined; onAuthSuccess?: () => void }) {
   const canAccessDemo = !user || isGuestUser(user);
 
   return (

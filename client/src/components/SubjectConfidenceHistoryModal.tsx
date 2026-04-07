@@ -11,7 +11,7 @@ import {
   ReferenceArea,
   ReferenceLine,
 } from "recharts";
-import { format, differenceInDays, differenceInHours, differenceInMinutes } from "date-fns";
+import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 
 interface Props {
@@ -21,20 +21,13 @@ interface Props {
   onClose: () => void;
 }
 
-function formatTimeLabel(isoStr: string, allPoints: { at: string }[]): string {
-  const date = new Date(isoStr);
-  const first = new Date(allPoints[0].at);
-  const diffDays = differenceInDays(date, first);
-  if (diffDays === 0) {
-    const diffH = differenceInHours(date, first);
-    if (diffH === 0) {
-      const diffM = differenceInMinutes(date, first);
-      return `+${diffM}분`;
-    }
-    return `+${diffH}시간`;
-  }
+function formatRelativeTick(ts: number, firstTs: number): string {
+  const diffMin = Math.max(0, Math.round((ts - firstTs) / 60000));
+  if (diffMin < 60) return `+${diffMin}분`;
+  if (diffMin < 60 * 24) return `+${Math.round(diffMin / 60)}시간`;
+  const diffDays = Math.round(diffMin / (60 * 24));
   if (diffDays < 30) return `+${diffDays}일`;
-  return format(date, "M/d", { locale: ko });
+  return format(new Date(ts), "M/d", { locale: ko });
 }
 
 // 브랜드 컬러 (보라 계열) - 선에만 사용
@@ -161,11 +154,17 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
 
   const testPoints = points.filter(p => p.eventType === "test");
   const latestTestAt = testPoints.length > 0 ? testPoints[testPoints.length - 1].at : null;
+  const firstTs = points.length > 0 ? new Date(points[0].at).getTime() : Date.now();
+  const lastTs = points.length > 0 ? new Date(points[points.length - 1].at).getTime() : firstTs;
+  const rawRange = Math.max(1, lastTs - firstTs);
+  const xPadding = Math.max(Math.round(rawRange * 0.04), 5 * 60 * 1000);
+  const xDomainMin = firstTs;
+  const xDomainMax = lastTs + xPadding;
 
   const chartData = points.map((p, i) => ({
     ...p,
     idx: i,
-    label: points.length > 0 ? formatTimeLabel(p.at, points) : "",
+    xTs: new Date(p.at).getTime(),
     isLatest: p.at === latestTestAt && p.eventType === "test",
   }));
 
@@ -237,12 +236,17 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
 
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
                   <XAxis
-                    dataKey="label"
+                    type="number"
+                    dataKey="xTs"
+                    domain={[xDomainMin, xDomainMax]}
+                    scale="linear"
+                    tickCount={8}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
                     tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
-                    interval="preserveStartEnd"
-                    minTickGap={24}
+                    tickFormatter={(value) => formatRelativeTick(Number(value), firstTs)}
                   />
                   <YAxis
                     domain={[0, 100]}

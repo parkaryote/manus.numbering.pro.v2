@@ -10,6 +10,7 @@ import { ArrowLeft, Clock, Trophy, RotateCcw, ChevronRight } from "lucide-react"
 import { toast } from "sonner";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
+import { buildNextAutoNumberingValue } from "@/lib/autoNumbering";
 
 interface SubjectExamProps {
   subjectId: number;
@@ -22,6 +23,7 @@ type ExamQuestion = {
   tableData?: string | null;
   imageUrl?: string | null;
   imageLabels?: string | null;
+  autoNumbering?: number | null;
 };
 
 type EvalResult = {
@@ -714,6 +716,29 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
                 <Textarea
                   value={textAnswers[q.id] || ""}
                   onChange={(e) => setTextAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (q.autoNumbering !== 1) return;
+                    if (e.key !== "Enter" || e.ctrlKey || e.shiftKey || e.altKey) return;
+                    if ((e.nativeEvent as any).isComposing) return;
+
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const textarea = e.currentTarget;
+                    const selectionStart = textarea.selectionStart ?? 0;
+                    const selectionEnd = textarea.selectionEnd ?? selectionStart;
+                    const { nextValue, nextCursor } = buildNextAutoNumberingValue(
+                      textarea.value,
+                      selectionStart,
+                      selectionEnd
+                    );
+
+                    setTextAnswers((prev) => ({ ...prev, [q.id]: nextValue }));
+                    requestAnimationFrame(() => {
+                      textarea.focus();
+                      textarea.setSelectionRange(nextCursor, nextCursor);
+                    });
+                  }}
                   placeholder="정답을 입력하세요..."
                   className="min-h-[160px] resize-y font-medium"
                   autoComplete="off"

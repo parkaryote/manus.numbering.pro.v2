@@ -70,7 +70,7 @@ export default function Demo() {
     if (!username.trim()) { toast.error("아이디를 입력해주세요"); return; }
     if (password.length < 4) { toast.error("비밀번호는 4자 이상이어야 합니다"); return; }
     if (password !== passwordConfirm) { toast.error("비밀번호가 일치하지 않습니다"); return; }
-    simpleSignupMutation.mutate({ accessPassword: "wlsgur37", username, password });
+    simpleSignupMutation.mutate({ username, password });
   };
 
   const handleLogin = () => {

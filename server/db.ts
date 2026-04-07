@@ -210,7 +210,7 @@ export async function updateSubjectOrder(userId: number, subjectOrders: { id: nu
   for (const { id, displayOrder } of subjectOrders) {
     await db.update(subjects)
       .set({ displayOrder })
-      .where(eq(subjects.id, id));
+      .where(and(eq(subjects.id, id), eq(subjects.userId, userId)));
   }
 }
 
@@ -243,6 +243,18 @@ export async function getQuestionById(id: number) {
   return result[0];
 }
 
+export async function getQuestionsByExactQuestionText(questionText: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const normalized = questionText.trim().toLowerCase();
+  if (!normalized) return [];
+  return db
+    .select()
+    .from(questions)
+    .where(sql`LOWER(TRIM(${questions.question})) = ${normalized}`)
+    .orderBy(desc(questions.updatedAt), desc(questions.id));
+}
+
 export async function createQuestion(question: InsertQuestion) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -271,7 +283,26 @@ export async function updateQuestionOrder(userId: number, questionOrders: { id: 
   for (const { id, displayOrder } of questionOrders) {
     await db.update(questions)
       .set({ displayOrder })
-      .where(eq(questions.id, id));
+      .where(and(eq(questions.id, id), eq(questions.userId, userId)));
+  }
+}
+
+export async function normalizeQuestionDisplayOrderForSubject(subjectId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select({ id: questions.id })
+    .from(questions)
+    .where(eq(questions.subjectId, subjectId))
+    .orderBy(questions.displayOrder, questions.id);
+
+  for (let i = 0; i < rows.length; i++) {
+    const nextOrder = i + 1;
+    await db
+      .update(questions)
+      .set({ displayOrder: nextOrder })
+      .where(eq(questions.id, rows[i].id));
   }
 }
 

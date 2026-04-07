@@ -152,7 +152,6 @@ export default function Login() {
       return;
     }
     signupMutation.mutate({
-      accessPassword: "wlsgur37",
       username: signupUsername,
       password: signupPassword,
     });

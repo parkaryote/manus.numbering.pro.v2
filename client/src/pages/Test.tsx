@@ -13,6 +13,7 @@ import { TableView, TableData, getBlankCells, gradeTable } from "@/components/Ta
 import { trackTestSubmit } from "@/lib/ga4Events";
 import { ConfidencePopup } from "@/components/ConfidencePopup";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
+import { buildNextAutoNumberingValue } from "@/lib/autoNumbering";
 
 interface TestProps {
   questionId: number;
@@ -483,22 +484,30 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       setAnswerHistoryIndex(Math.max(0, newHistory.length - 1));
     };
 
-    // Enter: 줄바꿈 추가 (autoNumbering=1인 경우, 답안 줄 수만큼 허용)
+    // Enter: autoNumbering 문제에서는 연습모드와 동일하게 다음 번호 자동 삽입
     if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey && question?.autoNumbering === 1) {
-      const targetText = question?.answer || '';
-      const lines = targetText.split('\n');
-      const maxLines = lines.length;
-      const currentLines = userAnswer.split('\n').length;
-      
-      // 답안 줄 수만큼만 Enter 허용
-      if (currentLines < maxLines) {
-        // 기본 Enter 동작 허용 (줄바꿈 추가)
-        return;
-      } else {
-        // 최대 줄 수 도달 시 Enter 차단
-        e.preventDefault();
-        return;
-      }
+      if ((e.nativeEvent as any).isComposing) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const textarea = e.currentTarget;
+      const selectionStart = textarea.selectionStart ?? 0;
+      const selectionEnd = textarea.selectionEnd ?? selectionStart;
+      const { nextValue, nextCursor } = buildNextAutoNumberingValue(
+        textarea.value,
+        selectionStart,
+        selectionEnd
+      );
+
+      setUserAnswer(nextValue);
+      pushAnswerHistory(nextValue);
+
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.setSelectionRange(nextCursor, nextCursor);
+      });
+      return;
     }
     
     // Cmd/Ctrl+Z: Undo

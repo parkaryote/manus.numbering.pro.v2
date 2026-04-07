@@ -1,12 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Lock, BookOpen } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 
 const STORAGE_KEY = "site_access_granted";
-const SITE_PASSWORD = "wlsgur37";
 
 export function useSiteAccess() {
   const [granted, setGranted] = useState<boolean>(() => {
@@ -35,16 +35,23 @@ export function SiteGate({ onGranted }: SiteGateProps) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [shaking, setShaking] = useState(false);
+  const verifyMutation = trpc.auth.verifySitePassword.useMutation();
 
   const handleSubmit = () => {
-    if (password === SITE_PASSWORD) {
-      onGranted();
-    } else {
-      setError("비밀번호가 올바르지 않습니다");
-      setShaking(true);
-      setPassword("");
-      setTimeout(() => setShaking(false), 500);
-    }
+    verifyMutation.mutate(
+      { password },
+      {
+        onSuccess: () => {
+          onGranted();
+        },
+        onError: () => {
+          setError("비밀번호가 올바르지 않습니다");
+          setShaking(true);
+          setPassword("");
+          setTimeout(() => setShaking(false), 500);
+        },
+      }
+    );
   };
 
   return (

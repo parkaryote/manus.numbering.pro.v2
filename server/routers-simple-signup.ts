@@ -5,8 +5,7 @@ import { publicProcedure, router } from "./_core/trpc";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
-
-const SIMPLE_SIGNUP_PASSWORD = "진혁37";
+import { ENV } from "./_core/env";
 
 /**
  * 초기 안정도 데이터 생성
@@ -131,7 +130,7 @@ export const simpleSignupRouter = router({
   signup: publicProcedure
     .input(z.object({ password: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      if (input.password !== SIMPLE_SIGNUP_PASSWORD) {
+      if (ENV.signupAccessPassword && input.password !== ENV.signupAccessPassword) {
         throw new TRPCError({
           code: "UNAUTHORIZED",
           message: "비밀번호가 일치하지 않습니다",

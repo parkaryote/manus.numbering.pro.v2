@@ -348,12 +348,12 @@ export default function Subjects() {
     const reorderedSubjects = arrayMove(subjects, oldIndex, newIndex);
     const subjectOrders = reorderedSubjects.map((subject, index) => ({
       id: subject.id,
-      displayOrder: index,
+      displayOrder: index + 1,
     }));
 
     utils.subjects.list.setData(undefined, reorderedSubjects.map((s, idx) => ({
       ...s,
-      displayOrder: idx,
+      displayOrder: idx + 1,
     })));
 
     updateOrderMutation.mutate({ subjectOrders });
