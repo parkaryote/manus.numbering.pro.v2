@@ -1,39 +1,57 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from "vitest";
 
-describe('Practice No Duplicate Save', () => {
-  describe('handleCorrectAnswer with duplicate save prevention', () => {
-    it('should save only once on correct answer', async () => {
+describe("Practice No Duplicate Save", () => {
+  describe("handleCorrectAnswer with duplicate save prevention", () => {
+    it("should save only once on correct answer", async () => {
       let hasBeenSaved = false;
       const createSessionMock = vi.fn().mockResolvedValue({ id: 1 });
 
       // 첫 번째 정답 - 저장
       if (!hasBeenSaved) {
-        await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+        await createSessionMock({
+          questionId: 123,
+          duration: 30,
+          typingSpeed: 12,
+          accuracy: 100,
+          errorCount: 0,
+        });
         hasBeenSaved = true;
       }
 
       expect(createSessionMock).toHaveBeenCalledTimes(1);
     });
 
-    it('should not save again when leaving page if already saved', async () => {
+    it("should not save again when leaving page if already saved", async () => {
       let hasBeenSaved = false;
       const createSessionMock = vi.fn().mockResolvedValue({ id: 1 });
 
       // 정답 일치 시 저장
       if (!hasBeenSaved) {
-        await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+        await createSessionMock({
+          questionId: 123,
+          duration: 30,
+          typingSpeed: 12,
+          accuracy: 100,
+          errorCount: 0,
+        });
         hasBeenSaved = true;
       }
 
       // 페이지 나갈 때 - 이미 저장되었으므로 저장 안 함
       if (!hasBeenSaved) {
-        await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+        await createSessionMock({
+          questionId: 123,
+          duration: 30,
+          typingSpeed: 12,
+          accuracy: 100,
+          errorCount: 0,
+        });
       }
 
       expect(createSessionMock).toHaveBeenCalledTimes(1);
     });
 
-    it('should prevent cumulative count from incrementing twice', async () => {
+    it("should prevent cumulative count from incrementing twice", async () => {
       let cumulativeCount = 2;
       let hasBeenSaved = false;
 
@@ -52,8 +70,8 @@ describe('Practice No Duplicate Save', () => {
     });
   });
 
-  describe('Toast message behavior', () => {
-    it('should not show toast on correct answer', async () => {
+  describe("Toast message behavior", () => {
+    it("should not show toast on correct answer", async () => {
       const toastMock = vi.fn();
 
       // 정답 일치 시 - 토스트 없음
@@ -61,7 +79,7 @@ describe('Practice No Duplicate Save', () => {
       expect(toastMock).not.toHaveBeenCalled();
     });
 
-    it('should show toast only when leaving page', async () => {
+    it("should show toast only when leaving page", async () => {
       const toastMock = vi.fn();
 
       // 정답 일치 시 - 토스트 없음
@@ -74,7 +92,7 @@ describe('Practice No Duplicate Save', () => {
       expect(toastMock).toHaveBeenCalledTimes(1);
     });
 
-    it('should not interfere with practice flow', async () => {
+    it("should not interfere with practice flow", async () => {
       let practiceCount = 0;
       const toastMock = vi.fn();
 
@@ -95,8 +113,8 @@ describe('Practice No Duplicate Save', () => {
     });
   });
 
-  describe('Real-time cumulative count without duplication', () => {
-    it('should increment cumulative count only once per session', async () => {
+  describe("Real-time cumulative count without duplication", () => {
+    it("should increment cumulative count only once per session", async () => {
       let cumulativeCount = 5;
       let hasBeenSaved = false;
 
@@ -114,7 +132,7 @@ describe('Practice No Duplicate Save', () => {
       expect(cumulativeCount).toBe(6);
     });
 
-    it('should maintain correct count across multiple sessions', async () => {
+    it("should maintain correct count across multiple sessions", async () => {
       let cumulativeCount = 0;
 
       // 세션 1
@@ -143,8 +161,8 @@ describe('Practice No Duplicate Save', () => {
     });
   });
 
-  describe('Immediate new practice without toast delay', () => {
-    it('should show new practice immediately after correct answer', async () => {
+  describe("Immediate new practice without toast delay", () => {
+    it("should show new practice immediately after correct answer", async () => {
       let currentPractice = 0;
       let userInput = "";
       const toastMock = vi.fn();
@@ -157,7 +175,7 @@ describe('Practice No Duplicate Save', () => {
       expect(userInput).toBe("");
     });
 
-    it('should not delay practice flow with toast messages', async () => {
+    it("should not delay practice flow with toast messages", async () => {
       let practiceCount = 0;
       const toastMock = vi.fn();
       const startTime = Date.now();

@@ -2,7 +2,13 @@ import { describe, expect, it, afterAll } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import { getDb } from "./db";
-import { subjects, questions, practiceSessions, testSessions, reviewSchedules } from "../drizzle/schema";
+import {
+  subjects,
+  questions,
+  practiceSessions,
+  testSessions,
+  reviewSchedules,
+} from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
@@ -45,11 +51,18 @@ afterAll(async () => {
     const db = await getDb();
     if (!db) return;
     // 테스트 사용자가 생성한 데이터 모두 삭제 (외래키 순서 고려)
-    await db.delete(reviewSchedules).where(eq(reviewSchedules.userId, TEST_USER_ID));
+    await db
+      .delete(reviewSchedules)
+      .where(eq(reviewSchedules.userId, TEST_USER_ID));
     await db.delete(testSessions).where(eq(testSessions.userId, TEST_USER_ID));
-    await db.delete(practiceSessions).where(eq(practiceSessions.userId, TEST_USER_ID));
+    await db
+      .delete(practiceSessions)
+      .where(eq(practiceSessions.userId, TEST_USER_ID));
     // questions는 subjectId로 연결되어 있으므로 subjects 삭제 전에 처리
-    const testSubjects = await db.select().from(subjects).where(eq(subjects.userId, TEST_USER_ID));
+    const testSubjects = await db
+      .select()
+      .from(subjects)
+      .where(eq(subjects.userId, TEST_USER_ID));
     for (const s of testSubjects) {
       await db.delete(questions).where(eq(questions.subjectId, s.id));
     }
@@ -169,7 +182,8 @@ describeIfDb("Test Session and Evaluation", () => {
     const question = await caller.questions.create({
       subjectId: subject.id,
       question: "광합성의 과정을 설명하시오",
-      answer: "식물이 빛 에너지를 이용하여 이산화탄소와 물로부터 포도당을 합성하고 산소를 방출하는 과정",
+      answer:
+        "식물이 빛 에너지를 이용하여 이산화탄소와 물로부터 포도당을 합성하고 산소를 방출하는 과정",
       difficulty: "hard",
     });
 
@@ -207,7 +221,8 @@ describeIfDb("Review Schedule", () => {
     const question = await caller.questions.create({
       subjectId: subject.id,
       question: "임진왜란의 원인을 설명하시오",
-      answer: "일본의 도요토미 히데요시가 명나라 정복을 위한 길을 열기 위해 조선을 침략",
+      answer:
+        "일본의 도요토미 히데요시가 명나라 정복을 위한 길을 열기 위해 조선을 침략",
       difficulty: "medium",
     });
 

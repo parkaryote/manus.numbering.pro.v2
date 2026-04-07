@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-describe('Practice.tsx - Shift+Backspace and Ctrl+Z functionality', () => {
+describe("Practice.tsx - Shift+Backspace and Ctrl+Z functionality", () => {
   let inputHistory: string[];
   let historyIndex: number;
 
@@ -9,8 +9,8 @@ describe('Practice.tsx - Shift+Backspace and Ctrl+Z functionality', () => {
     historyIndex = 0;
   });
 
-  describe('Shift+Backspace - Delete line', () => {
-    it('should delete the last line when Shift+Backspace is pressed', () => {
+  describe("Shift+Backspace - Delete line", () => {
+    it("should delete the last line when Shift+Backspace is pressed", () => {
       const deleteLine = (value: string) => {
         const lines = value.split("\n");
         if (lines.length > 1) {
@@ -26,7 +26,7 @@ describe('Practice.tsx - Shift+Backspace and Ctrl+Z functionality', () => {
       expect(result).toBe("line1\nline2");
     });
 
-    it('should return empty string when deleting the only line', () => {
+    it("should return empty string when deleting the only line", () => {
       const deleteLine = (value: string) => {
         const lines = value.split("\n");
         if (lines.length > 1) {
@@ -42,7 +42,7 @@ describe('Practice.tsx - Shift+Backspace and Ctrl+Z functionality', () => {
       expect(result).toBe("");
     });
 
-    it('should handle Korean text correctly', () => {
+    it("should handle Korean text correctly", () => {
       const deleteLine = (value: string) => {
         const lines = value.split("\n");
         if (lines.length > 1) {
@@ -59,8 +59,8 @@ describe('Practice.tsx - Shift+Backspace and Ctrl+Z functionality', () => {
     });
   });
 
-  describe('Ctrl+Z - Undo functionality', () => {
-    it('should restore previous state when Ctrl+Z is pressed', () => {
+  describe("Ctrl+Z - Undo functionality", () => {
+    it("should restore previous state when Ctrl+Z is pressed", () => {
       // Simulate history updates
       const updateHistory = (newValue: string) => {
         const newHistory = inputHistory.slice(0, historyIndex + 1);
@@ -78,7 +78,7 @@ describe('Practice.tsx - Shift+Backspace and Ctrl+Z functionality', () => {
       updateHistory("h");
       updateHistory("he");
       updateHistory("hel");
-      
+
       expect(inputHistory).toEqual(["", "h", "he", "hel"]);
       expect(historyIndex).toBe(3);
 
@@ -86,11 +86,11 @@ describe('Practice.tsx - Shift+Backspace and Ctrl+Z functionality', () => {
       if (historyIndex > 0) {
         historyIndex = historyIndex - 1;
       }
-      
+
       expect(inputHistory[historyIndex]).toBe("he");
     });
 
-    it('should record shortcut deletions in history', () => {
+    it("should record shortcut deletions in history", () => {
       const updateHistory = (newValue: string) => {
         const newHistory = inputHistory.slice(0, historyIndex + 1);
         if (newHistory[newHistory.length - 1] !== newValue) {
@@ -115,11 +115,11 @@ describe('Practice.tsx - Shift+Backspace and Ctrl+Z functionality', () => {
       if (historyIndex > 0) {
         historyIndex = historyIndex - 1;
       }
-      
+
       expect(inputHistory[historyIndex]).toBe("hello world");
     });
 
-    it('should handle Shift+Backspace deletion in history', () => {
+    it("should handle Shift+Backspace deletion in history", () => {
       const deleteLine = (value: string) => {
         const lines = value.split("\n");
         if (lines.length > 1) {
@@ -155,7 +155,7 @@ describe('Practice.tsx - Shift+Backspace and Ctrl+Z functionality', () => {
       if (historyIndex > 0) {
         historyIndex = historyIndex - 1;
       }
-      
+
       expect(inputHistory[historyIndex]).toBe("line1\nline2\nline3");
     });
   });

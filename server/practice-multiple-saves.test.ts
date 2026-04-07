@@ -1,46 +1,82 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from "vitest";
 
-describe('Practice Multiple Correct Answers Save', () => {
-  describe('Each correct answer should be saved', () => {
-    it('should save first correct answer', async () => {
+describe("Practice Multiple Correct Answers Save", () => {
+  describe("Each correct answer should be saved", () => {
+    it("should save first correct answer", async () => {
       const createSessionMock = vi.fn().mockResolvedValue({ id: 1 });
 
       // 첫 번째 정답
-      await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+      await createSessionMock({
+        questionId: 123,
+        duration: 30,
+        typingSpeed: 12,
+        accuracy: 100,
+        errorCount: 0,
+      });
 
       expect(createSessionMock).toHaveBeenCalledTimes(1);
     });
 
-    it('should save second correct answer', async () => {
+    it("should save second correct answer", async () => {
       const createSessionMock = vi.fn().mockResolvedValue({ id: 1 });
 
       // 첫 번째 정답
-      await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+      await createSessionMock({
+        questionId: 123,
+        duration: 30,
+        typingSpeed: 12,
+        accuracy: 100,
+        errorCount: 0,
+      });
 
       // 두 번째 정답
-      await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+      await createSessionMock({
+        questionId: 123,
+        duration: 30,
+        typingSpeed: 12,
+        accuracy: 100,
+        errorCount: 0,
+      });
 
       expect(createSessionMock).toHaveBeenCalledTimes(2);
     });
 
-    it('should save multiple correct answers sequentially', async () => {
+    it("should save multiple correct answers sequentially", async () => {
       const createSessionMock = vi.fn().mockResolvedValue({ id: 1 });
 
       // 정답 1회
-      await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+      await createSessionMock({
+        questionId: 123,
+        duration: 30,
+        typingSpeed: 12,
+        accuracy: 100,
+        errorCount: 0,
+      });
 
       // 정답 2회
-      await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+      await createSessionMock({
+        questionId: 123,
+        duration: 30,
+        typingSpeed: 12,
+        accuracy: 100,
+        errorCount: 0,
+      });
 
       // 정답 3회
-      await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+      await createSessionMock({
+        questionId: 123,
+        duration: 30,
+        typingSpeed: 12,
+        accuracy: 100,
+        errorCount: 0,
+      });
 
       expect(createSessionMock).toHaveBeenCalledTimes(3);
     });
   });
 
-  describe('Cumulative count should increment for each save', () => {
-    it('should increment cumulative count for each correct answer', async () => {
+  describe("Cumulative count should increment for each save", () => {
+    it("should increment cumulative count for each correct answer", async () => {
       let cumulativeCount = 0;
 
       // 정답 1회
@@ -56,7 +92,7 @@ describe('Practice Multiple Correct Answers Save', () => {
       expect(cumulativeCount).toBe(3);
     });
 
-    it('should increment cumulative count without duplication', async () => {
+    it("should increment cumulative count without duplication", async () => {
       let cumulativeCount = 5;
 
       // 정답 1회
@@ -76,7 +112,7 @@ describe('Practice Multiple Correct Answers Save', () => {
       expect(cumulativeCount).toBe(8);
     });
 
-    it('should maintain separate current and cumulative counts', async () => {
+    it("should maintain separate current and cumulative counts", async () => {
       let currentCount = 0;
       let cumulativeCount = 10;
 
@@ -100,8 +136,8 @@ describe('Practice Multiple Correct Answers Save', () => {
     });
   });
 
-  describe('Real-time cumulative count update', () => {
-    it('should show cumulative count updating in real-time', async () => {
+  describe("Real-time cumulative count update", () => {
+    it("should show cumulative count updating in real-time", async () => {
       const updates: number[] = [];
       let cumulativeCount = 0;
 
@@ -128,7 +164,7 @@ describe('Practice Multiple Correct Answers Save', () => {
       expect(updates).toEqual([1, 2, 3, 4, 5]);
     });
 
-    it('should not require page reload for cumulative count update', async () => {
+    it("should not require page reload for cumulative count update", async () => {
       let cumulativeCount = 0;
 
       // 정답 1회
@@ -148,14 +184,20 @@ describe('Practice Multiple Correct Answers Save', () => {
     });
   });
 
-  describe('Duplicate save prevention on page leave', () => {
-    it('should prevent duplicate save when leaving page', async () => {
+  describe("Duplicate save prevention on page leave", () => {
+    it("should prevent duplicate save when leaving page", async () => {
       let hasBeenSaved = false;
       const createSessionMock = vi.fn().mockResolvedValue({ id: 1 });
 
       // 정답 1회 - 저장
       if (!hasBeenSaved) {
-        await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+        await createSessionMock({
+          questionId: 123,
+          duration: 30,
+          typingSpeed: 12,
+          accuracy: 100,
+          errorCount: 0,
+        });
         hasBeenSaved = true;
       }
 
@@ -164,25 +206,49 @@ describe('Practice Multiple Correct Answers Save', () => {
 
       // 페이지 나갈 때 - 이미 저장된 것은 저장 안 함
       if (!hasBeenSaved) {
-        await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+        await createSessionMock({
+          questionId: 123,
+          duration: 30,
+          typingSpeed: 12,
+          accuracy: 100,
+          errorCount: 0,
+        });
       }
 
       // hasBeenSaved는 페이지 나갈 때만 사용해야 함
       expect(createSessionMock).toHaveBeenCalledTimes(1);
     });
 
-    it('should use hasBeenSaved only for page leave, not for each answer', async () => {
+    it("should use hasBeenSaved only for page leave, not for each answer", async () => {
       let hasBeenSaved = false;
       const createSessionMock = vi.fn().mockResolvedValue({ id: 1 });
 
       // 정답 1회 - 저장 (hasBeenSaved 체크 없음)
-      await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+      await createSessionMock({
+        questionId: 123,
+        duration: 30,
+        typingSpeed: 12,
+        accuracy: 100,
+        errorCount: 0,
+      });
 
       // 정답 2회 - 저장 (hasBeenSaved 체크 없음)
-      await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+      await createSessionMock({
+        questionId: 123,
+        duration: 30,
+        typingSpeed: 12,
+        accuracy: 100,
+        errorCount: 0,
+      });
 
       // 정답 3회 - 저장 (hasBeenSaved 체크 없음)
-      await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+      await createSessionMock({
+        questionId: 123,
+        duration: 30,
+        typingSpeed: 12,
+        accuracy: 100,
+        errorCount: 0,
+      });
 
       // 페이지 나갈 때 - hasBeenSaved 체크로 중복 저장 방지
       if (!hasBeenSaved) {

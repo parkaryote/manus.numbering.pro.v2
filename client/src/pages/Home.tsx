@@ -58,7 +58,7 @@ function SubjectMiniGrid({
 
   return (
     <div className="flex flex-wrap gap-1">
-      {sorted.map((q) => {
+      {sorted.map(q => {
         const starred = q.isStarred === 1;
         const fillColor = getFillColor(q.id);
         const borderColor = getBorderColor(starred);
@@ -75,13 +75,7 @@ function SubjectMiniGrid({
 }
 
 // 과목 카드 컴포넌트
-function SubjectStudyCard({
-  subject,
-  nowMs,
-}: {
-  subject: any;
-  nowMs: number;
-}) {
+function SubjectStudyCard({ subject, nowMs }: { subject: any; nowMs: number }) {
   const [, setLocation] = useLocation();
   const { data: questions } = trpc.questions.listBySubject.useQuery({
     subjectId: subject.id,
@@ -110,11 +104,13 @@ function SubjectStudyCard({
   const examDiffMs = subject.examEndDate
     ? new Date(subject.examEndDate).getTime() - nowMs
     : null;
-  const daysLeft = examDiffMs === null
-    ? null
-    : Math.ceil(examDiffMs / (1000 * 60 * 60 * 24));
-  const isToothMorphology = String(subject?.name ?? "").includes(TOOTH_MORPHOLOGY_NAME);
-  const toothCountdown = examDiffMs && examDiffMs > 0 ? formatCountdownHMS(examDiffMs) : null;
+  const daysLeft =
+    examDiffMs === null ? null : Math.ceil(examDiffMs / (1000 * 60 * 60 * 24));
+  const isToothMorphology = String(subject?.name ?? "").includes(
+    TOOTH_MORPHOLOGY_NAME
+  );
+  const toothCountdown =
+    examDiffMs && examDiffMs > 0 ? formatCountdownHMS(examDiffMs) : null;
 
   const stateColor =
     agg?.state === "green"
@@ -140,9 +136,13 @@ function SubjectStudyCard({
               className="w-3 h-3 rounded-full flex-shrink-0"
               style={{ backgroundColor: subject.color || "#3B82F6" }}
             />
-            <span className="font-semibold text-sm truncate">{subject.name}</span>
+            <span className="font-semibold text-sm truncate">
+              {subject.name}
+            </span>
             {totalQ > 0 && (
-              <span className="text-xs text-muted-foreground">{totalQ}문제</span>
+              <span className="text-xs text-muted-foreground">
+                {totalQ}문제
+              </span>
             )}
           </div>
           {daysLeft !== null && (
@@ -152,10 +152,10 @@ function SubjectStudyCard({
                 isToothMorphology
                   ? "border-red-400 text-red-700 bg-red-100/90 dark:bg-red-950/40 dark:text-red-300 animate-pulse"
                   : daysLeft <= 3
-                  ? "border-red-300 text-red-600 bg-red-50 dark:bg-red-950/30 dark:text-red-400"
-                  : daysLeft <= 7
-                    ? "border-amber-300 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400"
-                    : "border-muted"
+                    ? "border-red-300 text-red-600 bg-red-50 dark:bg-red-950/30 dark:text-red-400"
+                    : daysLeft <= 7
+                      ? "border-amber-300 text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400"
+                      : "border-muted"
               }`}
             >
               <Clock className="w-3 h-3 mr-1" />
@@ -171,8 +171,12 @@ function SubjectStudyCard({
           <>
             <div className="flex items-center gap-3 mb-2">
               {agg && agg.totalQuestions > 0 ? (
-                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium ${stateBg} ${stateColor}`}>
-                  <span className="text-base font-bold">{agg.averageScore}점</span>
+                <div
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium ${stateBg} ${stateColor}`}
+                >
+                  <span className="text-base font-bold">
+                    {agg.averageScore}점
+                  </span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-muted text-muted-foreground">
@@ -180,10 +184,30 @@ function SubjectStudyCard({
                 </div>
               )}
               <div className="flex items-center gap-2.5 text-[10px] text-muted-foreground">
-                {redCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-red-500 inline-block" />{redCount}</span>}
-                {yellowCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-amber-400 inline-block" />{yellowCount}</span>}
-                {greenCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-emerald-500 inline-block" />{greenCount}</span>}
-                {coldCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-neutral-200 dark:bg-neutral-700 inline-block" />{coldCount}</span>}
+                {redCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-[3px] rounded-full bg-red-500 inline-block" />
+                    {redCount}
+                  </span>
+                )}
+                {yellowCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-[3px] rounded-full bg-amber-400 inline-block" />
+                    {yellowCount}
+                  </span>
+                )}
+                {greenCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-[3px] rounded-full bg-emerald-500 inline-block" />
+                    {greenCount}
+                  </span>
+                )}
+                {coldCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-[3px] rounded-full bg-neutral-200 dark:bg-neutral-700 inline-block" />
+                    {coldCount}
+                  </span>
+                )}
               </div>
             </div>
             <SubjectMiniGrid
@@ -252,7 +276,8 @@ function SubjectStudyCard({
 export default function Home() {
   const [, setLocation] = useLocation();
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const { data: subjects, isLoading: subjectsLoading } = trpc.subjects.list.useQuery();
+  const { data: subjects, isLoading: subjectsLoading } =
+    trpc.subjects.list.useQuery();
   const { data: dueReviews } = trpc.review.getDue.useQuery();
   const { data: allQuestions } = trpc.questions.listAll.useQuery();
 
@@ -264,7 +289,7 @@ export default function Home() {
   // 별표 문제 추출
   const starredQuestions = useMemo(() => {
     if (!allQuestions) return [];
-    return allQuestions.filter((q) => q.isStarred === 1);
+    return allQuestions.filter(q => q.isStarred === 1);
   }, [allQuestions]);
 
   // 과목 이름 맵
@@ -282,7 +307,7 @@ export default function Home() {
   const urgentSubjects = useMemo(() => {
     if (!subjects) return [];
     return subjects
-      .filter((s) => {
+      .filter(s => {
         if (!s.examEndDate) return false;
         const diff = new Date(s.examEndDate).getTime() - nowMs;
         const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
@@ -330,10 +355,12 @@ export default function Home() {
             </span>
           </div>
           <div className="space-y-1.5">
-            {urgentSubjects.map((s) => {
+            {urgentSubjects.map(s => {
               const diff = new Date(s.examEndDate!).getTime() - nowMs;
               const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-              const isToothMorphology = String(s?.name ?? "").includes(TOOTH_MORPHOLOGY_NAME);
+              const isToothMorphology = String(s?.name ?? "").includes(
+                TOOTH_MORPHOLOGY_NAME
+              );
               const countdown = diff > 0 ? formatCountdownHMS(diff) : null;
               return (
                 <div
@@ -354,7 +381,9 @@ export default function Home() {
                   >
                     {isToothMorphology && countdown
                       ? `${days === 0 ? "D-Day" : `D-${days}`} · ${countdown}`
-                      : (days === 0 ? "D-Day" : `D-${days}`)}
+                      : days === 0
+                        ? "D-Day"
+                        : `D-${days}`}
                   </Badge>
                 </div>
               );
@@ -375,9 +404,9 @@ export default function Home() {
             </div>
           </div>
           <div className="space-y-1">
-            {dueReviews.slice(0, 3).map((review) => {
+            {dueReviews.slice(0, 3).map(review => {
               const question = allQuestions?.find(
-                (q) => q.id === review.questionId
+                q => q.id === review.questionId
               );
               if (!question) return null;
               const subj = subjectNameMap.get(question.subjectId);
@@ -385,7 +414,9 @@ export default function Home() {
                 <div
                   key={review.id}
                   className="flex items-center justify-between text-sm cursor-pointer hover:bg-amber-100/50 dark:hover:bg-amber-900/20 rounded px-2 py-1 -mx-1 transition-colors"
-                  onClick={() => setLocation(`/practice/${question.id}?scrollNav=1`)}
+                  onClick={() =>
+                    setLocation(`/practice/${question.id}?scrollNav=1`)
+                  }
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     {subj && (
@@ -396,7 +427,11 @@ export default function Home() {
                     )}
                     <span className="truncate">{question.question}</span>
                   </div>
-                  <Button variant="ghost" size="sm" className="h-6 text-xs flex-shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs flex-shrink-0"
+                  >
                     복습
                   </Button>
                 </div>
@@ -421,7 +456,7 @@ export default function Home() {
             </span>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {starredQuestions.slice(0, 10).map((q) => {
+            {starredQuestions.slice(0, 10).map(q => {
               const subj = subjectNameMap.get(q.subjectId);
               return (
                 <Badge
@@ -452,7 +487,7 @@ export default function Home() {
       {/* 과목별 학습 현황 - 메인 */}
       {subjectsLoading ? (
         <div className="grid gap-3 md:grid-cols-2">
-          {[1, 2, 3, 4].map((i) => (
+          {[1, 2, 3, 4].map(i => (
             <Card key={i} className="shadow-sm">
               <CardContent className="p-4">
                 <div className="animate-pulse space-y-3">
@@ -475,8 +510,12 @@ export default function Home() {
             과목별 학습
           </h2>
           <div className="grid gap-3 md:grid-cols-2">
-            {subjects.map((subject) => (
-              <SubjectStudyCard key={subject.id} subject={subject} nowMs={nowMs} />
+            {subjects.map(subject => (
+              <SubjectStudyCard
+                key={subject.id}
+                subject={subject}
+                nowMs={nowMs}
+              />
             ))}
           </div>
         </div>
@@ -490,9 +529,11 @@ export default function Home() {
               첫 과목을 만들고 문제를 추가하여 학습을 시작하세요.
             </p>
             <div className="flex justify-center gap-3">
-              <Button onClick={() => setLocation("/subjects")} className="gap-2">
-                <BookOpen className="w-4 h-4" />
-                첫 과목 만들기
+              <Button
+                onClick={() => setLocation("/subjects")}
+                className="gap-2"
+              >
+                <BookOpen className="w-4 h-4" />첫 과목 만들기
               </Button>
               <Button
                 variant="outline"

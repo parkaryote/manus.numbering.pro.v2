@@ -3,58 +3,121 @@
  */
 
 const CHO = [
-  'ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ',
-  'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'
+  "ㄱ",
+  "ㄲ",
+  "ㄴ",
+  "ㄷ",
+  "ㄸ",
+  "ㄹ",
+  "ㅁ",
+  "ㅂ",
+  "ㅃ",
+  "ㅅ",
+  "ㅆ",
+  "ㅇ",
+  "ㅈ",
+  "ㅉ",
+  "ㅊ",
+  "ㅋ",
+  "ㅌ",
+  "ㅍ",
+  "ㅎ",
 ];
 
 const JUNG = [
-  'ㅏ', 'ㅐ', 'ㅑ', 'ㅒ', 'ㅓ', 'ㅔ', 'ㅕ', 'ㅖ', 'ㅗ', 'ㅘ',
-  'ㅙ', 'ㅚ', 'ㅛ', 'ㅜ', 'ㅝ', 'ㅞ', 'ㅟ', 'ㅠ', 'ㅡ', 'ㅢ', 'ㅣ'
+  "ㅏ",
+  "ㅐ",
+  "ㅑ",
+  "ㅒ",
+  "ㅓ",
+  "ㅔ",
+  "ㅕ",
+  "ㅖ",
+  "ㅗ",
+  "ㅘ",
+  "ㅙ",
+  "ㅚ",
+  "ㅛ",
+  "ㅜ",
+  "ㅝ",
+  "ㅞ",
+  "ㅟ",
+  "ㅠ",
+  "ㅡ",
+  "ㅢ",
+  "ㅣ",
 ];
 
 const JONG = [
-  '', 'ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ', 'ㄷ', 'ㄹ', 'ㄺ',
-  'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ', 'ㄿ', 'ㅀ', 'ㅁ', 'ㅂ', 'ㅄ', 'ㅅ',
-  'ㅆ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'
+  "",
+  "ㄱ",
+  "ㄲ",
+  "ㄳ",
+  "ㄴ",
+  "ㄵ",
+  "ㄶ",
+  "ㄷ",
+  "ㄹ",
+  "ㄺ",
+  "ㄻ",
+  "ㄼ",
+  "ㄽ",
+  "ㄾ",
+  "ㄿ",
+  "ㅀ",
+  "ㅁ",
+  "ㅂ",
+  "ㅄ",
+  "ㅅ",
+  "ㅆ",
+  "ㅇ",
+  "ㅈ",
+  "ㅊ",
+  "ㅋ",
+  "ㅌ",
+  "ㅍ",
+  "ㅎ",
 ];
 
-const HANGUL_START = 0xAC00;
-const HANGUL_END = 0xD7A3;
+const HANGUL_START = 0xac00;
+const HANGUL_END = 0xd7a3;
 
 // 겹받침 매핑: 겹받침 -> [첫 번째 자음, 두 번째 자음]
 const DOUBLE_JONG: { [key: string]: [string, string] } = {
-  'ㄳ': ['ㄱ', 'ㅅ'],
-  'ㄵ': ['ㄴ', 'ㅈ'],
-  'ㄶ': ['ㄴ', 'ㅎ'],
-  'ㄺ': ['ㄹ', 'ㄱ'],
-  'ㄻ': ['ㄹ', 'ㅁ'],
-  'ㄼ': ['ㄹ', 'ㅂ'],
-  'ㄽ': ['ㄹ', 'ㅅ'],
-  'ㄾ': ['ㄹ', 'ㅌ'],
-  'ㄿ': ['ㄹ', 'ㅍ'],
-  'ㅀ': ['ㄹ', 'ㅎ'],
-  'ㅄ': ['ㅂ', 'ㅅ'],
+  ㄳ: ["ㄱ", "ㅅ"],
+  ㄵ: ["ㄴ", "ㅈ"],
+  ㄶ: ["ㄴ", "ㅎ"],
+  ㄺ: ["ㄹ", "ㄱ"],
+  ㄻ: ["ㄹ", "ㅁ"],
+  ㄼ: ["ㄹ", "ㅂ"],
+  ㄽ: ["ㄹ", "ㅅ"],
+  ㄾ: ["ㄹ", "ㅌ"],
+  ㄿ: ["ㄹ", "ㅍ"],
+  ㅀ: ["ㄹ", "ㅎ"],
+  ㅄ: ["ㅂ", "ㅅ"],
 };
 
 /**
  * 한글 음절을 초성, 중성, 종성으로 분해
  */
-export function decomposeHangul(char: string): { cho: string; jung: string; jong: string } | null {
+export function decomposeHangul(
+  char: string
+): { cho: string; jung: string; jong: string } | null {
   const code = char.charCodeAt(0);
-  
+
   if (code < HANGUL_START || code > HANGUL_END) {
     return null;
   }
-  
+
   const index = code - HANGUL_START;
   const choIndex = Math.floor(index / 588);
   const jungIndex = Math.floor((index % 588) / 28);
   const jongIndex = index % 28;
-  
+
   return {
     cho: CHO[choIndex],
     jung: JUNG[jungIndex],
-    jong: JONG[jongIndex]
+    jong: JONG[jongIndex],
   };
 }
 
@@ -71,33 +134,33 @@ export function compareJamo(
   if (!isHangul(userChar) || !isHangul(targetChar)) {
     return userChar === targetChar;
   }
-  
+
   const userJamo = decomposeHangul(userChar);
   const targetJamo = decomposeHangul(targetChar);
-  
+
   if (!userJamo || !targetJamo) {
     return userChar === targetChar;
   }
-  
+
   // 초성, 중성이 일치해야 함
   if (userJamo.cho !== targetJamo.cho || userJamo.jung !== targetJamo.jung) {
     return false;
   }
-  
+
   // 종성 비교
   // 1. 정답과 완전 일치
   if (userJamo.jong === targetJamo.jong) {
     return true;
   }
-  
+
   // 2. 사용자가 종성을 입력했고, 다음 글자의 초성과 일치하면 일단 정답 인정
-  if (userJamo.jong && nextTargetChar && targetJamo.jong === '') {
+  if (userJamo.jong && nextTargetChar && targetJamo.jong === "") {
     const nextTargetJamo = decomposeHangul(nextTargetChar);
     if (nextTargetJamo && userJamo.jong === nextTargetJamo.cho) {
       return true;
     }
   }
-  
+
   return false;
 }
 
@@ -114,7 +177,7 @@ export function isHangul(char: string): boolean {
  * 예: "ㄷ", "도"가 "동"의 일부인지 확인
  * 예: "고"가 "과"의 일부인지 확인 (초성 일치, 중성 조합 중)
  * 예: "달"이 "닳"의 일부인지 확인 (겹받침 조합 중)
- * 
+ *
  * 반환값:
  * - 'complete': 완전 일치 (글자가 완성됨)
  * - 'partial': 조합 중 (정답의 일부)
@@ -125,53 +188,55 @@ export function isPartialMatch(
   userChar: string,
   targetChar: string,
   nextTargetChar?: string
-): 'complete' | 'partial' | 'partial_complete' | 'wrong' {
+): "complete" | "partial" | "partial_complete" | "wrong" {
   // 비어있으면 아직 입력 안 함
-  if (!userChar) return 'wrong';
-  
+  if (!userChar) return "wrong";
+
   // 완전 일치
-  if (userChar === targetChar) return 'complete';
-  
+  if (userChar === targetChar) return "complete";
+
   // 한글이 아닌 경우 단순 비교 (영어 대소문자 무시)
   if (!isHangul(targetChar)) {
     // 영문자인 경우 대소문자 무시
     const isUserCharEnglish = /^[a-zA-Z]$/.test(userChar);
     const isTargetCharEnglish = /^[a-zA-Z]$/.test(targetChar);
     if (isUserCharEnglish && isTargetCharEnglish) {
-      return userChar.toLowerCase() === targetChar.toLowerCase() ? 'complete' : 'wrong';
+      return userChar.toLowerCase() === targetChar.toLowerCase()
+        ? "complete"
+        : "wrong";
     }
-    return userChar === targetChar ? 'complete' : 'wrong';
+    return userChar === targetChar ? "complete" : "wrong";
   }
-  
+
   const targetJamo = decomposeHangul(targetChar);
-  if (!targetJamo) return userChar === targetChar ? 'complete' : 'wrong';
-  
+  if (!targetJamo) return userChar === targetChar ? "complete" : "wrong";
+
   // 사용자 입력이 자음/모음인 경우 (조합 중)
   if (isJamo(userChar)) {
     // 초성만 입력한 경우
-    if (userChar === targetJamo.cho) return 'partial';
-    
+    if (userChar === targetJamo.cho) return "partial";
+
     // 겹받침 방지: 사용자가 입력한 초성이 정답의 겹받침의 첫 번째 자음과 일치하는 경우
     if (targetJamo.jong) {
       const targetDoubleJong = DOUBLE_JONG[targetJamo.jong];
       if (targetDoubleJong && userChar === targetDoubleJong[0]) {
-        return 'wrong';
+        return "wrong";
       }
     }
-    
+
     // 중성만 입력한 경우 (일반적으로 발생하지 않음)
-    if (userChar === targetJamo.jung) return 'partial';
-    return 'wrong';
+    if (userChar === targetJamo.jung) return "partial";
+    return "wrong";
   }
-  
+
   // 사용자 입력이 한글 음절인 경우
   if (isHangul(userChar)) {
     const userJamo = decomposeHangul(userChar);
-    if (!userJamo) return 'wrong';
-    
+    if (!userJamo) return "wrong";
+
     // 초성이 다르면 오답
-    if (userJamo.cho !== targetJamo.cho) return 'wrong';
-    
+    if (userJamo.cho !== targetJamo.cho) return "wrong";
+
     // 중성이 다른 경우: 복합 모음 조합 중인지 확인
     // 예: "고"(ㅗ) 입력 중 "과"(ㅘ) 정답 -> 조합 중
     if (userJamo.jung !== targetJamo.jung) {
@@ -180,66 +245,66 @@ export function isPartialMatch(
       // ㅜ -> ㅝ, ㅞ, ㅟ
       // ㅡ -> ㅢ
       const compositeVowels: { [key: string]: string[] } = {
-        'ㅗ': ['ㅘ', 'ㅙ', 'ㅚ'],
-        'ㅜ': ['ㅝ', 'ㅞ', 'ㅟ'],
-        'ㅡ': ['ㅢ'],
+        ㅗ: ["ㅘ", "ㅙ", "ㅚ"],
+        ㅜ: ["ㅝ", "ㅞ", "ㅟ"],
+        ㅡ: ["ㅢ"],
       };
-      
+
       // 사용자 중성이 정답 중성의 시작 부분인지 확인
       const possibleComposites = compositeVowels[userJamo.jung];
       if (possibleComposites && possibleComposites.includes(targetJamo.jung)) {
         // 종성이 없어야 조합 중으로 인정
         if (!userJamo.jong) {
-          return 'partial';
+          return "partial";
         }
       }
-      
-      return 'wrong';
+
+      return "wrong";
     }
-    
+
     // 초성 + 중성 일치
     // 종성이 없는 경우
     if (!userJamo.jong) {
       // 정답도 종성이 없으면 완전 일치
-      if (!targetJamo.jong) return 'complete';
+      if (!targetJamo.jong) return "complete";
       // 정답에 종성이 있으면 조합 중
-      return 'partial';
+      return "partial";
     }
-    
+
     // 종성이 있는 경우
-    if (userJamo.jong === targetJamo.jong) return 'complete';
-    
+    if (userJamo.jong === targetJamo.jong) return "complete";
+
     // 종성 예약: 사용자가 입력한 종성이 다음 글자의 초성과 일치하는 경우
     if (nextTargetChar && !targetJamo.jong) {
       const nextTargetJamo = decomposeHangul(nextTargetChar);
       if (nextTargetJamo && userJamo.jong === nextTargetJamo.cho) {
-        return 'complete'; // 종성 예약 성공
+        return "complete"; // 종성 예약 성공
       }
     }
-    
+
     // 겹받침 조합 중: 사용자 종성이 겹받침이고, 첫 번째 자음이 정답 종성과 일치하는 경우
     // 예: "묽"(ㄺ) 입력 중 "물"(ㄹ) 정답 -> 조합 중
     if (userJamo.jong && targetJamo.jong) {
       const doubleJong = DOUBLE_JONG[userJamo.jong];
       if (doubleJong && doubleJong[0] === targetJamo.jong) {
-        return 'partial_complete'; // 겹받침 조합 중이지만 현재 글자는 완성됨
+        return "partial_complete"; // 겹받침 조합 중이지만 현재 글자는 완성됨
       }
     }
-    
+
     // 정답이 겹받침인 경우: 사용자 종성이 겹받침의 첫 번째 자음과 일치하면 조합 중
     // 예: "달"(ㄹ) 입력 중 "닳"(ㅀ) 정답 -> 조합 중
     if (targetJamo.jong) {
       const targetDoubleJong = DOUBLE_JONG[targetJamo.jong];
       if (targetDoubleJong && userJamo.jong === targetDoubleJong[0]) {
-        return 'partial'; // 겹받침 조합 중
+        return "partial"; // 겹받침 조합 중
       }
     }
-    
+
     // 종성이 다르면 오답
-    return 'wrong';
+    return "wrong";
   }
-  
-  return 'wrong';
+
+  return "wrong";
 }
 
 /**

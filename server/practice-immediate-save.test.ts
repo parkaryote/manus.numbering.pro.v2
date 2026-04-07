@@ -1,15 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from "vitest";
 
-describe('Practice Immediate Save on Correct Answer', () => {
-  describe('handleCorrectAnswer with immediate DB save', () => {
-    it('should save session immediately on correct answer', async () => {
+describe("Practice Immediate Save on Correct Answer", () => {
+  describe("handleCorrectAnswer with immediate DB save", () => {
+    it("should save session immediately on correct answer", async () => {
       const createSessionMock = vi.fn().mockResolvedValue({ id: 1 });
-      
+
       // handleCorrectAnswer 시뮬레이션
       const questionId = 123;
       const elapsedTime = 30;
-      const userInput = 'cortex';
-      
+      const userInput = "cortex";
+
       await createSessionMock({
         questionId,
         duration: elapsedTime,
@@ -26,7 +26,7 @@ describe('Practice Immediate Save on Correct Answer', () => {
       );
     });
 
-    it('should fetch and update cumulative count after save', async () => {
+    it("should fetch and update cumulative count after save", async () => {
       const createSessionMock = vi.fn().mockResolvedValue({ id: 1 });
       const fetchMock = vi.fn().mockResolvedValue({ count: 3 });
       const setDataMock = vi.fn();
@@ -35,18 +35,26 @@ describe('Practice Immediate Save on Correct Answer', () => {
         practice: {
           countByQuestion: {
             fetch: fetchMock,
-            setData: setDataMock
-          }
-        }
+            setData: setDataMock,
+          },
+        },
       };
 
       const questionId = 123;
 
       // 세션 저장
-      await createSessionMock({ questionId, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+      await createSessionMock({
+        questionId,
+        duration: 30,
+        typingSpeed: 12,
+        accuracy: 100,
+        errorCount: 0,
+      });
 
       // 누적 연습 수 갱신
-      const newData = await utils.practice.countByQuestion.fetch({ questionId });
+      const newData = await utils.practice.countByQuestion.fetch({
+        questionId,
+      });
       if (newData) {
         utils.practice.countByQuestion.setData({ questionId }, newData);
       }
@@ -56,7 +64,7 @@ describe('Practice Immediate Save on Correct Answer', () => {
       expect(setDataMock).toHaveBeenCalledWith({ questionId }, { count: 3 });
     });
 
-    it('should increment cumulative count each time correct answer is given', async () => {
+    it("should increment cumulative count each time correct answer is given", async () => {
       let cumulativeCount = 2;
 
       // 정답 1회
@@ -73,8 +81,8 @@ describe('Practice Immediate Save on Correct Answer', () => {
     });
   });
 
-  describe('Real-time cumulative count update', () => {
-    it('should show cumulative count increasing immediately', async () => {
+  describe("Real-time cumulative count update", () => {
+    it("should show cumulative count increasing immediately", async () => {
       let currentCount = 0;
       let cumulativeCount = 2;
 
@@ -97,7 +105,7 @@ describe('Practice Immediate Save on Correct Answer', () => {
       expect(cumulativeCount).toBe(5);
     });
 
-    it('should not require page reload to see cumulative count update', async () => {
+    it("should not require page reload to see cumulative count update", async () => {
       let cumulativeCount = 10;
       const updates: number[] = [cumulativeCount];
 
@@ -117,7 +125,7 @@ describe('Practice Immediate Save on Correct Answer', () => {
       expect(updates).toEqual([10, 11, 12, 13]);
     });
 
-    it('should maintain separate current and cumulative counts', async () => {
+    it("should maintain separate current and cumulative counts", async () => {
       let currentCount = 0;
       let cumulativeCount = 5;
 
@@ -146,20 +154,28 @@ describe('Practice Immediate Save on Correct Answer', () => {
     });
   });
 
-  describe('Error handling during immediate save', () => {
-    it('should handle save errors gracefully', async () => {
-      const createSessionMock = vi.fn().mockRejectedValue(new Error('Save failed'));
-      
+  describe("Error handling during immediate save", () => {
+    it("should handle save errors gracefully", async () => {
+      const createSessionMock = vi
+        .fn()
+        .mockRejectedValue(new Error("Save failed"));
+
       try {
-        await createSessionMock({ questionId: 123, duration: 30, typingSpeed: 12, accuracy: 100, errorCount: 0 });
+        await createSessionMock({
+          questionId: 123,
+          duration: 30,
+          typingSpeed: 12,
+          accuracy: 100,
+          errorCount: 0,
+        });
       } catch (error) {
         expect(error).toBeDefined();
       }
     });
 
-    it('should continue practice even if save fails', async () => {
+    it("should continue practice even if save fails", async () => {
       let currentCount = 0;
-      const saveError = new Error('Save failed');
+      const saveError = new Error("Save failed");
 
       // 정답 1회 - 저장 실패
       currentCount = 1;

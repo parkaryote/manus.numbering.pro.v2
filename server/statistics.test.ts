@@ -18,13 +18,39 @@ describe("Statistics API logic", () => {
   describe("getSummary logic", () => {
     it("should calculate overall correct rate from test sessions", async () => {
       const mockTests = [
-        { id: 1, questionId: 1, userId: 1, isCorrect: 1, similarityScore: 90, recallTime: 30, completedAt: new Date() },
-        { id: 2, questionId: 2, userId: 1, isCorrect: 0, similarityScore: 40, recallTime: 60, completedAt: new Date() },
-        { id: 3, questionId: 1, userId: 1, isCorrect: 1, similarityScore: 85, recallTime: 25, completedAt: new Date() },
+        {
+          id: 1,
+          questionId: 1,
+          userId: 1,
+          isCorrect: 1,
+          similarityScore: 90,
+          recallTime: 30,
+          completedAt: new Date(),
+        },
+        {
+          id: 2,
+          questionId: 2,
+          userId: 1,
+          isCorrect: 0,
+          similarityScore: 40,
+          recallTime: 60,
+          completedAt: new Date(),
+        },
+        {
+          id: 3,
+          questionId: 1,
+          userId: 1,
+          isCorrect: 1,
+          similarityScore: 85,
+          recallTime: 25,
+          completedAt: new Date(),
+        },
       ];
 
       const totalCorrect = mockTests.filter(t => t.isCorrect === 1).length;
-      const overallCorrectRate = Math.round((totalCorrect / mockTests.length) * 100);
+      const overallCorrectRate = Math.round(
+        (totalCorrect / mockTests.length) * 100
+      );
 
       expect(totalCorrect).toBe(2);
       expect(overallCorrectRate).toBe(67);
@@ -52,23 +78,49 @@ describe("Statistics API logic", () => {
           b => b.practiceCount >= range.min && b.practiceCount <= range.max
         );
         const totalTests = inRange.reduce((s, b) => s + b.testCount, 0);
-        const totalCorrectInRange = inRange.reduce((s, b) => s + b.correctCount, 0);
+        const totalCorrectInRange = inRange.reduce(
+          (s, b) => s + b.correctCount,
+          0
+        );
         return {
           label: range.label,
           questionCount: inRange.length,
           testCount: totalTests,
-          correctRate: totalTests > 0 ? Math.round((totalCorrectInRange / totalTests) * 100) : 0,
+          correctRate:
+            totalTests > 0
+              ? Math.round((totalCorrectInRange / totalTests) * 100)
+              : 0,
         };
       });
 
       // 0회 bucket: 1 question, 2 tests, 0 correct → 0%
-      expect(result[0]).toEqual({ label: "0회", questionCount: 1, testCount: 2, correctRate: 0 });
+      expect(result[0]).toEqual({
+        label: "0회",
+        questionCount: 1,
+        testCount: 2,
+        correctRate: 0,
+      });
       // 1-2회 bucket: 1 question, 3 tests, 1 correct → 33%
-      expect(result[1]).toEqual({ label: "1-2회", questionCount: 1, testCount: 3, correctRate: 33 });
+      expect(result[1]).toEqual({
+        label: "1-2회",
+        questionCount: 1,
+        testCount: 3,
+        correctRate: 33,
+      });
       // 3-5회 bucket: 2 questions, 6 tests, 5 correct → 83%
-      expect(result[2]).toEqual({ label: "3-5회", questionCount: 2, testCount: 6, correctRate: 83 });
+      expect(result[2]).toEqual({
+        label: "3-5회",
+        questionCount: 2,
+        testCount: 6,
+        correctRate: 83,
+      });
       // 11회+ bucket: 1 question, 5 tests, 4 correct → 80%
-      expect(result[4]).toEqual({ label: "11회+", questionCount: 1, testCount: 5, correctRate: 80 });
+      expect(result[4]).toEqual({
+        label: "11회+",
+        questionCount: 1,
+        testCount: 5,
+        correctRate: 80,
+      });
     });
 
     it("should identify weak questions (correctRate < 70%)", () => {
@@ -103,7 +155,10 @@ describe("Statistics API logic", () => {
             question: q.question.substring(0, 60),
             practiceCount: qPractices.length,
             testCount: qTests.length,
-            correctRate: qTests.length > 0 ? Math.round((correct / qTests.length) * 100) : -1,
+            correctRate:
+              qTests.length > 0
+                ? Math.round((correct / qTests.length) * 100)
+                : -1,
           };
         })
         .filter(q => q.testCount > 0 && q.correctRate < 70)
@@ -131,17 +186,26 @@ describe("Statistics API logic", () => {
       ];
 
       const difficultyStats = ["easy", "medium", "hard"].map(diff => {
-        const diffQIds = subjectQs.filter(q => q.difficulty === diff).map(q => q.id);
+        const diffQIds = subjectQs
+          .filter(q => q.difficulty === diff)
+          .map(q => q.id);
         const diffTests = tests.filter(t => diffQIds.includes(t.questionId));
         const correct = diffTests.filter(t => t.isCorrect === 1).length;
-        const avgSimilarity = diffTests.length > 0
-          ? Math.round(diffTests.reduce((s, t) => s + (t.similarityScore || 0), 0) / diffTests.length)
-          : 0;
+        const avgSimilarity =
+          diffTests.length > 0
+            ? Math.round(
+                diffTests.reduce((s, t) => s + (t.similarityScore || 0), 0) /
+                  diffTests.length
+              )
+            : 0;
         return {
           difficulty: diff,
           totalTests: diffTests.length,
           correctCount: correct,
-          correctRate: diffTests.length > 0 ? Math.round((correct / diffTests.length) * 100) : 0,
+          correctRate:
+            diffTests.length > 0
+              ? Math.round((correct / diffTests.length) * 100)
+              : 0,
           avgSimilarity,
         };
       });
@@ -174,23 +238,44 @@ describe("Statistics API logic", () => {
 
     it("should calculate performance trend by date", () => {
       const tests = [
-        { questionId: 1, isCorrect: 1, similarityScore: 90, completedAt: new Date("2026-03-10T10:00:00Z") },
-        { questionId: 2, isCorrect: 0, similarityScore: 40, completedAt: new Date("2026-03-10T11:00:00Z") },
-        { questionId: 1, isCorrect: 1, similarityScore: 95, completedAt: new Date("2026-03-11T10:00:00Z") },
+        {
+          questionId: 1,
+          isCorrect: 1,
+          similarityScore: 90,
+          completedAt: new Date("2026-03-10T10:00:00Z"),
+        },
+        {
+          questionId: 2,
+          isCorrect: 0,
+          similarityScore: 40,
+          completedAt: new Date("2026-03-10T11:00:00Z"),
+        },
+        {
+          questionId: 1,
+          isCorrect: 1,
+          similarityScore: 95,
+          completedAt: new Date("2026-03-11T10:00:00Z"),
+        },
       ];
 
-      const testsByDate = tests.reduce((acc, t) => {
-        const date = new Date(t.completedAt).toISOString().split('T')[0];
-        if (!acc[date]) acc[date] = [];
-        acc[date].push(t);
-        return acc;
-      }, {} as Record<string, typeof tests>);
+      const testsByDate = tests.reduce(
+        (acc, t) => {
+          const date = new Date(t.completedAt).toISOString().split("T")[0];
+          if (!acc[date]) acc[date] = [];
+          acc[date].push(t);
+          return acc;
+        },
+        {} as Record<string, typeof tests>
+      );
 
       const performanceTrend = Object.entries(testsByDate)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, dayTests]) => {
           const correct = dayTests.filter(t => t.isCorrect === 1).length;
-          const avgSim = Math.round(dayTests.reduce((s, t) => s + (t.similarityScore || 0), 0) / dayTests.length);
+          const avgSim = Math.round(
+            dayTests.reduce((s, t) => s + (t.similarityScore || 0), 0) /
+              dayTests.length
+          );
           return {
             date,
             correctRate: Math.round((correct / dayTests.length) * 100),
@@ -220,12 +305,26 @@ describe("Statistics API logic", () => {
   describe("Learning strategy logic", () => {
     it("should detect low practice subjects", () => {
       const subjectAnalysis = [
-        { subjectName: "해부학", totalQuestions: 10, practiceCount: 5, totalTests: 3, overallCorrectRate: 60 },
-        { subjectName: "생리학", totalQuestions: 10, practiceCount: 50, totalTests: 5, overallCorrectRate: 80 },
+        {
+          subjectName: "해부학",
+          totalQuestions: 10,
+          practiceCount: 5,
+          totalTests: 3,
+          overallCorrectRate: 60,
+        },
+        {
+          subjectName: "생리학",
+          totalQuestions: 10,
+          practiceCount: 50,
+          totalTests: 5,
+          overallCorrectRate: 80,
+        },
       ];
 
       const lowPractice = subjectAnalysis.filter(
-        s => s.totalQuestions > 0 && s.practiceCount / Math.max(s.totalQuestions, 1) < 3
+        s =>
+          s.totalQuestions > 0 &&
+          s.practiceCount / Math.max(s.totalQuestions, 1) < 3
       );
 
       expect(lowPractice.length).toBe(1);
@@ -234,12 +333,23 @@ describe("Statistics API logic", () => {
 
     it("should detect high practice low test performance subjects", () => {
       const subjectAnalysis = [
-        { subjectName: "해부학", practiceCount: 50, totalTests: 10, overallCorrectRate: 30 },
-        { subjectName: "생리학", practiceCount: 50, totalTests: 10, overallCorrectRate: 80 },
+        {
+          subjectName: "해부학",
+          practiceCount: 50,
+          totalTests: 10,
+          overallCorrectRate: 30,
+        },
+        {
+          subjectName: "생리학",
+          practiceCount: 50,
+          totalTests: 10,
+          overallCorrectRate: 80,
+        },
       ];
 
       const highPracticeLowTest = subjectAnalysis.filter(
-        s => s.practiceCount > 10 && s.totalTests > 3 && s.overallCorrectRate < 50
+        s =>
+          s.practiceCount > 10 && s.totalTests > 3 && s.overallCorrectRate < 50
       );
 
       expect(highPracticeLowTest.length).toBe(1);

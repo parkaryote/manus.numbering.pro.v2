@@ -1,8 +1,22 @@
 import { trpc } from "@/lib/trpc";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,15 +33,15 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
-} from '@dnd-kit/core';
+} from "@dnd-kit/core";
 import {
   arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const colorOptions = [
   "#3B82F6", // Blue
@@ -50,8 +64,12 @@ function toDateTimeLocalValue(value?: string | Date | null): string {
 
 // 과목별 미니 그리드: 색상 점 + 별표만 표시
 function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
-  const { data: questions } = trpc.questions.listBySubject.useQuery({ subjectId });
-  const { data: confidenceData } = trpc.confidence.getBySubject.useQuery({ subjectId });
+  const { data: questions } = trpc.questions.listBySubject.useQuery({
+    subjectId,
+  });
+  const { data: confidenceData } = trpc.confidence.getBySubject.useQuery({
+    subjectId,
+  });
 
   const confidenceMap = useMemo(() => {
     const map = new Map<number, { state: string; displayScore: number }>();
@@ -69,23 +87,27 @@ function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
 
   const getFillColor = (questionId: number) => {
     const d = confidenceMap.get(questionId);
-    if (!d) return 'bg-neutral-200 dark:bg-neutral-700';
+    if (!d) return "bg-neutral-200 dark:bg-neutral-700";
     switch (d.state) {
-      case 'green': return 'bg-emerald-500';
-      case 'yellow': return 'bg-amber-400';
-      case 'red': return 'bg-red-500';
-      default: return 'bg-neutral-200 dark:bg-neutral-700';
+      case "green":
+        return "bg-emerald-500";
+      case "yellow":
+        return "bg-amber-400";
+      case "red":
+        return "bg-red-500";
+      default:
+        return "bg-neutral-200 dark:bg-neutral-700";
     }
   };
 
   const getBorderColor = (isStarred: boolean) => {
-    if (!isStarred) return 'border border-neutral-200 dark:border-neutral-700';
-    return 'border-2 border-indigo-600 dark:border-indigo-500';
+    if (!isStarred) return "border border-neutral-200 dark:border-neutral-700";
+    return "border-2 border-indigo-600 dark:border-indigo-500";
   };
 
   return (
     <div className="flex flex-wrap gap-1 mt-2">
-      {sorted.map((q) => {
+      {sorted.map(q => {
         const starred = q.isStarred === 1;
         const fillColor = getFillColor(q.id);
         const borderColor = getBorderColor(starred);
@@ -146,45 +168,56 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
           className="w-4 h-4 rounded-full flex-shrink-0 mt-1"
           style={{ backgroundColor: subject.color }}
         />
-        <div className="flex-1 min-w-0" onClick={() => setLocation(`/questions/${subject.id}`)}>
+        <div
+          className="flex-1 min-w-0"
+          onClick={() => setLocation(`/questions/${subject.id}`)}
+        >
           <div className="flex items-center gap-2 mb-0.5">
             <CardTitle className="text-lg">{subject.name}</CardTitle>
             {subject.isDemo === 1 && (
-              <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+              <Badge
+                variant="secondary"
+                className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+              >
                 <Star className="w-2.5 h-2.5" />
                 데모
               </Badge>
             )}
           </div>
           {subject.description && (
-            <CardDescription className="line-clamp-1 mb-1">{subject.description}</CardDescription>
+            <CardDescription className="line-clamp-1 mb-1">
+              {subject.description}
+            </CardDescription>
           )}
           {/* 안정도 요약 */}
-          {subjectConfidence?.aggregate && subjectConfidence.aggregate.totalQuestions > 0 && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <span className="font-semibold">{subjectConfidence.aggregate.averageScore}점</span>
-              <div className="flex items-center gap-2">
-                {subjectConfidence.aggregate.redCount > 0 && (
-                  <span className="flex items-center gap-0.5" title="취약">
-                    <span className="w-2.5 h-[3px] rounded-full bg-red-500 inline-block" />
-                    {subjectConfidence.aggregate.redCount}
-                  </span>
-                )}
-                {subjectConfidence.aggregate.yellowCount > 0 && (
-                  <span className="flex items-center gap-0.5" title="학습중">
-                    <span className="w-2.5 h-[3px] rounded-full bg-amber-400 inline-block" />
-                    {subjectConfidence.aggregate.yellowCount}
-                  </span>
-                )}
-                {subjectConfidence.aggregate.greenCount > 0 && (
-                  <span className="flex items-center gap-0.5" title="안정">
-                    <span className="w-2.5 h-[3px] rounded-full bg-emerald-500 inline-block" />
-                    {subjectConfidence.aggregate.greenCount}
-                  </span>
-                )}
+          {subjectConfidence?.aggregate &&
+            subjectConfidence.aggregate.totalQuestions > 0 && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <span className="font-semibold">
+                  {subjectConfidence.aggregate.averageScore}점
+                </span>
+                <div className="flex items-center gap-2">
+                  {subjectConfidence.aggregate.redCount > 0 && (
+                    <span className="flex items-center gap-0.5" title="취약">
+                      <span className="w-2.5 h-[3px] rounded-full bg-red-500 inline-block" />
+                      {subjectConfidence.aggregate.redCount}
+                    </span>
+                  )}
+                  {subjectConfidence.aggregate.yellowCount > 0 && (
+                    <span className="flex items-center gap-0.5" title="학습중">
+                      <span className="w-2.5 h-[3px] rounded-full bg-amber-400 inline-block" />
+                      {subjectConfidence.aggregate.yellowCount}
+                    </span>
+                  )}
+                  {subjectConfidence.aggregate.greenCount > 0 && (
+                    <span className="flex items-center gap-0.5" title="안정">
+                      <span className="w-2.5 h-[3px] rounded-full bg-emerald-500 inline-block" />
+                      {subjectConfidence.aggregate.greenCount}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
           {/* 미니 그리드 */}
           <SubjectMiniGrid subjectId={subject.id} />
         </div>
@@ -192,7 +225,7 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={(e) => {
+            onClick={e => {
               e.stopPropagation();
               onEdit(subject);
             }}
@@ -202,7 +235,7 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={(e) => {
+            onClick={e => {
               e.stopPropagation();
               onDelete(subject.id, subject.name);
             }}
@@ -222,7 +255,7 @@ export default function Subjects() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingSubject, setEditingSubject] = useState<any>(null);
-  
+
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -245,10 +278,16 @@ export default function Subjects() {
     onSuccess: () => {
       utils.subjects.list.invalidate();
       setIsCreateOpen(false);
-      setFormData({ name: "", description: "", color: colorOptions[0], examEndDate: "", isDemo: false });
+      setFormData({
+        name: "",
+        description: "",
+        color: colorOptions[0],
+        examEndDate: "",
+        isDemo: false,
+      });
       toast.success("과목이 생성되었습니다");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error("과목 생성 실패: " + error.message);
     },
   });
@@ -260,7 +299,7 @@ export default function Subjects() {
       setEditingSubject(null);
       toast.success("과목이 수정되었습니다");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error("과목 수정 실패: " + error.message);
     },
   });
@@ -270,13 +309,13 @@ export default function Subjects() {
       utils.subjects.list.invalidate();
       toast.success("과목이 삭제되었습니다");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error("과목 삭제 실패: " + error.message);
     },
   });
 
   const updateOrderMutation = trpc.subjects.updateOrder.useMutation({
-    onError: (error) => {
+    onError: error => {
       toast.error("순서 변경 실패: " + error.message);
       utils.subjects.list.invalidate();
     },
@@ -287,7 +326,7 @@ export default function Subjects() {
       utils.subjects.list.invalidate();
       toast.success("데모 설정이 변경되었습니다");
     },
-    onError: (error) => toast.error("데모 설정 실패: " + error.message),
+    onError: error => toast.error("데모 설정 실패: " + error.message),
   });
 
   const handleCreate = () => {
@@ -295,7 +334,8 @@ export default function Subjects() {
       toast.error("과목명을 입력하세요");
       return;
     }
-    const maxOrder = subjects?.reduce((max, s) => Math.max(max, s.displayOrder || 0), 0) || 0;
+    const maxOrder =
+      subjects?.reduce((max, s) => Math.max(max, s.displayOrder || 0), 0) || 0;
     createMutation.mutate({
       name: formData.name,
       description: formData.description,
@@ -343,18 +383,21 @@ export default function Subjects() {
     const { active, over } = event;
     if (!over || active.id === over.id || !subjects) return;
 
-    const oldIndex = subjects.findIndex((s) => s.id === active.id);
-    const newIndex = subjects.findIndex((s) => s.id === over.id);
+    const oldIndex = subjects.findIndex(s => s.id === active.id);
+    const newIndex = subjects.findIndex(s => s.id === over.id);
     const reorderedSubjects = arrayMove(subjects, oldIndex, newIndex);
     const subjectOrders = reorderedSubjects.map((subject, index) => ({
       id: subject.id,
       displayOrder: index + 1,
     }));
 
-    utils.subjects.list.setData(undefined, reorderedSubjects.map((s, idx) => ({
-      ...s,
-      displayOrder: idx + 1,
-    })));
+    utils.subjects.list.setData(
+      undefined,
+      reorderedSubjects.map((s, idx) => ({
+        ...s,
+        displayOrder: idx + 1,
+      }))
+    );
 
     updateOrderMutation.mutate({ subjectOrders });
   };
@@ -364,13 +407,14 @@ export default function Subjects() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">과목 관리</h1>
-          <p className="text-muted-foreground mt-1">과목을 생성하고 관리하세요</p>
+          <p className="text-muted-foreground mt-1">
+            과목을 생성하고 관리하세요
+          </p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
             <Button className="gap-2">
-              <Plus className="h-4 w-4" />
-              새 과목 추가
+              <Plus className="h-4 w-4" />새 과목 추가
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -384,7 +428,9 @@ export default function Subjects() {
                 <Input
                   id="name"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={e =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
                   placeholder="예: 한국사"
                 />
               </div>
@@ -393,7 +439,9 @@ export default function Subjects() {
                 <Textarea
                   id="description"
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={e =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
                   placeholder="과목에 대한 간단한 설명"
                   rows={3}
                 />
@@ -401,12 +449,14 @@ export default function Subjects() {
               <div className="space-y-2">
                 <Label>색상</Label>
                 <div className="flex gap-2 flex-wrap">
-                  {colorOptions.map((color) => (
+                  {colorOptions.map(color => (
                     <button
                       key={color}
                       type="button"
                       className={`w-8 h-8 rounded-full border-2 transition-all ${
-                        formData.color === color ? "border-primary scale-110" : "border-transparent"
+                        formData.color === color
+                          ? "border-primary scale-110"
+                          : "border-transparent"
                       }`}
                       style={{ backgroundColor: color }}
                       onClick={() => setFormData({ ...formData, color })}
@@ -420,24 +470,36 @@ export default function Subjects() {
                   id="examEndDate"
                   type="datetime-local"
                   value={formData.examEndDate}
-                  onChange={(e) => setFormData({ ...formData, examEndDate: e.target.value })}
+                  onChange={e =>
+                    setFormData({ ...formData, examEndDate: e.target.value })
+                  }
                 />
                 <p className="text-xs text-muted-foreground">
-                  시험 일시를 기준으로 예측을 계산합니다. 시험 후 1달이 지나고 미사용이면 자동 삭제됩니다.
+                  시험 일시를 기준으로 예측을 계산합니다. 시험 후 1달이 지나고
+                  미사용이면 자동 삭제됩니다.
                 </p>
               </div>
               {isAdmin && (
                 <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-3 py-2">
                   <Star className="h-4 w-4 text-amber-500 flex-shrink-0" />
                   <div className="flex-1">
-                    <Label htmlFor="create-isDemo" className="text-sm font-medium cursor-pointer">데모 과목으로 지정</Label>
-                    <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                    <Label
+                      htmlFor="create-isDemo"
+                      className="text-sm font-medium cursor-pointer"
+                    >
+                      데모 과목으로 지정
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      로그인 없이도 모든 사용자에게 표시됩니다
+                    </p>
                   </div>
                   <input
                     id="create-isDemo"
                     type="checkbox"
                     checked={formData.isDemo}
-                    onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                    onChange={e =>
+                      setFormData({ ...formData, isDemo: e.target.checked })
+                    }
                     className="h-4 w-4 accent-amber-500"
                   />
                 </div>
@@ -447,7 +509,10 @@ export default function Subjects() {
               <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
                 취소
               </Button>
-              <Button onClick={handleCreate} disabled={createMutation.isPending}>
+              <Button
+                onClick={handleCreate}
+                disabled={createMutation.isPending}
+              >
                 {createMutation.isPending ? "생성 중..." : "생성"}
               </Button>
             </DialogFooter>
@@ -463,10 +528,11 @@ export default function Subjects() {
         <Card className="shadow-elegant">
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground mb-4">아직 등록된 과목이 없습니다</p>
+            <p className="text-muted-foreground mb-4">
+              아직 등록된 과목이 없습니다
+            </p>
             <Button onClick={() => setIsCreateOpen(true)} className="gap-2">
-              <Plus className="h-4 w-4" />
-              첫 과목 만들기
+              <Plus className="h-4 w-4" />첫 과목 만들기
             </Button>
           </CardContent>
         </Card>
@@ -477,11 +543,11 @@ export default function Subjects() {
           onDragEnd={handleDragEnd}
         >
           <SortableContext
-            items={subjects.map((s) => s.id)}
+            items={subjects.map(s => s.id)}
             strategy={verticalListSortingStrategy}
           >
             <div className="grid gap-4">
-              {subjects.map((subject) => (
+              {subjects.map(subject => (
                 <SortableSubjectCard
                   key={subject.id}
                   subject={subject}
@@ -507,7 +573,9 @@ export default function Subjects() {
               <Input
                 id="edit-name"
                 value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                onChange={e =>
+                  setFormData({ ...formData, name: e.target.value })
+                }
                 placeholder="예: 한국사"
               />
             </div>
@@ -516,7 +584,9 @@ export default function Subjects() {
               <Textarea
                 id="edit-description"
                 value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                onChange={e =>
+                  setFormData({ ...formData, description: e.target.value })
+                }
                 placeholder="과목에 대한 간단한 설명"
                 rows={3}
               />
@@ -524,12 +594,14 @@ export default function Subjects() {
             <div className="space-y-2">
               <Label>색상</Label>
               <div className="flex gap-2 flex-wrap">
-                {colorOptions.map((color) => (
+                {colorOptions.map(color => (
                   <button
                     key={color}
                     type="button"
                     className={`w-8 h-8 rounded-full border-2 transition-all ${
-                      formData.color === color ? "border-primary scale-110" : "border-transparent"
+                      formData.color === color
+                        ? "border-primary scale-110"
+                        : "border-transparent"
                     }`}
                     style={{ backgroundColor: color }}
                     onClick={() => setFormData({ ...formData, color })}
@@ -543,24 +615,36 @@ export default function Subjects() {
                 id="edit-examEndDate"
                 type="datetime-local"
                 value={formData.examEndDate}
-                onChange={(e) => setFormData({ ...formData, examEndDate: e.target.value })}
+                onChange={e =>
+                  setFormData({ ...formData, examEndDate: e.target.value })
+                }
               />
               <p className="text-xs text-muted-foreground">
-                시험 일시를 기준으로 예측을 계산합니다. 시험 후 1달이 지나고 미사용이면 자동 삭제됩니다.
+                시험 일시를 기준으로 예측을 계산합니다. 시험 후 1달이 지나고
+                미사용이면 자동 삭제됩니다.
               </p>
             </div>
             {isAdmin && (
               <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-3 py-2">
                 <Star className="h-4 w-4 text-amber-500 flex-shrink-0" />
                 <div className="flex-1">
-                  <Label htmlFor="edit-isDemo" className="text-sm font-medium cursor-pointer">데모 과목으로 지정</Label>
-                  <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                  <Label
+                    htmlFor="edit-isDemo"
+                    className="text-sm font-medium cursor-pointer"
+                  >
+                    데모 과목으로 지정
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    로그인 없이도 모든 사용자에게 표시됩니다
+                  </p>
                 </div>
                 <input
                   id="edit-isDemo"
                   type="checkbox"
                   checked={formData.isDemo}
-                  onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                  onChange={e =>
+                    setFormData({ ...formData, isDemo: e.target.checked })
+                  }
                   className="h-4 w-4 accent-amber-500"
                 />
               </div>

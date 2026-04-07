@@ -10,7 +10,9 @@ const createdJobIds: number[] = [];
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 const describeIfDb = hasDatabase ? describe : describe.skip;
 
-async function createTestOcrJob(overrides: Partial<Parameters<typeof db.createOcrJob>[0]> = {}) {
+async function createTestOcrJob(
+  overrides: Partial<Parameters<typeof db.createOcrJob>[0]> = {}
+) {
   const job = await db.createOcrJob({
     userId: 1,
     fileName: "test.pdf",
@@ -30,7 +32,9 @@ describe("OCR Router - Integration Tests", () => {
     try {
       const database = await getDb();
       if (database && createdJobIds.length > 0) {
-        await database.delete(ocrJobs).where(inArray(ocrJobs.id, createdJobIds));
+        await database
+          .delete(ocrJobs)
+          .where(inArray(ocrJobs.id, createdJobIds));
       }
     } catch {
       // DB 연결 실패 시 무시
@@ -74,8 +78,22 @@ describe("OCR Router - Integration Tests", () => {
       const userId = 1;
 
       // Create multiple jobs (ID 추적됨)
-      await createTestOcrJob({ userId, fileName: "test1.pdf", s3Url: "https://example.com/test1.pdf", gcsUri: "gs://bucket/test1.pdf", operationName: "op1", status: "processing" });
-      await createTestOcrJob({ userId, fileName: "test2.pdf", s3Url: "https://example.com/test2.pdf", gcsUri: "gs://bucket/test2.pdf", operationName: "op2", status: "completed" });
+      await createTestOcrJob({
+        userId,
+        fileName: "test1.pdf",
+        s3Url: "https://example.com/test1.pdf",
+        gcsUri: "gs://bucket/test1.pdf",
+        operationName: "op1",
+        status: "processing",
+      });
+      await createTestOcrJob({
+        userId,
+        fileName: "test2.pdf",
+        s3Url: "https://example.com/test2.pdf",
+        gcsUri: "gs://bucket/test2.pdf",
+        operationName: "op2",
+        status: "completed",
+      });
 
       const jobs = await db.getOcrJobsByUserId(userId);
       expect(jobs.length).toBeGreaterThanOrEqual(2);
@@ -107,13 +125,18 @@ describe("OCR Router - Integration Tests", () => {
     it("should handle invalid GCS URI gracefully", async () => {
       const invalidUri = "invalid-uri";
       // cleanupGCSFiles should not throw for invalid URIs
-      await expect(ocrModule.cleanupGCSFiles(invalidUri)).resolves.toBeUndefined();
+      await expect(
+        ocrModule.cleanupGCSFiles(invalidUri)
+      ).resolves.toBeUndefined();
     });
   });
 
   describeIfDb("Job Status Workflow", () => {
     it("should track job lifecycle: pending -> processing -> completed", async () => {
-      const job = await createTestOcrJob({ status: "pending", operationName: "op123" });
+      const job = await createTestOcrJob({
+        status: "pending",
+        operationName: "op123",
+      });
 
       expect(job.status).toBe("pending");
 
@@ -132,7 +155,10 @@ describe("OCR Router - Integration Tests", () => {
     });
 
     it("should track job lifecycle: pending -> failed", async () => {
-      const job = await createTestOcrJob({ status: "pending", operationName: "op123" });
+      const job = await createTestOcrJob({
+        status: "pending",
+        operationName: "op123",
+      });
 
       await db.updateOcrJob(job.id, {
         status: "failed",

@@ -22,7 +22,9 @@ async function fetchTrpc(path, payload) {
   const data = await res.json();
   const first = data?.[0];
   if (first?.error) {
-    throw new Error(`TRPC returned error for ${path}: ${JSON.stringify(first.error)}`);
+    throw new Error(
+      `TRPC returned error for ${path}: ${JSON.stringify(first.error)}`
+    );
   }
   return first?.result?.data?.json ?? null;
 }
@@ -48,7 +50,9 @@ async function fetchRemoteDemoBundle() {
 
   const withQuestions = [];
   for (const subject of subjects) {
-    const questions = await fetchTrpc("demo.questions", { 0: { json: { subjectId: subject.id } } });
+    const questions = await fetchTrpc("demo.questions", {
+      0: { json: { subjectId: subject.id } },
+    });
     withQuestions.push({
       subject,
       questions: Array.isArray(questions) ? questions : [],
@@ -154,7 +158,7 @@ async function main() {
   const bundle = await fetchRemoteDemoBundle();
   console.log(
     "Remote snapshot:",
-    bundle.map((x) => ({
+    bundle.map(x => ({
       subject: x.subject.name,
       subjectId: x.subject.id,
       count: x.questions.length,
@@ -170,7 +174,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+main().catch(error => {
   console.error(error);
   process.exit(1);
 });

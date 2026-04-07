@@ -1,6 +1,6 @@
 /**
  * GA4 Custom Events Tracking Utility
- * 
+ *
  * Provides type-safe functions to track user interactions with Google Analytics 4
  * All events are automatically sent to GA4 if gtag is available
  */
@@ -18,16 +18,16 @@ declare global {
  * @param eventData - Event parameters (optional)
  */
 export function trackEvent(eventName: string, eventData?: Record<string, any>) {
-  if (typeof window === 'undefined' || !window.gtag) {
-    console.warn('[GA4] gtag not available, event not tracked:', eventName);
+  if (typeof window === "undefined" || !window.gtag) {
+    console.warn("[GA4] gtag not available, event not tracked:", eventName);
     return;
   }
 
   try {
-    window.gtag('event', eventName, eventData || {});
-    console.debug('[GA4] Event tracked:', eventName, eventData);
+    window.gtag("event", eventName, eventData || {});
+    console.debug("[GA4] Event tracked:", eventName, eventData);
   } catch (error) {
-    console.error('[GA4] Failed to track event:', eventName, error);
+    console.error("[GA4] Failed to track event:", eventName, error);
   }
 }
 
@@ -42,11 +42,11 @@ export function trackEvent(eventName: string, eventData?: Record<string, any>) {
 export function trackQuestionAttempt(
   questionId: number,
   subjectId: number,
-  questionType: 'text' | 'image' | 'table',
+  questionType: "text" | "image" | "table",
   isCorrect: boolean,
   timeSpent: number
 ) {
-  trackEvent('question_attempt', {
+  trackEvent("question_attempt", {
     question_id: questionId,
     subject_id: subjectId,
     question_type: questionType,
@@ -70,7 +70,7 @@ export function trackPracticeComplete(
   totalTime: number,
   accuracy: number
 ) {
-  trackEvent('practice_complete', {
+  trackEvent("practice_complete", {
     subject_id: subjectId,
     question_id: questionId,
     practice_count: practiceCount,
@@ -94,7 +94,7 @@ export function trackTestSubmit(
   correctAnswers: number,
   timeSpent: number
 ) {
-  trackEvent('test_submit', {
+  trackEvent("test_submit", {
     subject_id: subjectId,
     test_score: Math.round(testScore),
     total_questions: totalQuestions,
@@ -109,7 +109,7 @@ export function trackTestSubmit(
  * @param subjectName - Subject name
  */
 export function trackSubjectCreate(subjectId: number, subjectName: string) {
-  trackEvent('subject_create', {
+  trackEvent("subject_create", {
     subject_id: subjectId,
     subject_name: subjectName,
   });
@@ -121,7 +121,7 @@ export function trackSubjectCreate(subjectId: number, subjectName: string) {
  * @param subjectName - Subject name
  */
 export function trackSubjectUpdate(subjectId: number, subjectName: string) {
-  trackEvent('subject_update', {
+  trackEvent("subject_update", {
     subject_id: subjectId,
     subject_name: subjectName,
   });
@@ -133,7 +133,7 @@ export function trackSubjectUpdate(subjectId: number, subjectName: string) {
  * @param subjectName - Subject name
  */
 export function trackSubjectDelete(subjectId: number, subjectName: string) {
-  trackEvent('subject_delete', {
+  trackEvent("subject_delete", {
     subject_id: subjectId,
     subject_name: subjectName,
   });
@@ -148,9 +148,9 @@ export function trackSubjectDelete(subjectId: number, subjectName: string) {
 export function trackQuestionCreate(
   questionId: number,
   subjectId: number,
-  questionType: 'text' | 'image' | 'table'
+  questionType: "text" | "image" | "table"
 ) {
-  trackEvent('question_create', {
+  trackEvent("question_create", {
     question_id: questionId,
     subject_id: subjectId,
     question_type: questionType,
@@ -166,9 +166,9 @@ export function trackQuestionCreate(
 export function trackQuestionUpdate(
   questionId: number,
   subjectId: number,
-  questionType: 'text' | 'image' | 'table'
+  questionType: "text" | "image" | "table"
 ) {
-  trackEvent('question_update', {
+  trackEvent("question_update", {
     question_id: questionId,
     subject_id: subjectId,
     question_type: questionType,
@@ -181,7 +181,7 @@ export function trackQuestionUpdate(
  * @param subjectId - Subject ID
  */
 export function trackQuestionDelete(questionId: number, subjectId: number) {
-  trackEvent('question_delete', {
+  trackEvent("question_delete", {
     question_id: questionId,
     subject_id: subjectId,
   });
@@ -193,7 +193,7 @@ export function trackQuestionDelete(questionId: number, subjectId: number) {
  * @param fileSize - File size (bytes)
  */
 export function trackOCRStart(fileName: string, fileSize: number) {
-  trackEvent('ocr_start', {
+  trackEvent("ocr_start", {
     file_name: fileName,
     file_size_bytes: fileSize,
   });
@@ -210,7 +210,7 @@ export function trackOCRComplete(
   extractedTextLength: number,
   processingTime: number
 ) {
-  trackEvent('ocr_complete', {
+  trackEvent("ocr_complete", {
     file_name: fileName,
     extracted_text_length: extractedTextLength,
     processing_time_seconds: Math.round(processingTime),
@@ -223,7 +223,7 @@ export function trackOCRComplete(
  * @param errorMessage - Error message
  */
 export function trackOCRError(fileName: string, errorMessage: string) {
-  trackEvent('ocr_error', {
+  trackEvent("ocr_error", {
     file_name: fileName,
     error_message: errorMessage,
   });
@@ -235,7 +235,7 @@ export function trackOCRError(fileName: string, errorMessage: string) {
  * @param metadata - Additional metadata (optional)
  */
 export function trackEngagement(
-  engagementType: 'login' | 'logout' | 'page_view' | 'demo_mode',
+  engagementType: "login" | "logout" | "page_view" | "demo_mode",
   metadata?: Record<string, any>
 ) {
   trackEvent(`user_${engagementType}`, metadata || {});

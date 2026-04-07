@@ -77,11 +77,15 @@ async function main() {
   try {
     const demoSubjects = await getConfiguredDemoSubjects(connection);
     if (demoSubjects.length === 0) {
-      console.warn("No demo subjects/questions configured (isDemo=1). Nothing to backfill.");
+      console.warn(
+        "No demo subjects/questions configured (isDemo=1). Nothing to backfill."
+      );
       return;
     }
 
-    const [users] = await connection.execute("SELECT id, loginMethod FROM users ORDER BY id");
+    const [users] = await connection.execute(
+      "SELECT id, loginMethod FROM users ORDER BY id"
+    );
     let backfilled = 0;
 
     for (const user of users) {
@@ -91,7 +95,8 @@ async function main() {
       );
       const names = userSubjects.map(s => s.name);
       const hasNoSubjects = names.length === 0;
-      const placeholderOnly = names.length > 0 && names.every(n => PLACEHOLDER_NAMES.has(n));
+      const placeholderOnly =
+        names.length > 0 && names.every(n => PLACEHOLDER_NAMES.has(n));
 
       if (hasNoSubjects || placeholderOnly) {
         await copyDemoToUser(connection, user.id, demoSubjects);

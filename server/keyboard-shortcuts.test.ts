@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from "vitest";
 
-describe('Keyboard Shortcuts - Shift+Backspace and Ctrl+Z', () => {
+describe("Keyboard Shortcuts - Shift+Backspace and Ctrl+Z", () => {
   let inputHistory: string[];
   let historyIndex: number;
 
@@ -9,8 +9,8 @@ describe('Keyboard Shortcuts - Shift+Backspace and Ctrl+Z', () => {
     historyIndex = 0;
   });
 
-  describe('Shift+Backspace - Delete line', () => {
-    it('should delete the last line when Shift+Backspace is pressed', () => {
+  describe("Shift+Backspace - Delete line", () => {
+    it("should delete the last line when Shift+Backspace is pressed", () => {
       const deleteLine = (value: string) => {
         const lines = value.split("\n");
         if (lines.length > 1) {
@@ -26,7 +26,7 @@ describe('Keyboard Shortcuts - Shift+Backspace and Ctrl+Z', () => {
       expect(result).toBe("line1\nline2");
     });
 
-    it('should return empty string when deleting the only line', () => {
+    it("should return empty string when deleting the only line", () => {
       const deleteLine = (value: string) => {
         const lines = value.split("\n");
         if (lines.length > 1) {
@@ -42,7 +42,7 @@ describe('Keyboard Shortcuts - Shift+Backspace and Ctrl+Z', () => {
       expect(result).toBe("");
     });
 
-    it('should handle Korean text correctly', () => {
+    it("should handle Korean text correctly", () => {
       const deleteLine = (value: string) => {
         const lines = value.split("\n");
         if (lines.length > 1) {
@@ -58,7 +58,7 @@ describe('Keyboard Shortcuts - Shift+Backspace and Ctrl+Z', () => {
       expect(result).toBe("보전하는\n전을");
     });
 
-    it('should work immediately without decomposing Korean characters', () => {
+    it("should work immediately without decomposing Korean characters", () => {
       const deleteLine = (value: string) => {
         const lines = value.split("\n");
         if (lines.length > 1) {
@@ -76,8 +76,8 @@ describe('Keyboard Shortcuts - Shift+Backspace and Ctrl+Z', () => {
     });
   });
 
-  describe('Ctrl+Z - Undo functionality', () => {
-    it('should restore previous state when Ctrl+Z is pressed', () => {
+  describe("Ctrl+Z - Undo functionality", () => {
+    it("should restore previous state when Ctrl+Z is pressed", () => {
       const updateHistory = (newValue: string) => {
         const newHistory = inputHistory.slice(0, historyIndex + 1);
         if (newHistory[newHistory.length - 1] !== newValue) {
@@ -93,18 +93,18 @@ describe('Keyboard Shortcuts - Shift+Backspace and Ctrl+Z', () => {
       updateHistory("h");
       updateHistory("he");
       updateHistory("hel");
-      
+
       expect(inputHistory).toEqual(["", "h", "he", "hel"]);
       expect(historyIndex).toBe(3);
 
       if (historyIndex > 0) {
         historyIndex = historyIndex - 1;
       }
-      
+
       expect(inputHistory[historyIndex]).toBe("he");
     });
 
-    it('should record Alt+Backspace deletions in history', () => {
+    it("should record Alt+Backspace deletions in history", () => {
       const updateHistory = (newValue: string) => {
         const newHistory = inputHistory.slice(0, historyIndex + 1);
         if (newHistory[newHistory.length - 1] !== newValue) {
@@ -126,11 +126,11 @@ describe('Keyboard Shortcuts - Shift+Backspace and Ctrl+Z', () => {
       if (historyIndex > 0) {
         historyIndex = historyIndex - 1;
       }
-      
+
       expect(inputHistory[historyIndex]).toBe("hello world");
     });
 
-    it('should record Shift+Backspace deletions in history', () => {
+    it("should record Shift+Backspace deletions in history", () => {
       const deleteLine = (value: string) => {
         const lines = value.split("\n");
         if (lines.length > 1) {
@@ -163,11 +163,11 @@ describe('Keyboard Shortcuts - Shift+Backspace and Ctrl+Z', () => {
       if (historyIndex > 0) {
         historyIndex = historyIndex - 1;
       }
-      
+
       expect(inputHistory[historyIndex]).toBe("line1\nline2\nline3");
     });
 
-    it('should handle Redo (Ctrl+Shift+Z) functionality', () => {
+    it("should handle Redo (Ctrl+Shift+Z) functionality", () => {
       const updateHistory = (newValue: string) => {
         const newHistory = inputHistory.slice(0, historyIndex + 1);
         if (newHistory[newHistory.length - 1] !== newValue) {
@@ -197,7 +197,7 @@ describe('Keyboard Shortcuts - Shift+Backspace and Ctrl+Z', () => {
       expect(inputHistory[historyIndex]).toBe("hello world");
     });
 
-    it('should handle Korean text with Shift+Backspace and Ctrl+Z', () => {
+    it("should handle Korean text with Shift+Backspace and Ctrl+Z", () => {
       const deleteLine = (value: string) => {
         const lines = value.split("\n");
         if (lines.length > 1) {
@@ -225,13 +225,17 @@ describe('Keyboard Shortcuts - Shift+Backspace and Ctrl+Z', () => {
 
       const deleted = deleteLine(inputHistory[historyIndex]);
       updateHistory(deleted);
-      expect(inputHistory).toEqual(["", "보전하는\n전을\n구성", "보전하는\n전을"]);
+      expect(inputHistory).toEqual([
+        "",
+        "보전하는\n전을\n구성",
+        "보전하는\n전을",
+      ]);
 
       // Undo (Ctrl+Z)
       if (historyIndex > 0) {
         historyIndex = historyIndex - 1;
       }
-      
+
       expect(inputHistory[historyIndex]).toBe("보전하는\n전을\n구성");
     });
   });

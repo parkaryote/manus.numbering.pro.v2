@@ -14,8 +14,6 @@ const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   return next({ ctx });
 });
 
-
-
 export const adminRouter = router({
   // 데모 과목 관리
   demo: router({
@@ -51,19 +49,16 @@ export const adminRouter = router({
         })
       )
       .mutation(async ({ input }) => {
-        const updated = await db.updateDemoQuestion(
-          input.questionId,
-          {
-            question: input.question,
-            answer: input.answer,
-            imageUrl: input.imageUrl,
-            imageLabels: input.imageLabels,
-            tableData: input.tableData,
-            autoNumbering: input.autoNumbering,
-            useAIGrading: input.useAIGrading,
-          }
-        );
-        
+        const updated = await db.updateDemoQuestion(input.questionId, {
+          question: input.question,
+          answer: input.answer,
+          imageUrl: input.imageUrl,
+          imageLabels: input.imageLabels,
+          tableData: input.tableData,
+          autoNumbering: input.autoNumbering,
+          useAIGrading: input.useAIGrading,
+        });
+
         // 캐시 무효화 신호 (클라이언트가 데이터 새로고침하도록)
         return {
           success: true,
@@ -94,7 +89,10 @@ export const adminRouter = router({
           imageLabels: z.string().optional(),
           tableData: z.string().optional(),
           autoNumbering: z.number().optional().default(1),
-          difficulty: z.enum(["easy", "medium", "hard"]).optional().default("medium"),
+          difficulty: z
+            .enum(["easy", "medium", "hard"])
+            .optional()
+            .default("medium"),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -110,7 +108,7 @@ export const adminRouter = router({
           difficulty: input.difficulty ?? "medium",
           isDemo: 1,
         });
-        
+
         return {
           success: true,
           data: created,

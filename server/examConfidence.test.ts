@@ -126,7 +126,11 @@ describe("computeExamConfidence - 24h crunch mode", () => {
       mostRecentTestAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
       recentCorrectStreak: 1,
       recentTestHistory: [
-        { completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000), isCorrect: true, similarityScore: 78 },
+        {
+          completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+          isCorrect: true,
+          similarityScore: 78,
+        },
       ],
     });
 
@@ -156,7 +160,11 @@ describe("computeExamConfidence - 24h crunch mode", () => {
 
   it("고유사도 오답도 강하게 반영된다 (유사도 중심)", () => {
     const correctOnce = computeExamConfidence({
-      practice: makePractice({ practiceCount: 2, totalPracticeDuration: 240, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 2,
+        totalPracticeDuration: 240,
+        mostRecentPracticeAt: now,
+      }),
       test: makeTest({
         testCount: 1,
         correctCount: 1,
@@ -165,7 +173,11 @@ describe("computeExamConfidence - 24h crunch mode", () => {
         mostRecentTestAt: new Date(now.getTime() - 60 * 60 * 1000),
         recentCorrectStreak: 1,
         recentTestHistory: [
-          { completedAt: new Date(now.getTime() - 60 * 60 * 1000), isCorrect: true, similarityScore: 78 },
+          {
+            completedAt: new Date(now.getTime() - 60 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 78,
+          },
         ],
       }),
       now,
@@ -173,7 +185,11 @@ describe("computeExamConfidence - 24h crunch mode", () => {
     });
 
     const wrongButSimilar = computeExamConfidence({
-      practice: makePractice({ practiceCount: 2, totalPracticeDuration: 240, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 2,
+        totalPracticeDuration: 240,
+        mostRecentPracticeAt: now,
+      }),
       test: makeTest({
         testCount: 1,
         correctCount: 0,
@@ -182,19 +198,29 @@ describe("computeExamConfidence - 24h crunch mode", () => {
         mostRecentTestAt: new Date(now.getTime() - 60 * 60 * 1000),
         recentCorrectStreak: 0,
         recentTestHistory: [
-          { completedAt: new Date(now.getTime() - 60 * 60 * 1000), isCorrect: false, similarityScore: 92 },
+          {
+            completedAt: new Date(now.getTime() - 60 * 60 * 1000),
+            isCorrect: false,
+            similarityScore: 92,
+          },
         ],
       }),
       now,
       examDate: examSoon,
     });
 
-    expect(wrongButSimilar.displayScore).toBeGreaterThan(correctOnce.displayScore);
+    expect(wrongButSimilar.displayScore).toBeGreaterThan(
+      correctOnce.displayScore
+    );
   });
 
   it("유사도 차이는 시험 안정도에 유의미하게 반영된다", () => {
     const lowSim = computeExamConfidence({
-      practice: makePractice({ practiceCount: 3, totalPracticeDuration: 360, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 3,
+        totalPracticeDuration: 360,
+        mostRecentPracticeAt: now,
+      }),
       test: makeTest({
         testCount: 2,
         correctCount: 2,
@@ -203,8 +229,16 @@ describe("computeExamConfidence - 24h crunch mode", () => {
         mostRecentTestAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
         recentCorrectStreak: 2,
         recentTestHistory: [
-          { completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000), isCorrect: true, similarityScore: 82 },
-          { completedAt: new Date(now.getTime() - 23 * 60 * 60 * 1000), isCorrect: true, similarityScore: 82 },
+          {
+            completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 82,
+          },
+          {
+            completedAt: new Date(now.getTime() - 23 * 60 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 82,
+          },
         ],
       }),
       now,
@@ -212,7 +246,11 @@ describe("computeExamConfidence - 24h crunch mode", () => {
     });
 
     const highSim = computeExamConfidence({
-      practice: makePractice({ practiceCount: 3, totalPracticeDuration: 360, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 3,
+        totalPracticeDuration: 360,
+        mostRecentPracticeAt: now,
+      }),
       test: makeTest({
         testCount: 2,
         correctCount: 2,
@@ -221,20 +259,34 @@ describe("computeExamConfidence - 24h crunch mode", () => {
         mostRecentTestAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
         recentCorrectStreak: 2,
         recentTestHistory: [
-          { completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000), isCorrect: true, similarityScore: 100 },
-          { completedAt: new Date(now.getTime() - 23 * 60 * 60 * 1000), isCorrect: true, similarityScore: 100 },
+          {
+            completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 100,
+          },
+          {
+            completedAt: new Date(now.getTime() - 23 * 60 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 100,
+          },
         ],
       }),
       now,
       examDate: examSoon,
     });
 
-    expect(highSim.displayScore - lowSim.displayScore).toBeGreaterThanOrEqual(3);
+    expect(highSim.displayScore - lowSim.displayScore).toBeGreaterThanOrEqual(
+      3
+    );
   });
 
   it("20h 간격 재확인은 바로 재시도보다 streak 점수가 높다", () => {
     const spaced = computeExamConfidence({
-      practice: makePractice({ practiceCount: 2, totalPracticeDuration: 240, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 2,
+        totalPracticeDuration: 240,
+        mostRecentPracticeAt: now,
+      }),
       test: makeTest({
         testCount: 2,
         correctCount: 2,
@@ -243,8 +295,16 @@ describe("computeExamConfidence - 24h crunch mode", () => {
         mostRecentTestAt: new Date(now.getTime() - 20 * 60 * 60 * 1000),
         recentCorrectStreak: 2,
         recentTestHistory: [
-          { completedAt: new Date(now.getTime() - 20 * 60 * 60 * 1000), isCorrect: true, similarityScore: 90 },
-          { completedAt: new Date(now.getTime() - 40 * 60 * 60 * 1000), isCorrect: true, similarityScore: 90 },
+          {
+            completedAt: new Date(now.getTime() - 20 * 60 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 90,
+          },
+          {
+            completedAt: new Date(now.getTime() - 40 * 60 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 90,
+          },
         ],
       }),
       now,
@@ -252,7 +312,11 @@ describe("computeExamConfidence - 24h crunch mode", () => {
     });
 
     const crammed = computeExamConfidence({
-      practice: makePractice({ practiceCount: 2, totalPracticeDuration: 240, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 2,
+        totalPracticeDuration: 240,
+        mostRecentPracticeAt: now,
+      }),
       test: makeTest({
         testCount: 2,
         correctCount: 2,
@@ -261,16 +325,28 @@ describe("computeExamConfidence - 24h crunch mode", () => {
         mostRecentTestAt: new Date(now.getTime() - 10 * 60 * 1000),
         recentCorrectStreak: 2,
         recentTestHistory: [
-          { completedAt: new Date(now.getTime() - 10 * 60 * 1000), isCorrect: true, similarityScore: 90 },
-          { completedAt: new Date(now.getTime() - 20 * 60 * 1000), isCorrect: true, similarityScore: 90 },
+          {
+            completedAt: new Date(now.getTime() - 10 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 90,
+          },
+          {
+            completedAt: new Date(now.getTime() - 20 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 90,
+          },
         ],
       }),
       now,
       examDate: examSoon,
     });
 
-    expect(spaced.breakdown.timeWeightedStreakScore).toBeGreaterThan(crammed.breakdown.timeWeightedStreakScore);
-    expect(Math.abs(spaced.displayScore - crammed.displayScore)).toBeLessThanOrEqual(15);
+    expect(spaced.breakdown.timeWeightedStreakScore).toBeGreaterThan(
+      crammed.breakdown.timeWeightedStreakScore
+    );
+    expect(
+      Math.abs(spaced.displayScore - crammed.displayScore)
+    ).toBeLessThanOrEqual(15);
   });
 
   it("시험 임박 + 장시간 공백이면 forgettingPenalty가 커진다", () => {
@@ -310,13 +386,19 @@ describe("computeExamConfidence - 24h crunch mode", () => {
       examDate: examSoon,
     });
 
-    expect(stale.breakdown.forgettingPenalty).toBeGreaterThan(fresh.breakdown.forgettingPenalty);
+    expect(stale.breakdown.forgettingPenalty).toBeGreaterThan(
+      fresh.breakdown.forgettingPenalty
+    );
     expect(stale.displayScore).toBeLessThan(fresh.displayScore);
   });
 
   it("최근 저유사도 오답은 recentPoorPenalty를 만든다", () => {
     const stable = computeExamConfidence({
-      practice: makePractice({ practiceCount: 4, totalPracticeDuration: 480, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 4,
+        totalPracticeDuration: 480,
+        mostRecentPracticeAt: now,
+      }),
       test: makeTest({
         testCount: 2,
         correctCount: 2,
@@ -325,8 +407,16 @@ describe("computeExamConfidence - 24h crunch mode", () => {
         mostRecentTestAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
         recentCorrectStreak: 2,
         recentTestHistory: [
-          { completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000), isCorrect: true, similarityScore: 90 },
-          { completedAt: new Date(now.getTime() - 24 * 60 * 60 * 1000), isCorrect: true, similarityScore: 90 },
+          {
+            completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 90,
+          },
+          {
+            completedAt: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 90,
+          },
         ],
       }),
       now,
@@ -334,7 +424,11 @@ describe("computeExamConfidence - 24h crunch mode", () => {
     });
 
     const poor = computeExamConfidence({
-      practice: makePractice({ practiceCount: 4, totalPracticeDuration: 480, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 4,
+        totalPracticeDuration: 480,
+        mostRecentPracticeAt: now,
+      }),
       test: makeTest({
         testCount: 2,
         correctCount: 1,
@@ -344,8 +438,16 @@ describe("computeExamConfidence - 24h crunch mode", () => {
         recentCorrectStreak: 0,
         mostRecentTestWasPoor: true,
         recentTestHistory: [
-          { completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000), isCorrect: false, similarityScore: 42 },
-          { completedAt: new Date(now.getTime() - 24 * 60 * 60 * 1000), isCorrect: true, similarityScore: 88 },
+          {
+            completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+            isCorrect: false,
+            similarityScore: 42,
+          },
+          {
+            completedAt: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+            isCorrect: true,
+            similarityScore: 88,
+          },
         ],
       }),
       now,
@@ -387,7 +489,9 @@ describe("computeExamConfidence - 24h crunch mode", () => {
       examDate: examSoon,
     });
 
-    expect(individual.breakdown.speedBonus).toBeGreaterThan(exam.breakdown.speedBonus);
+    expect(individual.breakdown.speedBonus).toBeGreaterThan(
+      exam.breakdown.speedBonus
+    );
   });
 });
 
@@ -400,7 +504,11 @@ describe("aggregateConfidence", () => {
 
   it("집계 카운트/평균이 계산된다", () => {
     const good = computeExamConfidence({
-      practice: makePractice({ practiceCount: 5, totalPracticeDuration: 600, mostRecentPracticeAt: now }),
+      practice: makePractice({
+        practiceCount: 5,
+        totalPracticeDuration: 600,
+        mostRecentPracticeAt: now,
+      }),
       test: makeTest({
         testCount: 4,
         correctCount: 4,

@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from "vitest";
 
-describe('Practice Session - Cumulative counting', () => {
+describe("Practice Session - Cumulative counting", () => {
   let practiceCount: number;
   let elapsedTime: number;
   let questionId: number;
@@ -11,8 +11,8 @@ describe('Practice Session - Cumulative counting', () => {
     questionId = 1;
   });
 
-  describe('Practice count increment', () => {
-    it('should increment practice count when correct answer is matched', () => {
+  describe("Practice count increment", () => {
+    it("should increment practice count when correct answer is matched", () => {
       // Simulate correct answer
       practiceCount = 0;
       expect(practiceCount).toBe(0);
@@ -26,7 +26,7 @@ describe('Practice Session - Cumulative counting', () => {
       expect(practiceCount).toBe(2);
     });
 
-    it('should accumulate practice count across multiple sessions', () => {
+    it("should accumulate practice count across multiple sessions", () => {
       let sessionCount = 0;
 
       // Session 1: 3 correct answers
@@ -46,12 +46,12 @@ describe('Practice Session - Cumulative counting', () => {
       expect(sessionCount).toBe(6);
     });
 
-    it('should not increment if practice count is 0 and elapsed time is 0', () => {
+    it("should not increment if practice count is 0 and elapsed time is 0", () => {
       const shouldSave = practiceCount > 0 && elapsedTime > 0;
       expect(shouldSave).toBe(false);
     });
 
-    it('should save when practice count > 0 and elapsed time > 0', () => {
+    it("should save when practice count > 0 and elapsed time > 0", () => {
       practiceCount = 3;
       elapsedTime = 45;
 
@@ -60,10 +60,10 @@ describe('Practice Session - Cumulative counting', () => {
     });
   });
 
-  describe('Elapsed time tracking', () => {
-    it('should track elapsed time correctly', () => {
+  describe("Elapsed time tracking", () => {
+    it("should track elapsed time correctly", () => {
       const startTime = Date.now();
-      
+
       // Simulate 30 seconds of practice
       elapsedTime = 30;
       expect(elapsedTime).toBe(30);
@@ -73,29 +73,31 @@ describe('Practice Session - Cumulative counting', () => {
       expect(elapsedTime).toBe(45);
     });
 
-    it('should calculate typing speed correctly', () => {
+    it("should calculate typing speed correctly", () => {
       const userInputLength = 150; // characters typed
       elapsedTime = 60; // 1 minute
 
       const timeInMinutes = elapsedTime / 60;
-      const speed = timeInMinutes > 0 ? Math.round(userInputLength / timeInMinutes) : 0;
+      const speed =
+        timeInMinutes > 0 ? Math.round(userInputLength / timeInMinutes) : 0;
 
       expect(speed).toBe(150); // 150 chars per minute
     });
 
-    it('should handle zero elapsed time', () => {
+    it("should handle zero elapsed time", () => {
       const userInputLength = 100;
       elapsedTime = 0;
 
       const timeInMinutes = elapsedTime / 60;
-      const speed = timeInMinutes > 0 ? Math.round(userInputLength / timeInMinutes) : 0;
+      const speed =
+        timeInMinutes > 0 ? Math.round(userInputLength / timeInMinutes) : 0;
 
       expect(speed).toBe(0);
     });
   });
 
-  describe('Auto-save on page unmount or go back', () => {
-    it('should save session when user has practiced and spent time', () => {
+  describe("Auto-save on page unmount or go back", () => {
+    it("should save session when user has practiced and spent time", () => {
       practiceCount = 5;
       elapsedTime = 120;
 
@@ -103,7 +105,7 @@ describe('Practice Session - Cumulative counting', () => {
       expect(shouldSave).toBe(true);
     });
 
-    it('should not save if no practice was done', () => {
+    it("should not save if no practice was done", () => {
       practiceCount = 0;
       elapsedTime = 120;
 
@@ -111,7 +113,7 @@ describe('Practice Session - Cumulative counting', () => {
       expect(shouldSave).toBe(false);
     });
 
-    it('should not save if no time has elapsed', () => {
+    it("should not save if no time has elapsed", () => {
       practiceCount = 5;
       elapsedTime = 0;
 
@@ -119,13 +121,14 @@ describe('Practice Session - Cumulative counting', () => {
       expect(shouldSave).toBe(false);
     });
 
-    it('should create session with correct data', () => {
+    it("should create session with correct data", () => {
       practiceCount = 3;
       elapsedTime = 90;
       const userInputLength = 200;
 
       const timeInMinutes = elapsedTime / 60;
-      const speed = timeInMinutes > 0 ? Math.round(userInputLength / timeInMinutes) : 0;
+      const speed =
+        timeInMinutes > 0 ? Math.round(userInputLength / timeInMinutes) : 0;
 
       const sessionData = {
         questionId,
@@ -143,8 +146,8 @@ describe('Practice Session - Cumulative counting', () => {
     });
   });
 
-  describe('Go back button behavior', () => {
-    it('should save and navigate when go back is clicked with practice data', () => {
+  describe("Go back button behavior", () => {
+    it("should save and navigate when go back is clicked with practice data", () => {
       practiceCount = 2;
       elapsedTime = 60;
 
@@ -152,7 +155,7 @@ describe('Practice Session - Cumulative counting', () => {
       expect(shouldSaveBeforeNavigate).toBe(true);
     });
 
-    it('should navigate immediately if no practice was done', () => {
+    it("should navigate immediately if no practice was done", () => {
       practiceCount = 0;
       elapsedTime = 0;
 
@@ -160,7 +163,7 @@ describe('Practice Session - Cumulative counting', () => {
       expect(shouldSaveBeforeNavigate).toBe(false);
     });
 
-    it('should handle multiple go back attempts', () => {
+    it("should handle multiple go back attempts", () => {
       let totalSessions = 0;
 
       // First practice session

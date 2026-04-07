@@ -13,7 +13,7 @@ async function main() {
 
   for (const q of questions) {
     console.log("Copying question:", q.id, q.question);
-    
+
     // Insert as demo question with same subjectId (already in demo subjects)
     await connection.execute(
       `INSERT INTO questions (subjectId, userId, question, answer, imageUrl, imageLabels, tableData, difficulty, displayOrder, isDemo, useAIGrading, autoNumbering, createdAt, updatedAt)
@@ -41,7 +41,9 @@ async function main() {
   );
   console.log("\n=== All Demo Questions ===");
   for (const q of demoQs) {
-    console.log(`  ID: ${q.id}, Subject: ${q.subjectId}, Question: ${q.question}`);
+    console.log(
+      `  ID: ${q.id}, Subject: ${q.subjectId}, Question: ${q.question}`
+    );
   }
 
   await connection.end();

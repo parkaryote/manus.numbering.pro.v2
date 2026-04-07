@@ -85,7 +85,8 @@ async function createSubjectQuestionsWithData(
       subjectId,
       question: template.q,
       answer: template.a,
-      difficulty: length === "short" ? "easy" : length === "medium" ? "medium" : "hard",
+      difficulty:
+        length === "short" ? "easy" : length === "medium" ? "medium" : "hard",
       displayOrder: i + 1,
       isDemo: 0,
     });
@@ -94,13 +95,25 @@ async function createSubjectQuestionsWithData(
     const practiceCount = length === "short" ? 5 : length === "medium" ? 3 : 2;
     for (let j = 0; j < practiceCount; j++) {
       const daysAgo = Math.floor(Math.random() * 14);
-      const sessionDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+      const sessionDate = new Date(
+        now.getTime() - daysAgo * 24 * 60 * 60 * 1000
+      );
 
       await db.createPracticeSession({
         userId,
         questionId: question.id,
-        duration: length === "short" ? 10 + Math.random() * 20 : length === "medium" ? 30 + Math.random() * 40 : 50 + Math.random() * 60,
-        typingSpeed: length === "short" ? 300 + Math.random() * 100 : length === "medium" ? 250 + Math.random() * 100 : 200 + Math.random() * 80,
+        duration:
+          length === "short"
+            ? 10 + Math.random() * 20
+            : length === "medium"
+              ? 30 + Math.random() * 40
+              : 50 + Math.random() * 60,
+        typingSpeed:
+          length === "short"
+            ? 300 + Math.random() * 100
+            : length === "medium"
+              ? 250 + Math.random() * 100
+              : 200 + Math.random() * 80,
         accuracy: 80 + Math.random() * 20, // 80-100% 정확도
         errorCount: Math.floor(Math.random() * 3),
         completedAt: sessionDate,
@@ -111,7 +124,9 @@ async function createSubjectQuestionsWithData(
     const testCount = length === "short" ? 3 : length === "medium" ? 2 : 1;
     for (let j = 0; j < testCount; j++) {
       const daysAgo = Math.floor(Math.random() * 7);
-      const sessionDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+      const sessionDate = new Date(
+        now.getTime() - daysAgo * 24 * 60 * 60 * 1000
+      );
 
       await db.createTestSession({
         userId,
@@ -119,7 +134,12 @@ async function createSubjectQuestionsWithData(
         userAnswer: template.a,
         isCorrect: Math.random() > 0.15 ? 1 : 0, // 85% 정답률
         similarityScore: 85 + Math.random() * 15,
-        recallTime: length === "short" ? 1500 + Math.random() * 2000 : length === "medium" ? 3500 + Math.random() * 4000 : 5500 + Math.random() * 6000,
+        recallTime:
+          length === "short"
+            ? 1500 + Math.random() * 2000
+            : length === "medium"
+              ? 3500 + Math.random() * 4000
+              : 5500 + Math.random() * 6000,
         completedAt: sessionDate,
       });
     }
@@ -130,7 +150,10 @@ export const simpleSignupRouter = router({
   signup: publicProcedure
     .input(z.object({ password: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      if (ENV.signupAccessPassword && input.password !== ENV.signupAccessPassword) {
+      if (
+        ENV.signupAccessPassword &&
+        input.password !== ENV.signupAccessPassword
+      ) {
         throw new TRPCError({
           code: "UNAUTHORIZED",
           message: "비밀번호가 일치하지 않습니다",

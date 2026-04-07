@@ -56,7 +56,9 @@ function clamp(value: number, min: number, max: number): number {
  * efficiency = clamp(1 - backspace/inputChars, 0.75, 1.0)
  * effectiveSpeed = charsPerSec * efficiency
  */
-export function calculateEffectiveSpeed(attempt: TypingAttemptInput): EffectiveSpeedResult {
+export function calculateEffectiveSpeed(
+  attempt: TypingAttemptInput
+): EffectiveSpeedResult {
   const typingDuration = attempt.typingEndTime - attempt.typingStartTime;
   const durationSec = Math.max(typingDuration / 1000, 0.001); // 0으로 나누기 방지
   const charsPerSec = attempt.inputChars / durationSec;
@@ -91,7 +93,10 @@ export function computeBlendedBaseline(
     return globalBaselineSpeed;
   }
   const personalWeight = Math.min(sampleCount / 30, 1);
-  return personalWeight * personalBaselineSpeed + (1 - personalWeight) * globalBaselineSpeed;
+  return (
+    personalWeight * personalBaselineSpeed +
+    (1 - personalWeight) * globalBaselineSpeed
+  );
 }
 
 /**
@@ -118,7 +123,13 @@ export function calculateSpeedBonus(
   expectedSpeed: number
 ): SpeedBonusResult {
   if (expectedSpeed <= 0) {
-    return { bonus: 0, ratio: 1, effectiveSpeed, expectedSpeed, label: "normal" };
+    return {
+      bonus: 0,
+      ratio: 1,
+      effectiveSpeed,
+      expectedSpeed,
+      label: "normal",
+    };
   }
 
   const ratio = effectiveSpeed / expectedSpeed;
@@ -132,7 +143,7 @@ export function calculateSpeedBonus(
   } else if (ratio >= 0.95) {
     bonus = 1;
     label = "fast";
-  } else if (ratio >= 0.80) {
+  } else if (ratio >= 0.8) {
     bonus = 0;
     label = "normal";
   } else {

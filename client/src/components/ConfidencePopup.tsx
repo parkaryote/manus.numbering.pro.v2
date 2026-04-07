@@ -16,7 +16,9 @@ export function ConfidencePopup({
 }: ConfidencePopupProps) {
   const [displayScore, setDisplayScore] = useState(previousScore);
   // 애니메이션 단계: hidden → entering → visible → exiting → hidden
-  const [phase, setPhase] = useState<"hidden" | "entering" | "visible" | "exiting">("hidden");
+  const [phase, setPhase] = useState<
+    "hidden" | "entering" | "visible" | "exiting"
+  >("hidden");
   const rafRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -54,7 +56,9 @@ export function ConfidencePopup({
         const elapsed = Date.now() - startTime;
         const progress = Math.min(elapsed / duration, 1);
         const easeOut = 1 - Math.pow(1 - progress, 3);
-        setDisplayScore(Math.round(startValue + (endValue - startValue) * easeOut));
+        setDisplayScore(
+          Math.round(startValue + (endValue - startValue) * easeOut)
+        );
 
         if (progress < 1) {
           rafRef.current = requestAnimationFrame(animate);
@@ -88,12 +92,16 @@ export function ConfidencePopup({
 
   const containerStyle: React.CSSProperties = {
     opacity: isEntering ? 0 : isExiting ? 0 : 1,
-    transform: isEntering ? enterTranslate : isExiting ? exitTranslate : "translateY(0)",
+    transform: isEntering
+      ? enterTranslate
+      : isExiting
+        ? exitTranslate
+        : "translateY(0)",
     transition: isEntering
       ? "opacity 0.3s ease-out, transform 0.4s cubic-bezier(0.34,1.56,0.64,1)"
       : isExiting
-      ? "opacity 0.5s ease-in, transform 0.5s ease-in"
-      : "none",
+        ? "opacity 0.5s ease-in, transform 0.5s ease-in"
+        : "none",
   };
 
   const overlayStyle: React.CSSProperties = {
@@ -101,8 +109,8 @@ export function ConfidencePopup({
     transition: isEntering
       ? "opacity 0.3s ease-out"
       : isExiting
-      ? "opacity 0.5s ease-in"
-      : "none",
+        ? "opacity 0.5s ease-in"
+        : "none",
   };
 
   const glowColor = isIncrease
@@ -113,10 +121,7 @@ export function ConfidencePopup({
   return (
     <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-[100]">
       {/* 배경 오버레이 */}
-      <div
-        className="absolute inset-0 bg-black"
-        style={overlayStyle}
-      />
+      <div className="absolute inset-0 bg-black" style={overlayStyle} />
 
       {/* 팝업 카드 */}
       <div
@@ -168,9 +173,13 @@ export function ConfidencePopup({
         {/* 상태 텍스트 */}
         <div className="text-sm font-semibold mt-4">
           {isIncrease ? (
-            <span className="text-emerald-300">🎉 안정도 상승! 계속 화이팅!</span>
+            <span className="text-emerald-300">
+              🎉 안정도 상승! 계속 화이팅!
+            </span>
           ) : (
-            <span className="text-red-300">📉 안정도 하락 — 다시 도전하세요!</span>
+            <span className="text-red-300">
+              📉 안정도 하락 — 다시 도전하세요!
+            </span>
           )}
         </div>
       </div>

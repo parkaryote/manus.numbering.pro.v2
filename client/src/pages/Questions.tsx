@@ -1,19 +1,59 @@
 import { trpc } from "@/lib/trpc";
 import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
 import { SubjectConfidenceHistoryModal } from "@/components/SubjectConfidenceHistoryModal";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
-import { Plus, ArrowLeft, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star, ScrollText, Settings, Calendar, BookOpen } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Plus,
+  ArrowLeft,
+  ClipboardCheck,
+  Edit,
+  Trash2,
+  Upload,
+  Image as ImageIcon,
+  GripVertical,
+  Copy,
+  MoveRight,
+  Star,
+  ScrollText,
+  Settings,
+  Calendar,
+  BookOpen,
+} from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
   DndContext,
@@ -23,15 +63,15 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
-} from '@dnd-kit/core';
+} from "@dnd-kit/core";
 import {
   arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
 import { ImageLabelEditor, ImageLabel } from "@/components/ImageLabelEditor";
 import { TableEditor, TableData } from "@/components/TableEditor";
@@ -39,7 +79,11 @@ import { OCRUploader } from "@/components/OCRUploader";
 import { QuestionGridView } from "@/components/QuestionGridView";
 import { Table2 } from "lucide-react";
 import imageCompression from "browser-image-compression";
-import { trackQuestionCreate, trackQuestionUpdate, trackQuestionDelete } from "@/lib/ga4Events";
+import {
+  trackQuestionCreate,
+  trackQuestionUpdate,
+  trackQuestionDelete,
+} from "@/lib/ga4Events";
 import { CONFIDENCE_THRESHOLDS } from "@shared/examConfidence";
 
 interface QuestionsProps {
@@ -105,20 +149,22 @@ function normalizeAutoNumberedAnswer(answer: string): string {
   const normalized = answer.replace(/\r\n/g, "\n");
   const lines = normalized
     .split("\n")
-    .map((line) => stripNumberingPrefix(line))
-    .filter((line) => line.length > 0);
+    .map(line => stripNumberingPrefix(line))
+    .filter(line => line.length > 0);
   return lines.map((line, idx) => `${idx + 1}. ${line}`).join("\n");
 }
 
 function findNextLineNumber(textBeforeCursor: string): number {
-  const matches = Array.from(textBeforeCursor.matchAll(/(?:^|\n)\s*(\d+)\.\s*/g));
+  const matches = Array.from(
+    textBeforeCursor.matchAll(/(?:^|\n)\s*(\d+)\.\s*/g)
+  );
   if (matches.length > 0) {
     const last = parseInt(matches[matches.length - 1][1], 10);
     if (Number.isFinite(last)) return last + 1;
   }
   const nonEmptyLineCount = textBeforeCursor
     .split("\n")
-    .filter((line) => line.trim().length > 0).length;
+    .filter(line => line.trim().length > 0).length;
   return Math.max(1, nonEmptyLineCount + 1);
 }
 
@@ -151,7 +197,8 @@ function SortableQuestionCard({
   };
 
   const hasImage = !!question.imageUrl;
-  const hasLabels = question.imageLabels && JSON.parse(question.imageLabels).length > 0;
+  const hasLabels =
+    question.imageLabels && JSON.parse(question.imageLabels).length > 0;
   const hasTable = !!question.tableData;
 
   return (
@@ -184,7 +231,7 @@ function SortableQuestionCard({
           </div>
         )}
 
-          {/* 문제 정보 - 클릭 시 연습모드 진입 */}
+        {/* 문제 정보 - 클릭 시 연습모드 진입 */}
         <div
           className="flex-1 px-3 py-2 min-w-0 cursor-pointer hover:bg-muted/20 transition-colors"
           onClick={() => onPractice(question.id)}
@@ -198,20 +245,27 @@ function SortableQuestionCard({
               <Table2 className="h-3 w-3 text-purple-500 flex-shrink-0" />
             )}
             {question.isDemo === 1 && (
-              <span className="text-xs text-amber-600 font-medium flex-shrink-0">데모</span>
+              <span className="text-xs text-amber-600 font-medium flex-shrink-0">
+                데모
+              </span>
             )}
-            <p className="text-base font-medium truncate leading-tight flex-1">{question.question}</p>
+            <p className="text-base font-medium truncate leading-tight flex-1">
+              {question.question}
+            </p>
             {!readOnly && (
               <button
-                onClick={(e) => { e.stopPropagation(); onToggleStar(question.id); }}
+                onClick={e => {
+                  e.stopPropagation();
+                  onToggleStar(question.id);
+                }}
                 className="flex-shrink-0 ml-1 p-0.5 rounded hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors"
-                title={question.isStarred ? '별표 제거' : '별표 추가'}
+                title={question.isStarred ? "별표 제거" : "별표 추가"}
               >
                 <Star
                   className={`w-3.5 h-3.5 transition-colors ${
                     question.isStarred
-                      ? 'fill-amber-400 text-amber-400'
-                      : 'text-muted-foreground/40 hover:text-amber-400'
+                      ? "fill-amber-400 text-amber-400"
+                      : "text-muted-foreground/40 hover:text-amber-400"
                   }`}
                 />
               </button>
@@ -219,35 +273,40 @@ function SortableQuestionCard({
           </div>
           {!hasImage && !hasTable && question.answer && (
             <p className="text-sm text-muted-foreground truncate mt-0.5">
-              {question.answer.replace(/\n/g, ' / ')}
+              {question.answer.replace(/\n/g, " / ")}
             </p>
           )}
           {/* 학습 계획 추천 배지 */}
-          {confidence?.badges && (confidence.badges.lastTestWrong || confidence.badges.frequentlyWrong || confidence.badges.hasWarnZone) && (
-            <div className="flex flex-wrap gap-1 mt-1">
-              {confidence.badges.lastTestWrong && (
-                <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 leading-none">
-                  이번 시험 오답
-                </span>
-              )}
-              {confidence.badges.frequentlyWrong && (
-                <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 leading-none">
-                  자주 틀림
-                </span>
-              )}
-              {confidence.badges.hasWarnZone && (
-                <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 leading-none">
-                  주의 구간 있음
-                </span>
-              )}
-            </div>
-          )}
+          {confidence?.badges &&
+            (confidence.badges.lastTestWrong ||
+              confidence.badges.frequentlyWrong ||
+              confidence.badges.hasWarnZone) && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {confidence.badges.lastTestWrong && (
+                  <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 leading-none">
+                    이번 시험 오답
+                  </span>
+                )}
+                {confidence.badges.frequentlyWrong && (
+                  <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 leading-none">
+                    자주 틀림
+                  </span>
+                )}
+                {confidence.badges.hasWarnZone && (
+                  <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 leading-none">
+                    주의 구간 있음
+                  </span>
+                )}
+              </div>
+            )}
           {hasTable && (
             <div className="text-xs text-muted-foreground mt-0.5 space-y-0">
               {(() => {
                 const td = JSON.parse(question.tableData);
-                const blankCount = td.cells.flat().filter((c: any) => c.isBlank && !c.isMerged).length;
-                
+                const blankCount = td.cells
+                  .flat()
+                  .filter((c: any) => c.isBlank && !c.isMerged).length;
+
                 // 헤더 행 내용 추출 (첫 행 + 병합으로 인한 두번째 헤더 행)
                 const headerRowParts: string[] = [];
                 if (td.headerRow && td.cells[0]) {
@@ -256,26 +315,39 @@ function SortableQuestionCard({
                     .map((c: any) => c.content.trim());
                   if (row0.length > 0) headerRowParts.push(...row0);
                   // 첫 행에 rowSpan > 1인 셀이 있으면 두번째 행도 헤더의 일부
-                  const hasMultiRowHeader = td.cells[0].some((c: any) => c.rowSpan > 1);
+                  const hasMultiRowHeader = td.cells[0].some(
+                    (c: any) => c.rowSpan > 1
+                  );
                   if (hasMultiRowHeader && td.cells[1]) {
                     const row1 = td.cells[1]
                       .filter((c: any) => !c.isMerged && c.content?.trim())
                       .map((c: any) => c.content.trim());
                     // 숫자 시퀀스인 경우 범위로 표시
-                    if (row1.length > 3 && row1.every((v: string) => /^\d+(\.\d+)?$/.test(v))) {
-                      headerRowParts.push(`${row1[0]}~${row1[row1.length - 1]}`);
+                    if (
+                      row1.length > 3 &&
+                      row1.every((v: string) => /^\d+(\.\d+)?$/.test(v))
+                    ) {
+                      headerRowParts.push(
+                        `${row1[0]}~${row1[row1.length - 1]}`
+                      );
                     } else if (row1.length > 0 && row1.length <= 5) {
-                      headerRowParts.push(row1.join(', '));
+                      headerRowParts.push(row1.join(", "));
                     } else if (row1.length > 5) {
-                      headerRowParts.push(row1.slice(0, 3).join(', ') + ` 외 ${row1.length - 3}개`);
+                      headerRowParts.push(
+                        row1.slice(0, 3).join(", ") + ` 외 ${row1.length - 3}개`
+                      );
                     }
                   }
                 }
-                
+
                 // 헤더 열 내용 추출 (첫 열의 비어있지 않은 셀, 헤더 행 제외)
                 const headerColParts: string[] = [];
                 if (td.headerCol) {
-                  const startRow = td.headerRow ? (td.cells[1]?.[0]?.content?.trim() ? 1 : 2) : 0;
+                  const startRow = td.headerRow
+                    ? td.cells[1]?.[0]?.content?.trim()
+                      ? 1
+                      : 2
+                    : 0;
                   for (let i = startRow; i < td.cells.length; i++) {
                     const cell = td.cells[i]?.[0];
                     if (cell && !cell.isMerged && cell.content?.trim()) {
@@ -286,27 +358,39 @@ function SortableQuestionCard({
                   // headerCol이 아니지만 첫 열에 카테고리가 있는 경우 (병합 셀)
                   for (let i = 1; i < td.cells.length; i++) {
                     const cell = td.cells[i]?.[0];
-                    if (cell && !cell.isMerged && cell.content?.trim() && (cell.rowSpan > 1 || cell.colSpan > 1)) {
+                    if (
+                      cell &&
+                      !cell.isMerged &&
+                      cell.content?.trim() &&
+                      (cell.rowSpan > 1 || cell.colSpan > 1)
+                    ) {
                       headerColParts.push(cell.content.trim());
                     }
                   }
                 }
-                
-                const headerRowText = headerRowParts.length > 0 ? headerRowParts.join(' · ') : '';
-                const headerColText = headerColParts.length > 0 
-                  ? (headerColParts.length > 4 
-                    ? headerColParts.slice(0, 3).join(', ') + ` 외 ${headerColParts.length - 3}개`
-                    : headerColParts.join(', '))
-                  : '';
+
+                const headerRowText =
+                  headerRowParts.length > 0 ? headerRowParts.join(" · ") : "";
+                const headerColText =
+                  headerColParts.length > 0
+                    ? headerColParts.length > 4
+                      ? headerColParts.slice(0, 3).join(", ") +
+                        ` 외 ${headerColParts.length - 3}개`
+                      : headerColParts.join(", ")
+                    : "";
                 const sizeInfo = `${td.rows}×${td.cols} | 빈칸 ${blankCount}`;
-                
+
                 return (
                   <>
                     {headerRowText && (
-                      <p className="truncate font-medium text-foreground/70">{headerRowText}</p>
+                      <p className="truncate font-medium text-foreground/70">
+                        {headerRowText}
+                      </p>
                     )}
                     <p className="truncate">
-                      {headerColText ? `${headerColText} | ${sizeInfo}` : sizeInfo}
+                      {headerColText
+                        ? `${headerColText} | ${sizeInfo}`
+                        : sizeInfo}
                     </p>
                   </>
                 );
@@ -325,19 +409,30 @@ function SortableQuestionCard({
           <button
             className="flex items-center px-2.5 border-l hover:bg-muted/50 transition-colors cursor-pointer"
             title="클릭하여 변화 그래프 보기"
-            onClick={(e) => { e.stopPropagation(); onConfidenceClick(question.id, question.question); }}
+            onClick={e => {
+              e.stopPropagation();
+              onConfidenceClick(question.id, question.question);
+            }}
           >
             <div className="flex flex-col items-center gap-1">
               <div
                 className={`w-[18px] h-[18px] rounded-full ${
-                  confidence.state === 'green' ? 'bg-emerald-500' :
-                  confidence.state === 'yellow' ? 'bg-amber-400' :
-                  'bg-red-400'
-                } ${confidence.isColdStart ? 'opacity-40' : ''}`}
+                  confidence.state === "green"
+                    ? "bg-emerald-500"
+                    : confidence.state === "yellow"
+                      ? "bg-amber-400"
+                      : "bg-red-400"
+                } ${confidence.isColdStart ? "opacity-40" : ""}`}
               />
-              <span className={`inline-block w-12 text-center text-sm font-semibold font-mono tabular-nums leading-none ${
-                confidence.isColdStart ? 'text-muted-foreground/50' : 'text-muted-foreground'
-              }`}>{Math.round(confidence.displayScore)}</span>
+              <span
+                className={`inline-block w-12 text-center text-sm font-semibold font-mono tabular-nums leading-none ${
+                  confidence.isColdStart
+                    ? "text-muted-foreground/50"
+                    : "text-muted-foreground"
+                }`}
+              >
+                {Math.round(confidence.displayScore)}
+              </span>
             </div>
           </button>
         )}
@@ -348,7 +443,10 @@ function SortableQuestionCard({
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={(e) => { e.stopPropagation(); onTest(question.id); }}
+            onClick={e => {
+              e.stopPropagation();
+              onTest(question.id);
+            }}
             title="시험 모드"
           >
             <ClipboardCheck className="h-3.5 w-3.5 text-green-600" />
@@ -360,7 +458,10 @@ function SortableQuestionCard({
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => { e.stopPropagation(); onCopy(question); }}
+                onClick={e => {
+                  e.stopPropagation();
+                  onCopy(question);
+                }}
                 title="복사"
               >
                 <Copy className="h-3 w-3" />
@@ -369,7 +470,10 @@ function SortableQuestionCard({
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => { e.stopPropagation(); onMove(question); }}
+                onClick={e => {
+                  e.stopPropagation();
+                  onMove(question);
+                }}
                 title="이동"
               >
                 <MoveRight className="h-3 w-3" />
@@ -378,7 +482,10 @@ function SortableQuestionCard({
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => { e.stopPropagation(); onEdit(question); }}
+                onClick={e => {
+                  e.stopPropagation();
+                  onEdit(question);
+                }}
                 title="수정"
               >
                 <Edit className="h-3 w-3" />
@@ -387,7 +494,10 @@ function SortableQuestionCard({
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => { e.stopPropagation(); onDelete(question.id); }}
+                onClick={e => {
+                  e.stopPropagation();
+                  onDelete(question.id);
+                }}
                 title="삭제"
               >
                 <Trash2 className="h-3 w-3 text-destructive" />
@@ -400,11 +510,16 @@ function SortableQuestionCard({
   );
 }
 
-export default function Questions({ subjectId, isDemo = false }: QuestionsProps) {
+export default function Questions({
+  subjectId,
+  isDemo = false,
+}: QuestionsProps) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const [confidenceHistoryId, setConfidenceHistoryId] = useState<number | null>(null);
+  const [confidenceHistoryId, setConfidenceHistoryId] = useState<number | null>(
+    null
+  );
   const [confidenceHistoryTitle, setConfidenceHistoryTitle] = useState("");
   const [subjectConfidenceOpen, setSubjectConfidenceOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -416,11 +531,13 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   const [selectedQuestion, setSelectedQuestion] = useState<any>(null);
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"text" | "image" | "table" | "ocr">("text");
+  const [activeTab, setActiveTab] = useState<
+    "text" | "image" | "table" | "ocr"
+  >("text");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const questionTextareaRef = useRef<HTMLTextAreaElement>(null);
-  
+
   const [formData, setFormData] = useState({
     question: "",
     answer: "",
@@ -448,7 +565,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       setIsSubjectSettingOpen(false);
       toast.success("시험일이 저장되었습니다");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error("저장 실패: " + error.message);
     },
   });
@@ -470,29 +587,47 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
 
   const createMutation = trpc.questions.create.useMutation({
     onSuccess: (data: any) => {
-      const questionType = data.imageUrl && data.imageLabels ? 'image' : (data.tableData ? 'table' : 'text');
-      trackQuestionCreate(data.id, subjectId, questionType as 'text' | 'image' | 'table');
+      const questionType =
+        data.imageUrl && data.imageLabels
+          ? "image"
+          : data.tableData
+            ? "table"
+            : "text";
+      trackQuestionCreate(
+        data.id,
+        subjectId,
+        questionType as "text" | "image" | "table"
+      );
       utils.questions.listBySubject.invalidate({ subjectId });
       setIsCreateOpen(false);
       resetForm();
       toast.success("문제가 생성되었습니다");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error("문제 생성 실패: " + error.message);
     },
   });
 
   const updateMutation = trpc.questions.update.useMutation({
     onSuccess: (data: any) => {
-      const questionType = data.imageUrl && data.imageLabels ? 'image' : (data.tableData ? 'table' : 'text');
-      trackQuestionUpdate(data.id, subjectId, questionType as 'text' | 'image' | 'table');
+      const questionType =
+        data.imageUrl && data.imageLabels
+          ? "image"
+          : data.tableData
+            ? "table"
+            : "text";
+      trackQuestionUpdate(
+        data.id,
+        subjectId,
+        questionType as "text" | "image" | "table"
+      );
       utils.questions.listBySubject.invalidate({ subjectId });
       setIsEditOpen(false);
       setEditingQuestion(null);
       resetForm();
       toast.success("문제가 수정되었습니다");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error("문제 수정 실패: " + error.message);
     },
   });
@@ -505,13 +640,13 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       utils.questions.listBySubject.invalidate({ subjectId });
       toast.success("문제가 삭제되었습니다");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error("문제 삭제 실패: " + error.message);
     },
   });
 
   const updateOrderMutation = trpc.questions.updateOrder.useMutation({
-    onError: (error) => {
+    onError: error => {
       toast.error("순서 변경 실패: " + error.message);
       utils.questions.listBySubject.invalidate({ subjectId });
     },
@@ -520,12 +655,14 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   const copyMutation = trpc.questions.copy.useMutation({
     onSuccess: (_, variables) => {
       utils.questions.listBySubject.invalidate({ subjectId });
-      utils.questions.listBySubject.invalidate({ subjectId: variables.targetSubjectId });
+      utils.questions.listBySubject.invalidate({
+        subjectId: variables.targetSubjectId,
+      });
       setIsCopyMoveOpen(false);
       setSelectedQuestion(null);
       toast.success("문제가 복사되었습니다");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error("문제 복사 실패: " + error.message);
     },
   });
@@ -533,12 +670,14 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   const moveMutation = trpc.questions.move.useMutation({
     onSuccess: (_, variables) => {
       utils.questions.listBySubject.invalidate({ subjectId });
-      utils.questions.listBySubject.invalidate({ subjectId: variables.targetSubjectId });
+      utils.questions.listBySubject.invalidate({
+        subjectId: variables.targetSubjectId,
+      });
       setIsCopyMoveOpen(false);
       setSelectedQuestion(null);
       toast.success("문제가 이동되었습니다");
     },
-    onError: (error) => {
+    onError: error => {
       toast.error("문제 이동 실패: " + error.message);
     },
   });
@@ -547,7 +686,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     onSuccess: () => {
       utils.questions.listBySubject.invalidate({ subjectId });
     },
-    onError: (error) => {
+    onError: error => {
       toast.error("별표 업데이트 실패: " + error.message);
     },
   });
@@ -571,8 +710,8 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       return;
     }
 
-    const oldIndex = questions.findIndex((q) => q.id === active.id);
-    const newIndex = questions.findIndex((q) => q.id === over.id);
+    const oldIndex = questions.findIndex(q => q.id === active.id);
+    const newIndex = questions.findIndex(q => q.id === over.id);
 
     const reorderedQuestions = arrayMove(questions, oldIndex, newIndex);
     const questionOrders = reorderedQuestions.map((question, index) => ({
@@ -581,10 +720,13 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     }));
 
     // Optimistic update
-    utils.questions.listBySubject.setData({ subjectId }, reorderedQuestions.map((q, idx) => ({
-      ...q,
-      displayOrder: idx + 1,
-    })));
+    utils.questions.listBySubject.setData(
+      { subjectId },
+      reorderedQuestions.map((q, idx) => ({
+        ...q,
+        displayOrder: idx + 1,
+      }))
+    );
 
     updateOrderMutation.mutate({ questionOrders });
   };
@@ -627,7 +769,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     }
 
     setIsUploading(true);
-    
+
     try {
       // 이미지 압축 (2MB 이하로)
       const options = {
@@ -635,9 +777,9 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         maxWidthOrHeight: 1920,
         useWebWorker: true,
       };
-      
+
       const compressedFile = await imageCompression(file, options);
-      
+
       const uploadFormData = new FormData();
       uploadFormData.append("file", compressedFile);
 
@@ -651,7 +793,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       }
 
       const data = await response.json();
-      setFormData((prev) => ({ ...prev, imageUrl: data.url }));
+      setFormData(prev => ({ ...prev, imageUrl: data.url }));
       toast.success("이미지가 업로드되었습니다");
     } catch (error) {
       toast.error("이미지 업로드 실패");
@@ -662,71 +804,76 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   };
 
   const handleQuestionChange = useCallback((value: string) => {
-    setFormData((prev) => ({ ...prev, question: value }));
+    setFormData(prev => ({ ...prev, question: value }));
   }, []);
 
   const handleAnswerChange = useCallback((value: string) => {
-    setFormData((prev) => ({ ...prev, answer: value }));
+    setFormData(prev => ({ ...prev, answer: value }));
   }, []);
 
-  const handleAnswerKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!formData.autoNumbering) return;
-    if (e.key !== "Enter" || e.ctrlKey || e.altKey || e.shiftKey) return;
-    if ((e.nativeEvent as any).isComposing) return;
+  const handleAnswerKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!formData.autoNumbering) return;
+      if (e.key !== "Enter" || e.ctrlKey || e.altKey || e.shiftKey) return;
+      if ((e.nativeEvent as any).isComposing) return;
 
-    e.preventDefault();
-    const textarea = e.currentTarget;
-    const selectionStart = textarea.selectionStart ?? 0;
-    const selectionEnd = textarea.selectionEnd ?? selectionStart;
-    const rawValue = textarea.value;
+      e.preventDefault();
+      const textarea = e.currentTarget;
+      const selectionStart = textarea.selectionStart ?? 0;
+      const selectionEnd = textarea.selectionEnd ?? selectionStart;
+      const rawValue = textarea.value;
 
-    if (rawValue.trim().length === 0) {
-      const seeded = "1. ";
-      handleAnswerChange(seeded);
+      if (rawValue.trim().length === 0) {
+        const seeded = "1. ";
+        handleAnswerChange(seeded);
+        requestAnimationFrame(() => {
+          textarea.value = seeded;
+          textarea.setSelectionRange(seeded.length, seeded.length);
+        });
+        return;
+      }
+
+      let workingValue = rawValue;
+      let start = selectionStart;
+      let end = selectionEnd;
+      const hasAnyNumbering = /(^|\n)\s*\d+\.\s/.test(workingValue);
+      if (!hasAnyNumbering && workingValue.trim().length > 0) {
+        // 첫 엔터 시에도 1번 라인을 자동으로 붙여준다.
+        workingValue = `1. ${workingValue}`;
+        start += 3;
+        end += 3;
+      }
+
+      const before = workingValue.slice(0, start);
+      const after = workingValue.slice(end);
+      const nextNumber = findNextLineNumber(before);
+      const insertText = `\n${nextNumber}. `;
+      const nextValue = `${before}${insertText}${after}`;
+      const nextCursor = before.length + insertText.length;
+
+      handleAnswerChange(nextValue);
       requestAnimationFrame(() => {
-        textarea.value = seeded;
-        textarea.setSelectionRange(seeded.length, seeded.length);
+        textarea.value = nextValue;
+        textarea.setSelectionRange(nextCursor, nextCursor);
       });
-      return;
-    }
+    },
+    [formData.autoNumbering, handleAnswerChange]
+  );
 
-    let workingValue = rawValue;
-    let start = selectionStart;
-    let end = selectionEnd;
-    const hasAnyNumbering = /(^|\n)\s*\d+\.\s/.test(workingValue);
-    if (!hasAnyNumbering && workingValue.trim().length > 0) {
-      // 첫 엔터 시에도 1번 라인을 자동으로 붙여준다.
-      workingValue = `1. ${workingValue}`;
-      start += 3;
-      end += 3;
-    }
-
-    const before = workingValue.slice(0, start);
-    const after = workingValue.slice(end);
-    const nextNumber = findNextLineNumber(before);
-    const insertText = `\n${nextNumber}. `;
-    const nextValue = `${before}${insertText}${after}`;
-    const nextCursor = before.length + insertText.length;
-
-    handleAnswerChange(nextValue);
-    requestAnimationFrame(() => {
-      textarea.value = nextValue;
-      textarea.setSelectionRange(nextCursor, nextCursor);
-    });
-  }, [formData.autoNumbering, handleAnswerChange]);
-
-  const handleAutoNumberingToggle = useCallback((checked: boolean) => {
-    setFormData((prev) => {
-      if (!checked) return { ...prev, autoNumbering: false };
-      if (activeTab !== "text") return { ...prev, autoNumbering: true };
-      const nextAnswer = prev.answer.trim().length > 0
-        ? normalizeAutoNumberedAnswer(prev.answer)
-        : "1. ";
-      return { ...prev, autoNumbering: true, answer: nextAnswer };
-    });
-  }, [activeTab]);
-
-
+  const handleAutoNumberingToggle = useCallback(
+    (checked: boolean) => {
+      setFormData(prev => {
+        if (!checked) return { ...prev, autoNumbering: false };
+        if (activeTab !== "text") return { ...prev, autoNumbering: true };
+        const nextAnswer =
+          prev.answer.trim().length > 0
+            ? normalizeAutoNumberedAnswer(prev.answer)
+            : "1. ";
+        return { ...prev, autoNumbering: true, answer: nextAnswer };
+      });
+    },
+    [activeTab]
+  );
 
   const handleCreate = useCallback(() => {
     const question = formData.question;
@@ -745,7 +892,9 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         toast.error("표를 작성하세요");
         return;
       }
-      const blankCount = formData.tableData.cells.flat().filter((c) => c.isBlank && !c.isMerged).length;
+      const blankCount = formData.tableData.cells
+        .flat()
+        .filter(c => c.isBlank && !c.isMerged).length;
       if (blankCount === 0) {
         toast.error("최소 1개의 빈칸을 지정하세요");
         return;
@@ -754,7 +903,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         subjectId,
         question,
         answer: "",
-          tableData: JSON.stringify(formData.tableData),
+        tableData: JSON.stringify(formData.tableData),
         autoNumbering: 0,
         isDemo: isAdmin && formData.isDemo ? 1 : 0,
         isStarred: formData.isStarred ? 1 : 0,
@@ -764,7 +913,9 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
 
     // Image-based or text-based validation
     if (formData.imageUrl && formData.imageLabels.length > 0) {
-      const hasEmptyAnswer = formData.imageLabels.some((label) => !label.answer.trim());
+      const hasEmptyAnswer = formData.imageLabels.some(
+        label => !label.answer.trim()
+      );
       if (hasEmptyAnswer) {
         toast.error("모든 영역의 정답을 입력하세요");
         return;
@@ -777,9 +928,15 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     createMutation.mutate({
       subjectId,
       question,
-      answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : answer,
+      answer:
+        formData.imageUrl && formData.imageLabels.length > 0
+          ? undefined
+          : answer,
       imageUrl: formData.imageUrl || undefined,
-      imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
+      imageLabels:
+        formData.imageLabels.length > 0
+          ? JSON.stringify(formData.imageLabels)
+          : undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
       isDemo: isAdmin && formData.isDemo ? 1 : 0,
       isStarred: formData.isStarred ? 1 : 0,
@@ -788,7 +945,9 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
 
   const handleEdit = (question: any) => {
     setEditingQuestion(question);
-    const parsedTableData = question.tableData ? JSON.parse(question.tableData) : null;
+    const parsedTableData = question.tableData
+      ? JSON.parse(question.tableData)
+      : null;
     setFormData({
       question: question.question,
       answer: question.answer || "",
@@ -822,7 +981,9 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         toast.error("표를 작성하세요");
         return;
       }
-      const blankCount = formData.tableData.cells.flat().filter((c) => c.isBlank && !c.isMerged).length;
+      const blankCount = formData.tableData.cells
+        .flat()
+        .filter(c => c.isBlank && !c.isMerged).length;
       if (blankCount === 0) {
         toast.error("최소 1개의 빈칸을 지정하세요");
         return;
@@ -842,7 +1003,9 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     }
 
     if (formData.imageUrl && formData.imageLabels.length > 0) {
-      const hasEmptyAnswer = formData.imageLabels.some((label) => !label.answer.trim());
+      const hasEmptyAnswer = formData.imageLabels.some(
+        label => !label.answer.trim()
+      );
       if (hasEmptyAnswer) {
         toast.error("모든 영역의 정답을 입력하세요");
         return;
@@ -859,9 +1022,15 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     updateMutation.mutate({
       id: editingQuestion.id,
       question: formData.question,
-      answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : updatedAnswer,
+      answer:
+        formData.imageUrl && formData.imageLabels.length > 0
+          ? undefined
+          : updatedAnswer,
       imageUrl: formData.imageUrl || undefined,
-      imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
+      imageLabels:
+        formData.imageLabels.length > 0
+          ? JSON.stringify(formData.imageLabels)
+          : undefined,
       tableData: undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
       isDemo: isAdmin && formData.isDemo ? 1 : 0,
@@ -889,7 +1058,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
 
   const handleCopyMoveSubmit = (targetSubjectId: number) => {
     if (!selectedQuestion) return;
-    
+
     if (copyMoveMode === "copy") {
       copyMutation.mutate({
         questionId: selectedQuestion.id,
@@ -903,11 +1072,13 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     }
   };
 
-
-
   // QuestionForm을 useMemo로 감싸서 불필요한 리렌더링 방지
   const questionFormContent = (
-    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "image" | "table" | "ocr")} className="w-full">
+    <Tabs
+      value={activeTab}
+      onValueChange={v => setActiveTab(v as "text" | "image" | "table" | "ocr")}
+      className="w-full"
+    >
       <TabsList className="grid w-full grid-cols-4">
         <TabsTrigger value="text">텍스트 문제</TabsTrigger>
         <TabsTrigger value="image">이미지 문제</TabsTrigger>
@@ -915,7 +1086,8 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           <Table2 className="h-3.5 w-3.5" />표 문제
         </TabsTrigger>
         <TabsTrigger value="ocr" className="gap-1">
-          <Upload className="h-3.5 w-3.5" />OCR
+          <Upload className="h-3.5 w-3.5" />
+          OCR
         </TabsTrigger>
       </TabsList>
 
@@ -926,7 +1098,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             id="question"
             ref={questionTextareaRef}
             value={formData.question}
-            onChange={(e) => handleQuestionChange(e.target.value)}
+            onChange={e => handleQuestionChange(e.target.value)}
             placeholder="예: 조선시대의 주요 사건을 시대순으로 나열하시오"
             rows={3}
           />
@@ -936,7 +1108,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           <Textarea
             id="answer"
             value={formData.answer}
-            onChange={(e) => handleAnswerChange(e.target.value)}
+            onChange={e => handleAnswerChange(e.target.value)}
             onKeyDown={handleAnswerKeyDown}
             placeholder="모범 답안을 입력하세요"
             rows={6}
@@ -947,10 +1119,13 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             type="checkbox"
             id="autoNumbering"
             checked={formData.autoNumbering}
-            onChange={(e) => handleAutoNumberingToggle(e.target.checked)}
+            onChange={e => handleAutoNumberingToggle(e.target.checked)}
             className="w-4 h-4 rounded border-gray-300 cursor-pointer"
           />
-          <Label htmlFor="autoNumbering" className="cursor-pointer text-sm font-normal">
+          <Label
+            htmlFor="autoNumbering"
+            className="cursor-pointer text-sm font-normal"
+          >
             엔터 기준으로 답안 번호 자동 생성
           </Label>
         </div>
@@ -962,7 +1137,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           <Textarea
             id="question-image"
             value={formData.question}
-            onChange={(e) => handleQuestionChange(e.target.value)}
+            onChange={e => handleQuestionChange(e.target.value)}
             placeholder="예: 다음 해부도에서 표시된 부위의 명칭을 쓰시오"
             rows={2}
           />
@@ -1002,7 +1177,9 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => setFormData({ ...formData, imageUrl: "", imageLabels: [] })}
+                onClick={() =>
+                  setFormData({ ...formData, imageUrl: "", imageLabels: [] })
+                }
               >
                 이미지 제거
               </Button>
@@ -1022,10 +1199,13 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             type="checkbox"
             id="autoNumbering-image"
             checked={formData.autoNumbering}
-            onChange={(e) => handleAutoNumberingToggle(e.target.checked)}
+            onChange={e => handleAutoNumberingToggle(e.target.checked)}
             className="w-4 h-4 rounded border-gray-300 cursor-pointer"
           />
-          <Label htmlFor="autoNumbering-image" className="cursor-pointer text-sm font-normal">
+          <Label
+            htmlFor="autoNumbering-image"
+            className="cursor-pointer text-sm font-normal"
+          >
             엔터 기준으로 답안 번호 자동 생성
           </Label>
         </div>
@@ -1037,7 +1217,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           <Textarea
             id="question-table"
             value={formData.question}
-            onChange={(e) => handleQuestionChange(e.target.value)}
+            onChange={e => handleQuestionChange(e.target.value)}
             placeholder="예: 다음 표의 빈칸을 채우시오"
             rows={2}
           />
@@ -1046,21 +1226,25 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           <Label>표 작성</Label>
           <TableEditor
             initialData={formData.tableData || undefined}
-            onChange={(data) => setFormData((prev) => ({ ...prev, tableData: data }))}
+            onChange={data =>
+              setFormData(prev => ({ ...prev, tableData: data }))
+            }
           />
         </div>
       </TabsContent>
 
       <TabsContent value="ocr" className="space-y-4 mt-4">
         <OCRUploader
-          onExtractedText={(text) => {
-            setFormData((prev) => ({
+          onExtractedText={text => {
+            setFormData(prev => ({
               ...prev,
               question: text,
               answer: "",
             }));
             setActiveTab("text");
-            toast.success("OCR 결과가 질문에 입력되었습니다. 답안을 입력하세요.");
+            toast.success(
+              "OCR 결과가 질문에 입력되었습니다. 답안을 입력하세요."
+            );
           }}
         />
       </TabsContent>
@@ -1086,36 +1270,49 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 style={{ backgroundColor: subject.color || "#3B82F6" }}
               />
             )}
-            <h1 className="text-2xl font-semibold tracking-tight truncate">{subject?.name || "문제 관리"}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight truncate">
+              {subject?.name || "문제 관리"}
+            </h1>
             <span className="text-base text-muted-foreground flex-shrink-0">
               {questions?.length || 0}문제
             </span>
-            {confidenceData?.aggregate && confidenceData.aggregate.totalQuestions > 0 && (
-              <button
-                onClick={() => setSubjectConfidenceOpen(true)}
-                className={`text-sm font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${
-                  confidenceData.aggregate.state === 'green' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                  confidenceData.aggregate.state === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
-                  'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                }`}
-                title="클릭하여 과목 안정도 추이 보기"
-              >
-                과목 안정도 {confidenceData.aggregate.averageScore}점
-              </button>
-            )}
+            {confidenceData?.aggregate &&
+              confidenceData.aggregate.totalQuestions > 0 && (
+                <button
+                  onClick={() => setSubjectConfidenceOpen(true)}
+                  className={`text-sm font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${
+                    confidenceData.aggregate.state === "green"
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                      : confidenceData.aggregate.state === "yellow"
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                  }`}
+                  title="클릭하여 과목 안정도 추이 보기"
+                >
+                  과목 안정도 {confidenceData.aggregate.averageScore}점
+                </button>
+              )}
           </div>
         </div>
         <div className="flex gap-1.5 flex-shrink-0 items-center">
           {/* 과목 설정 버튼 (시험일 설정) */}
           {!isDemo && (
-            <Popover open={isSubjectSettingOpen} onOpenChange={(open) => {
-              setIsSubjectSettingOpen(open);
-              if (open) {
-                setExamDateInput(toDateTimeLocalValue(subject?.examEndDate));
-              }
-            }}>
+            <Popover
+              open={isSubjectSettingOpen}
+              onOpenChange={open => {
+                setIsSubjectSettingOpen(open);
+                if (open) {
+                  setExamDateInput(toDateTimeLocalValue(subject?.examEndDate));
+                }
+              }}
+            >
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" title="과목 설정">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  title="과목 설정"
+                >
                   <Settings className="h-4 w-4" />
                 </Button>
               </PopoverTrigger>
@@ -1127,15 +1324,16 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                   </div>
                   {subject?.examEndDate && (
                     <p className="text-xs text-muted-foreground">
-                      현재: {new Date(subject.examEndDate).toLocaleString('ko-KR')}
-                      {' '}({formatRemainingToExam(new Date(subject.examEndDate))})
+                      현재:{" "}
+                      {new Date(subject.examEndDate).toLocaleString("ko-KR")} (
+                      {formatRemainingToExam(new Date(subject.examEndDate))})
                     </p>
                   )}
                   <div className="flex gap-2">
                     <Input
                       type="datetime-local"
                       value={examDateInput}
-                      onChange={(e) => setExamDateInput(e.target.value)}
+                      onChange={e => setExamDateInput(e.target.value)}
                       className="h-8 text-sm"
                     />
                     <Button
@@ -1159,7 +1357,10 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                       className="h-7 text-xs text-muted-foreground w-full"
                       onClick={() => {
                         setExamDateInput("");
-                        updateSubjectMutation.mutate({ id: subjectId, examEndDate: null });
+                        updateSubjectMutation.mutate({
+                          id: subjectId,
+                          examEndDate: null,
+                        });
                       }}
                     >
                       시험일 삭제
@@ -1172,35 +1373,39 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           {questions && questions.length > 0 && (
             <>
               {!isDemo && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 h-8"
-                onClick={() => {
-                  const firstId = questions?.[0]?.id;
-                  if (!firstId) return;
-                  setLocation(`/practice/${firstId}?scrollNav=1`);
-                }}
-              >
-                <ScrollText className="h-3.5 w-3.5" />
-                연속 연습
-              </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8"
+                  onClick={() => {
+                    const firstId = questions?.[0]?.id;
+                    if (!firstId) return;
+                    setLocation(`/practice/${firstId}?scrollNav=1`);
+                  }}
+                >
+                  <ScrollText className="h-3.5 w-3.5" />
+                  연속 연습
+                </Button>
               )}
               {!isDemo && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 h-8"
-                onClick={() => setLocation(`/subject-exam/${subjectId}`)}
-              >
-                <ClipboardCheck className="h-3.5 w-3.5" />
-                모의고사
-              </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8"
+                  onClick={() => setLocation(`/subject-exam/${subjectId}`)}
+                >
+                  <ClipboardCheck className="h-3.5 w-3.5" />
+                  모의고사
+                </Button>
               )}
             </>
           )}
           {!isDemo && (
-            <Button size="sm" className="gap-1.5 h-8" onClick={() => setIsCreateOpen(true)}>
+            <Button
+              size="sm"
+              className="gap-1.5 h-8"
+              onClick={() => setIsCreateOpen(true)}
+            >
               <Plus className="h-3.5 w-3.5" />
               추가
             </Button>
@@ -1216,17 +1421,19 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             displayOrder: q.displayOrder,
             isStarred: q.isStarred || 0,
           }))}
-          onSelectQuestion={(id) => setLocation(isDemo ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
+          onSelectQuestion={id =>
+            setLocation(
+              isDemo ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`
+            )
+          }
           confidenceData={Object.fromEntries(
             Array.from(confidenceMap.entries()).map(([qId, conf]) => [
               qId,
-              { state: conf.state, displayScore: conf.displayScore }
+              { state: conf.state, displayScore: conf.displayScore },
             ])
           )}
         />
       )}
-
-
 
       {isLoading ? (
         <div className="text-center py-12">
@@ -1237,14 +1444,15 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           <CardHeader>
             <CardTitle>문제가 없습니다</CardTitle>
             <CardDescription>
-              {isDemo ? "데모 문제가 아직 설정되지 않았습니다" : "첫 문제를 추가하여 학습을 시작하세요"}
+              {isDemo
+                ? "데모 문제가 아직 설정되지 않았습니다"
+                : "첫 문제를 추가하여 학습을 시작하세요"}
             </CardDescription>
           </CardHeader>
           {!isDemo && (
             <CardContent>
               <Button onClick={() => setIsCreateOpen(true)} className="gap-2">
-                <Plus className="h-4 w-4" />
-                첫 문제 만들기
+                <Plus className="h-4 w-4" />첫 문제 만들기
               </Button>
             </CardContent>
           )}
@@ -1264,7 +1472,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 strategy={verticalListSortingStrategy}
               >
                 <div className="space-y-1.5">
-                  {filteredQuestions?.map((question) => (
+                  {filteredQuestions?.map(question => (
                     <SortableQuestionCard
                       key={question.id}
                       question={question}
@@ -1272,12 +1480,23 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                       confidence={confidenceMap.get(question.id)}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
-                      onPractice={(id) => setLocation(isDemo ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
-                      onTest={(id) => setLocation(isDemo ? `/demo/test/${id}` : `/test/${id}`)}
+                      onPractice={id =>
+                        setLocation(
+                          isDemo
+                            ? `/demo/practice/${id}`
+                            : `/practice/${id}?scrollNav=1`
+                        )
+                      }
+                      onTest={id =>
+                        setLocation(isDemo ? `/demo/test/${id}` : `/test/${id}`)
+                      }
                       onCopy={handleCopy}
                       onMove={handleMove}
-                      onToggleStar={(id) => toggleStarMutation.mutate({ id })}
-                      onConfidenceClick={(id, title) => { setConfidenceHistoryId(id); setConfidenceHistoryTitle(title); }}
+                      onToggleStar={id => toggleStarMutation.mutate({ id })}
+                      onConfidenceClick={(id, title) => {
+                        setConfidenceHistoryId(id);
+                        setConfidenceHistoryTitle(title);
+                      }}
                     />
                   ))}
                 </div>
@@ -1294,11 +1513,24 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 flex items-center justify-between shadow-sm">
               <div>
                 <h2 className="text-xl font-bold">새 문제 추가</h2>
-                <p className="text-sm text-muted-foreground">텍스트, 이미지 또는 표 문제를 생성하세요</p>
+                <p className="text-sm text-muted-foreground">
+                  텍스트, 이미지 또는 표 문제를 생성하세요
+                </p>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm(); }}>취소</Button>
-                <Button onClick={handleCreate} disabled={createMutation.isPending}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsCreateOpen(false);
+                    resetForm();
+                  }}
+                >
+                  취소
+                </Button>
+                <Button
+                  onClick={handleCreate}
+                  disabled={createMutation.isPending}
+                >
                   {createMutation.isPending ? "생성 중..." : "생성"}
                 </Button>
               </div>
@@ -1309,29 +1541,49 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-3">
                   <Star className="h-4 w-4 text-amber-400 flex-shrink-0" />
                   <div className="flex-1">
-                    <label htmlFor="create-isStarred-q" className="text-sm font-medium cursor-pointer">별표 문제로 지정</label>
-                    <p className="text-xs text-muted-foreground">중요하거나 자주 틀리는 문제를 표시합니다</p>
+                    <label
+                      htmlFor="create-isStarred-q"
+                      className="text-sm font-medium cursor-pointer"
+                    >
+                      별표 문제로 지정
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      중요하거나 자주 틀리는 문제를 표시합니다
+                    </p>
                   </div>
                   <input
                     id="create-isStarred-q"
                     type="checkbox"
                     checked={formData.isStarred}
-                    onChange={(e) => setFormData({ ...formData, isStarred: e.target.checked })}
+                    onChange={e =>
+                      setFormData({ ...formData, isStarred: e.target.checked })
+                    }
                     className="h-4 w-4 accent-amber-500"
                   />
                 </div>
                 {isAdmin && (
                   <div className="flex items-center gap-3 rounded-md border border-border bg-muted/30 px-4 py-3">
-                    <span className="text-xs text-muted-foreground flex-shrink-0">데모</span>
+                    <span className="text-xs text-muted-foreground flex-shrink-0">
+                      데모
+                    </span>
                     <div className="flex-1">
-                      <label htmlFor="create-isDemo-q" className="text-sm font-medium cursor-pointer">데모 문제로 지정</label>
-                      <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                      <label
+                        htmlFor="create-isDemo-q"
+                        className="text-sm font-medium cursor-pointer"
+                      >
+                        데모 문제로 지정
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        로그인 없이도 모든 사용자에게 표시됩니다
+                      </p>
                     </div>
                     <input
                       id="create-isDemo-q"
                       type="checkbox"
                       checked={formData.isDemo}
-                      onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                      onChange={e =>
+                        setFormData({ ...formData, isDemo: e.target.checked })
+                      }
                       className="h-4 w-4 accent-amber-500"
                     />
                   </div>
@@ -1349,11 +1601,24 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 flex items-center justify-between shadow-sm">
               <div>
                 <h2 className="text-xl font-bold">문제 수정</h2>
-                <p className="text-sm text-muted-foreground">문제 내용을 수정하세요</p>
+                <p className="text-sm text-muted-foreground">
+                  문제 내용을 수정하세요
+                </p>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => { setIsEditOpen(false); resetForm(); }}>취소</Button>
-                <Button onClick={handleUpdate} disabled={updateMutation.isPending}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsEditOpen(false);
+                    resetForm();
+                  }}
+                >
+                  취소
+                </Button>
+                <Button
+                  onClick={handleUpdate}
+                  disabled={updateMutation.isPending}
+                >
                   {updateMutation.isPending ? "수정 중..." : "저장"}
                 </Button>
               </div>
@@ -1364,29 +1629,49 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-3">
                   <Star className="h-4 w-4 text-amber-400 flex-shrink-0" />
                   <div className="flex-1">
-                    <label htmlFor="edit-isStarred-q" className="text-sm font-medium cursor-pointer">별표 문제로 지정</label>
-                    <p className="text-xs text-muted-foreground">중요하거나 자주 틀리는 문제를 표시합니다</p>
+                    <label
+                      htmlFor="edit-isStarred-q"
+                      className="text-sm font-medium cursor-pointer"
+                    >
+                      별표 문제로 지정
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      중요하거나 자주 틀리는 문제를 표시합니다
+                    </p>
                   </div>
                   <input
                     id="edit-isStarred-q"
                     type="checkbox"
                     checked={formData.isStarred}
-                    onChange={(e) => setFormData({ ...formData, isStarred: e.target.checked })}
+                    onChange={e =>
+                      setFormData({ ...formData, isStarred: e.target.checked })
+                    }
                     className="h-4 w-4 accent-amber-500"
                   />
                 </div>
                 {isAdmin && (
                   <div className="flex items-center gap-3 rounded-md border border-border bg-muted/30 px-4 py-3">
-                    <span className="text-xs text-muted-foreground flex-shrink-0">데모</span>
+                    <span className="text-xs text-muted-foreground flex-shrink-0">
+                      데모
+                    </span>
                     <div className="flex-1">
-                      <label htmlFor="edit-isDemo-q" className="text-sm font-medium cursor-pointer">데모 문제로 지정</label>
-                      <p className="text-xs text-muted-foreground">로그인 없이도 모든 사용자에게 표시됩니다</p>
+                      <label
+                        htmlFor="edit-isDemo-q"
+                        className="text-sm font-medium cursor-pointer"
+                      >
+                        데모 문제로 지정
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        로그인 없이도 모든 사용자에게 표시됩니다
+                      </p>
                     </div>
                     <input
                       id="edit-isDemo-q"
                       type="checkbox"
                       checked={formData.isDemo}
-                      onChange={(e) => setFormData({ ...formData, isDemo: e.target.checked })}
+                      onChange={e =>
+                        setFormData({ ...formData, isDemo: e.target.checked })
+                      }
                       className="h-4 w-4 accent-amber-500"
                     />
                   </div>
@@ -1413,26 +1698,35 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             </DialogHeader>
             <div className="py-4">
               <div className="space-y-2">
-                {allSubjects?.filter(s => copyMoveMode === "copy" || s.id !== subjectId).map((subject) => (
-                  <Button
-                    key={subject.id}
-                    variant={subject.id === subjectId ? "secondary" : "outline"}
-                    className="w-full justify-start gap-2"
-                    onClick={() => handleCopyMoveSubmit(subject.id)}
-                    disabled={copyMutation.isPending || moveMutation.isPending}
-                  >
-                    <div
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: subject.color || "#3B82F6" }}
-                    />
-                    {subject.name}
-                    {subject.id === subjectId && " (현재 과목)"}
-                  </Button>
-                ))}
+                {allSubjects
+                  ?.filter(s => copyMoveMode === "copy" || s.id !== subjectId)
+                  .map(subject => (
+                    <Button
+                      key={subject.id}
+                      variant={
+                        subject.id === subjectId ? "secondary" : "outline"
+                      }
+                      className="w-full justify-start gap-2"
+                      onClick={() => handleCopyMoveSubmit(subject.id)}
+                      disabled={
+                        copyMutation.isPending || moveMutation.isPending
+                      }
+                    >
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: subject.color || "#3B82F6" }}
+                      />
+                      {subject.name}
+                      {subject.id === subjectId && " (현재 과목)"}
+                    </Button>
+                  ))}
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCopyMoveOpen(false)}>
+              <Button
+                variant="outline"
+                onClick={() => setIsCopyMoveOpen(false)}
+              >
                 취소
               </Button>
             </DialogFooter>

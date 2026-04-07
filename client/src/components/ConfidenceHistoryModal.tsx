@@ -1,4 +1,9 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import {
   LineChart,
@@ -11,7 +16,12 @@ import {
   ReferenceArea,
   ReferenceLine,
 } from "recharts";
-import { format, differenceInDays, differenceInHours, differenceInMinutes } from "date-fns";
+import {
+  format,
+  differenceInDays,
+  differenceInHours,
+  differenceInMinutes,
+} from "date-fns";
 import { ko } from "date-fns/locale";
 
 interface ExamDatePrediction {
@@ -95,9 +105,10 @@ const CustomDot = (props: any) => {
   if (!cx || !cy) return null;
 
   if (payload.eventType === "test") {
-    const isSuccess = payload.accuracyRate !== undefined
-      ? payload.accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
-      : payload.isCorrect === true;
+    const isSuccess =
+      payload.accuracyRate !== undefined
+        ? payload.accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
+        : payload.isCorrect === true;
     const color = isSuccess ? "#22c55e" : "#ef4444";
     const isLatest = payload.isLatest;
     return (
@@ -105,7 +116,14 @@ const CustomDot = (props: any) => {
         {isLatest && (
           <circle cx={cx} cy={cy} r={12} fill={color} fillOpacity={0.15} />
         )}
-        <circle cx={cx} cy={cy} r={isLatest ? 7 : 5.5} fill={color} stroke="white" strokeWidth={2} />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={isLatest ? 7 : 5.5}
+          fill={color}
+          stroke="white"
+          strokeWidth={2}
+        />
       </g>
     );
   }
@@ -113,16 +131,36 @@ const CustomDot = (props: any) => {
     return (
       <g key={`dot-${cx}-${cy}`}>
         <circle cx={cx} cy={cy} r={12} fill={BRAND_COLOR} fillOpacity={0.15} />
-        <circle cx={cx} cy={cy} r={6} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={6}
+          fill={BRAND_COLOR}
+          stroke="white"
+          strokeWidth={2}
+        />
       </g>
     );
   }
   if (payload.eventType === "exam_predict") {
-    const stateColor = payload.predictedState === "green" ? "#22c55e" : payload.predictedState === "yellow" ? "#f59e0b" : "#ef4444";
+    const stateColor =
+      payload.predictedState === "green"
+        ? "#22c55e"
+        : payload.predictedState === "yellow"
+          ? "#f59e0b"
+          : "#ef4444";
     return (
       <g key={`dot-${cx}-${cy}`}>
         <circle cx={cx} cy={cy} r={10} fill={stateColor} fillOpacity={0.15} />
-        <circle cx={cx} cy={cy} r={6} fill={stateColor} stroke="white" strokeWidth={2} strokeDasharray="2 1" />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={6}
+          fill={stateColor}
+          stroke="white"
+          strokeWidth={2}
+          strokeDasharray="2 1"
+        />
       </g>
     );
   }
@@ -136,20 +174,62 @@ const CustomActiveDot = (props: any) => {
   if (!cx || !cy) return null;
 
   if (payload.eventType === "practice") {
-    return <circle cx={cx} cy={cy} r={4.5} fill="#9ca3af" stroke="white" strokeWidth={1.5} />;
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={4.5}
+        fill="#9ca3af"
+        stroke="white"
+        strokeWidth={1.5}
+      />
+    );
   }
   if (payload.eventType === "test") {
-    const isSuccess = payload.accuracyRate !== undefined
-      ? payload.accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
-      : payload.isCorrect === true;
+    const isSuccess =
+      payload.accuracyRate !== undefined
+        ? payload.accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
+        : payload.isCorrect === true;
     const color = isSuccess ? "#22c55e" : "#ef4444";
-    return <circle cx={cx} cy={cy} r={7} fill={color} stroke="white" strokeWidth={2} />;
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={7}
+        fill={color}
+        stroke="white"
+        strokeWidth={2}
+      />
+    );
   }
   if (payload.eventType === "exam_predict") {
-    const stateColor = payload.predictedState === "green" ? "#22c55e" : payload.predictedState === "yellow" ? "#f59e0b" : "#ef4444";
-    return <circle cx={cx} cy={cy} r={7} fill={stateColor} stroke="white" strokeWidth={2} />;
+    const stateColor =
+      payload.predictedState === "green"
+        ? "#22c55e"
+        : payload.predictedState === "yellow"
+          ? "#f59e0b"
+          : "#ef4444";
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={7}
+        fill={stateColor}
+        stroke="white"
+        strokeWidth={2}
+      />
+    );
   }
-  return <circle cx={cx} cy={cy} r={7} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />;
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      r={7}
+      fill={BRAND_COLOR}
+      stroke="white"
+      strokeWidth={2}
+    />
+  );
 };
 
 // 커스텀 툴팁
@@ -168,7 +248,9 @@ const CustomTooltip = ({ active, payload }: any) => {
         </div>
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-gray-400 inline-block" />
-          <span className="text-muted-foreground text-xs">연습 {practiceCount}회</span>
+          <span className="text-muted-foreground text-xs">
+            연습 {practiceCount}회
+          </span>
           <span className="font-semibold text-sm">{d.score}점</span>
         </div>
         {delta !== null && (
@@ -181,9 +263,10 @@ const CustomTooltip = ({ active, payload }: any) => {
   }
 
   if (d.eventType === "test") {
-    const isSuccess = d.accuracyRate !== undefined
-      ? d.accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
-      : d.isCorrect === true;
+    const isSuccess =
+      d.accuracyRate !== undefined
+        ? d.accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
+        : d.isCorrect === true;
     const color = isSuccess ? "#22c55e" : "#ef4444";
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[150px]">
@@ -191,13 +274,18 @@ const CustomTooltip = ({ active, payload }: any) => {
           {format(date, "yyyy.MM.dd HH:mm", { locale: ko })}
         </div>
         <div className="flex items-center gap-2 mb-1">
-          <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: color }} />
+          <span
+            className="w-2.5 h-2.5 rounded-full inline-block"
+            style={{ backgroundColor: color }}
+          />
           <span className="font-semibold text-sm" style={{ color }}>
             시험: {isSuccess ? "성공" : "실패"}
           </span>
         </div>
         {d.accuracyRate !== undefined && (
-          <div className="text-xs text-muted-foreground">정답률 {d.accuracyRate}%</div>
+          <div className="text-xs text-muted-foreground">
+            정답률 {d.accuracyRate}%
+          </div>
         )}
         <div className="text-xs text-muted-foreground">안정도 {d.score}점</div>
       </div>
@@ -205,18 +293,32 @@ const CustomTooltip = ({ active, payload }: any) => {
   }
 
   if (d.eventType === "exam_predict") {
-    const stateColor = d.predictedState === "green" ? "#22c55e" : d.predictedState === "yellow" ? "#f59e0b" : "#ef4444";
+    const stateColor =
+      d.predictedState === "green"
+        ? "#22c55e"
+        : d.predictedState === "yellow"
+          ? "#f59e0b"
+          : "#ef4444";
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[160px]">
-        <div className="text-muted-foreground text-xs mb-1.5">시험일 예측 ({formatExamCountdown(d.minutesUntilExam ?? d.daysUntilExam * 24 * 60)})</div>
+        <div className="text-muted-foreground text-xs mb-1.5">
+          시험일 예측 (
+          {formatExamCountdown(d.minutesUntilExam ?? d.daysUntilExam * 24 * 60)}
+          )
+        </div>
         <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: stateColor }} />
+          <span
+            className="w-2.5 h-2.5 rounded-full inline-block"
+            style={{ backgroundColor: stateColor }}
+          />
           <span className="font-semibold text-sm" style={{ color: stateColor }}>
             예상 안정도 {d.score}점
           </span>
         </div>
         {d.scoreDelta < 0 && (
-          <div className="text-xs text-red-400 mt-0.5">현재 대비 {d.scoreDelta}점</div>
+          <div className="text-xs text-red-400 mt-0.5">
+            현재 대비 {d.scoreDelta}점
+          </div>
         )}
       </div>
     );
@@ -227,14 +329,25 @@ const CustomTooltip = ({ active, payload }: any) => {
     <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[130px]">
       <div className="text-muted-foreground text-xs mb-1">현재</div>
       <div className="flex items-center gap-2">
-        <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: BRAND_COLOR }} />
-        <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>안정도 {d.score}점</span>
+        <span
+          className="w-2.5 h-2.5 rounded-full inline-block"
+          style={{ backgroundColor: BRAND_COLOR }}
+        />
+        <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>
+          안정도 {d.score}점
+        </span>
       </div>
     </div>
   );
 };
 
-export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClose, examDatePrediction }: Props) {
+export function ConfidenceHistoryModal({
+  questionId,
+  questionTitle,
+  open,
+  onClose,
+  examDatePrediction,
+}: Props) {
   const { data, isLoading } = trpc.confidence.getHistory.useQuery(
     { questionId: questionId! },
     { enabled: open && questionId !== null }
@@ -248,7 +361,7 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
     }
   );
   const effectiveExamDatePrediction =
-    examDatePrediction ?? ((latestConfidence as any)?.examDatePrediction ?? null);
+    examDatePrediction ?? (latestConfidence as any)?.examDatePrediction ?? null;
 
   const points = (data?.points ?? []) as HistoryPoint[];
   const pointsWithFallback: HistoryPoint[] = [...points];
@@ -269,16 +382,25 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
 
   // 최신 시험 점 표시를 위해 isLatest 플래그 추가
   const testPoints = pointsWithFallback.filter(p => p.eventType === "test");
-  const latestTestAt = testPoints.length > 0 ? testPoints[testPoints.length - 1].at : null;
+  const latestTestAt =
+    testPoints.length > 0 ? testPoints[testPoints.length - 1].at : null;
 
   // 시험일 예측 포인트 추가 (현재 시점 이후에 점선으로 표시)
   const allPoints: HistoryPoint[] = [...pointsWithFallback];
   if (effectiveExamDatePrediction) {
     let examDate = new Date(effectiveExamDatePrediction.examAtISO);
     if (Number.isNaN(examDate.getTime())) {
-      examDate = new Date(Date.now() + (effectiveExamDatePrediction.minutesUntilExam ?? effectiveExamDatePrediction.daysUntilExam * 24 * 60) * 60_000);
+      examDate = new Date(
+        Date.now() +
+          (effectiveExamDatePrediction.minutesUntilExam ??
+            effectiveExamDatePrediction.daysUntilExam * 24 * 60) *
+            60_000
+      );
     }
-    const lastAt = allPoints.length > 0 ? new Date(allPoints[allPoints.length - 1].at).getTime() : Date.now();
+    const lastAt =
+      allPoints.length > 0
+        ? new Date(allPoints[allPoints.length - 1].at).getTime()
+        : Date.now();
     if (examDate.getTime() <= lastAt) {
       examDate = new Date(lastAt + 60_000);
     }
@@ -291,20 +413,29 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
   }
 
   // 실선/점선 분리: solidScore = 실제 데이터, dashedScore = 예측 구간
-  const solidData = allPoints.filter(p => (p as any).eventType !== "exam_predict");
+  const solidData = allPoints.filter(
+    p => (p as any).eventType !== "exam_predict"
+  );
   const lastSolidPoint = solidData[solidData.length - 1];
-  const predictPoint = allPoints.find(p => (p as any).eventType === "exam_predict");
+  const predictPoint = allPoints.find(
+    p => (p as any).eventType === "exam_predict"
+  );
 
   // mergedData: 모든 포인트를 하나의 배열로, solidScore/dashedScore 필드 분리
-  const firstTs = allPoints.length > 0 ? new Date(allPoints[0].at).getTime() : Date.now();
-  const lastTs = allPoints.length > 0 ? new Date(allPoints[allPoints.length - 1].at).getTime() : firstTs;
+  const firstTs =
+    allPoints.length > 0 ? new Date(allPoints[0].at).getTime() : Date.now();
+  const lastTs =
+    allPoints.length > 0
+      ? new Date(allPoints[allPoints.length - 1].at).getTime()
+      : firstTs;
   const rawRange = Math.max(1, lastTs - firstTs);
   const xPadding = Math.max(Math.round(rawRange * 0.04), 5 * 60 * 1000);
   const xDomainMin = firstTs;
   const xDomainMax = lastTs + xPadding;
   const chartData = allPoints.map((p, i) => {
     const isPredict = (p as any).eventType === "exam_predict";
-    const isJunction = lastSolidPoint && p.at === lastSolidPoint.at && !isPredict;
+    const isJunction =
+      lastSolidPoint && p.at === lastSolidPoint.at && !isPredict;
     const xTs = new Date(p.at).getTime();
     return {
       ...p,
@@ -314,14 +445,16 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
       isLatest: p.at === latestTestAt && (p as any).eventType === "test",
       solidScore: isPredict ? null : p.score,
       // 점선은 마지막 실선 포인트부터 예측 포인트까지
-      dashedScore: isPredict ? p.score : (isJunction ? p.score : null),
-      ...(isPredict && effectiveExamDatePrediction ? {
-        predictedState: effectiveExamDatePrediction.predictedState,
-        scoreDelta: effectiveExamDatePrediction.scoreDelta,
-        daysUntilExam: effectiveExamDatePrediction.daysUntilExam,
-        hoursUntilExam: effectiveExamDatePrediction.hoursUntilExam,
-        minutesUntilExam: effectiveExamDatePrediction.minutesUntilExam,
-      } : {}),
+      dashedScore: isPredict ? p.score : isJunction ? p.score : null,
+      ...(isPredict && effectiveExamDatePrediction
+        ? {
+            predictedState: effectiveExamDatePrediction.predictedState,
+            scoreDelta: effectiveExamDatePrediction.scoreDelta,
+            daysUntilExam: effectiveExamDatePrediction.daysUntilExam,
+            hoursUntilExam: effectiveExamDatePrediction.hoursUntilExam,
+            minutesUntilExam: effectiveExamDatePrediction.minutesUntilExam,
+          }
+        : {}),
     };
   });
 
@@ -329,13 +462,14 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
   const currentScore = hasData ? solidData[solidData.length - 1].score : null;
 
   // 현재 상태 색상 (점수 기반)
-  const currentStateColor = currentScore === null
-    ? "#6b7280"
-    : currentScore >= 80
-    ? "#22c55e"
-    : currentScore >= 40
-    ? "#f59e0b"
-    : "#ef4444";
+  const currentStateColor =
+    currentScore === null
+      ? "#6b7280"
+      : currentScore >= 80
+        ? "#22c55e"
+        : currentScore >= 40
+          ? "#f59e0b"
+          : "#ef4444";
 
   // 두 데이터셋을 합쳐서 XAxis 공유
   // chartData를 LineChart에 직접 사용 (mergedData 별칭 제거)
@@ -366,14 +500,19 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
         ) : !hasData ? (
           <div className="h-64 flex flex-col items-center justify-center text-muted-foreground gap-2">
             <span className="text-4xl">📊</span>
-            <span className="text-sm">아직 연습 또는 시험 기록이 없습니다.</span>
+            <span className="text-sm">
+              아직 연습 또는 시험 기록이 없습니다.
+            </span>
           </div>
         ) : (
           <>
             {/* 범례 */}
             <div className="flex items-center gap-4 text-sm text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
+                <span
+                  className="inline-block w-3 h-0.5 rounded"
+                  style={{ backgroundColor: BRAND_COLOR }}
+                />
                 안정도 흐름
               </span>
               <span className="flex items-center gap-1.5">
@@ -386,7 +525,12 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
               </span>
               {effectiveExamDatePrediction && (
                 <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-5 h-0.5" style={{ background: `repeating-linear-gradient(90deg, ${PREDICT_COLOR} 0, ${PREDICT_COLOR} 4px, transparent 4px, transparent 7px)` }} />
+                  <span
+                    className="inline-block w-5 h-0.5"
+                    style={{
+                      background: `repeating-linear-gradient(90deg, ${PREDICT_COLOR} 0, ${PREDICT_COLOR} 4px, transparent 4px, transparent 7px)`,
+                    }}
+                  />
                   시험일 예측
                 </span>
               )}
@@ -403,11 +547,30 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                   margin={{ top: 14, right: 76, left: 18, bottom: 12 }}
                 >
                   {/* 상태 구간 배경 영역 */}
-                  <ReferenceArea y1={0} y2={40} fill="#ef4444" fillOpacity={0.06} />
-                  <ReferenceArea y1={40} y2={80} fill="#f59e0b" fillOpacity={0.06} />
-                  <ReferenceArea y1={80} y2={100} fill="#22c55e" fillOpacity={0.06} />
+                  <ReferenceArea
+                    y1={0}
+                    y2={40}
+                    fill="#ef4444"
+                    fillOpacity={0.06}
+                  />
+                  <ReferenceArea
+                    y1={40}
+                    y2={80}
+                    fill="#f59e0b"
+                    fillOpacity={0.06}
+                  />
+                  <ReferenceArea
+                    y1={80}
+                    y2={100}
+                    fill="#22c55e"
+                    fillOpacity={0.06}
+                  />
 
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="hsl(var(--border))"
+                    opacity={0.4}
+                  />
                   <XAxis
                     type="number"
                     dataKey="xTs"
@@ -417,15 +580,23 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                     interval="preserveStartEnd"
                     minTickGap={24}
                     padding={{ left: 4, right: 18 }}
-                    tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                    tick={{
+                      fontSize: 12,
+                      fill: "hsl(var(--muted-foreground))",
+                    }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(value) => formatRelativeTick(Number(value), firstTs)}
+                    tickFormatter={value =>
+                      formatRelativeTick(Number(value), firstTs)
+                    }
                   />
                   <YAxis
                     domain={[0, 100]}
                     ticks={[0, 40, 80, 100]}
-                    tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                    tick={{
+                      fontSize: 12,
+                      fill: "hsl(var(--muted-foreground))",
+                    }}
                     tickLine={false}
                     axisLine={false}
                     width={48}
@@ -437,14 +608,28 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                     stroke="#22c55e"
                     strokeDasharray="4 3"
                     strokeOpacity={0.4}
-                    label={{ value: "안정", position: "insideTopRight", fontSize: 12, fill: "#22c55e", fillOpacity: 0.75, dx: -14 }}
+                    label={{
+                      value: "안정",
+                      position: "insideTopRight",
+                      fontSize: 12,
+                      fill: "#22c55e",
+                      fillOpacity: 0.75,
+                      dx: -14,
+                    }}
                   />
                   <ReferenceLine
                     y={40}
                     stroke="#f59e0b"
                     strokeDasharray="4 3"
                     strokeOpacity={0.4}
-                    label={{ value: "위험", position: "insideBottomRight", fontSize: 12, fill: "#f59e0b", fillOpacity: 0.75, dx: -14 }}
+                    label={{
+                      value: "위험",
+                      position: "insideBottomRight",
+                      fontSize: 12,
+                      fill: "#f59e0b",
+                      fillOpacity: 0.75,
+                      dx: -14,
+                    }}
                   />
 
                   <Tooltip
@@ -485,15 +670,30 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
             {/* 시험일 예측 요약 (있을 경우) */}
             {effectiveExamDatePrediction && (
               <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm">
-                <span className="text-muted-foreground text-xs">{formatExamCountdown(effectiveExamDatePrediction.minutesUntilExam)} 예측</span>
+                <span className="text-muted-foreground text-xs">
+                  {formatExamCountdown(
+                    effectiveExamDatePrediction.minutesUntilExam
+                  )}{" "}
+                  예측
+                </span>
                 <span
                   className="font-bold text-base tabular-nums"
-                  style={{ color: effectiveExamDatePrediction.predictedState === "green" ? "#22c55e" : effectiveExamDatePrediction.predictedState === "yellow" ? "#f59e0b" : "#ef4444" }}
+                  style={{
+                    color:
+                      effectiveExamDatePrediction.predictedState === "green"
+                        ? "#22c55e"
+                        : effectiveExamDatePrediction.predictedState ===
+                            "yellow"
+                          ? "#f59e0b"
+                          : "#ef4444",
+                  }}
                 >
                   {effectiveExamDatePrediction.predictedScore}점
                 </span>
                 {effectiveExamDatePrediction.scoreDelta < 0 && (
-                  <span className="text-red-400 text-xs font-medium">{effectiveExamDatePrediction.scoreDelta}점 예상 감소</span>
+                  <span className="text-red-400 text-xs font-medium">
+                    {effectiveExamDatePrediction.scoreDelta}점 예상 감소
+                  </span>
                 )}
               </div>
             )}
@@ -505,22 +705,36 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                   label: "연습 세션",
                   value: `${solidData
                     .filter(p => p.eventType === "practice")
-                    .reduce((sum, p: any) => sum + (p.practiceSessionCount ?? 1), 0)}회`,
+                    .reduce(
+                      (sum, p: any) => sum + (p.practiceSessionCount ?? 1),
+                      0
+                    )}회`,
                 },
-                { label: "시험 횟수", value: `${solidData.filter(p => p.eventType === "test").length}회` },
-                { label: "시험 성공률", value: (() => {
-                  const tests = solidData.filter(p => p.eventType === "test");
-                  if (tests.length === 0) return "-";
-                  const success = tests.filter(p =>
-                    (p as any).accuracyRate !== undefined
-                      ? (p as any).accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
-                      : (p as any).isCorrect === true
-                  ).length;
-                  return `${Math.round((success / tests.length) * 100)}%`;
-                })() },
+                {
+                  label: "시험 횟수",
+                  value: `${solidData.filter(p => p.eventType === "test").length}회`,
+                },
+                {
+                  label: "시험 성공률",
+                  value: (() => {
+                    const tests = solidData.filter(p => p.eventType === "test");
+                    if (tests.length === 0) return "-";
+                    const success = tests.filter(p =>
+                      (p as any).accuracyRate !== undefined
+                        ? (p as any).accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
+                        : (p as any).isCorrect === true
+                    ).length;
+                    return `${Math.round((success / tests.length) * 100)}%`;
+                  })(),
+                },
               ].map(stat => (
-                <div key={stat.label} className="bg-muted/40 rounded-lg p-3 text-center">
-                  <div className="text-xs text-muted-foreground mb-1">{stat.label}</div>
+                <div
+                  key={stat.label}
+                  className="bg-muted/40 rounded-lg p-3 text-center"
+                >
+                  <div className="text-xs text-muted-foreground mb-1">
+                    {stat.label}
+                  </div>
                   <div className="text-lg font-bold">{stat.value}</div>
                 </div>
               ))}

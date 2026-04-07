@@ -27,10 +27,7 @@
       "question_count": "2"
     }
   ],
-  "messages": [
-    "total_questions",
-    "22"
-  ],
+  "messages": ["total_questions", "22"],
   "stdout": "subject_name\tquestion_count\n국소\t0\n금관\t0\n소아\t0\n총의치\t4\n치주\t0\n해부\t2\ntotal_questions\n22\n",
   "stderr": "",
   "execution_time_ms": 1785

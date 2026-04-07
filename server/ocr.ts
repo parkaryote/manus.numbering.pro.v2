@@ -1,6 +1,6 @@
 /**
  * OCR Module - Google Cloud Vision API Integration
- * 
+ *
  * Architecture:
  * - Server-only module (never imported by client)
  * - Uses asyncBatchAnnotateFiles for batch processing
@@ -15,7 +15,9 @@ import { ImageAnnotatorClient } from "@google-cloud/vision";
 const PROJECT_ID = process.env.GCP_PROJECT_ID as string;
 const GCS_TEMP_BUCKET = process.env.GCS_TEMP_BUCKET as string;
 const OCR_ENABLED =
-  process.env.OCR_ENABLED === "true" && Boolean(PROJECT_ID) && Boolean(GCS_TEMP_BUCKET);
+  process.env.OCR_ENABLED === "true" &&
+  Boolean(PROJECT_ID) &&
+  Boolean(GCS_TEMP_BUCKET);
 
 if (!OCR_ENABLED) {
   console.warn(
@@ -97,11 +99,12 @@ export async function startOCRJob(gcsUri: string): Promise<string> {
  * Poll operation status
  * Returns: true if complete, false if still processing
  */
-export async function checkOCRJobStatus(operationName: string): Promise<boolean> {
+export async function checkOCRJobStatus(
+  operationName: string
+): Promise<boolean> {
   assertOCREnabled();
-  const result = await visionClient!.checkAsyncBatchAnnotateFilesProgress(
-    operationName
-  );
+  const result =
+    await visionClient!.checkAsyncBatchAnnotateFilesProgress(operationName);
   const operation = Array.isArray(result) ? result[0] : result;
 
   return operation.done ?? false;
@@ -113,9 +116,8 @@ export async function checkOCRJobStatus(operationName: string): Promise<boolean>
  */
 export async function getOCRResults(operationName: string): Promise<string> {
   assertOCREnabled();
-  const result = await visionClient!.checkAsyncBatchAnnotateFilesProgress(
-    operationName
-  );
+  const result =
+    await visionClient!.checkAsyncBatchAnnotateFilesProgress(operationName);
   const operation = Array.isArray(result) ? result[0] : result;
 
   if (!operation.done) {
@@ -175,7 +177,9 @@ export async function cleanupGCSFiles(gcsUri: string): Promise<void> {
  * Clean up all temporary OCR files in bucket
  * Called periodically or on demand
  */
-export async function cleanupOldOCRFiles(maxAgeHours: number = 24): Promise<void> {
+export async function cleanupOldOCRFiles(
+  maxAgeHours: number = 24
+): Promise<void> {
   if (!OCR_ENABLED) return;
 
   try {
@@ -187,7 +191,7 @@ export async function cleanupOldOCRFiles(maxAgeHours: number = 24): Promise<void
 
     for (const file of files) {
       const metadata = await file.getMetadata();
-      const createdTime = new Date(metadata[0].timeCreated || '').getTime();
+      const createdTime = new Date(metadata[0].timeCreated || "").getTime();
 
       if (now - createdTime > maxAge) {
         await file.delete().catch(() => {

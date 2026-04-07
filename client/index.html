@@ -1,15 +1,18 @@
 <!doctype html>
 <html lang="en">
-
   <head>
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <title>numbering.pro - 넘버링 달인, 그림빵 장인 되기</title>    
+      content="width=device-width, initial-scale=1.0, maximum-scale=1"
+    />
+    <title>numbering.pro - 넘버링 달인, 그림빵 장인 되기</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
 
   <body>
@@ -21,14 +24,17 @@
       window.__VITE_HMR_PROTOCOL__ = null;
       window.__VITE_HMR_PORT__ = null;
       window.__VITE_HMR_DIRECT__ = false;
-      
+
       // Intercept WebSocket to prevent HMR connections
       const OriginalWebSocket = window.WebSocket;
       window.WebSocket = class extends OriginalWebSocket {
         constructor(url, ...args) {
-          if (typeof url === 'string' && (url.includes('ws://') || url.includes('wss://'))) {
-            console.warn('[HMR Disabled] WebSocket connection blocked:', url);
-            throw new Error('WebSocket disabled for HMR');
+          if (
+            typeof url === "string" &&
+            (url.includes("ws://") || url.includes("wss://"))
+          ) {
+            console.warn("[HMR Disabled] WebSocket connection blocked:", url);
+            throw new Error("WebSocket disabled for HMR");
           }
           super(url, ...args);
         }
@@ -36,5 +42,4 @@
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
-
 </html>

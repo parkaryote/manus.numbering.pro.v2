@@ -53,7 +53,7 @@ function writeToLogFile(source: LogSource, entries: unknown[]) {
   ensureLogDir();
   const logPath = path.join(LOG_DIR, `${source}.log`);
   // Format entries with timestamps
-  const lines = entries.map((entry) => {
+  const lines = entries.map(entry => {
     const ts = new Date().toISOString();
     return `[${ts}] ${JSON.stringify(entry)}`;
   });
@@ -121,7 +121,7 @@ function vitePluginManusDebugCollector(): Plugin {
           return;
         }
         let body = "";
-        req.on("data", (chunk) => {
+        req.on("data", chunk => {
           body += chunk.toString();
         });
         req.on("end", () => {
@@ -138,14 +138,19 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+const plugins = [
+  react(),
+  tailwindcss(),
+  vitePluginManusRuntime(),
+  vitePluginManusDebugCollector(),
+];
 
 export default defineConfig({
   define: {
-    'import.meta.hot': 'false',
+    "import.meta.hot": "false",
   },
   optimizeDeps: {
-    exclude: ['@vite/client'],
+    exclude: ["@vite/client"],
   },
   plugins,
   resolve: {

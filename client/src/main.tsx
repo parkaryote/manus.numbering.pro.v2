@@ -1,8 +1,9 @@
 import { trpc } from "@/lib/trpc";
-import { UNAUTHED_ERR_MSG } from '@shared/const';
+import { UNAUTHED_ERR_MSG } from "@shared/const";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
@@ -17,9 +18,13 @@ declare global {
   }
 }
 
-const GA4_MEASUREMENT_ID = (import.meta.env.VITE_GA4_MEASUREMENT_ID as string | undefined)?.trim() ?? "";
-const UMAMI_ENDPOINT = (import.meta.env.VITE_ANALYTICS_ENDPOINT as string | undefined)?.trim() ?? "";
-const UMAMI_WEBSITE_ID = (import.meta.env.VITE_ANALYTICS_WEBSITE_ID as string | undefined)?.trim() ?? "";
+const GA4_MEASUREMENT_ID =
+  (import.meta.env.VITE_GA4_MEASUREMENT_ID as string | undefined)?.trim() ?? "";
+const UMAMI_ENDPOINT =
+  (import.meta.env.VITE_ANALYTICS_ENDPOINT as string | undefined)?.trim() ?? "";
+const UMAMI_WEBSITE_ID =
+  (import.meta.env.VITE_ANALYTICS_WEBSITE_ID as string | undefined)?.trim() ??
+  "";
 
 function initAnalytics() {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -123,14 +128,19 @@ const trpcClient = trpc.createClient({
       transformer: superjson,
       fetch(input, init) {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), TRPC_FETCH_TIMEOUT_MS);
-        return globalThis.fetch(input, {
-          ...(init ?? {}),
-          credentials: "include",
-          signal: controller.signal,
-        }).finally(() => {
-          clearTimeout(timeout);
-        });
+        const timeout = setTimeout(
+          () => controller.abort(),
+          TRPC_FETCH_TIMEOUT_MS
+        );
+        return globalThis
+          .fetch(input, {
+            ...(init ?? {}),
+            credentials: "include",
+            signal: controller.signal,
+          })
+          .finally(() => {
+            clearTimeout(timeout);
+          });
       },
     }),
   ],
@@ -141,6 +151,7 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <App />
       <Analytics />
+      <SpeedInsights />
     </QueryClientProvider>
   </trpc.Provider>
 );

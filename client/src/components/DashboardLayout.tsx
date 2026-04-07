@@ -13,10 +13,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, BookOpen, BarChart3, Settings, Moon, Sun, Menu, X } from "lucide-react";
+import {
+  LayoutDashboard,
+  LogOut,
+  BookOpen,
+  BarChart3,
+  Settings,
+  Moon,
+  Sun,
+  Menu,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const menuItems = [
@@ -84,7 +94,11 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             onClick={toggleTheme}
             className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-md transition-colors"
           >
-            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {theme === "dark" ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
           </button>
         </header>
 
@@ -108,12 +122,15 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              {menuItems.map((item) => {
+              {menuItems.map(item => {
                 const isActive = location === item.path;
                 return (
                   <button
                     key={item.path}
-                    onClick={() => { setLocation(item.path); setMobileOpen(false); }}
+                    onClick={() => {
+                      setLocation(item.path);
+                      setMobileOpen(false);
+                    }}
                     className={`flex items-center gap-3 mx-2 px-3 py-2 rounded-md text-sm transition-colors ${
                       isActive
                         ? "bg-primary/10 text-primary font-medium"
@@ -128,12 +145,15 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               {user?.role === "admin" && (
                 <>
                   <div className="mx-3 my-1 border-t" />
-                  {adminMenuItems.map((item) => {
+                  {adminMenuItems.map(item => {
                     const isActive = location === item.path;
                     return (
                       <button
                         key={item.path}
-                        onClick={() => { setLocation(item.path); setMobileOpen(false); }}
+                        onClick={() => {
+                          setLocation(item.path);
+                          setMobileOpen(false);
+                        }}
                         className={`flex items-center gap-3 mx-2 px-3 py-2 rounded-md text-sm transition-colors ${
                           isActive
                             ? "bg-primary/10 text-primary font-medium"
@@ -154,7 +174,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                       {user?.name?.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  <span className="text-xs text-muted-foreground truncate">{user?.name}</span>
+                  <span className="text-xs text-muted-foreground truncate">
+                    {user?.name}
+                  </span>
                 </div>
                 <button
                   onClick={logout}
@@ -165,12 +187,17 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
             </div>
-            <div className="flex-1 bg-black/40" onClick={() => setMobileOpen(false)} />
+            <div
+              className="flex-1 bg-black/40"
+              onClick={() => setMobileOpen(false)}
+            />
           </div>
         )}
 
         <main className="flex-1 overflow-y-auto overflow-x-hidden">
-          <div className="w-full max-w-[1400px] mx-auto px-3 md:px-4">{children}</div>
+          <div className="w-full max-w-[1400px] mx-auto px-3 md:px-4">
+            {children}
+          </div>
         </main>
       </div>
     );
@@ -183,7 +210,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       <aside className="w-12 flex flex-col items-center py-3 gap-1 border-r bg-background shrink-0 sticky top-0 h-screen overflow-y-auto">
         {/* 메뉴 아이템들 */}
         <div className="flex flex-col items-center gap-1 w-full">
-          {menuItems.map((item) => {
+          {menuItems.map(item => {
             const isActive = location === item.path;
             return (
               <Tooltip key={item.path}>
@@ -209,7 +236,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           {user?.role === "admin" && (
             <>
               <div className="w-6 border-t my-1" />
-              {adminMenuItems.map((item) => {
+              {adminMenuItems.map(item => {
                 const isActive = location === item.path;
                 return (
                   <Tooltip key={item.path}>
@@ -244,7 +271,11 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 onClick={toggleTheme}
                 className="h-9 w-9 flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               >
-                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                {theme === "dark" ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
               </button>
             </TooltipTrigger>
             <TooltipContent side="right" className="text-xs">

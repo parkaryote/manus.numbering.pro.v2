@@ -1,25 +1,25 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-describe('Practice Realtime Refetch', () => {
-  describe('handleCorrectAnswer with refetch', () => {
-    it('should invalidate and refetch practice count on correct answer', async () => {
+describe("Practice Realtime Refetch", () => {
+  describe("handleCorrectAnswer with refetch", () => {
+    it("should invalidate and refetch practice count on correct answer", async () => {
       // Mock utils
       const invalidateMock = vi.fn().mockResolvedValue(undefined);
       const refetchMock = vi.fn().mockResolvedValue({
-        data: { count: 3 } // 이전 누적 연습이 2회였다면 3회로 증가
+        data: { count: 3 }, // 이전 누적 연습이 2회였다면 3회로 증가
       });
 
       const utils = {
         practice: {
           countByQuestion: {
             invalidate: invalidateMock,
-            refetch: refetchMock
-          }
-        }
+            refetch: refetchMock,
+          },
+        },
       };
 
-      const questionId = 'q-123';
-      
+      const questionId = "q-123";
+
       // handleCorrectAnswer 시뮬레이션
       await utils.practice.countByQuestion.invalidate({ questionId });
       await utils.practice.countByQuestion.refetch({ questionId });
@@ -28,14 +28,14 @@ describe('Practice Realtime Refetch', () => {
       expect(refetchMock).toHaveBeenCalledWith({ questionId });
     });
 
-    it('should update practice count display after refetch', async () => {
+    it("should update practice count display after refetch", async () => {
       // 정답 일치 시 현재 연습(practiceCount) 증가 + 누적 연습(practiceCountData) 갱신
       let practiceCount = 0;
       let practiceCountData = { count: 2 };
 
       // handleCorrectAnswer 실행
       practiceCount += 1; // 현재 연습 증가
-      
+
       // invalidate + refetch 시뮬레이션
       const refetchResult = { count: 3 }; // 누적 연습 증가
       practiceCountData = refetchResult;
@@ -44,7 +44,7 @@ describe('Practice Realtime Refetch', () => {
       expect(practiceCountData.count).toBe(3);
     });
 
-    it('should handle multiple correct answers in sequence', async () => {
+    it("should handle multiple correct answers in sequence", async () => {
       let practiceCount = 0;
       let cumulativeCount = 2;
 
@@ -68,23 +68,23 @@ describe('Practice Realtime Refetch', () => {
     });
   });
 
-  describe('savePracticeSession with refetch', () => {
-    it('should invalidate and refetch after saving session', async () => {
+  describe("savePracticeSession with refetch", () => {
+    it("should invalidate and refetch after saving session", async () => {
       const invalidateMock = vi.fn().mockResolvedValue(undefined);
       const refetchMock = vi.fn().mockResolvedValue({
-        data: { count: 5 }
+        data: { count: 5 },
       });
 
       const utils = {
         practice: {
           countByQuestion: {
             invalidate: invalidateMock,
-            refetch: refetchMock
-          }
-        }
+            refetch: refetchMock,
+          },
+        },
       };
 
-      const questionId = 'q-456';
+      const questionId = "q-456";
 
       // savePracticeSession 시뮬레이션
       await utils.practice.countByQuestion.invalidate({ questionId });
@@ -94,9 +94,9 @@ describe('Practice Realtime Refetch', () => {
       expect(refetchMock).toHaveBeenCalledWith({ questionId });
     });
 
-    it('should update cumulative count after session save', async () => {
+    it("should update cumulative count after session save", async () => {
       let cumulativeCount = 4;
-      
+
       // 세션 저장 후 refetch
       const newCount = 5;
       cumulativeCount = newCount;
@@ -105,8 +105,8 @@ describe('Practice Realtime Refetch', () => {
     });
   });
 
-  describe('Real-time update flow', () => {
-    it('should show current and cumulative practice count increasing', async () => {
+  describe("Real-time update flow", () => {
+    it("should show current and cumulative practice count increasing", async () => {
       let currentPractice = 0;
       let cumulativePractice = 2;
 
@@ -126,7 +126,7 @@ describe('Practice Realtime Refetch', () => {
       expect(displayCumulative).toBe(3);
     });
 
-    it('should maintain separate counts for current and cumulative', async () => {
+    it("should maintain separate counts for current and cumulative", async () => {
       let currentPractice = 0;
       let cumulativePractice = 5;
 

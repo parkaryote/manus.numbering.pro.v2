@@ -50,17 +50,25 @@ const subjectRows = subjectsResult[0];
 for (const subject of subjectRows) {
   if (targetNames.includes(subject.name)) {
     console.log(`삭제 중: ${subject.name} (id: ${subject.id})`);
-    
+
     // 관련 문제 ID 조회
-    const questionsResult = await db.execute(`SELECT id FROM questions WHERE subjectId = ${subject.id}`);
+    const questionsResult = await db.execute(
+      `SELECT id FROM questions WHERE subjectId = ${subject.id}`
+    );
     const questionIds = questionsResult[0].map(q => q.id);
-    
+
     if (questionIds.length > 0) {
       const idList = questionIds.join(",");
       // 연습/시험 세션 삭제
-      await db.execute(`DELETE FROM practiceSessions WHERE questionId IN (${idList})`);
-      await db.execute(`DELETE FROM testSessions WHERE questionId IN (${idList})`);
-      await db.execute(`DELETE FROM reviewSchedules WHERE questionId IN (${idList})`);
+      await db.execute(
+        `DELETE FROM practiceSessions WHERE questionId IN (${idList})`
+      );
+      await db.execute(
+        `DELETE FROM testSessions WHERE questionId IN (${idList})`
+      );
+      await db.execute(
+        `DELETE FROM reviewSchedules WHERE questionId IN (${idList})`
+      );
       // 문제 삭제
       await db.execute(`DELETE FROM questions WHERE subjectId = ${subject.id}`);
     }

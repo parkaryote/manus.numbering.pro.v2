@@ -8,7 +8,7 @@ export function findNextLineNumber(textBeforeCursor: string): number {
   }
   const nonEmptyLineCount = textBeforeCursor
     .split("\n")
-    .filter((line) => line.trim().length > 0).length;
+    .filter(line => line.trim().length > 0).length;
   return Math.max(1, nonEmptyLineCount + 1);
 }
 
@@ -43,4 +43,3 @@ export function buildNextAutoNumberingValue(
 
   return { nextValue, nextCursor };
 }
-

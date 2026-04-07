@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import * as ocrModule from "./ocr";
 
-const describeWhenDisabled = ocrModule.isOCREnabled() ? describe.skip : describe;
+const describeWhenDisabled = ocrModule.isOCREnabled()
+  ? describe.skip
+  : describe;
 
 describeWhenDisabled("OCR Module - Temporary Disabled Mode", () => {
   it("should report OCR as disabled", () => {
@@ -15,7 +17,9 @@ describeWhenDisabled("OCR Module - Temporary Disabled Mode", () => {
   });
 
   it("should keep cleanup no-op and non-throwing while disabled", async () => {
-    await expect(ocrModule.cleanupGCSFiles("invalid-uri")).resolves.toBeUndefined();
+    await expect(
+      ocrModule.cleanupGCSFiles("invalid-uri")
+    ).resolves.toBeUndefined();
     await expect(ocrModule.cleanupOldOCRFiles()).resolves.toBeUndefined();
   });
 });

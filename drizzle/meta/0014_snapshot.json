@@ -101,9 +101,7 @@
       "compositePrimaryKeys": {
         "ocrJobs_id": {
           "name": "ocrJobs_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -175,9 +173,7 @@
       "compositePrimaryKeys": {
         "practiceSessions_id": {
           "name": "practiceSessions_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -305,9 +301,7 @@
       "compositePrimaryKeys": {
         "questions_id": {
           "name": "questions_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -398,9 +392,7 @@
       "compositePrimaryKeys": {
         "reviewSchedules_id": {
           "name": "reviewSchedules_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -491,9 +483,7 @@
       "compositePrimaryKeys": {
         "subjects_id": {
           "name": "subjects_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -579,9 +569,7 @@
       "compositePrimaryKeys": {
         "testSessions_id": {
           "name": "testSessions_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {},
@@ -672,17 +660,13 @@
       "compositePrimaryKeys": {
         "users_id": {
           "name": "users_id",
-          "columns": [
-            "id"
-          ]
+          "columns": ["id"]
         }
       },
       "uniqueConstraints": {
         "users_openId_unique": {
           "name": "users_openId_unique",
-          "columns": [
-            "openId"
-          ]
+          "columns": ["openId"]
         }
       },
       "checkConstraint": {}
