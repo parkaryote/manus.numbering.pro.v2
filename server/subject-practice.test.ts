@@ -37,11 +37,12 @@ describe("SubjectPractice 라우트 및 UI 통합", () => {
     expect(content).toContain("visibleQuestionsRef");
   });
 
-  it("SubjectPractice에 우측 북마크 패널이 있어야 함", async () => {
+  it("SubjectPractice에 스크롤 기반 문제 이동 구조가 있어야 함", async () => {
     const fs = await import("fs");
     const content = fs.readFileSync("client/src/pages/SubjectPractice.tsx", "utf-8");
-    expect(content).toContain("scrollToQuestion");
-    expect(content).toContain("hidden lg:flex");
+    expect(content).toContain("overflow-y-auto");
+    expect(content).toContain("data-question-id");
+    expect(content).toContain("스크롤로 이동");
   });
 
   it("SubjectPractice에 연습 완료 시 DB 저장 로직이 있어야 함", async () => {

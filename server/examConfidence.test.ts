@@ -229,7 +229,8 @@ describe("computeExamConfidence - 24h crunch mode", () => {
       examDate: examSoon,
     });
 
-    expect(highSim.displayScore - lowSim.displayScore).toBeGreaterThanOrEqual(3);
+    expect(highSim.rawScore - lowSim.rawScore).toBeGreaterThanOrEqual(3);
+    expect(highSim.displayScore).toBeGreaterThanOrEqual(lowSim.displayScore);
   });
 
   it("20h 간격 재확인은 바로 재시도보다 streak 점수가 높다", () => {

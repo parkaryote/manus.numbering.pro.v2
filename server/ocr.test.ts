@@ -10,7 +10,7 @@ describeWhenDisabled("OCR Module - Temporary Disabled Mode", () => {
 
   it("should fail fast with clear message when OCR job starts while disabled", async () => {
     await expect(ocrModule.startOCRJob("gs://bucket/file.pdf")).rejects.toThrow(
-      /OCR is temporarily disabled/i
+      /OCR is disabled/i
     );
   });
 
