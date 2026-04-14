@@ -18,6 +18,13 @@ const GOOGLE_SOCIAL_BUTTON_META = {
 
 const GUEST_ID_KEY = "numbering_guest_id";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
+const RECENT_AUTH_AT_KEY = "numbering_recent_auth_at";
+const AUTH_SESSION_WAIT_MS = 20_000;
+
+type SessionUser = {
+  id: number;
+  loginMethod?: string | null;
+};
 
 function getOrCreateId(key: string): string {
   try {
@@ -31,6 +38,44 @@ function getOrCreateId(key: string): string {
   }
 }
 
+function markRecentAuthAttempt() {
+  try {
+    localStorage.setItem(RECENT_AUTH_AT_KEY, String(Date.now()));
+  } catch {
+    // ignore
+  }
+}
+
+async function fetchAuthMeSnapshot(timeoutMs: number): Promise<SessionUser | null> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
+      credentials: "include",
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return (body?.[0]?.result?.data?.json ?? null) as SessionUser | null;
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function waitForNonGuestSession(maxWaitMs: number): Promise<SessionUser | null> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < maxWaitMs) {
+    const user = await fetchAuthMeSnapshot(4500);
+    if (user && user.loginMethod !== "guest") {
+      return user;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+  }
+  return null;
+}
+
 export default function Login() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
@@ -41,16 +86,30 @@ export default function Login() {
   const [signupPassword, setSignupPassword] = useState("");
   const [signupPasswordConfirm, setSignupPasswordConfirm] = useState("");
   const [hasProcessedGoogleCode, setHasProcessedGoogleCode] = useState(false);
+  const [blockingMessage, setBlockingMessage] = useState<string | null>(null);
   const googleReturnToRef = useRef("/");
 
+  const waitAndRedirectAfterAuth = async (nextPath: string, successMessage: string) => {
+    setBlockingMessage("로그인 확인 중...");
+    const user = await waitForNonGuestSession(AUTH_SESSION_WAIT_MS);
+    if (!user) {
+      setBlockingMessage(null);
+      toast.error("로그인 확인이 지연되고 있습니다. 잠시 후 다시 시도해주세요.");
+      return false;
+    }
+    toast.success(successMessage);
+    void utils.auth.me.invalidate();
+    window.location.replace(nextPath);
+    return true;
+  };
+
   const googleLogin = trpc.auth.googleLoginWithCode.useMutation({
-    onSuccess: () => {
-      toast.success("로그인되었습니다.");
+    onSuccess: async () => {
       const nextPath = googleReturnToRef.current || "/";
-      void utils.auth.me.invalidate();
-      window.location.replace(nextPath);
+      await waitAndRedirectAfterAuth(nextPath, "로그인되었습니다.");
     },
     onError: (error) => {
+      setBlockingMessage(null);
       const raw = (error?.message ?? "").toLowerCase();
       if (raw.includes("aborted") || raw.includes("aborterror") || raw.includes("signal is aborted")) {
         toast.error("서버 응답이 지연되었습니다. 잠시 후 다시 시도해주세요.");
@@ -61,32 +120,32 @@ export default function Login() {
   });
 
   const loginMutation = trpc.auth.simpleLogin.useMutation({
-    onSuccess: () => {
-      toast.success("로그인되었습니다.");
-      void utils.auth.me.invalidate();
-      window.location.replace("/");
+    onSuccess: async () => {
+      await waitAndRedirectAfterAuth("/", "로그인되었습니다.");
     },
     onError: (error) => {
+      setBlockingMessage(null);
       toast.error(error.message || "로그인 실패");
     },
   });
 
   const signupMutation = trpc.auth.simpleSignup.useMutation({
-    onSuccess: () => {
-      toast.success("가입 완료! 로그인되었습니다.");
-      void utils.auth.me.invalidate();
-      window.location.replace("/");
+    onSuccess: async () => {
+      await waitAndRedirectAfterAuth("/", "가입 완료! 로그인되었습니다.");
     },
     onError: (error) => {
+      setBlockingMessage(null);
       toast.error(error.message || "가입 실패");
     },
   });
 
   const guestLogin = trpc.auth.autoGuestLogin.useMutation({
     onSuccess: () => {
+      setBlockingMessage(null);
       setLocation("/");
     },
     onError: () => {
+      setBlockingMessage(null);
       toast.error("게스트 시작에 실패했습니다.");
     },
   });
@@ -96,6 +155,7 @@ export default function Login() {
     loginMutation.isPending ||
     signupMutation.isPending ||
     guestLogin.isPending;
+  const isUiLocked = isPending || Boolean(blockingMessage);
 
   useEffect(() => {
     if (hasProcessedGoogleCode) return;
@@ -107,6 +167,7 @@ export default function Login() {
 
     if (error) {
       setHasProcessedGoogleCode(true);
+      setBlockingMessage(null);
       toast.error("Google 로그인 승인에 실패했습니다.");
       window.history.replaceState({}, "", "/login");
       return;
@@ -115,6 +176,8 @@ export default function Login() {
     if (!code) return;
 
     setHasProcessedGoogleCode(true);
+    markRecentAuthAttempt();
+    setBlockingMessage("Google 로그인 처리 중...");
     googleReturnToRef.current = parseGoogleStateReturnTo(state);
     window.history.replaceState({}, "", "/login");
     googleLogin.mutate({ code });
@@ -137,23 +200,26 @@ export default function Login() {
               return;
             }
             try {
+              markRecentAuthAttempt();
+              setBlockingMessage("Google 로그인 화면으로 이동 중...");
               startGoogleOAuthLogin({
                 clientId: GOOGLE_CLIENT_ID,
                 returnTo: requestedReturnTo,
               });
             } catch (error) {
+              setBlockingMessage(null);
               toast.error(error instanceof Error ? error.message : "Google 로그인 시작 실패");
             }
           }}
           className={`w-full justify-start gap-2 ${GOOGLE_SOCIAL_BUTTON_META.className}`}
-          disabled={isPending}
+          disabled={isUiLocked}
         >
           {GOOGLE_SOCIAL_BUTTON_META.icon}
           {GOOGLE_SOCIAL_BUTTON_META.label}
         </Button>
       );
     },
-    [isPending, requestedReturnTo]
+    [isUiLocked, requestedReturnTo]
   );
 
   const handleLogin = () => {
@@ -165,6 +231,8 @@ export default function Login() {
       toast.error("비밀번호를 입력해주세요.");
       return;
     }
+    markRecentAuthAttempt();
+    setBlockingMessage("아이디 로그인 처리 중...");
     loginMutation.mutate({ identifier, password });
   };
 
@@ -181,6 +249,8 @@ export default function Login() {
       toast.error("비밀번호가 일치하지 않습니다.");
       return;
     }
+    markRecentAuthAttempt();
+    setBlockingMessage("가입 처리 중...");
     signupMutation.mutate({
       username: signupUsername,
       password: signupPassword,
@@ -193,12 +263,24 @@ export default function Login() {
         <CardHeader className="space-y-2">
           <CardTitle className="text-2xl font-semibold">로그인</CardTitle>
           <CardDescription>계정을 선택해 계속 진행하세요.</CardDescription>
+          {blockingMessage && (
+            <div className="mt-2 inline-flex items-center gap-2 rounded-md border border-border/80 bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground/50 border-t-transparent" />
+              <span>{blockingMessage}</span>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
-          <Tabs value={tab} onValueChange={v => setTab(v as "social" | "account")}>
+          <Tabs
+            value={tab}
+            onValueChange={(v) => {
+              if (isUiLocked) return;
+              setTab(v as "social" | "account");
+            }}
+          >
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="social">소셜</TabsTrigger>
-              <TabsTrigger value="account">아이디</TabsTrigger>
+              <TabsTrigger value="social" disabled={isUiLocked}>소셜</TabsTrigger>
+              <TabsTrigger value="account" disabled={isUiLocked}>아이디</TabsTrigger>
             </TabsList>
 
             <TabsContent value="social" className="space-y-3 pt-3">
@@ -208,9 +290,10 @@ export default function Login() {
                 className="w-full gap-2"
                 onClick={() => {
                   const guestId = getOrCreateId(GUEST_ID_KEY);
+                  setBlockingMessage("게스트로 입장 중...");
                   guestLogin.mutate({ guestId });
                 }}
-                disabled={isPending}
+                disabled={isUiLocked}
               >
                 <ShieldCheck className="h-4 w-4" />
                 게스트로 계속
@@ -225,7 +308,7 @@ export default function Login() {
                   placeholder="아이디 또는 이메일"
                   value={identifier}
                   onChange={e => setIdentifier(e.target.value)}
-                  disabled={isPending}
+                  disabled={isUiLocked}
                 />
               </div>
               <div className="space-y-2">
@@ -236,10 +319,10 @@ export default function Login() {
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && handleLogin()}
-                  disabled={isPending}
+                  disabled={isUiLocked}
                 />
               </div>
-              <Button className="w-full" onClick={handleLogin} disabled={isPending}>
+              <Button className="w-full" onClick={handleLogin} disabled={isUiLocked}>
                 로그인
               </Button>
 
@@ -251,7 +334,7 @@ export default function Login() {
                   id="signup-username"
                   value={signupUsername}
                   onChange={e => setSignupUsername(e.target.value)}
-                  disabled={isPending}
+                  disabled={isUiLocked}
                 />
               </div>
               <div className="space-y-2">
@@ -261,7 +344,7 @@ export default function Login() {
                   type="password"
                   value={signupPassword}
                   onChange={e => setSignupPassword(e.target.value)}
-                  disabled={isPending}
+                  disabled={isUiLocked}
                 />
               </div>
               <div className="space-y-2">
@@ -272,10 +355,10 @@ export default function Login() {
                   value={signupPasswordConfirm}
                   onChange={e => setSignupPasswordConfirm(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && handleSignup()}
-                  disabled={isPending}
+                  disabled={isUiLocked}
                 />
               </div>
-              <Button variant="outline" className="w-full" onClick={handleSignup} disabled={isPending}>
+              <Button variant="outline" className="w-full" onClick={handleSignup} disabled={isUiLocked}>
                 가입 후 시작
               </Button>
             </TabsContent>

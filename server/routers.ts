@@ -1780,7 +1780,7 @@ export const appRouter = router({
 
         await syncStarterDataSafely(user.id);
 
-        const sessionToken = await sdk.createSessionToken(openId, {
+        const sessionToken = await sdk.createSessionToken(user.openId, {
           name: preferredName || user.name || "Google 사용자",
           expiresInMs: ONE_YEAR_MS,
         });

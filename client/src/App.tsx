@@ -20,8 +20,10 @@ import SubjectExam from "./pages/SubjectExam";
 import Login from "./pages/Login";
 
 const GUEST_ID_KEY = "numbering_guest_id";
+const RECENT_AUTH_AT_KEY = "numbering_recent_auth_at";
 const INIT_MAX_WAIT_MS = 2_500;
 const AUTH_ME_FETCH_TIMEOUT_MS = 5_000;
+const RECENT_AUTH_GRACE_MS = 45_000;
 const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
 
 async function fetchAuthMeWithTimeout(timeoutMs: number) {
@@ -50,6 +52,28 @@ function getOrCreateGuestId(): string {
     return guestId;
   } catch {
     return Math.random().toString(36).substring(2, 11);
+  }
+}
+
+function hasRecentAuthAttempt(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = localStorage.getItem(RECENT_AUTH_AT_KEY);
+    if (!raw) return false;
+    const at = Number(raw);
+    if (!Number.isFinite(at) || at <= 0) return false;
+    return Date.now() - at <= RECENT_AUTH_GRACE_MS;
+  } catch {
+    return false;
+  }
+}
+
+function clearRecentAuthAttempt() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(RECENT_AUTH_AT_KEY);
+  } catch {
+    // ignore
   }
 }
 
@@ -251,6 +275,7 @@ function AppContent() {
     enabled: initDone,
     retry: false,
     refetchOnWindowFocus: false,
+    refetchInterval: initDone && location !== "/login" && hasRecentAuthAttempt() ? 1200 : false,
   });
 
   // 로그인/가입 성공 후 currentUser를 업데이트하는 함수 (reload 없이 레이아웃 전환)
@@ -277,12 +302,15 @@ function AppContent() {
       try {
         // 1) 먼저 현재 세션 확인
         const user = await fetchAuthMeWithTimeout(AUTH_ME_FETCH_TIMEOUT_MS);
-        if (user) {
-          // 이미 로그인된 사용자(정식/게스트)면 게스트 재로그인 건너뜀
-          setCurrentUser(user);
-          safeSetInitDone();
-          return;
+      if (user) {
+        // 이미 로그인된 사용자(정식/게스트)면 게스트 재로그인 건너뜀
+        setCurrentUser(user);
+        if (!isGuestUser(user)) {
+          clearRecentAuthAttempt();
         }
+        safeSetInitDone();
+        return;
+      }
       } catch {
         // 일시적 네트워크/서버 지연 시 게스트 세션으로 덮어쓰지 않음
         authProbeFailed = true;
@@ -308,6 +336,9 @@ function AppContent() {
     if (!initDone) return;
     if (meQuery.isLoading) return;
     setCurrentUser(meQuery.data ?? null);
+    if (meQuery.data && !isGuestUser(meQuery.data)) {
+      clearRecentAuthAttempt();
+    }
   }, [initDone, meQuery.data, meQuery.isLoading]);
 
   useEffect(() => {
@@ -317,6 +348,7 @@ function AppContent() {
     if (guestBootstrapFailed) return;
     if (currentUser) return;
     if (location === "/login") return;
+    if (hasRecentAuthAttempt()) return;
 
     const guestId = getOrCreateGuestId();
     autoGuestLogin.mutate(

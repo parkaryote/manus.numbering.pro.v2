@@ -84,7 +84,17 @@ const SUCCESS_ACCURACY_THRESHOLD = 80;
 // 브랜드 컬러 (보라 계열) - 선에만 사용
 const BRAND_COLOR = "#8b5cf6";
 const EVENT_LINE_COLOR = "#64748b"; // 실제 이벤트 연결선(보조)
-const PREDICT_COLOR = "#94a3b8"; // 점선 예측 색상 (slate-400)
+const PREDICT_COLOR = BRAND_COLOR; // 추세 기반 점선 예측
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function stateFromScore(score: number): "green" | "yellow" | "red" {
+  if (score >= 80) return "green";
+  if (score >= 40) return "yellow";
+  return "red";
+}
 
 // 커스텀 점 렌더러
 const CustomDot = (props: any) => {
@@ -268,42 +278,68 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
   const testPoints = pointsWithFallback.filter(p => p.eventType === "test");
   const latestTestAt = testPoints.length > 0 ? testPoints[testPoints.length - 1].at : null;
 
-  // 시험일 예측 포인트 추가 (현재 시점 이후에 점선으로 표시)
-  const allPoints: HistoryPoint[] = [...pointsWithFallback];
-  if (effectiveExamDatePrediction) {
-    let examDate = new Date(effectiveExamDatePrediction.examAtISO);
+  // 실제 이벤트(점수) 기준 추세선을 먼저 계산
+  const solidData: HistoryPoint[] = [...pointsWithFallback];
+  const solidTrendScores = buildTrendScores(
+    solidData.map((p) => p.score),
+    solidData.map((p) => p.eventType)
+  );
+  const lastSolidPoint = solidData[solidData.length - 1];
+  const lastTrendScore =
+    solidTrendScores.length > 0
+      ? (solidTrendScores[solidTrendScores.length - 1] ?? lastSolidPoint?.score ?? null)
+      : null;
+
+  // 시험일 예측은 "이벤트 원점수"가 아니라 "보라 추세선" 기준으로 투영
+  const trendBasedExamDatePrediction = (() => {
+    if (!effectiveExamDatePrediction) return null;
+    if (!lastSolidPoint || lastTrendScore === null) return effectiveExamDatePrediction;
+
+    const backendDelta =
+      effectiveExamDatePrediction.predictedScore - effectiveExamDatePrediction.currentScore;
+    const projectedScore = clampScore(lastTrendScore + backendDelta);
+    const baseScoreForDelta = lastSolidPoint.score;
+    return {
+      ...effectiveExamDatePrediction,
+      predictedScore: projectedScore,
+      predictedState: stateFromScore(projectedScore),
+      scoreDelta: projectedScore - baseScoreForDelta,
+    };
+  })();
+
+  const allPoints: HistoryPoint[] = [...solidData];
+  if (trendBasedExamDatePrediction) {
+    let examDate = new Date(trendBasedExamDatePrediction.examAtISO);
     if (Number.isNaN(examDate.getTime())) {
-      examDate = new Date(Date.now() + (effectiveExamDatePrediction.minutesUntilExam ?? effectiveExamDatePrediction.daysUntilExam * 24 * 60) * 60_000);
+      examDate = new Date(
+        Date.now() +
+          (trendBasedExamDatePrediction.minutesUntilExam ??
+            trendBasedExamDatePrediction.daysUntilExam * 24 * 60) *
+            60_000
+      );
     }
-    const lastAt = allPoints.length > 0 ? new Date(allPoints[allPoints.length - 1].at).getTime() : Date.now();
+    const lastAt =
+      allPoints.length > 0 ? new Date(allPoints[allPoints.length - 1].at).getTime() : Date.now();
     if (examDate.getTime() <= lastAt) {
       examDate = new Date(lastAt + 60_000);
     }
     allPoints.push({
       at: examDate.toISOString(),
-      score: effectiveExamDatePrediction.predictedScore,
-      state: effectiveExamDatePrediction.predictedState,
+      score: trendBasedExamDatePrediction.predictedScore,
+      state: trendBasedExamDatePrediction.predictedState,
       eventType: "exam_predict",
     } as any);
   }
 
-  // 실선/점선 분리: solidScore = 실제 데이터, dashedScore = 예측 구간
-  const solidData = allPoints.filter(p => (p as any).eventType !== "exam_predict");
-  const lastSolidPoint = solidData[solidData.length - 1];
-  const predictPoint = allPoints.find(p => (p as any).eventType === "exam_predict");
-
-  // 시간축은 완만하게 압축: 추세를 우선하고, 시험일 예측 구간은 과도하게 길어지지 않게 축소
+  const predictPoint = allPoints.find((p) => (p as any).eventType === "exam_predict");
   const timeScale = buildSoftTimeScale(
     allPoints.map((p) => ({ at: p.at, eventType: (p as any).eventType }))
   );
-  const trendScores = buildTrendScores(
-    allPoints.map((p) => ((p as any).eventType === "exam_predict" ? null : p.score)),
-    allPoints.map((p) => (p as any).eventType)
-  );
   const chartData = allPoints.map((p, i) => {
     const isPredict = (p as any).eventType === "exam_predict";
-    const isJunction = lastSolidPoint && p.at === lastSolidPoint.at && !isPredict;
     const xPos = timeScale.nodes[i]?.x ?? i * 24;
+    const solidLastIdx = solidData.length - 1;
+    const isTrendProjectionStart = !isPredict && i === solidLastIdx && Boolean(predictPoint);
     return {
       ...p,
       idx: i,
@@ -311,16 +347,21 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
       xPos,
       isLatest: p.at === latestTestAt && (p as any).eventType === "test",
       solidScore: isPredict ? null : p.score,
-      trendScore: isPredict ? null : trendScores[i],
-      // 점선은 마지막 실선 포인트부터 예측 포인트까지
-      dashedScore: isPredict ? p.score : (isJunction ? p.score : null),
-      ...(isPredict && effectiveExamDatePrediction ? {
-        predictedState: effectiveExamDatePrediction.predictedState,
-        scoreDelta: effectiveExamDatePrediction.scoreDelta,
-        daysUntilExam: effectiveExamDatePrediction.daysUntilExam,
-        hoursUntilExam: effectiveExamDatePrediction.hoursUntilExam,
-        minutesUntilExam: effectiveExamDatePrediction.minutesUntilExam,
-      } : {}),
+      trendScore: isPredict ? null : (solidTrendScores[i] ?? p.score),
+      trendProjectionScore: isPredict
+        ? p.score
+        : isTrendProjectionStart
+          ? (solidTrendScores[i] ?? p.score)
+          : null,
+      ...(isPredict && trendBasedExamDatePrediction
+        ? {
+            predictedState: trendBasedExamDatePrediction.predictedState,
+            scoreDelta: trendBasedExamDatePrediction.scoreDelta,
+            daysUntilExam: trendBasedExamDatePrediction.daysUntilExam,
+            hoursUntilExam: trendBasedExamDatePrediction.hoursUntilExam,
+            minutesUntilExam: trendBasedExamDatePrediction.minutesUntilExam,
+          }
+        : {}),
     };
   });
 
@@ -387,10 +428,10 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                 <span className="inline-block w-3 h-3 rounded-full bg-red-500" />
                 시험 실패 (&lt;80%)
               </span>
-              {effectiveExamDatePrediction && (
+              {trendBasedExamDatePrediction && (
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-5 h-0.5" style={{ background: `repeating-linear-gradient(90deg, ${PREDICT_COLOR} 0, ${PREDICT_COLOR} 4px, transparent 4px, transparent 7px)` }} />
-                  시험일 예측
+                  추세 기반 예측
                 </span>
               )}
               <span className="flex items-center gap-1.5 text-muted-foreground/50">
@@ -485,10 +526,10 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                   {predictPoint && (
                     <Line
                       type="monotone"
-                      dataKey="dashedScore"
+                      dataKey="trendProjectionScore"
                       stroke={PREDICT_COLOR}
-                      strokeOpacity={0.72}
-                      strokeWidth={1.7}
+                      strokeOpacity={0.76}
+                      strokeWidth={2.2}
                       strokeDasharray="5 4"
                       dot={false}
                       activeDot={false}
@@ -501,17 +542,17 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
             </div>
 
             {/* 시험일 예측 요약 (있을 경우) */}
-            {effectiveExamDatePrediction && (
+            {trendBasedExamDatePrediction && (
               <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm">
-                <span className="text-muted-foreground text-xs">{formatExamCountdown(effectiveExamDatePrediction.minutesUntilExam)} 예측</span>
+                <span className="text-muted-foreground text-xs">{formatExamCountdown(trendBasedExamDatePrediction.minutesUntilExam)} 예측</span>
                 <span
                   className="font-bold text-base tabular-nums"
-                  style={{ color: effectiveExamDatePrediction.predictedState === "green" ? "#22c55e" : effectiveExamDatePrediction.predictedState === "yellow" ? "#f59e0b" : "#ef4444" }}
+                  style={{ color: trendBasedExamDatePrediction.predictedState === "green" ? "#22c55e" : trendBasedExamDatePrediction.predictedState === "yellow" ? "#f59e0b" : "#ef4444" }}
                 >
-                  {effectiveExamDatePrediction.predictedScore}점
+                  {trendBasedExamDatePrediction.predictedScore}점
                 </span>
-                {effectiveExamDatePrediction.scoreDelta < 0 && (
-                  <span className="text-red-400 text-xs font-medium">{effectiveExamDatePrediction.scoreDelta}점 예상 감소</span>
+                {trendBasedExamDatePrediction.scoreDelta < 0 && (
+                  <span className="text-red-400 text-xs font-medium">{trendBasedExamDatePrediction.scoreDelta}점 예상 감소</span>
                 )}
               </div>
             )}
