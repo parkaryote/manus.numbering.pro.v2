@@ -10,7 +10,7 @@ import { ArrowLeft, Clock, Trophy, RotateCcw, ChevronRight } from "lucide-react"
 import { toast } from "sonner";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
-import { buildNextAutoNumberingValue } from "@/lib/autoNumbering";
+import { buildNextAutoNumberingValue, getLinePrefixHint } from "@/lib/autoNumbering";
 
 interface SubjectExamProps {
   subjectId: number;
@@ -727,10 +727,19 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
                     const textarea = e.currentTarget;
                     const selectionStart = textarea.selectionStart ?? 0;
                     const selectionEnd = textarea.selectionEnd ?? selectionStart;
+                    const rawValue = textarea.value.replace(/\r\n/g, "\n");
+                    const currentLineIndex = rawValue.slice(0, selectionStart).split("\n").length - 1;
+                    const templateLines = String(q.answer ?? "").replace(/\r\n/g, "\n").split("\n");
+                    const nextPrefixHint = getLinePrefixHint(templateLines[currentLineIndex + 1] ?? "");
+                    const autoNumberingOptions =
+                      nextPrefixHint
+                        ? { forcedPrefix: nextPrefixHint.kind === "bullet" ? "" : nextPrefixHint.prefix }
+                        : undefined;
                     const { nextValue, nextCursor } = buildNextAutoNumberingValue(
-                      textarea.value,
+                      rawValue,
                       selectionStart,
-                      selectionEnd
+                      selectionEnd,
+                      autoNumberingOptions
                     );
 
                     setTextAnswers((prev) => ({ ...prev, [q.id]: nextValue }));

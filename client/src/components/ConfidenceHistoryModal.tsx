@@ -13,6 +13,11 @@ import {
 } from "recharts";
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from "date-fns";
 import { ko } from "date-fns/locale";
+import {
+  buildSoftTimeScale,
+  buildTrendScores,
+  formatSoftRelativeTick,
+} from "@/lib/softTimeScale";
 
 interface ExamDatePrediction {
   predictedScore: number;
@@ -63,15 +68,6 @@ function formatTimeLabel(isoStr: string, allPoints: { at: string }[]): string {
   return format(date, "M/d", { locale: ko });
 }
 
-function formatRelativeTick(ts: number, firstTs: number): string {
-  const diffMin = Math.max(0, Math.round((ts - firstTs) / 60000));
-  if (diffMin < 60) return `+${diffMin}분`;
-  if (diffMin < 60 * 24) return `+${Math.round(diffMin / 60)}시간`;
-  const diffDays = Math.round(diffMin / (60 * 24));
-  if (diffDays < 30) return `+${diffDays}일`;
-  return format(new Date(ts), "M/d", { locale: ko });
-}
-
 function formatExamCountdown(minutesUntilExam: number): string {
   if (minutesUntilExam <= 0) return "D-Day";
   const days = Math.floor(minutesUntilExam / (60 * 24));
@@ -87,6 +83,7 @@ const SUCCESS_ACCURACY_THRESHOLD = 80;
 
 // 브랜드 컬러 (보라 계열) - 선에만 사용
 const BRAND_COLOR = "#8b5cf6";
+const EVENT_LINE_COLOR = "#64748b"; // 실제 이벤트 연결선(보조)
 const PREDICT_COLOR = "#94a3b8"; // 점선 예측 색상 (slate-400)
 
 // 커스텀 점 렌더러
@@ -103,17 +100,17 @@ const CustomDot = (props: any) => {
     return (
       <g key={`dot-${cx}-${cy}`}>
         {isLatest && (
-          <circle cx={cx} cy={cy} r={12} fill={color} fillOpacity={0.15} />
+          <circle cx={cx} cy={cy} r={9} fill={color} fillOpacity={0.12} />
         )}
-        <circle cx={cx} cy={cy} r={isLatest ? 7 : 5.5} fill={color} stroke="white" strokeWidth={2} />
+        <circle cx={cx} cy={cy} r={isLatest ? 5 : 4} fill={color} stroke="white" strokeWidth={1.5} />
       </g>
     );
   }
   if (payload.eventType === "now") {
     return (
       <g key={`dot-${cx}-${cy}`}>
-        <circle cx={cx} cy={cy} r={12} fill={BRAND_COLOR} fillOpacity={0.15} />
-        <circle cx={cx} cy={cy} r={6} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />
+        <circle cx={cx} cy={cy} r={8} fill={BRAND_COLOR} fillOpacity={0.12} />
+        <circle cx={cx} cy={cy} r={4.5} fill={BRAND_COLOR} stroke="white" strokeWidth={1.5} />
       </g>
     );
   }
@@ -121,8 +118,8 @@ const CustomDot = (props: any) => {
     const stateColor = payload.predictedState === "green" ? "#22c55e" : payload.predictedState === "yellow" ? "#f59e0b" : "#ef4444";
     return (
       <g key={`dot-${cx}-${cy}`}>
-        <circle cx={cx} cy={cy} r={10} fill={stateColor} fillOpacity={0.15} />
-        <circle cx={cx} cy={cy} r={6} fill={stateColor} stroke="white" strokeWidth={2} strokeDasharray="2 1" />
+        <circle cx={cx} cy={cy} r={8} fill={stateColor} fillOpacity={0.12} />
+        <circle cx={cx} cy={cy} r={4.5} fill={stateColor} stroke="white" strokeWidth={1.5} strokeDasharray="2 1" />
       </g>
     );
   }
@@ -295,24 +292,26 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
   const lastSolidPoint = solidData[solidData.length - 1];
   const predictPoint = allPoints.find(p => (p as any).eventType === "exam_predict");
 
-  // mergedData: 모든 포인트를 하나의 배열로, solidScore/dashedScore 필드 분리
-  const firstTs = allPoints.length > 0 ? new Date(allPoints[0].at).getTime() : Date.now();
-  const lastTs = allPoints.length > 0 ? new Date(allPoints[allPoints.length - 1].at).getTime() : firstTs;
-  const rawRange = Math.max(1, lastTs - firstTs);
-  const xPadding = Math.max(Math.round(rawRange * 0.04), 5 * 60 * 1000);
-  const xDomainMin = firstTs;
-  const xDomainMax = lastTs + xPadding;
+  // 시간축은 완만하게 압축: 추세를 우선하고, 시험일 예측 구간은 과도하게 길어지지 않게 축소
+  const timeScale = buildSoftTimeScale(
+    allPoints.map((p) => ({ at: p.at, eventType: (p as any).eventType }))
+  );
+  const trendScores = buildTrendScores(
+    allPoints.map((p) => ((p as any).eventType === "exam_predict" ? null : p.score)),
+    allPoints.map((p) => (p as any).eventType)
+  );
   const chartData = allPoints.map((p, i) => {
     const isPredict = (p as any).eventType === "exam_predict";
     const isJunction = lastSolidPoint && p.at === lastSolidPoint.at && !isPredict;
-    const xTs = new Date(p.at).getTime();
+    const xPos = timeScale.nodes[i]?.x ?? i * 24;
     return {
       ...p,
       idx: i,
       label: allPoints.length > 0 ? formatTimeLabel(p.at, allPoints) : "",
-      xTs,
+      xPos,
       isLatest: p.at === latestTestAt && (p as any).eventType === "test",
       solidScore: isPredict ? null : p.score,
+      trendScore: isPredict ? null : trendScores[i],
       // 점선은 마지막 실선 포인트부터 예측 포인트까지
       dashedScore: isPredict ? p.score : (isJunction ? p.score : null),
       ...(isPredict && effectiveExamDatePrediction ? {
@@ -374,7 +373,11 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
             <div className="flex items-center gap-4 text-sm text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
-                안정도 흐름
+                추세선 (주요)
+              </span>
+              <span className="flex items-center gap-1.5 text-muted-foreground/80">
+                <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: EVENT_LINE_COLOR, opacity: 0.5 }} />
+                실제 이벤트 (보조)
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
@@ -410,8 +413,8 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
                   <XAxis
                     type="number"
-                    dataKey="xTs"
-                    domain={[xDomainMin, xDomainMax]}
+                    dataKey="xPos"
+                    domain={[timeScale.xDomainMin, timeScale.xDomainMax]}
                     scale="linear"
                     tickCount={8}
                     interval="preserveStartEnd"
@@ -420,7 +423,9 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                     tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(value) => formatRelativeTick(Number(value), firstTs)}
+                    tickFormatter={(value) =>
+                      formatSoftRelativeTick(Number(value), timeScale.nodes, timeScale.firstTs)
+                    }
                   />
                   <YAxis
                     domain={[0, 100]}
@@ -456,9 +461,21 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                   {/* 실선: 실제 안정도 흐름 */}
                   <Line
                     type="monotone"
-                    dataKey="solidScore"
+                    dataKey="trendScore"
                     stroke={BRAND_COLOR}
-                    strokeWidth={2.5}
+                    strokeOpacity={0.9}
+                    strokeWidth={3.4}
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={false}
+                    connectNulls={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="solidScore"
+                    stroke={EVENT_LINE_COLOR}
+                    strokeOpacity={0.5}
+                    strokeWidth={1.35}
                     dot={<CustomDot />}
                     activeDot={<CustomActiveDot />}
                     isAnimationActive={false}
@@ -470,7 +487,8 @@ export function ConfidenceHistoryModal({ questionId, questionTitle, open, onClos
                       type="monotone"
                       dataKey="dashedScore"
                       stroke={PREDICT_COLOR}
-                      strokeWidth={2}
+                      strokeOpacity={0.72}
+                      strokeWidth={1.7}
                       strokeDasharray="5 4"
                       dot={false}
                       activeDot={false}

@@ -13,6 +13,11 @@ import {
 } from "recharts";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
+import {
+  buildSoftTimeScale,
+  buildTrendScores,
+  formatSoftRelativeTick,
+} from "@/lib/softTimeScale";
 
 interface Props {
   subjectId: number | null;
@@ -21,17 +26,9 @@ interface Props {
   onClose: () => void;
 }
 
-function formatRelativeTick(ts: number, firstTs: number): string {
-  const diffMin = Math.max(0, Math.round((ts - firstTs) / 60000));
-  if (diffMin < 60) return `+${diffMin}분`;
-  if (diffMin < 60 * 24) return `+${Math.round(diffMin / 60)}시간`;
-  const diffDays = Math.round(diffMin / (60 * 24));
-  if (diffDays < 30) return `+${diffDays}일`;
-  return format(new Date(ts), "M/d", { locale: ko });
-}
-
 // 브랜드 컬러 (보라 계열) - 선에만 사용
 const BRAND_COLOR = "#8b5cf6";
+const EVENT_LINE_COLOR = "#64748b"; // 실제 이벤트 연결선(보조)
 // 성공 기준
 const SUCCESS_THRESHOLD = 80;
 
@@ -52,17 +49,17 @@ const CustomDot = (props: any) => {
     return (
       <g key={`dot-${cx}-${cy}`}>
         {isLatest && (
-          <circle cx={cx} cy={cy} r={12} fill={color} fillOpacity={0.15} />
+          <circle cx={cx} cy={cy} r={9} fill={color} fillOpacity={0.12} />
         )}
-        <circle cx={cx} cy={cy} r={isLatest ? 7 : 5.5} fill={color} stroke="white" strokeWidth={2} />
+        <circle cx={cx} cy={cy} r={isLatest ? 5 : 4} fill={color} stroke="white" strokeWidth={1.5} />
       </g>
     );
   }
   if (payload.eventType === "now") {
     return (
       <g key={`dot-${cx}-${cy}`}>
-        <circle cx={cx} cy={cy} r={12} fill={BRAND_COLOR} fillOpacity={0.15} />
-        <circle cx={cx} cy={cy} r={6} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />
+        <circle cx={cx} cy={cy} r={8} fill={BRAND_COLOR} fillOpacity={0.12} />
+        <circle cx={cx} cy={cy} r={4.5} fill={BRAND_COLOR} stroke="white" strokeWidth={1.5} />
       </g>
     );
   }
@@ -154,17 +151,19 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
 
   const testPoints = points.filter(p => p.eventType === "test");
   const latestTestAt = testPoints.length > 0 ? testPoints[testPoints.length - 1].at : null;
-  const firstTs = points.length > 0 ? new Date(points[0].at).getTime() : Date.now();
-  const lastTs = points.length > 0 ? new Date(points[points.length - 1].at).getTime() : firstTs;
-  const rawRange = Math.max(1, lastTs - firstTs);
-  const xPadding = Math.max(Math.round(rawRange * 0.04), 5 * 60 * 1000);
-  const xDomainMin = firstTs;
-  const xDomainMax = lastTs + xPadding;
+  const timeScale = buildSoftTimeScale(
+    points.map((p) => ({ at: p.at, eventType: p.eventType }))
+  );
+  const trendScores = buildTrendScores(
+    points.map((p) => p.score),
+    points.map((p) => p.eventType)
+  );
 
   const chartData = points.map((p, i) => ({
     ...p,
     idx: i,
-    xTs: new Date(p.at).getTime(),
+    xPos: timeScale.nodes[i]?.x ?? i * 24,
+    trendScore: trendScores[i],
     isLatest: p.at === latestTestAt && p.eventType === "test",
   }));
 
@@ -206,7 +205,11 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
             <div className="flex items-center gap-4 text-sm text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
-                안정도 흐름
+                추세선 (주요)
+              </span>
+              <span className="flex items-center gap-1.5 text-muted-foreground/80">
+                <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: EVENT_LINE_COLOR, opacity: 0.5 }} />
+                실제 이벤트 (보조)
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
@@ -237,8 +240,8 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
                   <XAxis
                     type="number"
-                    dataKey="xTs"
-                    domain={[xDomainMin, xDomainMax]}
+                    dataKey="xPos"
+                    domain={[timeScale.xDomainMin, timeScale.xDomainMax]}
                     scale="linear"
                     tickCount={8}
                     interval="preserveStartEnd"
@@ -246,7 +249,9 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
                     tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(value) => formatRelativeTick(Number(value), firstTs)}
+                    tickFormatter={(value) =>
+                      formatSoftRelativeTick(Number(value), timeScale.nodes, timeScale.firstTs)
+                    }
                   />
                   <YAxis
                     domain={[0, 100]}
@@ -281,9 +286,21 @@ export function SubjectConfidenceHistoryModal({ subjectId, subjectName, open, on
                   {/* 그래프 선: 단일 브랜드 컬러 */}
                   <Line
                     type="monotone"
-                    dataKey="score"
+                    dataKey="trendScore"
                     stroke={BRAND_COLOR}
-                    strokeWidth={2.5}
+                    strokeOpacity={0.9}
+                    strokeWidth={3.4}
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={true}
+                    animationDuration={500}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="score"
+                    stroke={EVENT_LINE_COLOR}
+                    strokeOpacity={0.5}
+                    strokeWidth={1.35}
                     dot={<CustomDot />}
                     activeDot={<CustomActiveDot />}
                     isAnimationActive={true}

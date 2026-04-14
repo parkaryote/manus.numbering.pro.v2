@@ -14,13 +14,18 @@ function isPortAvailable(port: number): Promise<boolean> {
   });
 }
 
-async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
+async function findAvailablePort(
+  startPort: number = 3000,
+  maxChecks: number = 200
+): Promise<number> {
+  for (let port = startPort; port < startPort + maxChecks; port++) {
     if (await isPortAvailable(port)) {
       return port;
     }
   }
-  throw new Error(`No available port found starting from ${startPort}`);
+  throw new Error(
+    `No available port found in range ${startPort}-${startPort + maxChecks - 1}`
+  );
 }
 
 async function startServer() {

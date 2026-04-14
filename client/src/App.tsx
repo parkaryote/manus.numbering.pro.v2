@@ -8,7 +8,6 @@ import { SiteGate, useSiteAccess } from "./components/SiteGate";
 import { trpc } from "./lib/trpc";
 import { useState, useEffect } from "react";
 import DashboardLayout from "./components/DashboardLayout";
-import DemoDashboardLayout from "./components/DemoDashboardLayout";
 import Home from "./pages/Home";
 import Subjects from "./pages/Subjects";
 import Questions from "./pages/Questions";
@@ -22,7 +21,8 @@ import Login from "./pages/Login";
 
 const GUEST_ID_KEY = "numbering_guest_id";
 const INIT_MAX_WAIT_MS = 2_500;
-const AUTH_ME_FETCH_TIMEOUT_MS = 1_800;
+const AUTH_ME_FETCH_TIMEOUT_MS = 5_000;
+const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
 
 async function fetchAuthMeWithTimeout(timeoutMs: number) {
   const controller = new AbortController();
@@ -59,20 +59,15 @@ function isGuestUser(user: { loginMethod?: string | null } | null | undefined): 
 }
 
 /**
- * 레이아웃 선택 헬퍼: 게스트면 DemoDashboardLayout, 일반 로그인이면 DashboardLayout
+ * 레이아웃 선택 헬퍼: 로그인 전후 동일 UX를 위해 DashboardLayout 통일
  */
 function Layout({
-  user,
   children,
-  onAuthSuccess,
 }: {
-  user: { loginMethod?: string | null } | null | undefined;
   children: React.ReactNode;
+  user?: { loginMethod?: string | null } | null | undefined;
   onAuthSuccess?: () => void;
 }) {
-  if (isGuestUser(user)) {
-    return <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>{children}</DemoDashboardLayout>;
-  }
   return <DashboardLayout>{children}</DashboardLayout>;
 }
 
@@ -113,66 +108,73 @@ function SubjectPracticeRedirect({ subjectId }: { subjectId: number }) {
   );
 }
 
-function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null } | null | undefined; onAuthSuccess?: () => void }) {
-  const canAccessDemo = !user || isGuestUser(user);
+function Router({
+  user,
+  onAuthSuccess,
+}: {
+  user: { loginMethod?: string | null; role?: "user" | "admin" } | null | undefined;
+  onAuthSuccess?: () => void;
+}) {
+  const isAdmin = user?.role === "admin";
+  const canAccessDemo = !user || isGuestUser(user) || isAdmin;
 
   return (
     <Switch>
       <Route path={"/"}>
-        <Layout user={user} onAuthSuccess={onAuthSuccess}>
+        <Layout>
           <Home />
         </Layout>
       </Route>
       <Route path={"/subjects"}>
-        <Layout user={user} onAuthSuccess={onAuthSuccess}>
+        <Layout>
           <Subjects />
         </Layout>
       </Route>
       <Route path={"/questions/:subjectId"}>
         {(params) => (
-          <Layout user={user} onAuthSuccess={onAuthSuccess}>
+          <Layout>
             <Questions subjectId={parseInt(params.subjectId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/subject-practice/:subjectId"}>
         {(params) => (
-          <Layout user={user} onAuthSuccess={onAuthSuccess}>
+          <Layout>
             <SubjectPracticeRedirect subjectId={parseInt(params.subjectId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/subject-exam/:subjectId"}>
         {(params) => (
-          <Layout user={user} onAuthSuccess={onAuthSuccess}>
+          <Layout>
             <SubjectExam subjectId={parseInt(params.subjectId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/practice/:questionId"}>
         {(params) => (
-          <Layout user={user} onAuthSuccess={onAuthSuccess}>
+          <Layout>
             <Practice questionId={parseInt(params.questionId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/test/:questionId"}>
         {(params) => (
-          <Layout user={user} onAuthSuccess={onAuthSuccess}>
+          <Layout>
             <Test questionId={parseInt(params.questionId)} />
           </Layout>
         )}
       </Route>
       <Route path={"/statistics"}>
-        <Layout user={user} onAuthSuccess={onAuthSuccess}>
+        <Layout>
           <Statistics />
         </Layout>
       </Route>
       <Route path={"/demo"}>
         {canAccessDemo ? (
-          <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
-            <Demo />
-          </DemoDashboardLayout>
+          <Layout>
+            {isAdmin ? <Subjects demoWorkspace /> : <Demo />}
+          </Layout>
         ) : (
           <RouteRedirect to="/subjects" />
         )}
@@ -183,9 +185,9 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
       <Route path={"/demo/practice/:questionId"}>
         {(params) =>
           canAccessDemo ? (
-            <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
-              <Practice questionId={parseInt(params.questionId)} isDemo={true} />
-            </DemoDashboardLayout>
+            <Layout>
+              <Practice questionId={parseInt(params.questionId)} isDemo />
+            </Layout>
           ) : (
             <RouteRedirect to={`/practice/${parseInt(params.questionId)}`} />
           )
@@ -194,47 +196,43 @@ function Router({ user, onAuthSuccess }: { user: { loginMethod?: string | null }
       <Route path={"/demo/test/:questionId"}>
         {(params) =>
           canAccessDemo ? (
-            <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
-              <Test questionId={parseInt(params.questionId)} isDemo={true} />
-            </DemoDashboardLayout>
+            <Layout>
+              <Test questionId={parseInt(params.questionId)} isDemo />
+            </Layout>
           ) : (
             <RouteRedirect to={`/test/${parseInt(params.questionId)}`} />
           )
         }
       </Route>
       <Route path={"/demo/questions"}>
-        {canAccessDemo ? (
-          <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
-            <Demo />
-          </DemoDashboardLayout>
-        ) : (
-          <RouteRedirect to="/subjects" />
-        )}
+        <RouteRedirect to="/demo" />
       </Route>
       <Route path={"/demo/questions/"}>
-        {canAccessDemo ? (
-          <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
-            <Demo />
-          </DemoDashboardLayout>
-        ) : (
-          <RouteRedirect to="/subjects" />
-        )}
+        <RouteRedirect to="/demo" />
       </Route>
       <Route path={"/demo/questions/:subjectId"}>
         {(params) =>
           canAccessDemo ? (
-            <DemoDashboardLayout onAuthSuccess={onAuthSuccess}>
-              <Questions subjectId={parseInt(params.subjectId)} isDemo={true} />
-            </DemoDashboardLayout>
+            <Layout>
+              {isAdmin ? (
+                <Questions subjectId={parseInt(params.subjectId)} demoWorkspace />
+              ) : (
+                <Questions subjectId={parseInt(params.subjectId)} isDemo />
+              )}
+            </Layout>
           ) : (
             <RouteRedirect to="/subjects" />
           )
         }
       </Route>
       <Route path={"/admin/demo-management"}>
-        <DashboardLayout>
-          <AdminDemoManagement />
-        </DashboardLayout>
+        {DEMO_PUBLISHING_ENABLED ? (
+          <DashboardLayout>
+            <AdminDemoManagement />
+          </DashboardLayout>
+        ) : (
+          <RouteRedirect to="/subjects" />
+        )}
       </Route>
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
@@ -248,6 +246,7 @@ function AppContent() {
   // 먼저 현재 세션 확인 (이미 로그인된 경우 게스트 로그인 건너뜀)
   const [initDone, setInitDone] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [guestBootstrapFailed, setGuestBootstrapFailed] = useState(false);
   const meQuery = trpc.auth.me.useQuery(undefined, {
     enabled: initDone,
     retry: false,
@@ -274,36 +273,29 @@ function AppContent() {
     }, INIT_MAX_WAIT_MS);
 
     async function init() {
+      let authProbeFailed = false;
       try {
         // 1) 먼저 현재 세션 확인
         const user = await fetchAuthMeWithTimeout(AUTH_ME_FETCH_TIMEOUT_MS);
-        if (user && user.loginMethod !== "guest") {
-          // 이미 정식 계정으로 로그인됨 → 게스트 로그인 건너뜀
+        if (user) {
+          // 이미 로그인된 사용자(정식/게스트)면 게스트 재로그인 건너뜀
           setCurrentUser(user);
           safeSetInitDone();
           return;
         }
       } catch {
-        // 세션 확인 실패 → 게스트 로그인 시도
+        // 일시적 네트워크/서버 지연 시 게스트 세션으로 덮어쓰지 않음
+        authProbeFailed = true;
       }
 
-      // 2) 정식 계정 없으면 게스트 로그인
-      const guestId = getOrCreateGuestId();
-      autoGuestLogin.mutate({ guestId }, {
-        onSuccess: () => {
-          // Never block app entry on extra me fetch.
-          safeSetInitDone();
+      if (authProbeFailed) {
+        safeSetInitDone();
+        return;
+      }
 
-          // 게스트 로그인 후 최신 user 정보 fetch
-          void (async () => {
-            try {
-              const user = await fetchAuthMeWithTimeout(AUTH_ME_FETCH_TIMEOUT_MS);
-              setCurrentUser(user ?? null);
-            } catch { /* ignore */ }
-          })();
-        },
-        onError: () => safeSetInitDone(),
-      });
+      // 2) 정식 계정이 없더라도 앱 진입을 막지 않는다.
+      // 게스트 세션 부트스트랩은 아래 별도 effect에서 처리한다.
+      safeSetInitDone();
     }
     init();
     return () => {
@@ -320,10 +312,41 @@ function AppContent() {
 
   useEffect(() => {
     if (!initDone) return;
+    if (meQuery.isLoading) return;
+    if (autoGuestLogin.isPending) return;
+    if (guestBootstrapFailed) return;
     if (currentUser) return;
-    if (location === "/login" || location.startsWith("/demo")) return;
-    setLocation("/demo");
-  }, [currentUser, initDone, location, setLocation]);
+    if (location === "/login") return;
+
+    const guestId = getOrCreateGuestId();
+    autoGuestLogin.mutate(
+      { guestId },
+      {
+        onSuccess: () => {
+          void (async () => {
+            try {
+              const latest = await meQuery.refetch();
+              setCurrentUser(latest.data ?? null);
+            } catch {
+              // ignore
+            }
+          })();
+        },
+        onError: () => {
+          setGuestBootstrapFailed(true);
+        },
+      }
+    );
+  }, [
+    autoGuestLogin,
+    autoGuestLogin.isPending,
+    currentUser,
+    guestBootstrapFailed,
+    initDone,
+    location,
+    meQuery,
+    meQuery.isLoading,
+  ]);
 
   if (!initDone) {
     return (
@@ -346,7 +369,7 @@ function AppContent() {
 
 function App() {
   // 접속 비밀번호 게이트 활성화 상태
-  const TEMP_DISABLE_SITE_GATE = false;
+  const TEMP_DISABLE_SITE_GATE = true;
   const { granted, grant } = useSiteAccess();
   const globalFooterNotice = (
     <p className="pointer-events-none fixed bottom-1.5 left-1/2 z-50 -translate-x-1/2 select-none text-[10px] text-muted-foreground/45">

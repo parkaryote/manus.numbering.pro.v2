@@ -14,6 +14,7 @@ import { transcribeAudio } from "./_core/voiceTranscription.js";
 import { storagePut } from "./storage.js";
 import { nanoid } from "nanoid";
 import * as ocrModule from "./ocr.js";
+import { PDFDocument } from "pdf-lib";
 import {
   computeExamConfidence,
   aggregateConfidence,
@@ -60,6 +61,298 @@ function calcCharSimilarity(userText: string, correctText: string): number {
   return Math.round((lcsLen / Math.max(m, n)) * 100);
 }
 
+const AUTO_NUMBER_PREFIX_REGEX = /^\s*\d{1,3}\s*[.)]\s*/;
+const BULLET_PREFIX_REGEX = /^\s*(?:[-*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
+
+function stripAutoNumberPrefix(line: string): string {
+  return line.replace(AUTO_NUMBER_PREFIX_REGEX, "").trim();
+}
+
+function stripBulletPrefix(line: string): string {
+  return line.replace(BULLET_PREFIX_REGEX, "").trim();
+}
+
+function trimTrailingEmptyLines(lines: string[]): string[] {
+  let end = lines.length;
+  while (end > 0 && lines[end - 1].trim().length === 0) {
+    end--;
+  }
+  return lines.slice(0, end);
+}
+
+function normalizeLineForTextComparison(line: string, ignoreAutoNumbering: boolean): string {
+  const lineWithoutNumber = ignoreAutoNumbering ? stripAutoNumberPrefix(line) : line.trim();
+  const base = stripBulletPrefix(lineWithoutNumber);
+  return base.toLowerCase().replace(/\s+/g, "");
+}
+
+const HANGUL_START = 0xac00;
+const HANGUL_END = 0xd7a3;
+const CHO = [
+  "ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ",
+  "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ",
+];
+const JUNG = [
+  "ㅏ", "ㅐ", "ㅑ", "ㅒ", "ㅓ", "ㅔ", "ㅕ", "ㅖ", "ㅗ", "ㅘ",
+  "ㅙ", "ㅚ", "ㅛ", "ㅜ", "ㅝ", "ㅞ", "ㅟ", "ㅠ", "ㅡ", "ㅢ", "ㅣ",
+];
+const JONG = [
+  "", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ",
+  "ㄻ", "ㄼ", "ㄽ", "ㄾ", "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ",
+  "ㅆ", "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ",
+];
+const JAMO_TO_KEYSTROKE: Record<string, string> = {
+  "ㄱ": "r", "ㄲ": "r", "ㄴ": "s", "ㄷ": "e", "ㄸ": "e", "ㄹ": "f", "ㅁ": "a", "ㅂ": "q", "ㅃ": "q",
+  "ㅅ": "t", "ㅆ": "t", "ㅇ": "d", "ㅈ": "w", "ㅉ": "w", "ㅊ": "c", "ㅋ": "z", "ㅌ": "x", "ㅍ": "v", "ㅎ": "g",
+  "ㅏ": "k", "ㅐ": "o", "ㅑ": "i", "ㅒ": "o", "ㅓ": "j", "ㅔ": "p", "ㅕ": "u", "ㅖ": "p", "ㅗ": "h",
+  "ㅘ": "hk", "ㅙ": "ho", "ㅚ": "hl", "ㅛ": "y", "ㅜ": "n", "ㅝ": "nj", "ㅞ": "np", "ㅟ": "nl", "ㅠ": "b",
+  "ㅡ": "m", "ㅢ": "ml", "ㅣ": "l",
+  "ㄳ": "rt", "ㄵ": "sw", "ㄶ": "sg", "ㄺ": "fr", "ㄻ": "fa", "ㄼ": "fq", "ㄽ": "ft", "ㄾ": "fx", "ㄿ": "fv", "ㅀ": "fg", "ㅄ": "qt",
+};
+
+function isHangulSyllable(char: string): boolean {
+  if (!char) return false;
+  const code = char.charCodeAt(0);
+  return code >= HANGUL_START && code <= HANGUL_END;
+}
+
+function isJamoChar(char: string): boolean {
+  if (!char) return false;
+  const code = char.charCodeAt(0);
+  return code >= 0x3131 && code <= 0x3163;
+}
+
+function decomposeHangulSyllable(char: string): { cho: string; jung: string; jong: string } | null {
+  if (!isHangulSyllable(char)) return null;
+  const code = char.charCodeAt(0) - HANGUL_START;
+  const choIndex = Math.floor(code / 588);
+  const jungIndex = Math.floor((code % 588) / 28);
+  const jongIndex = code % 28;
+  return {
+    cho: CHO[choIndex] ?? "",
+    jung: JUNG[jungIndex] ?? "",
+    jong: JONG[jongIndex] ?? "",
+  };
+}
+
+function toTypingKeyUnit(char: string): string {
+  if (!char) return "";
+  if (/^[a-z0-9]$/i.test(char)) return char.toLowerCase();
+
+  if (isHangulSyllable(char)) {
+    const d = decomposeHangulSyllable(char);
+    if (!d) return char.toLowerCase();
+    return `${JAMO_TO_KEYSTROKE[d.cho] ?? d.cho}${JAMO_TO_KEYSTROKE[d.jung] ?? d.jung}${
+      d.jong ? JAMO_TO_KEYSTROKE[d.jong] ?? d.jong : ""
+    }`.toLowerCase();
+  }
+
+  if (isJamoChar(char)) {
+    return (JAMO_TO_KEYSTROKE[char] ?? char).toLowerCase();
+  }
+
+  return char.toLowerCase();
+}
+
+function toTypingKeySequence(text: string): string {
+  return Array.from(text).map((char) => toTypingKeyUnit(char)).join("");
+}
+
+function normalizeLineForTypingComparison(line: string, ignoreAutoNumbering: boolean): string {
+  return toTypingKeySequence(normalizeLineForTextComparison(line, ignoreAutoNumbering));
+}
+
+function normalizeTextForSimilarity(text: string, ignoreAutoNumbering: boolean): string {
+  return trimTrailingEmptyLines(
+    text
+      .split("\n")
+      .map((line) => {
+        const lineWithoutNumber = ignoreAutoNumbering ? stripAutoNumberPrefix(line) : line.trim();
+        return stripBulletPrefix(lineWithoutNumber);
+      })
+  ).join("\n");
+}
+
+function normalizeTextForTypingSimilarity(text: string, ignoreAutoNumbering: boolean): string {
+  return trimTrailingEmptyLines(
+    text
+      .split("\n")
+      .map((line) => {
+        const lineWithoutNumber = ignoreAutoNumbering ? stripAutoNumberPrefix(line) : line.trim();
+        const base = stripBulletPrefix(lineWithoutNumber).toLowerCase().replace(/\s+/g, "");
+        return toTypingKeySequence(base);
+      })
+  ).join("\n");
+}
+
+function normalizeLineForWordComparison(line: string, ignoreAutoNumbering: boolean): string {
+  const lineWithoutNumber = ignoreAutoNumbering ? stripAutoNumberPrefix(line) : line.trim();
+  return stripBulletPrefix(lineWithoutNumber).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function isLikelyEnglishLine(text: string): boolean {
+  const latinCount = (text.match(/[a-z]/gi) ?? []).length;
+  const hangulCount = (text.match(/[가-힣]/g) ?? []).length;
+  if (latinCount === 0) return false;
+  return hangulCount === 0 || latinCount >= hangulCount * 2;
+}
+
+function tokenizeEnglishWords(text: string): string[] {
+  return text.match(/[a-z0-9]+(?:['’\-][a-z0-9]+)*/gi)?.map((w) => w.toLowerCase()) ?? [];
+}
+
+function calcWordSimilarity(userText: string, correctText: string): number {
+  const a = tokenizeEnglishWords(userText);
+  const b = tokenizeEnglishWords(correctText);
+  if (b.length === 0) return a.length === 0 ? 100 : 0;
+  if (a.length === 0) return 0;
+
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  return Math.round((dp[m][n] / Math.max(m, n)) * 100);
+}
+
+type TextLineCompareMode = "word" | "typing";
+
+function compareTextLine(
+  userLineRaw: string,
+  correctLineRaw: string,
+  ignoreAutoNumbering: boolean
+): {
+  isCorrect: boolean;
+  score: number;
+  compareMode: TextLineCompareMode;
+} {
+  const wordCorrect = normalizeLineForWordComparison(correctLineRaw, ignoreAutoNumbering);
+  const wordUser = normalizeLineForWordComparison(userLineRaw, ignoreAutoNumbering);
+  const shouldUseWordMode = isLikelyEnglishLine(`${correctLineRaw} ${userLineRaw}`);
+
+  if (shouldUseWordMode) {
+    const correctWords = tokenizeEnglishWords(wordCorrect);
+    const userWords = tokenizeEnglishWords(wordUser);
+    const isCorrect =
+      correctWords.length === userWords.length &&
+      correctWords.every((w, i) => w === userWords[i]);
+    const score = calcWordSimilarity(wordUser, wordCorrect);
+    return { isCorrect, score, compareMode: "word" };
+  }
+
+  const typingCorrect = normalizeLineForTypingComparison(correctLineRaw, ignoreAutoNumbering);
+  const typingUser = normalizeLineForTypingComparison(userLineRaw, ignoreAutoNumbering);
+  const isCorrect = typingUser === typingCorrect;
+  const score = calcCharSimilarity(typingUser, typingCorrect);
+  return { isCorrect, score, compareMode: "typing" };
+}
+
+function evaluateTextAnswerByBestLineMatch(
+  userAnswer: string,
+  correctAnswer: string,
+  ignoreAutoNumbering: boolean
+) {
+  const userLines = trimTrailingEmptyLines(userAnswer.split("\n").map((line) => line.trim()));
+  const correctLines = trimTrailingEmptyLines(correctAnswer.split("\n").map((line) => line.trim()));
+  const totalLines = correctLines.length;
+
+  const remainingUserLines = userLines.map((raw, index) => ({ raw, index }));
+  const lineComparisons: Array<{
+    lineIndex: number;
+    correctAnswer: string;
+    userAnswer: string;
+    isCorrect: boolean;
+    lineScore: number;
+    compareMode: TextLineCompareMode;
+    matchedUserLineIndex: number | null;
+  }> = [];
+
+  let correctLineCount = 0;
+  let scoreSum = 0;
+
+  for (let i = 0; i < totalLines; i++) {
+    const correctLineRaw = correctLines[i] ?? "";
+    const defaultMode: TextLineCompareMode = isLikelyEnglishLine(correctLineRaw) ? "word" : "typing";
+
+    let bestIdx = -1;
+    let bestScore = -1;
+    let bestIsCorrect = false;
+    let bestMode: TextLineCompareMode = defaultMode;
+
+    for (let j = 0; j < remainingUserLines.length; j++) {
+      const candidate = remainingUserLines[j];
+      const compared = compareTextLine(candidate.raw, correctLineRaw, ignoreAutoNumbering);
+      if (
+        compared.score > bestScore ||
+        (compared.score === bestScore && compared.isCorrect && !bestIsCorrect)
+      ) {
+        bestIdx = j;
+        bestScore = compared.score;
+        bestIsCorrect = compared.isCorrect;
+        bestMode = compared.compareMode;
+      }
+    }
+
+    const hasMeaningfulMatch = bestIdx >= 0 && (bestIsCorrect || bestScore >= 35);
+
+    let matchedUserRaw = "";
+    let matchedUserLineIndex: number | null = null;
+    let lineScore = 0;
+    let lineIsCorrect = false;
+    let lineMode = bestMode;
+
+    if (hasMeaningfulMatch) {
+      const matched = remainingUserLines.splice(bestIdx, 1)[0];
+      matchedUserRaw = matched.raw;
+      matchedUserLineIndex = matched.index + 1;
+      lineScore = Math.max(0, bestScore);
+      lineIsCorrect = bestIsCorrect;
+      lineMode = bestMode;
+    }
+
+    if (lineIsCorrect) correctLineCount++;
+    scoreSum += lineScore;
+
+    lineComparisons.push({
+      lineIndex: i + 1,
+      correctAnswer: correctLineRaw,
+      userAnswer: matchedUserRaw,
+      isCorrect: lineIsCorrect,
+      lineScore,
+      compareMode: lineMode,
+      matchedUserLineIndex,
+    });
+  }
+
+  const remainingMeaningfulUserLines = remainingUserLines.filter(
+    (item) => normalizeLineForTextComparison(item.raw, ignoreAutoNumbering).length > 0
+  ).length;
+  const isCorrect =
+    totalLines > 0
+      ? correctLineCount === totalLines && remainingMeaningfulUserLines === 0
+      : remainingMeaningfulUserLines === 0;
+  const accuracyRate = totalLines > 0 ? Math.round((correctLineCount / totalLines) * 100) : 0;
+  const similarityScore = totalLines > 0 ? Math.round(scoreSum / totalLines) : 0;
+
+  return {
+    isCorrect,
+    similarityScore,
+    accuracyRate,
+    correctLineCount,
+    totalLines,
+    mistakes: lineComparisons,
+    feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctLineCount}/${Math.max(totalLines, 1)} 줄 정답`,
+    missingKeywords: [],
+  };
+}
+
 function parseExamEndDateInput(raw: string): Date {
   const value = raw.trim();
 
@@ -77,6 +370,130 @@ function parseExamEndDateInput(raw: string): Date {
     });
   }
   return parsed;
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+  try {
+    const decoded = Buffer.from(padded, "base64").toString("utf8");
+    const parsed = JSON.parse(decoded);
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveHeaderValue(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+function resolveRequestOrigin(req: {
+  headers?: Record<string, string | string[] | undefined>;
+  protocol?: string;
+}): string {
+  const forwardedProto = resolveHeaderValue(req.headers?.["x-forwarded-proto"]);
+  const forwardedHost = resolveHeaderValue(req.headers?.["x-forwarded-host"]);
+  const host = (forwardedHost ?? resolveHeaderValue(req.headers?.host) ?? "").split(",")[0]?.trim();
+  const proto = (forwardedProto ?? req.protocol ?? "http").split(",")[0]?.trim() || "http";
+
+  if (!host) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "요청 host를 확인할 수 없습니다.",
+    });
+  }
+  return `${proto}://${host}`;
+}
+
+function resolveGoogleRedirectUri(req: {
+  headers?: Record<string, string | string[] | undefined>;
+  protocol?: string;
+}): string {
+  const configured = ENV.googleOAuthRedirectUri.trim();
+  if (configured) return configured;
+  return `${resolveRequestOrigin(req).replace(/\/+$/, "")}/login`;
+}
+
+type GoogleTokenResponse = {
+  access_token?: string;
+  id_token?: string;
+  token_type?: string;
+  expires_in?: number;
+};
+
+type GoogleTokenInfoResponse = {
+  aud?: string;
+  sub?: string;
+  email?: string;
+  email_verified?: string;
+  name?: string;
+  given_name?: string;
+  family_name?: string;
+  picture?: string;
+};
+
+async function exchangeGoogleCodeForTokens(input: {
+  code: string;
+  redirectUri: string;
+}): Promise<GoogleTokenResponse> {
+  const params = new URLSearchParams({
+    code: input.code,
+    client_id: ENV.googleClientId,
+    client_secret: ENV.googleClientSecret,
+    redirect_uri: input.redirectUri,
+    grant_type: "authorization_code",
+  });
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: `Google 토큰 교환 실패 (${response.status})${detail ? `: ${detail.slice(0, 140)}` : ""}`,
+    });
+  }
+
+  return (await response.json()) as GoogleTokenResponse;
+}
+
+async function getGoogleTokenInfo(idToken: string): Promise<GoogleTokenInfoResponse> {
+  const response = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`
+  );
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: `Google 토큰 검증 실패 (${response.status})${detail ? `: ${detail.slice(0, 140)}` : ""}`,
+    });
+  }
+  return (await response.json()) as GoogleTokenInfoResponse;
+}
+
+function resolveRequestedDemoValue(
+  requested: number | undefined,
+  role: "admin" | "user"
+): number | undefined {
+  if (requested === undefined) return undefined;
+  const normalized = requested === 1 ? 1 : 0;
+  if (normalized === 0) return 0;
+  if (role !== "admin") return 0;
+  if (!ENV.allowDemoPublishing) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "데모 공개는 잠금 상태입니다. 환경변수 ALLOW_DEMO_PUBLISHING=true 설정 후 시도하세요.",
+    });
+  }
+  return 1;
 }
 
 function makeQuestionSignature(q: {
@@ -574,6 +991,28 @@ async function syncStarterDataSafely(userId: number) {
   }
 }
 
+const starterSyncInFlightByUser = new Map<number, Promise<void>>();
+const starterSyncLastRunAtByUser = new Map<number, number>();
+const STARTER_SYNC_MIN_INTERVAL_MS = 2 * 60 * 1000;
+
+function triggerStarterSyncInBackground(userId: number, options?: { force?: boolean }) {
+  if (!options?.force) {
+    const lastRunAt = starterSyncLastRunAtByUser.get(userId) ?? 0;
+    if (Date.now() - lastRunAt < STARTER_SYNC_MIN_INTERVAL_MS) return;
+  }
+  if (starterSyncInFlightByUser.has(userId)) return;
+
+  const task = (async () => {
+    await syncStarterDataSafely(userId);
+    starterSyncLastRunAtByUser.set(userId, Date.now());
+  })();
+
+  starterSyncInFlightByUser.set(userId, task);
+  void task.finally(() => {
+    starterSyncInFlightByUser.delete(userId);
+  });
+}
+
 function makePracticeSignature(s: {
   questionId: number;
   completedAt: Date;
@@ -939,6 +1378,60 @@ function ensureOCREnabled() {
   }
 }
 
+function guessMimeTypeFromFileName(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".bmp")) return "image/bmp";
+  if (lower.endsWith(".tiff") || lower.endsWith(".tif")) return "image/tiff";
+  if (lower.endsWith(".gif")) return "image/gif";
+  return "application/octet-stream";
+}
+
+function normalizeOcrMimeType(fileName: string, mimeType?: string): string {
+  const normalized = (mimeType ?? "").toLowerCase().split(";")[0].trim();
+  if (normalized) return normalized;
+  return guessMimeTypeFromFileName(fileName);
+}
+
+function isSyncImageMimeType(mimeType: string): boolean {
+  return mimeType.startsWith("image/") && mimeType !== "image/tiff" && mimeType !== "image/tif";
+}
+
+function isAsyncDocumentMimeType(mimeType: string): boolean {
+  return mimeType === "application/pdf" || mimeType === "image/tiff" || mimeType === "image/tif";
+}
+
+async function buildPdfSubset(
+  fileBuffer: Uint8Array,
+  selectedPages: number[]
+): Promise<Uint8Array> {
+  const sourcePdf = await PDFDocument.load(fileBuffer);
+  const pageCount = sourcePdf.getPageCount();
+
+  const normalizedPages = Array.from(
+    new Set(
+      selectedPages
+        .map((page) => Math.trunc(page))
+        .filter((page) => Number.isFinite(page) && page >= 1 && page <= pageCount)
+    )
+  ).sort((a, b) => a - b);
+
+  if (normalizedPages.length === 0 || normalizedPages.length === pageCount) {
+    return fileBuffer;
+  }
+
+  const targetPdf = await PDFDocument.create();
+  const copiedPages = await targetPdf.copyPages(
+    sourcePdf,
+    normalizedPages.map((pageNumber) => pageNumber - 1)
+  );
+  copiedPages.forEach((page) => targetPdf.addPage(page));
+  return await targetPdf.save();
+}
+
 type PublicUser = Omit<User, "passwordHash" | "openId">;
 
 function sanitizeUserForClient(user: User | null | undefined): PublicUser | null {
@@ -1175,46 +1668,112 @@ export const appRouter = router({
         return { success: true, userId: user.id };
       }),
 
-    // 소셜 로그인(내부 제공) - 외부 OAuth 리다이렉트 없이 세션 생성
-    socialLogin: publicProcedure
+    googleLoginWithCode: publicProcedure
       .input(
         z.object({
-          provider: z.enum(["google", "apple", "kakao", "naver"]),
-          socialId: z.string().min(6).max(128),
+          code: z.string().min(8),
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const openId = `social_${input.provider}_${input.socialId}`;
-        const providerName =
-          input.provider === "google"
-            ? "Google"
-            : input.provider === "apple"
-              ? "Apple"
-              : input.provider === "kakao"
-                ? "Kakao"
-                : "Naver";
+        if (!ENV.googleClientId || !ENV.googleClientSecret) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Google OAuth 설정이 누락되었습니다. GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET을 확인해주세요.",
+          });
+        }
 
-        let user = await db.getUserByOpenId(openId);
-        let isNewSocialUser = false;
-        if (!user) {
-          isNewSocialUser = true;
+        const redirectUri = resolveGoogleRedirectUri(ctx.req as any);
+        const tokenResponse = await exchangeGoogleCodeForTokens({
+          code: input.code,
+          redirectUri,
+        });
+
+        const idToken = tokenResponse.id_token;
+        if (!idToken) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Google ID 토큰이 응답에 없습니다.",
+          });
+        }
+
+        const tokenInfo = await getGoogleTokenInfo(idToken);
+        if (tokenInfo.aud !== ENV.googleClientId) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Google 토큰의 aud가 앱 설정과 일치하지 않습니다.",
+          });
+        }
+        if (tokenInfo.email && tokenInfo.email_verified !== "true") {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Google 이메일 검증이 완료되지 않은 계정입니다.",
+          });
+        }
+
+        const sub = tokenInfo.sub;
+        if (!sub) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Google 사용자 식별자(sub)를 확인할 수 없습니다.",
+          });
+        }
+
+        const jwtPayload = decodeJwtPayload(idToken) ?? {};
+        const preferredName =
+          (typeof tokenInfo.name === "string" && tokenInfo.name.trim()) ||
+          (typeof jwtPayload.name === "string" && jwtPayload.name.trim()) ||
+          (typeof tokenInfo.email === "string" && tokenInfo.email.split("@")[0]) ||
+          "Google 사용자";
+        const preferredEmail =
+          typeof tokenInfo.email === "string" && tokenInfo.email.length > 0
+            ? tokenInfo.email
+            : typeof jwtPayload.email === "string" && jwtPayload.email.length > 0
+              ? jwtPayload.email
+              : null;
+
+        const openId = `google_${sub}`;
+        let user = null as Awaited<ReturnType<typeof db.getUserByOpenId>> | null;
+
+        // 동일 이메일의 기존 계정이 있으면 해당 계정을 우선 사용해 통계/데이터 분리를 방지한다.
+        const existingByEmail = preferredEmail ? await db.getUserByEmail(preferredEmail) : undefined;
+        if (existingByEmail) {
+          await db.upsertUser({
+            openId: existingByEmail.openId,
+            name: preferredName || existingByEmail.name || "Google 사용자",
+            email: preferredEmail,
+            loginMethod: "google",
+            role: existingByEmail.role,
+            lastSignedIn: new Date(),
+          });
+          user = await db.getUserByOpenId(existingByEmail.openId);
+        } else {
           await db.upsertUser({
             openId,
-            name: `${providerName} 사용자`,
-            email: null,
-            loginMethod: input.provider,
+            name: preferredName || "Google 사용자",
+            email: preferredEmail,
+            loginMethod: "google",
             lastSignedIn: new Date(),
           });
           user = await db.getUserByOpenId(openId);
-          if (!user) {
-            throw new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: "소셜 계정 생성 실패",
-            });
+        }
+        if (!user) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Google 사용자 저장에 실패했습니다.",
+          });
+        }
+
+        const ownerEmail = ENV.ownerEmail.trim().toLowerCase();
+        const normalizedKnownEmail = String(preferredEmail ?? user.email ?? "").toLowerCase();
+        const shouldBeAdmin = Boolean(ownerEmail) && normalizedKnownEmail === ownerEmail;
+        if (shouldBeAdmin) {
+          const nextEmail = preferredEmail ?? user.email ?? ENV.ownerEmail;
+          if (user.role !== "admin" || user.email !== nextEmail) {
+            await db.updateUserEmailAndRole(user.id, nextEmail, "admin");
+            user = { ...user, email: nextEmail, role: "admin" };
           }
         }
 
-        // 게스트에서 소셜로 전환할 때는 신규/기존 소셜 계정 모두 진행 데이터를 병합한다.
         if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
           await mergeGuestDataToUser(ctx.user.id, user.id);
         }
@@ -1222,17 +1781,39 @@ export const appRouter = router({
         await syncStarterDataSafely(user.id);
 
         const sessionToken = await sdk.createSessionToken(openId, {
-          name: user.name || `${providerName} 사용자`,
+          name: preferredName || user.name || "Google 사용자",
           expiresInMs: ONE_YEAR_MS,
         });
-
         const cookieOptions = getSessionCookieOptions(ctx.req);
         cookieResponse(ctx.res).cookie(COOKIE_NAME, sessionToken, {
           ...cookieOptions,
           maxAge: ONE_YEAR_MS,
         });
 
-        return { success: true, userId: user.id, provider: input.provider };
+        return { success: true, userId: user.id, provider: "google" as const };
+      }),
+
+    // 소셜 로그인(내부 제공) - 보안상 비활성화(실제 OAuth 연동 시 재오픈)
+    socialLogin: publicProcedure
+      .input(
+        z.object({
+          provider: z.enum(["google", "apple", "kakao", "naver"]),
+          socialId: z.string().min(6).max(128),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const providerLabel =
+          input.provider === "apple"
+            ? "Apple"
+            : input.provider === "kakao"
+              ? "Kakao"
+              : input.provider === "naver"
+                ? "Naver"
+                : "Google";
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${providerLabel} 로그인은 아직 실제 OAuth 연동 전입니다.`,
+        });
       }),
 
     // 자동 게스트 로그인: 접속 비밀번호 통과 후 자동으로 게스트 계정 생성/로그인
@@ -1364,50 +1945,27 @@ export const appRouter = router({
           }
         }
 
-        // 텍스트 문제 줄 단위 채점
-        const userLines = input.userAnswer.split('\n').map(line => line.trim());
-        const correctLines = correctAnswer.split('\n').map(line => line.trim());
-
-        const lineComparisons: any[] = [];
-        let correctLineCount = 0;
-        const totalLines = correctLines.length;
-
-        for (let i = 0; i < totalLines; i++) {
-          const correctLine = correctLines[i].toLowerCase().replace(/\s+/g, "");
-          const userLine = (userLines[i] || "").toLowerCase().replace(/\s+/g, "");
-          const isLineCorrect = userLine === correctLine;
-          if (isLineCorrect) correctLineCount++;
-
-          lineComparisons.push({
-            lineIndex: i + 1,
-            correctAnswer: correctLines[i],
-            userAnswer: userLines[i] || "",
-            isCorrect: isLineCorrect
-          });
-        }
-
-        const isCorrect = correctLineCount === totalLines && userLines.length === totalLines;
-        const accuracyRate = totalLines > 0 ? Math.round((correctLineCount / totalLines) * 100) : 0;
-        const similarityScore = calcCharSimilarity(input.userAnswer, correctAnswer);
-
-        return {
-          isCorrect,
-          similarityScore,
-          accuracyRate,
-          correctLineCount,
-          totalLines,
-          mistakes: lineComparisons,
-          feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctLineCount}/${totalLines} 줄 정답`,
-          missingKeywords: [],
-        };
+        // 텍스트 문제: 줄 매칭 후 채점 (영어는 단어 단위)
+        const ignoreAutoNumbering = question.autoNumbering === 1;
+        return evaluateTextAnswerByBestLineMatch(input.userAnswer, correctAnswer, ignoreAutoNumbering);
       }),
   }),
 
   // Subject management
   subjects: router({
     list: protectedProcedure.query(async ({ ctx }) => {
-      await syncStarterDataSafely(ctx.user.id);
-      return db.getSubjectsByUserId(ctx.user.id);
+      let currentSubjects = await db.getSubjectsByUserId(ctx.user.id);
+
+      // 과목이 아직 없는 첫 진입 시에만 동기화를 기다려 초기 화면이 비지 않게 보장한다.
+      if (currentSubjects.length === 0) {
+        await syncStarterDataSafely(ctx.user.id);
+        currentSubjects = await db.getSubjectsByUserId(ctx.user.id);
+        return currentSubjects;
+      }
+
+      // 이후 조회는 즉시 응답하고, 스타터 데이터 동기화는 백그라운드로 돌린다.
+      triggerStarterSyncInBackground(ctx.user.id);
+      return currentSubjects;
     }),
     
     getById: publicProcedure
@@ -1429,16 +1987,19 @@ export const appRouter = router({
         description: z.string().optional(),
         color: z.string().optional(),
         examEndDate: z.string().optional(), // ISO date/time string
+        displayOrder: z.number().optional(),
         isDemo: z.number().optional(), // 0 or 1
       }))
       .mutation(async ({ ctx, input }) => {
+        const safeDemoValue = resolveRequestedDemoValue(input.isDemo, ctx.user.role);
         return db.createSubject({
           userId: ctx.user.id,
           name: input.name,
           description: input.description,
           color: input.color,
           examEndDate: input.examEndDate ? parseExamEndDateInput(input.examEndDate) : undefined,
-          isDemo: input.isDemo ?? 0,
+          displayOrder: input.displayOrder,
+          isDemo: safeDemoValue ?? 0,
         });
       }),
     
@@ -1455,8 +2016,14 @@ export const appRouter = router({
         const { id, examEndDate, ...data } = input;
         await assertSubjectOwnershipOrThrow(id, ctx.user.id);
         const updateData: any = { ...data };
+        if (updateData.isDemo === undefined) {
+          delete updateData.isDemo;
+        }
         if (examEndDate !== undefined) {
           updateData.examEndDate = examEndDate ? parseExamEndDateInput(examEndDate) : null;
+        }
+        if (input.isDemo !== undefined) {
+          updateData.isDemo = resolveRequestedDemoValue(input.isDemo, ctx.user.role) ?? 0;
         }
         return db.updateSubject(id, updateData);
       }),
@@ -1536,6 +2103,7 @@ export const appRouter = router({
         isDemo: z.number().optional(), // 0 or 1
       }))
       .mutation(async ({ ctx, input }) => {
+        const safeDemoValue = resolveRequestedDemoValue(input.isDemo, ctx.user.role);
         return db.createQuestion({
           userId: ctx.user.id,
           subjectId: input.subjectId,
@@ -1546,7 +2114,7 @@ export const appRouter = router({
           imageLabels: input.imageLabels,
           autoNumbering: input.autoNumbering,
           tableData: input.tableData,
-          isDemo: input.isDemo ?? 0,
+          isDemo: safeDemoValue ?? 0,
         });
       }),
     
@@ -1567,7 +2135,14 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
         await assertQuestionOwnershipOrThrow(id, ctx.user.id);
-        return db.updateQuestion(id, data);
+        const updateData: any = { ...data };
+        if (updateData.isDemo === undefined) {
+          delete updateData.isDemo;
+        }
+        if (input.isDemo !== undefined) {
+          updateData.isDemo = resolveRequestedDemoValue(input.isDemo, ctx.user.role) ?? 0;
+        }
+        return db.updateQuestion(id, updateData);
       }),
     
     delete: protectedProcedure
@@ -1857,67 +2432,28 @@ export const appRouter = router({
             }
           }
           
-          // Line-by-line comparison for text questions
-          const userLines = input.userAnswer.split('\n').map(line => line.trim());
-          const correctLines = correctAnswer.split('\n').map(line => line.trim());
-          
-          // Compare each line and build lineComparisons array
-          const lineComparisons: any[] = [];
-          let correctLineCount = 0;
-          const totalLines = correctLines.length;
-          
-          for (let i = 0; i < totalLines; i++) {
-            const correctLine = correctLines[i].toLowerCase().replace(/\s+/g, "");
-            const userLine = (userLines[i] || "").toLowerCase().replace(/\s+/g, "");
-            const isLineCorrect = userLine === correctLine;
-            
-            if (isLineCorrect) {
-              correctLineCount++;
-            }
-            
-            lineComparisons.push({
-              lineIndex: i + 1,
-              correctAnswer: correctLines[i],
-              userAnswer: userLines[i] || "",
-              isCorrect: isLineCorrect
-            });
-          }
-          
-          // 정답 판별: 모든 줄이 완벽히 일치해야 정답
-          const isCorrect = correctLineCount === totalLines && userLines.length === totalLines;
-          
-          // Calculate accuracy rate based on correct lines
-          const accuracyRate = totalLines > 0 ? Math.round((correctLineCount / totalLines) * 100) : 0;
-          const similarityScore = calcCharSimilarity(input.userAnswer, correctAnswer);
-          
-          console.log("[DEBUG] Line-by-line comparison mode");
-          console.log("[DEBUG] correctLineCount:", correctLineCount, "/", totalLines);
-          console.log("[DEBUG] isCorrect:", isCorrect);
-          console.log("[DEBUG] accuracyRate:", accuracyRate);
-          console.log("[DEBUG] similarityScore:", similarityScore);
-          
+          const ignoreAutoNumbering = question.autoNumbering === 1;
+          const graded = evaluateTextAnswerByBestLineMatch(input.userAnswer, correctAnswer, ignoreAutoNumbering);
+
+          console.log("[DEBUG] Line matching comparison mode");
+          console.log("[DEBUG] correctLineCount:", graded.correctLineCount, "/", graded.totalLines);
+          console.log("[DEBUG] isCorrect:", graded.isCorrect);
+          console.log("[DEBUG] accuracyRate:", graded.accuracyRate);
+          console.log("[DEBUG] similarityScore:", graded.similarityScore);
+
           // Save test session
           await db.createTestSession({
             userId: ctx.user.id,
             questionId: input.questionId,
             userAnswer: input.userAnswer,
-            isCorrect: isCorrect ? 1 : 0,
+            isCorrect: graded.isCorrect ? 1 : 0,
             recallTime: input.recallTime,
-            similarityScore,
-            mistakeHighlights: JSON.stringify(lineComparisons),
+            similarityScore: graded.similarityScore,
+            mistakeHighlights: JSON.stringify(graded.mistakes),
             llmFeedback: null,
           });
-          
-          return {
-            isCorrect,
-            similarityScore,
-            accuracyRate,
-            correctLineCount,
-            totalLines,
-            mistakes: lineComparisons,
-            feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctLineCount}/${totalLines} 줄 정답`,
-            missingKeywords: [],
-          };
+
+          return graded;
         }
 
         // Deduct AI credit
@@ -2290,31 +2826,102 @@ ${input.userAnswer}
 
     // Start OCR job
     startJob: protectedProcedure
-      .input(z.object({ s3Url: z.string(), fileName: z.string() }))
+      .input(
+        z
+          .object({
+            fileName: z.string().min(1),
+            mimeType: z.string().optional(),
+            s3Url: z.string().url().optional(),
+            fileBuffer: z.instanceof(Uint8Array).optional(),
+            selectedPages: z.array(z.number().int().min(1).max(2000)).max(500).optional(),
+          })
+          .refine((input) => Boolean(input.fileBuffer || input.s3Url), {
+            message: "fileBuffer 또는 s3Url 중 하나는 필요합니다.",
+          })
+      )
       .mutation(async ({ ctx, input }) => {
         ensureOCREnabled();
         try {
-          // Download file from S3
-          const response = await fetch(input.s3Url);
-          if (!response.ok) {
-            throw new Error(`Failed to download file: ${response.statusText}`);
+          let rawBuffer: Uint8Array;
+          if (input.fileBuffer) {
+            rawBuffer = input.fileBuffer;
+          } else {
+            // Backward compatibility path: start from uploaded URL
+            const response = await fetch(input.s3Url!);
+            if (!response.ok) {
+              throw new Error(`Failed to download file: ${response.statusText}`);
+            }
+            rawBuffer = new Uint8Array(await response.arrayBuffer());
           }
-          const fileBuffer = await response.arrayBuffer();
 
-          // Upload to GCS
-          const gcsUri = await ocrModule.uploadToGCS(
-            Buffer.from(fileBuffer),
-            input.fileName
-          );
+          const mimeType = normalizeOcrMimeType(input.fileName, input.mimeType);
+          if (mimeType === "application/pdf" && input.selectedPages && input.selectedPages.length > 0) {
+            rawBuffer = await buildPdfSubset(rawBuffer, input.selectedPages);
+          }
 
-          // Start Vision API job
-          const operationName = await ocrModule.startOCRJob(gcsUri);
+          const isSyncImage = isSyncImageMimeType(mimeType);
+          const isAsyncDocument = isAsyncDocumentMimeType(mimeType);
+          if (!isSyncImage && !isAsyncDocument) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `지원하지 않는 OCR 파일 형식입니다: ${mimeType}. (PDF/JPG/PNG/WEBP/BMP/TIFF/GIF 지원)`,
+            });
+          }
+
+          if (isSyncImage) {
+            const extractedText = await ocrModule.extractTextFromImageBuffer(
+              Buffer.from(rawBuffer),
+              mimeType
+            );
+
+            const job = await db.createOcrJob({
+              userId: ctx.user.id,
+              fileName: input.fileName,
+              s3Url: input.s3Url ?? "",
+              status: "completed",
+              extractedText,
+              completedAt: new Date(),
+            });
+
+            return {
+              jobId: job.id,
+              status: "completed" as const,
+              extractedText,
+            };
+          }
+
+          const documentBuffer = Buffer.from(rawBuffer);
+          let gcsUri: string | undefined;
+          let operationName: string;
+
+          // PDF/TIFF는 일정 크기 이하일 때 inline 입력으로 시작하면 GCS 입력 업로드 단계를 건너뛰어 체감 속도가 빨라진다.
+          const shouldTryInline =
+            mimeType === "application/pdf" &&
+            ocrModule.canUseInlineDocumentInput(mimeType, documentBuffer.byteLength);
+
+          if (shouldTryInline) {
+            try {
+              operationName = await ocrModule.startOCRJobFromBuffer(documentBuffer, mimeType);
+            } catch (inlineError) {
+              const inlineErrorMsg =
+                inlineError instanceof Error ? inlineError.message : String(inlineError);
+              console.warn(
+                "[OCR] Inline document OCR start failed, falling back to GCS input:",
+                inlineErrorMsg
+              );
+              gcsUri = await ocrModule.uploadToGCS(documentBuffer, input.fileName, mimeType);
+              operationName = await ocrModule.startOCRJob(gcsUri, mimeType);
+            }
+          } else {
+            gcsUri = await ocrModule.uploadToGCS(documentBuffer, input.fileName, mimeType);
+            operationName = await ocrModule.startOCRJob(gcsUri, mimeType);
+          }
 
           // Create job record in database
           const job = await db.createOcrJob({
             userId: ctx.user.id,
             fileName: input.fileName,
-            s3Url: input.s3Url,
+            s3Url: input.s3Url ?? "",
             gcsUri,
             operationName,
             status: "processing",
@@ -2322,6 +2929,9 @@ ${input.userAnswer}
 
           return { jobId: job.id, status: "processing" };
         } catch (error) {
+          if (error instanceof TRPCError) {
+            throw error;
+          }
           const errorMsg = error instanceof Error ? error.message : "Unknown error";
           console.error("[OCR] Start job failed:", errorMsg);
           throw new TRPCError({
@@ -2363,6 +2973,16 @@ ${input.userAnswer}
 
         // Poll operation status
         try {
+          if (!job.operationName) {
+            await db.updateOcrJob(job.id, {
+              status: "failed",
+              errorMessage: "Missing operationName for processing OCR job",
+            });
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "OCR job metadata is invalid.",
+            });
+          }
           const isComplete = await ocrModule.checkOCRJobStatus(job.operationName!);
 
           if (isComplete) {
@@ -2380,6 +3000,12 @@ ${input.userAnswer}
             if (job.gcsUri) {
               await ocrModule.cleanupGCSFiles(job.gcsUri).catch(err => {
                 console.error("[OCR] Cleanup failed:", err);
+              });
+            }
+            const outputUri = ocrModule.getOutputUriFromOperationRef(job.operationName);
+            if (outputUri) {
+              await ocrModule.cleanupGCSFiles(outputUri).catch(err => {
+                console.error("[OCR] Output cleanup failed:", err);
               });
             }
 
@@ -2476,6 +3102,12 @@ ${input.userAnswer}
         if (job.gcsUri) {
           await ocrModule.cleanupGCSFiles(job.gcsUri).catch(err => {
             console.error("[OCR] Cleanup failed:", err);
+          });
+        }
+        const outputUri = ocrModule.getOutputUriFromOperationRef(job.operationName);
+        if (outputUri) {
+          await ocrModule.cleanupGCSFiles(outputUri).catch(err => {
+            console.error("[OCR] Output cleanup failed:", err);
           });
         }
 
@@ -2830,6 +3462,7 @@ ${input.userAnswer}
         const subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
         const questionIds = subjectQuestions.map(q => q.id);
         if (questionIds.length === 0) return { questions: [], aggregate: aggregateConfidence([]) };
+        const questionIdSet = new Set(questionIds);
         const questionById = new Map(subjectQuestions.map((q) => [q.id, q]));
 
         const subject = await db.getSubjectById(input.subjectId);
@@ -2840,11 +3473,27 @@ ${input.userAnswer}
         const now = new Date();
         const userProfile = buildUserAdaptiveProfile(allPractice, allTests);
 
+        const practiceByQuestion = new Map<number, typeof allPractice>();
+        const testsByQuestion = new Map<number, typeof allTests>();
+
+        for (const practice of allPractice) {
+          if (!questionIdSet.has(practice.questionId)) continue;
+          const arr = practiceByQuestion.get(practice.questionId) ?? [];
+          arr.push(practice);
+          practiceByQuestion.set(practice.questionId, arr);
+        }
+        for (const test of allTests) {
+          if (!questionIdSet.has(test.questionId)) continue;
+          const arr = testsByQuestion.get(test.questionId) ?? [];
+          arr.push(test);
+          testsByQuestion.set(test.questionId, arr);
+        }
+
         const results: { questionId: number; confidence: ConfidenceResult }[] = [];
 
         for (const qId of questionIds) {
-          const qPractice = allPractice.filter(p => p.questionId === qId);
-          const qTests = allTests.filter(t => t.questionId === qId);
+          const qPractice = practiceByQuestion.get(qId) ?? [];
+          const qTests = testsByQuestion.get(qId) ?? [];
 
           // Build practice signal
           const practiceSignal: PracticeSignal = {
@@ -2929,10 +3578,9 @@ ${input.userAnswer}
         const aggregate = aggregateConfidence(results.map(r => r.confidence));
 
         // 배지 계산
-        const allTestsForSubject = allTests.filter(t => questionIds.includes(t.questionId));
         const badgeMap: Record<number, { lastTestWrong: boolean; frequentlyWrong: boolean; hasWarnZone: boolean }> = {};
         for (const qId of questionIds) {
-          const qTests = allTestsForSubject.filter(t => t.questionId === qId);
+          const qTests = testsByQuestion.get(qId) ?? [];
           const sortedQTests = [...qTests].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
           const lastTest = sortedQTests[0];
           const lastTestWrong = !!lastTest && lastTest.isCorrect === 0;
@@ -2949,6 +3597,8 @@ ${input.userAnswer}
             state: r.confidence.state,
             label: r.confidence.label,
             isColdStart: r.confidence.isColdStart,
+            displayOrder: questionById.get(r.questionId)?.displayOrder ?? 0,
+            isStarred: questionById.get(r.questionId)?.isStarred ?? 0,
             badges: badgeMap[r.questionId] ?? { lastTestWrong: false, frequentlyWrong: false, hasWarnZone: false },
           })),
           aggregate,

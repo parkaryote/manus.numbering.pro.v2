@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { BookOpen, FileText, Image as ImageIcon, Table2, Star, StarOff, ArrowLeft, Loader2, ExternalLink } from "lucide-react";
 
+const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
+
 export default function AdminDemoManagement() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -19,8 +21,12 @@ export default function AdminDemoManagement() {
 
   const utils = trpc.useUtils();
 
-  const { data: subjects = [], isLoading: subjectsLoading } = trpc.admin.demo.subjects.useQuery();
-  const { data: allQuestions = [], isLoading: questionsLoading } = trpc.admin.demo.allQuestions.useQuery();
+  const { data: subjects = [], isLoading: subjectsLoading } = trpc.admin.demo.subjects.useQuery(undefined, {
+    enabled: DEMO_PUBLISHING_ENABLED,
+  });
+  const { data: allQuestions = [], isLoading: questionsLoading } = trpc.admin.demo.allQuestions.useQuery(undefined, {
+    enabled: DEMO_PUBLISHING_ENABLED,
+  });
 
   const toggleSubjectMutation = trpc.admin.demo.toggleSubjectDemo.useMutation({
     onSuccess: () => {
@@ -67,7 +73,14 @@ export default function AdminDemoManagement() {
         </div>
       </div>
 
-      {isLoading ? (
+      {!DEMO_PUBLISHING_ENABLED ? (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <p className="font-medium">데모 공개가 잠겨 있습니다.</p>
+            <p className="text-sm mt-1">`ALLOW_DEMO_PUBLISHING=true`와 `VITE_ALLOW_DEMO_PUBLISHING=true` 설정 후 다시 활성화할 수 있습니다.</p>
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>

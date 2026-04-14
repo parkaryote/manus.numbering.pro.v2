@@ -22,8 +22,14 @@ interface PracticeQuestion {
   imageLabels?: string | null;
 }
 
+const LEADING_BULLET_PREFIX_REGEX = /^\s*(?:[-*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
+
 function normalizeText(text: string): string {
-  return text.replace(/\s+/g, "");
+  return text
+    .split("\n")
+    .map((line) => line.replace(LEADING_BULLET_PREFIX_REGEX, ""))
+    .join("\n")
+    .replace(/\s+/g, "");
 }
 
 function getQuestionType(q: Pick<PracticeQuestion, "imageUrl" | "tableData">) {

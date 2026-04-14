@@ -4,39 +4,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { Chrome, Apple, CircleUserRound, ShieldCheck } from "lucide-react";
-import { useMemo, useState } from "react";
+import { parseGoogleStateReturnTo, startGoogleOAuthLogin } from "@/lib/googleOAuth";
+import { Chrome, ShieldCheck } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
-type SocialProvider = "google" | "apple" | "kakao" | "naver";
+const GOOGLE_SOCIAL_BUTTON_META = {
+  label: "Google로 계속",
+  className: "bg-white text-black border hover:bg-neutral-50",
+  icon: <Chrome className="h-4 w-4" />,
+} as const;
 
-const SOCIAL_PROVIDER_META: Record<
-  SocialProvider,
-  { label: string; className: string; icon?: React.ReactNode }
-> = {
-  google: {
-    label: "Google로 계속",
-    className: "bg-white text-black border hover:bg-neutral-50",
-    icon: <Chrome className="h-4 w-4" />,
-  },
-  apple: {
-    label: "Apple로 계속",
-    className: "bg-black text-white hover:bg-neutral-800",
-    icon: <Apple className="h-4 w-4" />,
-  },
-  kakao: {
-    label: "Kakao로 계속",
-    className: "bg-[#FEE500] text-black hover:bg-[#f5dc00]",
-  },
-  naver: {
-    label: "Naver로 계속",
-    className: "bg-[#03C75A] text-white hover:bg-[#02b352]",
-  },
-};
-
-const SOCIAL_ID_KEY_PREFIX = "numbering_social_id_";
 const GUEST_ID_KEY = "numbering_guest_id";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 
 function getOrCreateId(key: string): string {
   try {
@@ -52,27 +33,38 @@ function getOrCreateId(key: string): string {
 
 export default function Login() {
   const [, setLocation] = useLocation();
+  const utils = trpc.useUtils();
   const [tab, setTab] = useState<"social" | "account">("social");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [signupUsername, setSignupUsername] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
   const [signupPasswordConfirm, setSignupPasswordConfirm] = useState("");
+  const [hasProcessedGoogleCode, setHasProcessedGoogleCode] = useState(false);
+  const googleReturnToRef = useRef("/");
 
-  const socialLogin = trpc.auth.socialLogin.useMutation({
+  const googleLogin = trpc.auth.googleLoginWithCode.useMutation({
     onSuccess: () => {
       toast.success("로그인되었습니다.");
-      setLocation("/");
+      const nextPath = googleReturnToRef.current || "/";
+      void utils.auth.me.invalidate();
+      window.location.replace(nextPath);
     },
     onError: (error) => {
-      toast.error(error.message || "소셜 로그인 실패");
+      const raw = (error?.message ?? "").toLowerCase();
+      if (raw.includes("aborted") || raw.includes("aborterror") || raw.includes("signal is aborted")) {
+        toast.error("서버 응답이 지연되었습니다. 잠시 후 다시 시도해주세요.");
+        return;
+      }
+      toast.error(error.message || "Google 로그인 실패");
     },
   });
 
   const loginMutation = trpc.auth.simpleLogin.useMutation({
     onSuccess: () => {
       toast.success("로그인되었습니다.");
-      setLocation("/");
+      void utils.auth.me.invalidate();
+      window.location.replace("/");
     },
     onError: (error) => {
       toast.error(error.message || "로그인 실패");
@@ -82,7 +74,8 @@ export default function Login() {
   const signupMutation = trpc.auth.simpleSignup.useMutation({
     onSuccess: () => {
       toast.success("가입 완료! 로그인되었습니다.");
-      setLocation("/");
+      void utils.auth.me.invalidate();
+      window.location.replace("/");
     },
     onError: (error) => {
       toast.error(error.message || "가입 실패");
@@ -99,31 +92,68 @@ export default function Login() {
   });
 
   const isPending =
-    socialLogin.isPending ||
+    googleLogin.isPending ||
     loginMutation.isPending ||
     signupMutation.isPending ||
     guestLogin.isPending;
 
+  useEffect(() => {
+    if (hasProcessedGoogleCode) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("error");
+    const code = params.get("code");
+    const state = params.get("state");
+
+    if (error) {
+      setHasProcessedGoogleCode(true);
+      toast.error("Google 로그인 승인에 실패했습니다.");
+      window.history.replaceState({}, "", "/login");
+      return;
+    }
+
+    if (!code) return;
+
+    setHasProcessedGoogleCode(true);
+    googleReturnToRef.current = parseGoogleStateReturnTo(state);
+    window.history.replaceState({}, "", "/login");
+    googleLogin.mutate({ code });
+  }, [googleLogin, hasProcessedGoogleCode]);
+
+  const requestedReturnTo = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const returnTo = params.get("returnTo");
+    if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//")) return "/";
+    return returnTo;
+  }, []);
+
   const socialButtons = useMemo(
-    () =>
-      (Object.keys(SOCIAL_PROVIDER_META) as SocialProvider[]).map(provider => {
-        const meta = SOCIAL_PROVIDER_META[provider];
-        return (
-          <Button
-            key={provider}
-            onClick={() => {
-              const socialId = getOrCreateId(`${SOCIAL_ID_KEY_PREFIX}${provider}`);
-              socialLogin.mutate({ provider, socialId });
-            }}
-            className={`w-full justify-start gap-2 ${meta.className}`}
-            disabled={isPending}
-          >
-            {meta.icon ?? <CircleUserRound className="h-4 w-4" />}
-            {meta.label}
-          </Button>
-        );
-      }),
-    [isPending, socialLogin]
+    () => {
+      return (
+        <Button
+          onClick={() => {
+            if (!GOOGLE_CLIENT_ID) {
+              toast.error("Google OAuth 클라이언트 ID가 설정되지 않았습니다.");
+              return;
+            }
+            try {
+              startGoogleOAuthLogin({
+                clientId: GOOGLE_CLIENT_ID,
+                returnTo: requestedReturnTo,
+              });
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Google 로그인 시작 실패");
+            }
+          }}
+          className={`w-full justify-start gap-2 ${GOOGLE_SOCIAL_BUTTON_META.className}`}
+          disabled={isPending}
+        >
+          {GOOGLE_SOCIAL_BUTTON_META.icon}
+          {GOOGLE_SOCIAL_BUTTON_META.label}
+        </Button>
+      );
+    },
+    [isPending, requestedReturnTo]
   );
 
   const handleLogin = () => {

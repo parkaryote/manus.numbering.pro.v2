@@ -58,14 +58,43 @@ function initAnalytics() {
 
 initAnalytics();
 
-const TRPC_FETCH_TIMEOUT_MS = 6000;
+const TRPC_FETCH_TIMEOUT_MS = 12000;
+const TRPC_AUTH_FETCH_TIMEOUT_MS = 30000;
+const TRPC_OCR_FETCH_TIMEOUT_MS = 180000;
+
+function resolveTrpcTimeoutMs(input: RequestInfo | URL): number {
+  const rawUrl =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+
+  // OCR는 파일 업로드/원격 처리 시작에 시간이 걸릴 수 있으므로 별도 타임아웃을 사용한다.
+  if (
+    rawUrl.includes("/api/trpc/ocr.startJob") ||
+    rawUrl.includes("/api/trpc/ocr.getStatus") ||
+    rawUrl.includes("/api/trpc/ocr.getResult")
+  ) {
+    return TRPC_OCR_FETCH_TIMEOUT_MS;
+  }
+
+  // 로그인/세션 확인은 외부 OAuth + DB round trip으로 지연될 수 있다.
+  if (rawUrl.includes("/api/trpc/auth.")) {
+    return TRPC_AUTH_FETCH_TIMEOUT_MS;
+  }
+
+  return TRPC_FETCH_TIMEOUT_MS;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: false,
       refetchOnWindowFocus: false,
-      staleTime: 5_000,
+      refetchOnReconnect: false,
+      staleTime: 60_000,
+      gcTime: 10 * 60_000,
     },
     mutations: {
       retry: false,
@@ -123,7 +152,8 @@ const trpcClient = trpc.createClient({
       transformer: superjson,
       fetch(input, init) {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), TRPC_FETCH_TIMEOUT_MS);
+        const timeoutMs = resolveTrpcTimeoutMs(input);
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         return globalThis.fetch(input, {
           ...(init ?? {}),
           credentials: "include",

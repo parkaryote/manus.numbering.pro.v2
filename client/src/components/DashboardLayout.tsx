@@ -13,8 +13,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, BookOpen, BarChart3, Settings, Moon, Sun, Menu, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { LayoutDashboard, LogOut, BookOpen, BarChart3, Settings, Moon, Sun, Menu, X, LogIn, Eye } from "lucide-react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { useTheme } from "@/contexts/ThemeContext";
@@ -28,22 +28,21 @@ const menuItems = [
 const adminMenuItems = [
   { icon: Settings, label: "데모 관리", path: "/admin/demo-management" },
 ];
+const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
+
+function isGuestUser(user: { loginMethod?: string | null } | null | undefined): boolean {
+  if (!user) return false;
+  return user.loginMethod === "guest";
+}
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { loading, user } = useAuth();
-  const [, setLocation] = useLocation();
+  const { loading } = useAuth();
 
-  useEffect(() => {
-    if (!loading && !user) {
-      setLocation("/demo");
-    }
-  }, [loading, user, setLocation]);
-
-  if (loading || !user) {
+  if (loading) {
     return <DashboardLayoutSkeleton />;
   }
 
@@ -58,8 +57,17 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
   const isMobile = useIsMobile();
+  const isGuest = !user || isGuestUser(user);
   const { theme, toggleTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const adminViewItems = user?.role === "admin"
+    ? [{ icon: Eye, label: "데모 화면", path: "/demo" }]
+    : [];
+
+  const openLogin = () => {
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    setLocation(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+  };
 
   if (isMobile) {
     return (
@@ -128,8 +136,26 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               {user?.role === "admin" && (
                 <>
                   <div className="mx-3 my-1 border-t" />
-                  {adminMenuItems.map((item) => {
-                    const isActive = location === item.path;
+                  {DEMO_PUBLISHING_ENABLED &&
+                    adminMenuItems.map((item) => {
+                      const isActive = location === item.path;
+                      return (
+                        <button
+                          key={item.path}
+                          onClick={() => { setLocation(item.path); setMobileOpen(false); }}
+                          className={`flex items-center gap-3 mx-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                            isActive
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                          }`}
+                        >
+                          <item.icon className="h-4 w-4 shrink-0" />
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  {adminViewItems.map((item) => {
+                    const isActive = location.startsWith(item.path);
                     return (
                       <button
                         key={item.path}
@@ -151,18 +177,33 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 <div className="flex items-center gap-2 py-2">
                   <Avatar className="h-7 w-7 border shrink-0">
                     <AvatarFallback className="text-xs font-medium">
-                      {user?.name?.charAt(0).toUpperCase()}
+                      {(user?.name?.charAt(0) ?? "G").toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  <span className="text-xs text-muted-foreground truncate">{user?.name}</span>
+                  <span className="text-xs text-muted-foreground truncate">
+                    {isGuest ? "게스트 모드" : user?.name}
+                  </span>
                 </div>
-                <button
-                  onClick={logout}
-                  className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md transition-colors"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  <span>로그아웃</span>
-                </button>
+                {isGuest ? (
+                  <button
+                    onClick={() => {
+                      openLogin();
+                      setMobileOpen(false);
+                    }}
+                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-primary hover:bg-primary/10 rounded-md transition-colors"
+                  >
+                    <LogIn className="h-3.5 w-3.5" />
+                    <span>로그인 / 가입</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={logout}
+                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    <span>로그아웃</span>
+                  </button>
+                )}
               </div>
             </div>
             <div className="flex-1 bg-black/40" onClick={() => setMobileOpen(false)} />
@@ -209,8 +250,31 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           {user?.role === "admin" && (
             <>
               <div className="w-6 border-t my-1" />
-              {adminMenuItems.map((item) => {
-                const isActive = location === item.path;
+              {DEMO_PUBLISHING_ENABLED &&
+                adminMenuItems.map((item) => {
+                  const isActive = location === item.path;
+                  return (
+                    <Tooltip key={item.path}>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => setLocation(item.path)}
+                          className={`h-9 w-9 flex items-center justify-center rounded-md transition-colors ${
+                            isActive
+                              ? "bg-primary/10 text-primary"
+                              : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                          }`}
+                        >
+                          <item.icon className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs">
+                        {item.label}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              {adminViewItems.map((item) => {
+                const isActive = location.startsWith(item.path);
                 return (
                   <Tooltip key={item.path}>
                     <TooltipTrigger asChild>
@@ -259,40 +323,59 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 <DropdownMenuTrigger asChild>
                   <button className="h-9 w-9 flex items-center justify-center rounded-md hover:bg-accent transition-colors">
                     <Avatar className="h-7 w-7 border shrink-0">
-                      <AvatarFallback className="text-xs font-medium">
-                        {user?.name?.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                  </button>
+                    <AvatarFallback className="text-xs font-medium">
+                        {(user?.name?.charAt(0) ?? "G").toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent side="right" className="text-xs">
-                {user?.name || "계정"}
+                {isGuest ? "게스트 모드" : user?.name || "계정"}
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" side="right" className="w-48">
               <div className="px-2 py-1.5 text-xs text-muted-foreground border-b mb-1">
-                {user?.name}
+                {isGuest ? "게스트 모드" : user?.name}
               </div>
               {user?.role === "admin" && (
                 <>
+                  {DEMO_PUBLISHING_ENABLED && (
+                    <DropdownMenuItem
+                      onClick={() => setLocation("/admin/demo-management")}
+                      className="cursor-pointer text-xs"
+                    >
+                      <Settings className="mr-2 h-3.5 w-3.5" />
+                      <span>데모 관리</span>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
-                    onClick={() => setLocation("/admin/demo-management")}
+                    onClick={() => setLocation("/demo")}
                     className="cursor-pointer text-xs"
                   >
-                    <Settings className="mr-2 h-3.5 w-3.5" />
-                    <span>데모 관리</span>
+                    <Eye className="mr-2 h-3.5 w-3.5" />
+                    <span>데모 화면</span>
                   </DropdownMenuItem>
                   <div className="my-1 border-t" />
                 </>
               )}
-              <DropdownMenuItem
-                onClick={logout}
-                className="cursor-pointer text-destructive focus:text-destructive text-xs"
-              >
-                <LogOut className="mr-2 h-3.5 w-3.5" />
-                <span>로그아웃</span>
-              </DropdownMenuItem>
+              {isGuest ? (
+                <DropdownMenuItem
+                  onClick={openLogin}
+                  className="cursor-pointer text-xs"
+                >
+                  <LogIn className="mr-2 h-3.5 w-3.5" />
+                  <span>로그인 / 가입</span>
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  onClick={logout}
+                  className="cursor-pointer text-destructive focus:text-destructive text-xs"
+                >
+                  <LogOut className="mr-2 h-3.5 w-3.5" />
+                  <span>로그아웃</span>
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

@@ -8,16 +8,25 @@ import { Loader2, Upload, CheckCircle, AlertCircle } from "lucide-react";
 import { trackOCRComplete, trackOCRError, trackOCRStart } from "@/lib/ga4Events";
 
 const NUMBERED_LINE_REGEX = /^\s*(?:\d{1,3}[.)]|[①-⑳]|[A-Za-z가-힣][.)])\s*/;
-const BULLET_LINE_REGEX = /^\s*(?:[-*•·▪◦])\s+/;
+const BULLET_LINE_REGEX = /^\s*(?:[-–—*•·▪◦])\s+/;
+const TOP_BULLET_LINE_REGEX = /^\s*(?:[*•·▪◦])\s+/;
+const DASH_BULLET_LINE_REGEX = /^\s*(?:[-–—])\s+/;
+const BOX_BULLET_LINE_REGEX = /^\s*(?:[■□▣▤▥▦▧▨▩◆◇◼◻◾◽⬛⬜🟦🟩🟥🟨])\s*/;
+const STRONG_TITLE_LINE_REGEX =
+  /^\s*(?:(?:box|table|tbl)\s*[-–—]?\s*[A-Za-z0-9가-힣]+|표\s*[A-Za-z0-9가-힣-]+|문제\s*\d+)\b/i;
+const BOX_QA_LINE_REGEX =
+  /^\s*(?:Q|A)\s*[.:：]\s*/i;
 const NOTE_HINT_REGEX =
   /^\s*(?:※|참고|주의|메모|note|tip|cf\.?|supplement|appendix|별첨|부연)\b/i;
+const CONVERSATIONAL_NOTE_HINT_REGEX =
+  /(근데|그러면|그래서|쉽게|어렵|헷갈|설명|정리|생각|도움|외우|암기|포인트|시험|문제라고|적어|써요|라고)/i;
+const SENTENCE_ENDING_REGEX = /(입니다|습니다|해요|돼요|되요|된다|좋다|같다|거다|거예요|거에요)([.!?…])?$/;
 
 type OCRJobStatus = "idle" | "uploading" | "processing" | "completed" | "failed";
 
 export interface OCRExtractedPayload {
-  autoText: string;
+  blockText: string;
   fullText: string;
-  detectedTitle: string;
   rawText: string;
   includeMemoLines: boolean;
   selectedPages: number[] | null;
@@ -28,9 +37,8 @@ interface OCRUploaderProps {
 }
 
 type ProcessedOcrText = {
+  blockText: string;
   fullText: string;
-  autoText: string;
-  detectedTitle: string;
 };
 
 function normalizeText(raw: string): string {
@@ -40,58 +48,187 @@ function normalizeText(raw: string): string {
 function isLikelyMemoLine(line: string): boolean {
   const trimmed = line.trim();
   if (!trimmed) return true;
+  if (BOX_QA_LINE_REGEX.test(trimmed)) return true;
+  if (BOX_BULLET_LINE_REGEX.test(trimmed) && !NUMBERED_LINE_REGEX.test(trimmed)) return true;
   if (NUMBERED_LINE_REGEX.test(trimmed)) return false;
+  if (TOP_BULLET_LINE_REGEX.test(trimmed) || DASH_BULLET_LINE_REGEX.test(trimmed)) return false;
   if (trimmed.length <= 3) return true;
   if (NOTE_HINT_REGEX.test(trimmed)) return true;
+  if (CONVERSATIONAL_NOTE_HINT_REGEX.test(trimmed)) return true;
+  if (/[!?]/.test(trimmed)) return true;
   if (trimmed.startsWith("(") && trimmed.endsWith(")") && trimmed.length <= 60) return true;
+  const cleaned = cleanTitleLine(trimmed);
+  if (cleaned.length >= 28 && SENTENCE_ENDING_REGEX.test(cleaned)) return true;
+  if (cleaned.length >= 40 && !isStrongTitleLine(cleaned)) return true;
   const symbolRatio =
     (trimmed.match(/[~`!@#$%^&*_=+|\\/<>[\]{}]/g) ?? []).length / Math.max(trimmed.length, 1);
   return symbolRatio > 0.28;
+}
+
+function isAlwaysExcludedLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return true;
+
+  // 색상 박스의 Q./A. 문구는 강의록 본문/불렛이 아니므로 항상 제외
+  if (BOX_QA_LINE_REGEX.test(trimmed)) return true;
+
+  // 박스성 마커 문구(네모 글머리) 중 번호형 본문이 아닌 라인은 제외
+  if (
+    BOX_BULLET_LINE_REGEX.test(trimmed) &&
+    !NUMBERED_LINE_REGEX.test(trimmed) &&
+    !BULLET_LINE_REGEX.test(trimmed)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function cleanTitleLine(line: string): string {
   return line.replace(NUMBERED_LINE_REGEX, "").replace(BULLET_LINE_REGEX, "").trim();
 }
 
-function isLectureTitleCandidate(line: string): boolean {
-  const title = cleanTitleLine(line);
-  if (!title) return false;
-  if (NUMBERED_LINE_REGEX.test(line) || BULLET_LINE_REGEX.test(line)) return false;
-  if (NOTE_HINT_REGEX.test(title)) return false;
-  if (title.length < 4 || title.length > 72) return false;
-  if (/^[\d\s\-–—.:,;()]+$/.test(title)) return false;
-  if (title.startsWith("(") || title.startsWith("[") || title.startsWith("{")) return false;
-  return true;
+function isContentLine(line: string): boolean {
+  return NUMBERED_LINE_REGEX.test(line) || TOP_BULLET_LINE_REGEX.test(line) || DASH_BULLET_LINE_REGEX.test(line);
 }
 
-function detectTopTitle(lines: string[]): string {
-  if (lines.length === 0) return "";
+function isStrongTitleLine(line: string): boolean {
+  if (isContentLine(line)) return false;
+  const cleaned = cleanTitleLine(line);
+  if (!cleaned) return false;
+  if (NOTE_HINT_REGEX.test(cleaned)) return false;
+  return STRONG_TITLE_LINE_REGEX.test(cleaned);
+}
 
-  // 강의록 제목은 보통 문서 상단 본문에 오므로, 본문 시작 전 상단 영역만 제목 후보로 본다.
-  const bodyStartIndex = lines.findIndex(
-    (line) => NUMBERED_LINE_REGEX.test(line) || BULLET_LINE_REGEX.test(line)
-  );
-  const topRangeEnd =
-    bodyStartIndex > 0 ? Math.min(bodyStartIndex, 6) : Math.min(lines.length, 4);
-  const topLines = lines.slice(0, topRangeEnd);
+function romanToInt(input: string): number | null {
+  const roman = input.toUpperCase();
+  if (!/^[IVXLCDM]+$/.test(roman)) return null;
+  const map: Record<string, number> = {
+    I: 1,
+    V: 5,
+    X: 10,
+    L: 50,
+    C: 100,
+    D: 500,
+    M: 1000,
+  };
+  let total = 0;
+  for (let i = 0; i < roman.length; i += 1) {
+    const current = map[roman[i]];
+    const next = map[roman[i + 1]] ?? 0;
+    total += current < next ? -current : current;
+  }
+  return total > 0 && total <= 50 ? total : null;
+}
 
-  for (const line of topLines) {
-    if (isLectureTitleCandidate(line)) {
-      return cleanTitleLine(line);
+function normalizeMajorTitle(line: string): string {
+  const cleaned = cleanTitleLine(line);
+  const romanMatch = cleaned.match(/^([IVXLCDM]+)\s*[.)]?\s*(.+)$/i);
+  if (romanMatch) {
+    const num = romanToInt(romanMatch[1]);
+    if (num !== null) return `${num}) ${romanMatch[2].trim()}`;
+  }
+  const numericMatch = cleaned.match(/^(\d+)\s*[.)]\s*(.+)$/);
+  if (numericMatch) {
+    return `${numericMatch[1]}) ${numericMatch[2].trim()}`;
+  }
+  return cleaned;
+}
+
+function normalizeContentLine(raw: string, mainIndexRef: { value: number }): string {
+  const line = raw.trim();
+  if (NUMBERED_LINE_REGEX.test(line)) {
+    const text = cleanTitleLine(line);
+    const numberMatch = line.match(/^\s*(\d{1,3})[.)]/);
+    if (numberMatch) {
+      const n = Number.parseInt(numberMatch[1], 10);
+      if (Number.isFinite(n)) mainIndexRef.value = n;
+      return `${n}. ${text}`;
     }
+    mainIndexRef.value += 1;
+    return `${mainIndexRef.value}. ${text}`;
+  }
+  if (TOP_BULLET_LINE_REGEX.test(line)) {
+    mainIndexRef.value += 1;
+    return `${mainIndexRef.value}. ${cleanTitleLine(line)}`;
+  }
+  if (DASH_BULLET_LINE_REGEX.test(line)) {
+    return `- ${cleanTitleLine(line)}`;
+  }
+  return cleanTitleLine(line);
+}
+
+function isMainItemCandidate(line: string): boolean {
+  if (!line.trim()) return false;
+  if (isContentLine(line)) return false;
+  if (isStrongTitleLine(line)) return false;
+  if (isLikelyMemoLine(line)) return false;
+  const cleaned = cleanTitleLine(line);
+  if (cleaned.length < 4 || cleaned.length > 42) return false;
+  if (SENTENCE_ENDING_REGEX.test(cleaned)) return false;
+  if (/[!?]/.test(cleaned)) return false;
+  return /(역할|효과|기능|저항|감소|유지|보철|guiding|rest|indication|splinting|denture|relining)/i.test(cleaned);
+}
+
+function buildNumberingBlocks(lines: string[]): Array<{ title: string; body: string[] }> {
+  const blocks: Array<{ title: string; body: string[] }> = [];
+  let current: { title: string; body: string[] } | null = null;
+  let pendingTitle = "";
+  let mainIndex = { value: 0 };
+
+  const flush = () => {
+    if (!current) return;
+    const body = current.body.map((line) => line.trim()).filter(Boolean);
+    if (body.length > 0) {
+      const title = current.title.trim() || cleanTitleLine(body[0]);
+      blocks.push({
+        title,
+        body,
+      });
+    }
+    current = null;
+    mainIndex = { value: 0 };
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    if (isLikelyMemoLine(line)) continue;
+
+    const contentLine = isContentLine(line);
+
+    if (contentLine) {
+      if (!current) current = { title: pendingTitle, body: [] };
+      current.body.push(normalizeContentLine(line, mainIndex));
+      continue;
+    }
+
+    if (isMainItemCandidate(line)) {
+      if (!current) current = { title: pendingTitle, body: [] };
+      mainIndex.value += 1;
+      current.body.push(`${mainIndex.value}. ${cleanTitleLine(line)}`);
+      continue;
+    }
+
+    const nextNonEmpty = lines.slice(i + 1).find((candidate) => candidate.trim().length > 0) ?? "";
+    const nextIsContent = isContentLine(nextNonEmpty);
+    const isBoundaryTitle = isStrongTitleLine(line) || nextIsContent;
+    if (!isBoundaryTitle) continue;
+
+    if (current && current.body.length > 0) {
+      flush();
+    }
+    pendingTitle = normalizeMajorTitle(line);
   }
 
-  for (const line of lines.slice(0, Math.min(lines.length, 3))) {
-    const title = cleanTitleLine(line);
-    if (title.length >= 4 && !NOTE_HINT_REGEX.test(title)) return title;
-  }
-
-  return "";
+  flush();
+  return blocks.filter((block) => block.title.trim().length > 0);
 }
 
 function processOcrText(rawText: string, includeMemoLines: boolean): ProcessedOcrText {
   const normalized = normalizeText(rawText);
-  if (!normalized) return { fullText: "", autoText: "", detectedTitle: "" };
+  if (!normalized) return { blockText: "", fullText: "" };
 
   const rawLines = normalized
     .split("\n")
@@ -99,49 +236,32 @@ function processOcrText(rawText: string, includeMemoLines: boolean): ProcessedOc
     .filter(Boolean);
 
   const dedupedLines: string[] = [];
-  const seen = new Set<string>();
+  let previous = "";
   for (const line of rawLines) {
-    if (seen.has(line)) continue;
-    seen.add(line);
+    if (isAlwaysExcludedLine(line)) continue;
+    if (line === previous) continue;
+    previous = line;
     dedupedLines.push(line);
   }
 
-  const memoLines: string[] = [];
   const baseLines: string[] = [];
 
   for (const line of dedupedLines) {
     if (isLikelyMemoLine(line)) {
-      memoLines.push(line);
       if (includeMemoLines) baseLines.push(line);
       continue;
     }
     baseLines.push(line);
   }
 
-  const detectedTitle = detectTopTitle(rawLines);
-  const numberedLines = baseLines.filter((line) => NUMBERED_LINE_REGEX.test(line));
-  const bulletLines = baseLines.filter(
-    (line) => !NUMBERED_LINE_REGEX.test(line) && BULLET_LINE_REGEX.test(line)
-  );
-  const remainingLines = baseLines.filter(
-    (line) =>
-      !NUMBERED_LINE_REGEX.test(line) &&
-      !BULLET_LINE_REGEX.test(line) &&
-      (!detectedTitle || cleanTitleLine(line) !== detectedTitle)
-  );
-
-  const autoCandidates = [...numberedLines, ...bulletLines];
-  if (includeMemoLines && memoLines.length > 0) {
-    autoCandidates.push(...memoLines);
-  }
-
-  const autoText =
-    autoCandidates.length > 0
-      ? autoCandidates.join("\n")
-      : (remainingLines.length > 0 ? remainingLines : baseLines).join("\n");
   const fullText = [...baseLines].join("\n");
+  const blocks = buildNumberingBlocks(baseLines);
+  const blockText = blocks
+    .map((block) => [block.title, ...block.body].filter(Boolean).join("\n"))
+    .join("\n---\n")
+    .trim();
 
-  return { fullText, autoText, detectedTitle };
+  return { blockText, fullText };
 }
 
 function isPdfFile(file: File): boolean {
@@ -215,9 +335,8 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
   const [jobId, setJobId] = useState<number | null>(null);
   const [status, setStatus] = useState<OCRJobStatus>("idle");
   const [rawExtractedText, setRawExtractedText] = useState<string>("");
-  const [autoTextDraft, setAutoTextDraft] = useState<string>("");
+  const [blockTextDraft, setBlockTextDraft] = useState<string>("");
   const [fullTextDraft, setFullTextDraft] = useState<string>("");
-  const [detectedTitleDraft, setDetectedTitleDraft] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [includeMemoLines, setIncludeMemoLines] = useState(false);
   const [totalPdfPages, setTotalPdfPages] = useState(0);
@@ -228,16 +347,15 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
   const isPdf = useMemo(() => (file ? isPdfFile(file) : false), [file]);
   const selectedPdfPageCount = selectedPdfPages.length;
   const hasBulkDelimiter = useMemo(
-    () => /(?:^|\n)\s*---+\s*(?:\n|$)/.test(`${fullTextDraft}\n${autoTextDraft}`),
-    [autoTextDraft, fullTextDraft]
+    () => /(?:^|\n)\s*---+\s*(?:\n|$)/.test(blockTextDraft),
+    [blockTextDraft]
   );
 
   const applyProcessedText = (text: string, includeMemo: boolean) => {
     const processed = processOcrText(text, includeMemo);
     setRawExtractedText(text);
-    setAutoTextDraft(processed.autoText);
+    setBlockTextDraft(processed.blockText);
     setFullTextDraft(processed.fullText);
-    setDetectedTitleDraft(processed.detectedTitle);
   };
 
   const startJobMutation = trpc.ocr.startJob.useMutation({
@@ -292,9 +410,8 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
   useEffect(() => {
     if (!rawExtractedText) return;
     const processed = processOcrText(rawExtractedText, includeMemoLines);
-    setAutoTextDraft(processed.autoText);
+    setBlockTextDraft(processed.blockText);
     setFullTextDraft(processed.fullText);
-    setDetectedTitleDraft(processed.detectedTitle);
   }, [rawExtractedText, includeMemoLines]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -304,9 +421,8 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
     setFile(selectedFile);
     setStatus("idle");
     setRawExtractedText("");
-    setAutoTextDraft("");
+    setBlockTextDraft("");
     setFullTextDraft("");
-    setDetectedTitleDraft("");
     setErrorMessage("");
     setJobId(null);
     setTotalPdfPages(0);
@@ -391,9 +507,8 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
 
   const handleApply = () => {
     onExtractedText?.({
-      autoText: autoTextDraft,
+      blockText: blockTextDraft,
       fullText: fullTextDraft,
-      detectedTitle: detectedTitleDraft,
       rawText: rawExtractedText,
       includeMemoLines,
       selectedPages: isPdf ? selectedPdfPages : null,
@@ -405,9 +520,8 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
     setJobId(null);
     setStatus("idle");
     setRawExtractedText("");
-    setAutoTextDraft("");
+    setBlockTextDraft("");
     setFullTextDraft("");
-    setDetectedTitleDraft("");
     setErrorMessage("");
     setTotalPdfPages(0);
     setSelectedPdfPages([]);
@@ -594,7 +708,7 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
 
             <div className="rounded-md border bg-muted/20 px-3 py-2 space-y-1">
               <p className="text-xs font-medium text-muted-foreground">
-                블록 일괄 입력: `---` 로 블록 구분, 각 블록 첫 줄은 문제 제목, 아래는 답안/표 본문
+                OCR 자동 블록화: 각 블록 첫 줄은 제목, 아래는 내용. 블록 사이는 `---` 로 구분됩니다.
               </p>
               {hasBulkDelimiter ? (
                 <p className="text-xs text-muted-foreground">
@@ -602,7 +716,7 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  OCR 결과를 그대로 적용하면 단일 문제 생성, `---`를 넣으면 여러 문제 일괄 생성이 가능합니다.
+                  블록이 1개만 감지되었습니다. 필요하면 제목/내용을 직접 수정해서 분리할 수 있습니다.
                 </p>
               )}
             </div>
@@ -614,43 +728,32 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
                 onChange={(event) => setIncludeMemoLines(event.target.checked)}
                 className="w-4 h-4"
               />
-              색상 박스의 보조 필기(메모) 라인도 포함
+              학습부 필기 포함
             </label>
 
             <div className="space-y-2">
               <p className="text-xs font-medium text-muted-foreground">
-                감지된 상단 제목 (문제 제목으로 사용)
+                블록 일괄 입력 (첫 줄=제목, 아래=내용)
               </p>
               <Textarea
-                value={detectedTitleDraft}
-                onChange={(event) => setDetectedTitleDraft(event.target.value)}
-                className="min-h-14 text-sm"
+                value={blockTextDraft}
+                onChange={(event) => setBlockTextDraft(event.target.value)}
+                className="min-h-48 text-sm"
               />
             </div>
 
             <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">
-                자동 완성 (번호/불릿 문제 우선)
-              </p>
+              <p className="text-xs font-medium text-muted-foreground">인식 원문 (Raw OCR)</p>
               <Textarea
-                value={autoTextDraft}
-                onChange={(event) => setAutoTextDraft(event.target.value)}
-                className="min-h-32 text-sm"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">인식 원문 (Full Text)</p>
-              <Textarea
-                value={fullTextDraft}
-                onChange={(event) => setFullTextDraft(event.target.value)}
+                value={rawExtractedText}
+                onChange={(event) => setRawExtractedText(event.target.value)}
                 className="min-h-40 text-sm"
               />
             </div>
 
             <div className="flex gap-2">
               <Button onClick={handleApply} className="flex-1">
-                질문/답안에 적용
+                일괄입력에 적용
               </Button>
               <Button onClick={handleReset} variant="outline">
                 다시 시작

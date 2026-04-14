@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff, Table2 } from "lucide-react";
 import { toast } from "sonner";
@@ -13,11 +13,192 @@ import { TableView, TableData, getBlankCells, gradeTable } from "@/components/Ta
 import { trackTestSubmit } from "@/lib/ga4Events";
 import { ConfidencePopup } from "@/components/ConfidencePopup";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
-import { buildNextAutoNumberingValue } from "@/lib/autoNumbering";
+import { buildNextAutoNumberingValue, getForcedPrefixByTemplateProgress } from "@/lib/autoNumbering";
+import { getImageAttribution } from "@/lib/imageAttribution";
 
 interface TestProps {
   questionId: number;
   isDemo?: boolean;
+}
+
+type MatchTone = "correct" | "answer";
+
+function buildNonWhitespaceTokens(codepoints: string[]) {
+  const tokens: Array<{ ch: string; pos: number }> = [];
+  for (let i = 0; i < codepoints.length; i++) {
+    const ch = codepoints[i];
+    if (/^\s$/.test(ch)) continue;
+    tokens.push({ ch: ch.toLocaleLowerCase(), pos: i });
+  }
+  return tokens;
+}
+
+function getMatchedCharPositions(correctText: string, answerText: string) {
+  const correctChars = Array.from(correctText ?? "");
+  const answerChars = Array.from(answerText ?? "");
+  const correctTokens = buildNonWhitespaceTokens(correctChars);
+  const answerTokens = buildNonWhitespaceTokens(answerChars);
+
+  const m = correctTokens.length;
+  const n = answerTokens.length;
+  if (m === 0 || n === 0) {
+    return {
+      correctMatched: new Set<number>(),
+      answerMatched: new Set<number>(),
+    };
+  }
+
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (correctTokens[i - 1].ch === answerTokens[j - 1].ch) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  const correctMatched = new Set<number>();
+  const answerMatched = new Set<number>();
+  let i = m;
+  let j = n;
+  while (i > 0 && j > 0) {
+    if (correctTokens[i - 1].ch === answerTokens[j - 1].ch) {
+      correctMatched.add(correctTokens[i - 1].pos);
+      answerMatched.add(answerTokens[j - 1].pos);
+      i--;
+      j--;
+      continue;
+    }
+    if (dp[i - 1][j] >= dp[i][j - 1]) i--;
+    else j--;
+  }
+
+  return { correctMatched, answerMatched };
+}
+
+function buildWordTokens(text: string) {
+  const tokens: Array<{ token: string; start: number; end: number }> = [];
+  const regex = /[a-z0-9]+(?:['’\-][a-z0-9]+)*/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    const word = match[0] ?? "";
+    if (!word) continue;
+    tokens.push({
+      token: word.toLowerCase(),
+      start: match.index,
+      end: match.index + word.length,
+    });
+  }
+  return tokens;
+}
+
+function getMatchedWordPositions(correctText: string, answerText: string) {
+  const correctTokens = buildWordTokens(correctText ?? "");
+  const answerTokens = buildWordTokens(answerText ?? "");
+  const m = correctTokens.length;
+  const n = answerTokens.length;
+
+  if (m === 0 || n === 0) {
+    return {
+      correctMatched: new Set<number>(),
+      answerMatched: new Set<number>(),
+    };
+  }
+
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (correctTokens[i - 1].token === answerTokens[j - 1].token) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  const matchedCorrectTokenIndexes = new Set<number>();
+  const matchedAnswerTokenIndexes = new Set<number>();
+  let i = m;
+  let j = n;
+  while (i > 0 && j > 0) {
+    if (correctTokens[i - 1].token === answerTokens[j - 1].token) {
+      matchedCorrectTokenIndexes.add(i - 1);
+      matchedAnswerTokenIndexes.add(j - 1);
+      i--;
+      j--;
+      continue;
+    }
+    if (dp[i - 1][j] >= dp[i][j - 1]) i--;
+    else j--;
+  }
+
+  const correctMatched = new Set<number>();
+  const answerMatched = new Set<number>();
+  matchedCorrectTokenIndexes.forEach((idx) => {
+    const token = correctTokens[idx];
+    for (let p = token.start; p < token.end; p++) correctMatched.add(p);
+  });
+  matchedAnswerTokenIndexes.forEach((idx) => {
+    const token = answerTokens[idx];
+    for (let p = token.start; p < token.end; p++) answerMatched.add(p);
+  });
+
+  return { correctMatched, answerMatched };
+}
+
+function isLikelyEnglishText(text: string): boolean {
+  const latinCount = (text.match(/[a-z]/gi) ?? []).length;
+  const hangulCount = (text.match(/[가-힣]/g) ?? []).length;
+  if (latinCount === 0) return false;
+  return hangulCount === 0 || latinCount >= hangulCount * 2;
+}
+
+function getMatchedPositions(
+  correctText: string,
+  answerText: string,
+  preferredMode?: string | null
+) {
+  const mode = preferredMode === "word"
+    ? "word"
+    : preferredMode === "typing"
+      ? "char"
+      : isLikelyEnglishText(`${correctText ?? ""} ${answerText ?? ""}`)
+        ? "word"
+        : "char";
+  return mode === "word"
+    ? { ...getMatchedWordPositions(correctText, answerText), mode: "word" as const }
+    : { ...getMatchedCharPositions(correctText, answerText), mode: "char" as const };
+}
+
+function renderComparedText(
+  text: string,
+  matchedPositions: Set<number>,
+  tone: MatchTone
+) {
+  const chars = Array.from(text ?? "");
+  return (
+    <span className="whitespace-pre-wrap break-words">
+      {chars.map((ch, idx) => {
+        const isWhitespace = /^\s$/.test(ch);
+        const isMatched = !isWhitespace && matchedPositions.has(idx);
+        const className = isWhitespace
+          ? "text-current"
+          : isMatched
+            ? "bg-emerald-100 text-emerald-800 rounded-sm"
+            : tone === "correct"
+              ? "text-muted-foreground"
+              : "bg-rose-100 text-rose-700 rounded-sm";
+        return (
+          <span key={`${idx}-${ch}`} className={className}>
+            {ch}
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 function deleteCurrentLineAtCursor(
@@ -82,6 +263,8 @@ function deleteWordBeforeCursor(
 
 export default function Test({ questionId, isDemo = false }: TestProps) {
   const [, setLocation] = useLocation();
+  const searchParams = new URLSearchParams(window.location.search);
+  const shouldAutoStart = searchParams.get("autostart") === "1";
   const [userAnswer, setUserAnswer] = useState("");
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -108,6 +291,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const pasteDetectedRef = useRef(false);
   const inputCharsRef = useRef(0);
   const [speedBonus, setSpeedBonus] = useState<{ bonus: number; label: string; ratio: number } | null>(null);
+  const isMacPlatform = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const { data: confidenceData, refetch: refetchConfidence } = trpc.confidence.getByQuestion.useQuery(
@@ -127,6 +311,10 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   }, [confidenceData, isSubmitted]);
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+  const imageAttribution = useMemo(
+    () => getImageAttribution(question?.id, question?.imageUrl),
+    [question?.id, question?.imageUrl]
+  );
   const tableData: TableData | null = question?.tableData ? JSON.parse(question.tableData) : null;
   const isTableQuestion = !!tableData;
   const [tableAnswers, setTableAnswers] = useState<Record<string, string>>({});
@@ -239,15 +427,18 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   }, [isStarted, startTime, isSubmitted]);
 
   const handleStart = () => {
+    const initialAnswer = "";
     setIsStarted(true);
     setStartTime(Date.now());
-    setUserAnswer("");
+    setUserAnswer(initialAnswer);
     setRecallTime(0);
     setIsSubmitted(false);
     setResult(null);
     setTableAnswers({});
     setTableResults(null);
     setTableScore(null);
+    setAnswerHistory([initialAnswer]);
+    setAnswerHistoryIndex(0);
     setSpeedBonus(null);
     // 타이핑 수집 리셋
     typingStartTimeRef.current = null;
@@ -258,14 +449,22 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     textareaRef.current?.focus();
   };
 
+  useEffect(() => {
+    if (!question || !shouldAutoStart || isStarted || isSubmitted) return;
+    handleStart();
+  }, [question, shouldAutoStart, isStarted, isSubmitted]);
+
   const handleReset = () => {
+    const resetAnswer = "";
     setIsStarted(false);
     setStartTime(null);
-    setUserAnswer("");
+    setUserAnswer(resetAnswer);
     setRecallTime(0);
     setIsSubmitted(false);
     setResult(null);
     setAudioBlob(null);
+    setAnswerHistory([resetAnswer]);
+    setAnswerHistoryIndex(0);
     setTableAnswers({});
     setTableResults(null);
     setTableScore(null);
@@ -455,22 +654,20 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     ? `⚡ 속도 보너스 +${speedBonus.bonus} (${speedBonus.label === "great" ? "매우 빠름" : "빠름"})`
     : null;
 
-  // 단축키 안내 표시 설정 (localStorage)
-  const [showShortcutHelp, setShowShortcutHelp] = useState(() => {
-    const saved = localStorage.getItem("showShortcutHelp");
-    return saved !== null ? saved === "true" : true;
-  });
-
-  const toggleShortcutHelp = () => {
-    const newValue = !showShortcutHelp;
-    setShowShortcutHelp(newValue);
-    localStorage.setItem("showShortcutHelp", String(newValue));
+  const canSubmitNow = () => {
+    if (evaluateMutation.isPending) return false;
+    if (isTableQuestion && tableData) {
+      return getBlankCells(tableData).every((key) => tableAnswers[key]?.trim());
+    }
+    if (isImageQuestion) {
+      return imageLabels.every((_: any, index: number) => imageLabelAnswers[index]?.trim());
+    }
+    return userAnswer.trim().length > 0;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const keyLower = e.key.toLowerCase();
     const hasPrimaryModifier = e.ctrlKey || e.metaKey;
-    const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
 
     const pushAnswerHistory = (nextValue: string) => {
       const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
@@ -484,20 +681,52 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       setAnswerHistoryIndex(Math.max(0, newHistory.length - 1));
     };
 
-    // Enter: autoNumbering 문제에서는 연습모드와 동일하게 다음 번호 자동 삽입
-    if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey && question?.autoNumbering === 1) {
+    // Cmd/Ctrl + Enter: 즉시 제출 (OS 공통)
+    if (e.key === "Enter" && hasPrimaryModifier && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (canSubmitNow()) {
+        void handleSubmit();
+      }
+      return;
+    }
+
+    // Enter: 시험모드는 시작 시 번호를 숨기되, 첫 입력 후 Enter에서 번호 흐름을 자동 생성
+    if (e.key === "Enter" && !hasPrimaryModifier && !e.shiftKey && !e.altKey && question?.autoNumbering === 1) {
       if ((e.nativeEvent as any).isComposing) return;
+
+      const textarea = e.currentTarget;
+      const rawValue = textarea.value.replace(/\r\n/g, "\n");
+      if (rawValue.trim().length === 0) return;
 
       e.preventDefault();
       e.stopPropagation();
 
-      const textarea = e.currentTarget;
-      const selectionStart = textarea.selectionStart ?? 0;
-      const selectionEnd = textarea.selectionEnd ?? selectionStart;
-      const { nextValue, nextCursor } = buildNextAutoNumberingValue(
-        textarea.value,
+      let selectionStart = textarea.selectionStart ?? 0;
+      let selectionEnd = textarea.selectionEnd ?? selectionStart;
+      let workingValue = rawValue;
+      const hasAnyNumbering = /(^|\n)\s*\d+\.\s/.test(workingValue);
+      if (!hasAnyNumbering) {
+        // 힌트 노출을 피하기 위해 시작 시엔 숨기고, 첫 Enter 시에만 내부적으로 1/2 흐름 생성
+        workingValue = `1. ${workingValue}`;
+        selectionStart += 3;
+        selectionEnd += 3;
+      }
+      const forcedPrefix = getForcedPrefixByTemplateProgress(
+        workingValue,
         selectionStart,
-        selectionEnd
+        String(question?.answer ?? "")
+      );
+      const autoNumberingOptions =
+        typeof forcedPrefix === "string"
+          ? { forcedPrefix }
+          : undefined;
+
+      const { nextValue, nextCursor } = buildNextAutoNumberingValue(
+        workingValue,
+        selectionStart,
+        selectionEnd,
+        autoNumberingOptions
       );
 
       setUserAnswer(nextValue);
@@ -534,7 +763,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     // - Windows/Linux: Ctrl+Shift+Z 또는 Ctrl+Y
     const isRedoShortcut =
       (hasPrimaryModifier && e.shiftKey && !e.altKey && keyLower === "z") ||
-      (!isMac && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && keyLower === "y");
+      (!isMacPlatform && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && keyLower === "y");
     if (isRedoShortcut) {
       e.preventDefault();
       e.stopPropagation();
@@ -668,11 +897,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     );
   }
 
-  const isSubmitDisabled = evaluateMutation.isPending || (isTableQuestion && tableData ?
-    !getBlankCells(tableData).every((key) => tableAnswers[key]?.trim()) :
-    isImageQuestion ?
-    !imageLabels.every((_: any, index: number) => imageLabelAnswers[index]?.trim()) :
-    !userAnswer.trim());
+  const isSubmitDisabled = !canSubmitNow();
 
   const useFloatingTextInput = isStarted && !isSubmitted && !isImageQuestion && !isTableQuestion;
 
@@ -744,25 +969,26 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                     <span className="text-white font-bold text-2xl">{index + 1}</span>
                   </div>
                 ))}
-                {/* License information for image questions */}
-                <div className="mt-3 text-xs text-muted-foreground space-y-0.5 border-t border-border/50 pt-2">
-                  {question?.id === 570001 ? (
-                    <>
-                      <p>© Ksiom, Kwj2772 / Wikimedia Commons</p>
-                      <p>Licensed under Public Domain</p>
-                    </>
-                  ) : question?.id === 570002 ? (
-                    <>
-                      <p>© Jonathan Richter</p>
-                      <p>https://richterguitar.com</p>
-                    </>
-                  ) : question?.id === 600004 ? (
-                    <>
-                      <p>머리 및 목 해부학 2021 개정판</p>
-                      <p>저자: 김명국, p.10</p>
-                    </>
-                  ) : null}
-                </div>
+                {imageAttribution && (
+                  <div className="mt-3 text-[10px] text-muted-foreground/75 space-y-0.5 border-t border-border/50 pt-2 select-none">
+                    {imageAttribution.lines.map((line, index) =>
+                      line.href ? (
+                        <p key={`${line.text}-${index}`}>
+                          <a
+                            href={line.href}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="hover:underline underline-offset-2"
+                          >
+                            {line.text}
+                          </a>
+                        </p>
+                      ) : (
+                        <p key={`${line.text}-${index}`}>{line.text}</p>
+                      )
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -1031,31 +1257,77 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   </div>
                 ) : (
                   <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1">
+                        <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-100 border border-emerald-300" />
+                        일치한 부분
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <span className="inline-block h-2.5 w-2.5 rounded-sm bg-rose-100 border border-rose-300" />
+                        내 답에서 다른 부분
+                      </span>
+                    </div>
                     {result?.mistakes && result.mistakes.length > 0 ? (
                       // Line-by-line comparison for multi-line text questions
-                      result.mistakes.map((mistake: any) => (
-                        <div key={mistake.lineIndex} className={`p-3 rounded-lg border ${mistake.isCorrect ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-semibold">{mistake.lineIndex}번째 줄</span>
-                            <span className={`text-lg ${mistake.isCorrect ? 'text-green-600' : 'text-red-600'}`}>{mistake.isCorrect ? '✓' : '✗'}</span>
+                      result.mistakes.map((mistake: any) => {
+                        const { correctMatched, answerMatched } = getMatchedPositions(
+                          mistake.correctAnswer || "",
+                          mistake.userAnswer || "",
+                          mistake.compareMode
+                        );
+                        return (
+                          <div key={mistake.lineIndex} className={`p-3 rounded-lg border ${mistake.isCorrect ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-semibold">{mistake.lineIndex}번째 줄</span>
+                              <span className={`text-lg ${mistake.isCorrect ? 'text-green-600' : 'text-red-600'}`}>{mistake.isCorrect ? '✓' : '✗'}</span>
+                            </div>
+                            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                              <span>점수 {mistake.lineScore ?? 0}점</span>
+                              {typeof mistake.matchedUserLineIndex === "number" && (
+                                <span>입력 {mistake.matchedUserLineIndex}번째 줄 매칭</span>
+                              )}
+                              <span>{mistake.compareMode === "word" ? "영어 단어 단위 채점" : "문자열 채점"}</span>
+                            </div>
+                            <div className="text-xs space-y-1">
+                              <div>
+                                <span className="font-semibold">정답:</span>{" "}
+                                {renderComparedText(mistake.correctAnswer || "", correctMatched, "correct")}
+                              </div>
+                              <div className={mistake.isCorrect ? 'text-green-700' : 'text-red-700'}>
+                                <span className="font-semibold">내 답:</span>{" "}
+                                {mistake.userAnswer
+                                  ? renderComparedText(mistake.userAnswer, answerMatched, "answer")
+                                  : "(입력 없음)"}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-xs space-y-1">
-                            <div><span className="font-semibold">정답:</span> {mistake.correctAnswer}</div>
-                            <div className={mistake.isCorrect ? 'text-green-700' : 'text-red-700'}><span className="font-semibold">내 답:</span> {mistake.userAnswer || '(입력 없음)'}</div>
-                          </div>
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       // Fallback for single-line or old format
                       <>
+                        {(() => {
+                          const { correctMatched, answerMatched } = getMatchedPositions(
+                            question?.answer || "",
+                            userAnswer || ""
+                          );
+                          return (
+                            <>
                         <div className="p-3 bg-green-50 rounded-lg border border-green-300">
                           <p className="text-xs font-semibold text-muted-foreground mb-1">정답</p>
-                          <p className="text-sm font-medium whitespace-pre-wrap">{question?.answer}</p>
+                          <p className="text-sm font-medium whitespace-pre-wrap">
+                            {renderComparedText(question?.answer || "", correctMatched, "correct")}
+                          </p>
                         </div>
                         <div className={`p-3 rounded-lg border ${result?.isCorrect ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
                           <p className="text-xs font-semibold text-muted-foreground mb-1">내 답</p>
-                          <p className={`text-sm font-medium whitespace-pre-wrap ${result?.isCorrect ? 'text-green-700' : 'text-red-700'}`}>{userAnswer}</p>
+                          <p className={`text-sm font-medium whitespace-pre-wrap ${result?.isCorrect ? 'text-green-700' : 'text-red-700'}`}>
+                            {renderComparedText(userAnswer || "", answerMatched, "answer")}
+                          </p>
                         </div>
+                            </>
+                          );
+                        })()}
                       </>
                     )}
                   </div>
@@ -1113,10 +1385,13 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   if (e.key === 'Backspace') backspaceCountRef.current++;
                   handleKeyDown(e);
                 }}
-                placeholder="여기에 입력하세요... (Cmd/Ctrl+Z 실행취소 · Cmd/Ctrl+Shift+Z 다시실행 · Option/Alt+Backspace 단어삭제 · Shift+Backspace 줄삭제)"
+                placeholder="여기에 답안을 입력하세요"
                 rows={4}
                 className="text-base min-h-[96px] max-h-[220px]"
               />
+              <div className="text-xs text-muted-foreground">
+                제출 {isMacPlatform ? "Cmd+Enter" : "Ctrl+Enter"} · 줄 삭제 Shift+Backspace · 단어 삭제 {isMacPlatform ? "Option+Backspace" : "Alt+Backspace"}
+              </div>
               <div className="flex gap-2">
                 <Button
                   onClick={handleSubmit}
@@ -1130,24 +1405,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   <RotateCcw className="h-4 w-4" />
                   다시 시작
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="ml-auto text-xs"
-                  onClick={toggleShortcutHelp}
-                >
-                  {showShortcutHelp ? "단축키 숨기기" : "단축키 보기"}
-                </Button>
               </div>
-              {showShortcutHelp && (
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Cmd/Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 실행 취소</span>
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Cmd/Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Z</kbd> 다시 실행</span>
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Option(Alt)</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 이전 단어 삭제</span>
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Shift</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Backspace</kbd> 현재 줄 삭제</span>
-                  <span><kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl</kbd>+<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Y</kbd> 다시 실행(Windows)</span>
-                </div>
-              )}
             </div>
           </div>
         </div>

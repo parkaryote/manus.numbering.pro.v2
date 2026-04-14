@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { Plus, BookOpen, Trash2, Edit, GripVertical, Star } from "lucide-react";
 import { toast } from "sonner";
@@ -39,6 +39,7 @@ const colorOptions = [
   "#6366F1", // Indigo
   "#14B8A6", // Teal
 ];
+const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
 
 function toDateTimeLocalValue(value?: string | Date | null): string {
   if (!value) return "";
@@ -48,29 +49,22 @@ function toDateTimeLocalValue(value?: string | Date | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+type SubjectMiniGridItem = {
+  questionId: number;
+  displayOrder: number;
+  displayScore: number;
+  state: string;
+  isStarred: number;
+};
+
 // 과목별 미니 그리드: 색상 점 + 별표만 표시
-function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
-  const { data: questions } = trpc.questions.listBySubject.useQuery({ subjectId });
-  const { data: confidenceData } = trpc.confidence.getBySubject.useQuery({ subjectId });
+function SubjectMiniGrid({ items }: { items?: SubjectMiniGridItem[] }) {
+  if (!items || items.length === 0) return null;
 
-  const confidenceMap = useMemo(() => {
-    const map = new Map<number, { state: string; displayScore: number }>();
-    if (confidenceData?.questions) {
-      for (const q of confidenceData.questions) {
-        map.set(q.questionId, { state: q.state, displayScore: q.displayScore });
-      }
-    }
-    return map;
-  }, [confidenceData]);
+  const sorted = [...items].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
 
-  if (!questions || questions.length === 0) return null;
-
-  const sorted = [...questions].sort((a, b) => a.displayOrder - b.displayOrder);
-
-  const getFillColor = (questionId: number) => {
-    const d = confidenceMap.get(questionId);
-    if (!d) return 'bg-neutral-200 dark:bg-neutral-700';
-    switch (d.state) {
+  const getFillColor = (state: string) => {
+    switch (state) {
       case 'green': return 'bg-emerald-500';
       case 'yellow': return 'bg-amber-400';
       case 'red': return 'bg-red-500';
@@ -87,16 +81,33 @@ function SubjectMiniGrid({ subjectId }: { subjectId: number }) {
     <div className="flex flex-wrap gap-1 mt-2">
       {sorted.map((q) => {
         const starred = q.isStarred === 1;
-        const fillColor = getFillColor(q.id);
+        const fillColor = getFillColor(q.state);
         const borderColor = getBorderColor(starred);
         return (
           <div
-            key={q.id}
+            key={q.questionId}
             className={`rounded-md w-3 h-3 ${fillColor} ${borderColor}`}
-            title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}점` : ""}${starred ? " (중요)" : ""}`}
+            title={`문제 ${q.displayOrder} — ${Math.round(q.displayScore)}점${starred ? " (중요)" : ""}`}
           />
         );
       })}
+    </div>
+  );
+}
+
+function DemoSubjectMiniGrid({ subjectId }: { subjectId: number }) {
+  const { data: questions } = trpc.demo.questions.useQuery({ subjectId });
+  if (!questions || questions.length === 0) return null;
+  const sorted = [...questions].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+  return (
+    <div className="flex flex-wrap gap-1 mt-2">
+      {sorted.map((q) => (
+        <div
+          key={q.id}
+          className="rounded-md w-3 h-3 bg-neutral-200 dark:bg-neutral-700 border border-neutral-200 dark:border-neutral-700"
+          title={q.question}
+        />
+      ))}
     </div>
   );
 }
@@ -110,7 +121,11 @@ interface SubjectCardProps {
 function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
   const { data: subjectConfidence } = trpc.confidence.getBySubject.useQuery(
     { subjectId: subject.id },
-    { enabled: !!subject.id }
+    {
+      enabled: !!subject.id,
+      staleTime: 60_000,
+      refetchOnMount: false,
+    }
   );
   const [, setLocation] = useLocation();
   const {
@@ -186,7 +201,7 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
             </div>
           )}
           {/* 미니 그리드 */}
-          <SubjectMiniGrid subjectId={subject.id} />
+          <SubjectMiniGrid items={subjectConfidence?.questions as SubjectMiniGridItem[] | undefined} />
         </div>
         <div className="flex gap-1 flex-shrink-0">
           <Button
@@ -215,10 +230,64 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
   );
 }
 
-export default function Subjects() {
+function DemoWorkspaceSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
+  const [, setLocation] = useLocation();
+  const { data: demoQuestions } = trpc.demo.questions.useQuery({ subjectId: subject.id });
+  const questionCount = demoQuestions?.length ?? 0;
+
+  return (
+    <Card className="shadow-elegant hover:shadow-lg transition-all cursor-pointer">
+      <CardHeader className="flex flex-row items-start gap-3 pb-3">
+        <div
+          className="w-4 h-4 rounded-full flex-shrink-0 mt-1"
+          style={{ backgroundColor: subject.color }}
+        />
+        <div className="flex-1 min-w-0" onClick={() => setLocation(`/demo/questions/${subject.id}`)}>
+          <div className="flex items-center gap-2 mb-0.5">
+            <CardTitle className="text-lg">{subject.name}</CardTitle>
+            <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+              <Star className="w-2.5 h-2.5" />
+              데모
+            </Badge>
+          </div>
+          {subject.description && (
+            <CardDescription className="line-clamp-1 mb-1">{subject.description}</CardDescription>
+          )}
+          <p className="text-xs text-muted-foreground mb-1">{questionCount}개 문제</p>
+          <DemoSubjectMiniGrid subjectId={subject.id} />
+        </div>
+        <div className="flex gap-1 flex-shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(subject);
+            }}
+          >
+            <Edit className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(subject.id, subject.name);
+            }}
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
+      </CardHeader>
+    </Card>
+  );
+}
+
+export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: boolean }) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const isDemoWorkspace = demoWorkspace && isAdmin;
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingSubject, setEditingSubject] = useState<any>(null);
@@ -231,7 +300,10 @@ export default function Subjects() {
     isDemo: false,
   });
 
-  const { data: subjects, isLoading } = trpc.subjects.list.useQuery();
+  const userSubjectsQuery = trpc.subjects.list.useQuery(undefined, { enabled: !isDemoWorkspace });
+  const demoSubjectsQuery = trpc.admin.demo.subjects.useQuery(undefined, { enabled: isDemoWorkspace });
+  const subjects = (isDemoWorkspace ? demoSubjectsQuery.data : userSubjectsQuery.data) ?? [];
+  const isLoading = isDemoWorkspace ? demoSubjectsQuery.isLoading : userSubjectsQuery.isLoading;
   const utils = trpc.useUtils();
 
   const sensors = useSensors(
@@ -242,14 +314,42 @@ export default function Subjects() {
   );
 
   const createMutation = trpc.subjects.create.useMutation({
-    onSuccess: () => {
-      utils.subjects.list.invalidate();
+    onSuccess: (created) => {
+      utils.subjects.list.setData(undefined, (prev) => {
+        const next = [...(prev ?? []), created];
+        return next.sort((a, b) => {
+          const orderDiff = (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
+          if (orderDiff !== 0) return orderDiff;
+          return (a.id ?? 0) - (b.id ?? 0);
+        });
+      });
+      void utils.subjects.list.invalidate();
       setIsCreateOpen(false);
       setFormData({ name: "", description: "", color: colorOptions[0], examEndDate: "", isDemo: false });
       toast.success("과목이 생성되었습니다");
     },
     onError: (error) => {
       toast.error("과목 생성 실패: " + error.message);
+    },
+  });
+  const createDemoMutation = trpc.admin.demo.createSubject.useMutation({
+    onSuccess: (created) => {
+      utils.admin.demo.subjects.setData(undefined, (prev) => {
+        const next = [...(prev ?? []), created];
+        return next.sort((a, b) => {
+          const orderDiff = (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
+          if (orderDiff !== 0) return orderDiff;
+          return (a.id ?? 0) - (b.id ?? 0);
+        });
+      });
+      void utils.admin.demo.subjects.invalidate();
+      void utils.demo.subjects.invalidate();
+      setIsCreateOpen(false);
+      setFormData({ name: "", description: "", color: colorOptions[0], examEndDate: "", isDemo: false });
+      toast.success("데모 과목이 생성되었습니다");
+    },
+    onError: (error) => {
+      toast.error("데모 과목 생성 실패: " + error.message);
     },
   });
 
@@ -264,6 +364,18 @@ export default function Subjects() {
       toast.error("과목 수정 실패: " + error.message);
     },
   });
+  const updateDemoMutation = trpc.admin.demo.updateSubject.useMutation({
+    onSuccess: () => {
+      utils.admin.demo.subjects.invalidate();
+      utils.demo.subjects.invalidate();
+      setIsEditOpen(false);
+      setEditingSubject(null);
+      toast.success("데모 과목이 수정되었습니다");
+    },
+    onError: (error) => {
+      toast.error("데모 과목 수정 실패: " + error.message);
+    },
+  });
 
   const deleteMutation = trpc.subjects.delete.useMutation({
     onSuccess: () => {
@@ -274,6 +386,16 @@ export default function Subjects() {
       toast.error("과목 삭제 실패: " + error.message);
     },
   });
+  const deleteDemoMutation = trpc.admin.demo.deleteSubject.useMutation({
+    onSuccess: () => {
+      utils.admin.demo.subjects.invalidate();
+      utils.demo.subjects.invalidate();
+      toast.success("데모 과목이 삭제되었습니다");
+    },
+    onError: (error) => {
+      toast.error("데모 과목 삭제 실패: " + error.message);
+    },
+  });
 
   const updateOrderMutation = trpc.subjects.updateOrder.useMutation({
     onError: (error) => {
@@ -282,27 +404,30 @@ export default function Subjects() {
     },
   });
 
-  const toggleDemoMutation = trpc.admin.demo.toggleSubjectDemo.useMutation({
-    onSuccess: () => {
-      utils.subjects.list.invalidate();
-      toast.success("데모 설정이 변경되었습니다");
-    },
-    onError: (error) => toast.error("데모 설정 실패: " + error.message),
-  });
-
   const handleCreate = () => {
     if (!formData.name.trim()) {
       toast.error("과목명을 입력하세요");
       return;
     }
-    const maxOrder = subjects?.reduce((max, s) => Math.max(max, s.displayOrder || 0), 0) || 0;
+    if (isDemoWorkspace) {
+      createDemoMutation.mutate({
+        name: formData.name,
+        description: formData.description,
+        color: formData.color,
+      });
+      return;
+    }
+
+    const maxOrder = subjects.reduce((max, s) => Math.max(max, s.displayOrder || 0), 0) || 0;
+    const requestedDemoValue =
+      isAdmin && DEMO_PUBLISHING_ENABLED ? (formData.isDemo ? 1 : 0) : undefined;
     createMutation.mutate({
       name: formData.name,
       description: formData.description,
       color: formData.color,
       examEndDate: formData.examEndDate || undefined,
       displayOrder: maxOrder + 1,
-      isDemo: isAdmin && formData.isDemo ? 1 : 0,
+      isDemo: requestedDemoValue,
     } as any);
   };
 
@@ -323,23 +448,40 @@ export default function Subjects() {
       toast.error("과목명을 입력하세요");
       return;
     }
+    if (isDemoWorkspace) {
+      updateDemoMutation.mutate({
+        subjectId: editingSubject.id,
+        name: formData.name,
+        description: formData.description,
+        color: formData.color,
+      });
+      return;
+    }
+
+    const requestedDemoValue =
+      isAdmin && DEMO_PUBLISHING_ENABLED ? (formData.isDemo ? 1 : 0) : undefined;
     updateMutation.mutate({
       id: editingSubject.id,
       name: formData.name,
       description: formData.description,
       color: formData.color,
       examEndDate: formData.examEndDate || null,
-      isDemo: isAdmin && formData.isDemo ? 1 : 0,
+      isDemo: requestedDemoValue,
     } as any);
   };
 
   const handleDelete = (id: number, name: string) => {
     if (confirm(`"${name}" 과목을 삭제하시겠습니까?`)) {
+      if (isDemoWorkspace) {
+        deleteDemoMutation.mutate({ subjectId: id });
+        return;
+      }
       deleteMutation.mutate({ id });
     }
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (isDemoWorkspace) return;
     const { active, over } = event;
     if (!over || active.id === over.id || !subjects) return;
 
@@ -363,8 +505,14 @@ export default function Subjects() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">과목 관리</h1>
-          <p className="text-muted-foreground mt-1">과목을 생성하고 관리하세요</p>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {isDemoWorkspace ? "데모 과목 작업 공간" : "과목 관리"}
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            {isDemoWorkspace
+              ? "여기서 수정하면 게스트 데모 화면에 즉시 반영됩니다"
+              : "과목을 생성하고 관리하세요"}
+          </p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
@@ -414,19 +562,22 @@ export default function Subjects() {
                   ))}
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="examEndDate">시험 일시</Label>
-                <Input
-                  id="examEndDate"
-                  type="datetime-local"
-                  value={formData.examEndDate}
-                  onChange={(e) => setFormData({ ...formData, examEndDate: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  시험 일시를 기준으로 예측을 계산합니다. 시험 후 1달이 지나고 미사용이면 자동 삭제됩니다.
-                </p>
-              </div>
-              {isAdmin && (
+              {!isDemoWorkspace && (
+                <div className="space-y-2">
+                  <Label htmlFor="examEndDate">시험 일시</Label>
+                  <Input
+                    id="examEndDate"
+                    type="datetime-local"
+                    step={600}
+                    value={formData.examEndDate}
+                    onChange={(e) => setFormData({ ...formData, examEndDate: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    시험 일시를 기준으로 예측을 계산합니다. 시험 후 1달이 지나고 미사용이면 자동 삭제됩니다.
+                  </p>
+                </div>
+              )}
+              {!isDemoWorkspace && isAdmin && DEMO_PUBLISHING_ENABLED && (
                 <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-3 py-2">
                   <Star className="h-4 w-4 text-amber-500 flex-shrink-0" />
                   <div className="flex-1">
@@ -447,8 +598,10 @@ export default function Subjects() {
               <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
                 취소
               </Button>
-              <Button onClick={handleCreate} disabled={createMutation.isPending}>
-                {createMutation.isPending ? "생성 중..." : "생성"}
+              <Button onClick={handleCreate} disabled={isDemoWorkspace ? createDemoMutation.isPending : createMutation.isPending}>
+                {isDemoWorkspace
+                  ? (createDemoMutation.isPending ? "생성 중..." : "생성")
+                  : (createMutation.isPending ? "생성 중..." : "생성")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -459,17 +612,30 @@ export default function Subjects() {
         <div className="text-center py-12">
           <p className="text-muted-foreground">로딩 중...</p>
         </div>
-      ) : !subjects || subjects.length === 0 ? (
+      ) : subjects.length === 0 ? (
         <Card className="shadow-elegant">
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground mb-4">아직 등록된 과목이 없습니다</p>
+            <p className="text-muted-foreground mb-4">
+              {isDemoWorkspace ? "아직 데모 과목이 없습니다" : "아직 등록된 과목이 없습니다"}
+            </p>
             <Button onClick={() => setIsCreateOpen(true)} className="gap-2">
               <Plus className="h-4 w-4" />
               첫 과목 만들기
             </Button>
           </CardContent>
         </Card>
+      ) : isDemoWorkspace ? (
+        <div className="grid gap-4">
+          {subjects.map((subject) => (
+            <DemoWorkspaceSubjectCard
+              key={subject.id}
+              subject={subject}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+            />
+          ))}
+        </div>
       ) : (
         <DndContext
           sensors={sensors}
@@ -537,19 +703,22 @@ export default function Subjects() {
                 ))}
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-examEndDate">시험 일시</Label>
-              <Input
-                id="edit-examEndDate"
-                type="datetime-local"
-                value={formData.examEndDate}
-                onChange={(e) => setFormData({ ...formData, examEndDate: e.target.value })}
-              />
-              <p className="text-xs text-muted-foreground">
-                시험 일시를 기준으로 예측을 계산합니다. 시험 후 1달이 지나고 미사용이면 자동 삭제됩니다.
-              </p>
-            </div>
-            {isAdmin && (
+            {!isDemoWorkspace && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-examEndDate">시험 일시</Label>
+                <Input
+                  id="edit-examEndDate"
+                  type="datetime-local"
+                  step={600}
+                  value={formData.examEndDate}
+                  onChange={(e) => setFormData({ ...formData, examEndDate: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  시험 일시를 기준으로 예측을 계산합니다. 시험 후 1달이 지나고 미사용이면 자동 삭제됩니다.
+                </p>
+              </div>
+            )}
+            {!isDemoWorkspace && isAdmin && DEMO_PUBLISHING_ENABLED && (
               <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-3 py-2">
                 <Star className="h-4 w-4 text-amber-500 flex-shrink-0" />
                 <div className="flex-1">
@@ -570,8 +739,10 @@ export default function Subjects() {
             <Button variant="outline" onClick={() => setIsEditOpen(false)}>
               취소
             </Button>
-            <Button onClick={handleUpdate} disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? "수정 중..." : "수정"}
+            <Button onClick={handleUpdate} disabled={isDemoWorkspace ? updateDemoMutation.isPending : updateMutation.isPending}>
+              {isDemoWorkspace
+                ? (updateDemoMutation.isPending ? "수정 중..." : "수정")
+                : (updateMutation.isPending ? "수정 중..." : "수정")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Apple, Chrome, CircleUserRound, LogIn, UserPlus } from "lucide-react";
+import { Chrome, LogIn, UserPlus } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { startGoogleOAuthLogin } from "@/lib/googleOAuth";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,45 +12,12 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 
 type AuthTab = "login" | "signup";
-type SocialProvider = "google" | "apple" | "kakao" | "naver";
-
-const SOCIAL_PROVIDER_META: Record<
-  SocialProvider,
-  { label: string; className: string; icon?: React.ReactNode }
-> = {
-  google: {
-    label: "Google로 계속",
-    className: "bg-white text-black border hover:bg-neutral-50",
-    icon: <Chrome className="h-4 w-4" />,
-  },
-  apple: {
-    label: "Apple로 계속",
-    className: "bg-black text-white hover:bg-neutral-800",
-    icon: <Apple className="h-4 w-4" />,
-  },
-  kakao: {
-    label: "Kakao로 계속",
-    className: "bg-[#FEE500] text-black hover:bg-[#f5dc00]",
-  },
-  naver: {
-    label: "Naver로 계속",
-    className: "bg-[#03C75A] text-white hover:bg-[#02b352]",
-  },
-};
-
-const SOCIAL_ID_KEY_PREFIX = "numbering_social_id_";
-
-function getOrCreateId(key: string): string {
-  try {
-    const existing = localStorage.getItem(key);
-    if (existing) return existing;
-    const next = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    localStorage.setItem(key, next);
-    return next;
-  } catch {
-    return Math.random().toString(36).slice(2) + Date.now().toString(36);
-  }
-}
+const GOOGLE_SOCIAL_BUTTON_META = {
+  label: "Google로 계속",
+  className: "bg-white text-black border hover:bg-neutral-50",
+  icon: <Chrome className="h-4 w-4" />,
+} as const;
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 
 function isGuestUser(user: { loginMethod?: string | null } | null | undefined): boolean {
   if (!user) return false;
@@ -98,16 +66,7 @@ function AuthModal({
     },
     onError: (err) => toast.error(err.message || "로그인 실패"),
   });
-  const socialLogin = trpc.auth.socialLogin.useMutation({
-    onSuccess: () => {
-      toast.success("로그인되었습니다.");
-      onClose();
-      if (onAuthSuccess) onAuthSuccess(); else window.location.reload();
-      setLocation("/");
-    },
-    onError: (err) => toast.error(err.message || "소셜 로그인 실패"),
-  });
-  const isPending = signupMutation.isPending || loginMutation.isPending || socialLogin.isPending;
+  const isPending = signupMutation.isPending || loginMutation.isPending;
 
   const handleSignup = () => {
     if (!username.trim()) { toast.error("아이디를 입력해주세요"); return; }
@@ -137,23 +96,27 @@ function AuthModal({
           {/* 로그인 탭 */}
           <TabsContent value="login" className="space-y-4 pt-2">
             <div className="space-y-2">
-              {(Object.keys(SOCIAL_PROVIDER_META) as SocialProvider[]).map((provider) => {
-                const meta = SOCIAL_PROVIDER_META[provider];
-                return (
-                  <Button
-                    key={provider}
-                    onClick={() => {
-                      const socialId = getOrCreateId(`${SOCIAL_ID_KEY_PREFIX}${provider}`);
-                      socialLogin.mutate({ provider, socialId });
-                    }}
-                    className={`w-full justify-start gap-2 ${meta.className}`}
-                    disabled={isPending}
-                  >
-                    {meta.icon ?? <CircleUserRound className="h-4 w-4" />}
-                    {meta.label}
-                  </Button>
-                );
-              })}
+              <Button
+                onClick={() => {
+                  if (!GOOGLE_CLIENT_ID) {
+                    toast.error("Google OAuth 클라이언트 ID가 설정되지 않았습니다.");
+                    return;
+                  }
+                  try {
+                    startGoogleOAuthLogin({
+                      clientId: GOOGLE_CLIENT_ID,
+                      returnTo: `${window.location.pathname}${window.location.search}`,
+                    });
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "Google 로그인 시작 실패");
+                  }
+                }}
+                className={`w-full justify-start gap-2 ${GOOGLE_SOCIAL_BUTTON_META.className}`}
+                disabled={isPending}
+              >
+                {GOOGLE_SOCIAL_BUTTON_META.icon}
+                {GOOGLE_SOCIAL_BUTTON_META.label}
+              </Button>
             </div>
 
             <div className="h-px bg-border" />

@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Plus, ArrowLeft, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star, ScrollText, Settings, Calendar, BookOpen } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -37,6 +37,7 @@ import { ImageLabelEditor, ImageLabel } from "@/components/ImageLabelEditor";
 import { TableEditor, TableData } from "@/components/TableEditor";
 import { OCRUploader } from "@/components/OCRUploader";
 import { QuestionGridView } from "@/components/QuestionGridView";
+import { buildNextAutoNumberingValue } from "@/lib/autoNumbering";
 import { Table2 } from "lucide-react";
 import imageCompression from "browser-image-compression";
 import { trackQuestionCreate, trackQuestionUpdate, trackQuestionDelete } from "@/lib/ga4Events";
@@ -45,6 +46,7 @@ import { CONFIDENCE_THRESHOLDS } from "@shared/examConfidence";
 interface QuestionsProps {
   subjectId: number;
   isDemo?: boolean;
+  demoWorkspace?: boolean;
 }
 
 interface ConfidenceData {
@@ -63,6 +65,9 @@ interface SortableQuestionCardProps {
   question: any;
   confidence?: ConfidenceData;
   readOnly?: boolean;
+  hideDragHandle?: boolean;
+  hideCopyMove?: boolean;
+  disableStarToggle?: boolean;
   onEdit: (question: any) => void;
   onDelete: (id: number) => void;
   onPractice: (id: number) => void;
@@ -96,6 +101,25 @@ function formatRemainingToExam(target: Date): string {
 }
 
 const NUMBERING_PREFIX_REGEX = /^\s*\d+\.\s*/;
+const NUMBERED_LINE_REGEX = /^\s*(\d+)\.\s*(.*)$/;
+const BULLET_LINE_REGEX = /^\s*[-*•]\s+.+$/;
+const BLANK_MARKER_REGEX = /^\s*(?:\{\{([\s\S]*?)\}\}|\[\[([\s\S]*?)\]\]|\[([\s\S]*?)\])\s*$/;
+const BULK_DELIMITER_REGEX = /(?:^|\n)\s*---+\s*(?:\n|$)/;
+const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
+
+type BulkTableDelimiter = "\t" | "|" | ",";
+
+type ParsedBulkQuestion = {
+  question: string;
+  answer: string;
+  autoNumbering: number;
+  tableData?: TableData;
+};
+
+type BulkParseResult = {
+  items: ParsedBulkQuestion[];
+  errors: string[];
+};
 
 function stripNumberingPrefix(line: string): string {
   return line.replace(NUMBERING_PREFIX_REGEX, "").trim();
@@ -105,27 +129,211 @@ function normalizeAutoNumberedAnswer(answer: string): string {
   const normalized = answer.replace(/\r\n/g, "\n");
   const lines = normalized
     .split("\n")
-    .map((line) => stripNumberingPrefix(line))
+    .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  return lines.map((line, idx) => `${idx + 1}. ${line}`).join("\n");
+
+  let nextNumber = 1;
+  return lines
+    .map((line) => {
+      if (BULLET_LINE_REGEX.test(line)) {
+        return line;
+      }
+
+      const numberedMatch = line.match(NUMBERED_LINE_REGEX);
+      if (numberedMatch) {
+        const content = (numberedMatch[2] ?? "").trim();
+        const normalizedLine = content.length > 0 ? `${nextNumber}. ${content}` : `${nextNumber}.`;
+        nextNumber += 1;
+        return normalizedLine;
+      }
+
+      return line;
+    })
+    .join("\n");
 }
 
-function findNextLineNumber(textBeforeCursor: string): number {
-  const matches = Array.from(textBeforeCursor.matchAll(/(?:^|\n)\s*(\d+)\.\s*/g));
-  if (matches.length > 0) {
-    const last = parseInt(matches[matches.length - 1][1], 10);
-    if (Number.isFinite(last)) return last + 1;
+function splitBulkBlocks(raw: string): string[] {
+  const normalized = raw.replace(/\r\n/g, "\n").trim();
+  if (!normalized) return [];
+  return normalized
+    .split(/\n\s*---+\s*\n/g)
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0);
+}
+
+function hasBulkDelimiter(raw: string): boolean {
+  if (!raw) return false;
+  return BULK_DELIMITER_REGEX.test(raw.replace(/\r\n/g, "\n"));
+}
+
+function splitTableRow(line: string, delimiter: BulkTableDelimiter): string[] {
+  if (delimiter === "|") {
+    const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+    return trimmed.split("|").map((part) => part.trim());
   }
-  const nonEmptyLineCount = textBeforeCursor
+  return line.split(delimiter).map((part) => part.trim());
+}
+
+function detectBulkTableDelimiter(lines: string[]): BulkTableDelimiter | null {
+  const candidates: BulkTableDelimiter[] = ["\t", "|", ","];
+  let best: { delimiter: BulkTableDelimiter; rows: number; cols: number } | null = null;
+
+  for (const delimiter of candidates) {
+    let rows = 0;
+    let maxCols = 0;
+    for (const line of lines) {
+      if (!line.includes(delimiter)) continue;
+      const cols = splitTableRow(line, delimiter).length;
+      if (cols < 2) continue;
+      rows += 1;
+      maxCols = Math.max(maxCols, cols);
+    }
+    if (rows < 2 || maxCols < 2) continue;
+    if (!best || rows > best.rows || (rows === best.rows && maxCols > best.cols)) {
+      best = { delimiter, rows, cols: maxCols };
+    }
+  }
+
+  return best?.delimiter ?? null;
+}
+
+function parseCellWithBlankMarker(value: string): { content: string; explicitBlank: boolean } {
+  const match = value.match(BLANK_MARKER_REGEX);
+  if (!match) return { content: value.trim(), explicitBlank: false };
+  const content = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+  return { content, explicitBlank: true };
+}
+
+function isMarkdownTableSeparatorLine(line: string): boolean {
+  return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(line);
+}
+
+function parseBulkTableData(body: string): TableData | null {
+  const lines = body
     .split("\n")
-    .filter((line) => line.trim().length > 0).length;
-  return Math.max(1, nonEmptyLineCount + 1);
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .filter((line) => !isMarkdownTableSeparatorLine(line));
+
+  if (lines.length < 2) return null;
+  const delimiter = detectBulkTableDelimiter(lines);
+  if (!delimiter) return null;
+
+  const rows = lines.map((line) => splitTableRow(line, delimiter));
+  if (rows.length < 2) return null;
+
+  const maxCols = Math.max(...rows.map((row) => row.length));
+  if (maxCols < 2) return null;
+
+  const normalizedRows = rows.map((row) => {
+    if (row.length === maxCols) return row;
+    return [...row, ...Array.from({ length: maxCols - row.length }, () => "")];
+  });
+
+  let hasExplicitBlank = false;
+  const cells = normalizedRows.map((row) =>
+    row.map((rawCell) => {
+      const parsed = parseCellWithBlankMarker(rawCell);
+      if (parsed.explicitBlank) hasExplicitBlank = true;
+      return {
+        content: parsed.content,
+        isBlank: parsed.explicitBlank,
+        rowSpan: 1,
+        colSpan: 1,
+        isMerged: false,
+      };
+    })
+  );
+
+  if (!hasExplicitBlank) {
+    for (let rowIndex = 1; rowIndex < cells.length; rowIndex++) {
+      for (let colIndex = 0; colIndex < cells[rowIndex].length; colIndex++) {
+        if (cells[rowIndex][colIndex].content.trim().length > 0) {
+          cells[rowIndex][colIndex].isBlank = true;
+        }
+      }
+    }
+  }
+
+  return {
+    rows: cells.length,
+    cols: maxCols,
+    cells,
+    headerRow: true,
+    headerCol: false,
+  };
+}
+
+function parseBulkImportInput(
+  raw: string,
+  options?: { autoNumberingEnabled?: boolean }
+): BulkParseResult {
+  const autoNumberingEnabled = options?.autoNumberingEnabled !== false;
+  const blocks = splitBulkBlocks(raw);
+  const items: ParsedBulkQuestion[] = [];
+  const errors: string[] = [];
+
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index];
+    const lines = block.split("\n");
+    const firstLineIndex = lines.findIndex((line) => line.trim().length > 0);
+    if (firstLineIndex < 0) continue;
+
+    const question = lines[firstLineIndex].trim();
+    const answerBody = lines.slice(firstLineIndex + 1).join("\n").trim();
+    const blockOrder = index + 1;
+
+    if (!question) {
+      errors.push(`${blockOrder}번 블록: 첫 줄 문제 제목이 비어 있습니다.`);
+      continue;
+    }
+    if (!answerBody) {
+      errors.push(`${blockOrder}번 블록 (${question}): 답안/표 내용이 없습니다.`);
+      continue;
+    }
+
+    const parsedTable = parseBulkTableData(answerBody);
+    if (parsedTable) {
+      const blankCount = parsedTable.cells.flat().filter((cell) => cell.isBlank && !cell.isMerged).length;
+      if (blankCount === 0) {
+        errors.push(`${blockOrder}번 블록 (${question}): 표 빈칸이 0개라 생성할 수 없습니다.`);
+        continue;
+      }
+      items.push({
+        question,
+        answer: "",
+        autoNumbering: 0,
+        tableData: parsedTable,
+      });
+      continue;
+    }
+
+    items.push({
+      question,
+      answer: autoNumberingEnabled ? normalizeAutoNumberedAnswer(answerBody) : answerBody,
+      autoNumbering: autoNumberingEnabled ? 1 : 0,
+    });
+  }
+
+  return { items, errors };
+}
+
+function buildBulkRawFromForm(question: string, answer: string): string {
+  const normalizedQuestion = question.replace(/\r\n/g, "\n").trim();
+  const normalizedAnswer = answer.replace(/\r\n/g, "\n").trim();
+  if (!normalizedQuestion && !normalizedAnswer) return "";
+  if (!normalizedQuestion) return normalizedAnswer;
+  if (!normalizedAnswer) return normalizedQuestion;
+  return `${normalizedQuestion}\n${normalizedAnswer}`;
 }
 
 function SortableQuestionCard({
   question,
   confidence,
   readOnly = false,
+  hideDragHandle = false,
+  hideCopyMove = false,
+  disableStarToggle = false,
   onEdit,
   onDelete,
   onPractice,
@@ -163,7 +371,7 @@ function SortableQuestionCard({
       {/* 컴팩트 카드 - 가로 레이아웃 */}
       <div className="flex items-stretch">
         {/* 드래그 핸들 */}
-        {!readOnly && (
+        {!readOnly && !hideDragHandle && (
           <div
             {...attributes}
             {...listeners}
@@ -201,7 +409,7 @@ function SortableQuestionCard({
               <span className="text-xs text-amber-600 font-medium flex-shrink-0">데모</span>
             )}
             <p className="text-base font-medium truncate leading-tight flex-1">{question.question}</p>
-            {!readOnly && (
+            {!readOnly && !disableStarToggle && (
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleStar(question.id); }}
                 className="flex-shrink-0 ml-1 p-0.5 rounded hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors"
@@ -356,28 +564,32 @@ function SortableQuestionCard({
           {!readOnly && (
             <>
               <div className="w-px h-4 bg-border mx-0.5" />
+              {!hideCopyMove && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 opacity-80 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
+                    onClick={(e) => { e.stopPropagation(); onCopy(question); }}
+                    title="복사"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 opacity-80 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
+                    onClick={(e) => { e.stopPropagation(); onMove(question); }}
+                    title="이동"
+                  >
+                    <MoveRight className="h-3 w-3" />
+                  </Button>
+                </>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => { e.stopPropagation(); onCopy(question); }}
-                title="복사"
-              >
-                <Copy className="h-3 w-3" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => { e.stopPropagation(); onMove(question); }}
-                title="이동"
-              >
-                <MoveRight className="h-3 w-3" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="h-7 w-7 opacity-80 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
                 onClick={(e) => { e.stopPropagation(); onEdit(question); }}
                 title="수정"
               >
@@ -386,7 +598,7 @@ function SortableQuestionCard({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="h-7 w-7 opacity-80 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
                 onClick={(e) => { e.stopPropagation(); onDelete(question.id); }}
                 title="삭제"
               >
@@ -400,10 +612,12 @@ function SortableQuestionCard({
   );
 }
 
-export default function Questions({ subjectId, isDemo = false }: QuestionsProps) {
+export default function Questions({ subjectId, isDemo = false, demoWorkspace = false }: QuestionsProps) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const isDemoWorkspace = demoWorkspace && isAdmin;
+  const isReadOnlyDemo = isDemo && !isDemoWorkspace;
   const [confidenceHistoryId, setConfidenceHistoryId] = useState<number | null>(null);
   const [confidenceHistoryTitle, setConfidenceHistoryTitle] = useState("");
   const [subjectConfidenceOpen, setSubjectConfidenceOpen] = useState(false);
@@ -417,9 +631,12 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<"text" | "image" | "table" | "ocr">("text");
+  const [isBulkCreating, setIsBulkCreating] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const questionTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const answerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const pendingAnswerCursorRef = useRef<number | null>(null);
   
   const [formData, setFormData] = useState({
     question: "",
@@ -437,10 +654,16 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     { id: subjectId },
     { enabled: Number.isFinite(subjectId) }
   );
-  const { data: questions, isLoading } = trpc.questions.listBySubject.useQuery(
+  const userQuestionsQuery = trpc.questions.listBySubject.useQuery(
     { subjectId },
-    { enabled: Number.isFinite(subjectId) }
+    { enabled: Number.isFinite(subjectId) && !isDemoWorkspace }
   );
+  const demoWorkspaceQuestionsQuery = trpc.admin.demo.questions.useQuery(
+    { subjectId },
+    { enabled: Number.isFinite(subjectId) && isDemoWorkspace }
+  );
+  const questions = (isDemoWorkspace ? demoWorkspaceQuestionsQuery.data : userQuestionsQuery.data) ?? [];
+  const isLoading = isDemoWorkspace ? demoWorkspaceQuestionsQuery.isLoading : userQuestionsQuery.isLoading;
   const updateSubjectMutation = trpc.subjects.update.useMutation({
     onSuccess: () => {
       utils.subjects.getById.invalidate({ id: subjectId });
@@ -454,9 +677,14 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   });
   const { data: confidenceData } = trpc.confidence.getBySubject.useQuery(
     { subjectId },
-    { enabled: !!user && !isDemo }
+    { enabled: !!user && !isReadOnlyDemo && !isDemoWorkspace }
   );
   const utils = trpc.useUtils();
+  const invalidateDemoQuestionCaches = () => {
+    utils.admin.demo.questions.invalidate({ subjectId });
+    utils.admin.demo.allQuestions.invalidate();
+    utils.demo.questions.invalidate({ subjectId });
+  };
 
   // Build confidence lookup map
   const confidenceMap = useMemo(() => {
@@ -481,6 +709,21 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       toast.error("문제 생성 실패: " + error.message);
     },
   });
+  const bulkCreateMutation = trpc.questions.create.useMutation();
+  const createDemoMutation = trpc.admin.demo.createQuestion.useMutation({
+    onSuccess: (data: any) => {
+      const questionType = data?.data?.imageUrl && data?.data?.imageLabels ? 'image' : (data?.data?.tableData ? 'table' : 'text');
+      trackQuestionCreate(data?.data?.id ?? 0, subjectId, questionType as 'text' | 'image' | 'table');
+      invalidateDemoQuestionCaches();
+      setIsCreateOpen(false);
+      resetForm();
+      toast.success("데모 문제가 생성되었습니다");
+    },
+    onError: (error) => {
+      toast.error("데모 문제 생성 실패: " + error.message);
+    },
+  });
+  const bulkCreateDemoMutation = trpc.admin.demo.createQuestion.useMutation();
 
   const updateMutation = trpc.questions.update.useMutation({
     onSuccess: (data: any) => {
@@ -496,6 +739,21 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       toast.error("문제 수정 실패: " + error.message);
     },
   });
+  const updateDemoMutation = trpc.admin.demo.updateQuestion.useMutation({
+    onSuccess: (data: any) => {
+      const updated = data?.data;
+      const questionType = updated?.imageUrl && updated?.imageLabels ? 'image' : (updated?.tableData ? 'table' : 'text');
+      trackQuestionUpdate(updated?.id ?? 0, subjectId, questionType as 'text' | 'image' | 'table');
+      invalidateDemoQuestionCaches();
+      setIsEditOpen(false);
+      setEditingQuestion(null);
+      resetForm();
+      toast.success("데모 문제가 수정되었습니다");
+    },
+    onError: (error) => {
+      toast.error("데모 문제 수정 실패: " + error.message);
+    },
+  });
 
   const deleteMutation = trpc.questions.delete.useMutation({
     onSuccess: () => {
@@ -507,6 +765,18 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     },
     onError: (error) => {
       toast.error("문제 삭제 실패: " + error.message);
+    },
+  });
+  const deleteDemoMutation = trpc.admin.demo.deleteQuestion.useMutation({
+    onSuccess: () => {
+      if (editingQuestion) {
+        trackQuestionDelete(editingQuestion.id, subjectId);
+      }
+      invalidateDemoQuestionCaches();
+      toast.success("데모 문제가 삭제되었습니다");
+    },
+    onError: (error) => {
+      toast.error("데모 문제 삭제 실패: " + error.message);
     },
   });
 
@@ -551,9 +821,17 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       toast.error("별표 업데이트 실패: " + error.message);
     },
   });
+  const toggleDemoStarMutation = trpc.admin.demo.toggleQuestionStar.useMutation({
+    onSuccess: () => {
+      invalidateDemoQuestionCaches();
+    },
+    onError: (error) => {
+      toast.error("별표 업데이트 실패: " + error.message);
+    },
+  });
 
   const { data: allSubjects } = trpc.subjects.list.useQuery(undefined, {
-    enabled: !isDemo && isCopyMoveOpen,
+    enabled: !isReadOnlyDemo && !isDemoWorkspace && isCopyMoveOpen,
   });
 
   const sensors = useSensors(
@@ -564,7 +842,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
-    if (isDemo) return;
+    if (isReadOnlyDemo || isDemoWorkspace) return;
     const { active, over } = event;
 
     if (!over || active.id === over.id || !questions) {
@@ -610,6 +888,33 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       }
     }, 0);
   };
+
+  const bulkInputValue = useMemo(() => {
+    if (hasBulkDelimiter(formData.question)) return formData.question;
+    if (hasBulkDelimiter(formData.answer)) return formData.answer;
+    return "";
+  }, [formData.answer, formData.question]);
+  const hasInlineBulkDelimiter = bulkInputValue.trim().length > 0;
+  const inlineBulkRaw = useMemo(
+    () => (hasInlineBulkDelimiter ? bulkInputValue : buildBulkRawFromForm(formData.question, formData.answer)),
+    [bulkInputValue, formData.answer, formData.question, hasInlineBulkDelimiter]
+  );
+  const inlineBulkParseResult = useMemo(
+    () =>
+      hasInlineBulkDelimiter
+        ? parseBulkImportInput(inlineBulkRaw, { autoNumberingEnabled: formData.autoNumbering })
+        : { items: [], errors: [] },
+    [formData.autoNumbering, hasInlineBulkDelimiter, inlineBulkRaw]
+  );
+  const inlineBulkSummary = useMemo(() => {
+    const tableCount = inlineBulkParseResult.items.filter((item) => item.tableData).length;
+    const textCount = inlineBulkParseResult.items.length - tableCount;
+    return {
+      total: inlineBulkParseResult.items.length,
+      text: textCount,
+      table: tableCount,
+    };
+  }, [inlineBulkParseResult.items]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -669,50 +974,39 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     setFormData((prev) => ({ ...prev, answer: value }));
   }, []);
 
+  const handleBulkInputChange = useCallback((value: string) => {
+    setFormData((prev) => ({ ...prev, question: value, answer: "" }));
+  }, []);
+
+  useEffect(() => {
+    const nextCursor = pendingAnswerCursorRef.current;
+    if (nextCursor === null) return;
+    pendingAnswerCursorRef.current = null;
+    const textarea = answerTextareaRef.current;
+    if (!textarea) return;
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [formData.answer]);
+
   const handleAnswerKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!formData.autoNumbering) return;
     if (e.key !== "Enter" || e.ctrlKey || e.altKey || e.shiftKey) return;
-    if ((e.nativeEvent as any).isComposing) return;
 
     e.preventDefault();
     const textarea = e.currentTarget;
     const selectionStart = textarea.selectionStart ?? 0;
     const selectionEnd = textarea.selectionEnd ?? selectionStart;
     const rawValue = textarea.value;
+    const { nextValue, nextCursor } = buildNextAutoNumberingValue(
+      rawValue,
+      selectionStart,
+      selectionEnd
+    );
 
-    if (rawValue.trim().length === 0) {
-      const seeded = "1. ";
-      handleAnswerChange(seeded);
-      requestAnimationFrame(() => {
-        textarea.value = seeded;
-        textarea.setSelectionRange(seeded.length, seeded.length);
-      });
-      return;
-    }
-
-    let workingValue = rawValue;
-    let start = selectionStart;
-    let end = selectionEnd;
-    const hasAnyNumbering = /(^|\n)\s*\d+\.\s/.test(workingValue);
-    if (!hasAnyNumbering && workingValue.trim().length > 0) {
-      // 첫 엔터 시에도 1번 라인을 자동으로 붙여준다.
-      workingValue = `1. ${workingValue}`;
-      start += 3;
-      end += 3;
-    }
-
-    const before = workingValue.slice(0, start);
-    const after = workingValue.slice(end);
-    const nextNumber = findNextLineNumber(before);
-    const insertText = `\n${nextNumber}. `;
-    const nextValue = `${before}${insertText}${after}`;
-    const nextCursor = before.length + insertText.length;
-
+    pendingAnswerCursorRef.current = nextCursor;
     handleAnswerChange(nextValue);
-    requestAnimationFrame(() => {
-      textarea.value = nextValue;
-      textarea.setSelectionRange(nextCursor, nextCursor);
-    });
   }, [formData.autoNumbering, handleAnswerChange]);
 
   const handleAutoNumberingToggle = useCallback((checked: boolean) => {
@@ -726,13 +1020,89 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
     });
   }, [activeTab]);
 
+  async function runBulkCreateFromBlocks(items: ParsedBulkQuestion[]) {
+    if (isBulkCreating) return;
+    if (items.length === 0) {
+      toast.error("생성 가능한 문제가 없습니다");
+      return;
+    }
+
+    setIsBulkCreating(true);
+    let successCount = 0;
+    let failedCount = 0;
+    const requestedDemoValue =
+      isAdmin && DEMO_PUBLISHING_ENABLED ? (formData.isDemo ? 1 : 0) : undefined;
+    try {
+      for (const item of items) {
+        try {
+          if (isDemoWorkspace) {
+            await bulkCreateDemoMutation.mutateAsync({
+              subjectId,
+              question: item.question,
+              answer: item.answer,
+              autoNumbering: item.autoNumbering,
+              tableData: item.tableData ? JSON.stringify(item.tableData) : undefined,
+              isStarred: formData.isStarred ? 1 : 0,
+            } as any);
+          } else {
+            await bulkCreateMutation.mutateAsync({
+              subjectId,
+              question: item.question,
+              answer: item.answer,
+              autoNumbering: item.autoNumbering,
+              tableData: item.tableData ? JSON.stringify(item.tableData) : undefined,
+              isDemo: requestedDemoValue,
+              isStarred: formData.isStarred ? 1 : 0,
+            } as any);
+          }
+          successCount += 1;
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      if (isDemoWorkspace) {
+        await utils.admin.demo.questions.invalidate({ subjectId });
+        await utils.admin.demo.allQuestions.invalidate();
+        await utils.demo.questions.invalidate({ subjectId });
+      } else {
+        await utils.questions.listBySubject.invalidate({ subjectId });
+      }
+    } finally {
+      setIsBulkCreating(false);
+    }
+
+    if (failedCount === 0) {
+      toast.success(`${successCount}개 문제를 빠르게 생성했습니다`);
+      setIsCreateOpen(false);
+      resetForm();
+      return;
+    }
+
+    toast.warning(`${successCount}개 생성, ${failedCount}개 실패`);
+  }
 
 
-  const handleCreate = useCallback(() => {
+  const handleCreate = useCallback(async () => {
     const question = formData.question;
     const answer = formData.autoNumbering
       ? normalizeAutoNumberedAnswer(formData.answer)
       : formData.answer.trim();
+    const requestedDemoValue =
+      isAdmin && DEMO_PUBLISHING_ENABLED ? (formData.isDemo ? 1 : 0) : undefined;
+
+    if (activeTab === "text" && hasInlineBulkDelimiter) {
+      if (inlineBulkParseResult.errors.length > 0) {
+        toast.error(inlineBulkParseResult.errors[0]);
+        return;
+      }
+      if (inlineBulkParseResult.items.length === 0) {
+        toast.error("생성 가능한 문제가 없습니다");
+        return;
+      }
+      await runBulkCreateFromBlocks(inlineBulkParseResult.items);
+      return;
+    }
 
     if (!question.trim()) {
       toast.error("질문을 입력하세요");
@@ -750,13 +1120,24 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         toast.error("최소 1개의 빈칸을 지정하세요");
         return;
       }
+      if (isDemoWorkspace) {
+        createDemoMutation.mutate({
+          subjectId,
+          question,
+          answer: "",
+          tableData: JSON.stringify(formData.tableData),
+          autoNumbering: 0,
+          isStarred: formData.isStarred ? 1 : 0,
+        } as any);
+        return;
+      }
       createMutation.mutate({
         subjectId,
         question,
         answer: "",
           tableData: JSON.stringify(formData.tableData),
         autoNumbering: 0,
-        isDemo: isAdmin && formData.isDemo ? 1 : 0,
+        isDemo: requestedDemoValue,
         isStarred: formData.isStarred ? 1 : 0,
       } as any);
       return;
@@ -774,6 +1155,19 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       return;
     }
 
+    if (isDemoWorkspace) {
+      createDemoMutation.mutate({
+        subjectId,
+        question,
+        answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : answer,
+        imageUrl: formData.imageUrl || undefined,
+        imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
+        autoNumbering: formData.autoNumbering ? 1 : 0,
+        isStarred: formData.isStarred ? 1 : 0,
+      } as any);
+      return;
+    }
+
     createMutation.mutate({
       subjectId,
       question,
@@ -781,10 +1175,22 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
-      isDemo: isAdmin && formData.isDemo ? 1 : 0,
+      isDemo: requestedDemoValue,
       isStarred: formData.isStarred ? 1 : 0,
     } as any);
-  }, [activeTab, formData, subjectId, createMutation, isAdmin]);
+  }, [
+    activeTab,
+    createDemoMutation,
+    createMutation,
+    formData,
+    hasInlineBulkDelimiter,
+    inlineBulkParseResult.errors,
+    inlineBulkParseResult.items,
+    isAdmin,
+    isDemoWorkspace,
+    runBulkCreateFromBlocks,
+    subjectId,
+  ]);
 
   const handleEdit = (question: any) => {
     setEditingQuestion(question);
@@ -815,6 +1221,8 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       toast.error("질문을 입력하세요");
       return;
     }
+    const requestedDemoValue =
+      isAdmin && DEMO_PUBLISHING_ENABLED ? (formData.isDemo ? 1 : 0) : undefined;
 
     // Table question
     if (activeTab === "table") {
@@ -827,6 +1235,19 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         toast.error("최소 1개의 빈칸을 지정하세요");
         return;
       }
+      if (isDemoWorkspace) {
+        updateDemoMutation.mutate({
+          questionId: editingQuestion.id,
+          question: formData.question,
+          answer: "",
+          tableData: JSON.stringify(formData.tableData),
+          imageUrl: undefined,
+          imageLabels: undefined,
+          autoNumbering: 0,
+          isStarred: formData.isStarred ? 1 : 0,
+        } as any);
+        return;
+      }
       updateMutation.mutate({
         id: editingQuestion.id,
         question: formData.question,
@@ -835,7 +1256,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         imageUrl: undefined,
         imageLabels: undefined,
         autoNumbering: 0,
-        isDemo: isAdmin && formData.isDemo ? 1 : 0,
+        isDemo: requestedDemoValue,
         isStarred: formData.isStarred ? 1 : 0,
       } as any);
       return;
@@ -856,6 +1277,20 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       ? normalizeAutoNumberedAnswer(formData.answer)
       : formData.answer.trim();
 
+    if (isDemoWorkspace) {
+      updateDemoMutation.mutate({
+        questionId: editingQuestion.id,
+        question: formData.question,
+        answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : updatedAnswer,
+        imageUrl: formData.imageUrl || undefined,
+        imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
+        tableData: undefined,
+        autoNumbering: formData.autoNumbering ? 1 : 0,
+        isStarred: formData.isStarred ? 1 : 0,
+      } as any);
+      return;
+    }
+
     updateMutation.mutate({
       id: editingQuestion.id,
       question: formData.question,
@@ -864,24 +1299,30 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       tableData: undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
-      isDemo: isAdmin && formData.isDemo ? 1 : 0,
+      isDemo: requestedDemoValue,
       isStarred: formData.isStarred ? 1 : 0,
     } as any);
   };
 
   const handleDelete = (id: number) => {
     if (confirm("이 문제를 삭제하시겠습니까?")) {
+      if (isDemoWorkspace) {
+        deleteDemoMutation.mutate({ questionId: id });
+        return;
+      }
       deleteMutation.mutate({ id });
     }
   };
 
   const handleCopy = (question: any) => {
+    if (isDemoWorkspace) return;
     setSelectedQuestion(question);
     setCopyMoveMode("copy");
     setIsCopyMoveOpen(true);
   };
 
   const handleMove = (question: any) => {
+    if (isDemoWorkspace) return;
     setSelectedQuestion(question);
     setCopyMoveMode("move");
     setIsCopyMoveOpen(true);
@@ -920,40 +1361,77 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       </TabsList>
 
       <TabsContent value="text" className="space-y-4 mt-4">
-        <div className="space-y-2">
-          <Label htmlFor="question">질문 *</Label>
-          <Textarea
-            id="question"
-            ref={questionTextareaRef}
-            value={formData.question}
-            onChange={(e) => handleQuestionChange(e.target.value)}
-            placeholder="예: 조선시대의 주요 사건을 시대순으로 나열하시오"
-            rows={3}
-          />
+        <div className="rounded-md border bg-muted/20 px-3 py-2 space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">
+            블록 일괄 입력: 입력칸 1개로 처리하며 `---` 로 블록만 구분합니다.
+          </p>
+          {hasInlineBulkDelimiter ? (
+            <p className="text-xs text-muted-foreground">
+              감지 결과: 총 {inlineBulkSummary.total}개 (텍스트 {inlineBulkSummary.text} / 표 {inlineBulkSummary.table})
+              {" "}· 생성 버튼을 누르면 일괄 생성됩니다.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              단일 문제는 기존처럼 질문/답안을 입력하고 생성하면 됩니다.
+            </p>
+          )}
+          {hasInlineBulkDelimiter && inlineBulkParseResult.errors.length > 0 && (
+            <p className="text-xs text-red-600 dark:text-red-400">
+              {inlineBulkParseResult.errors[0]}
+            </p>
+          )}
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="answer">답안 *</Label>
-          <Textarea
-            id="answer"
-            value={formData.answer}
-            onChange={(e) => handleAnswerChange(e.target.value)}
-            onKeyDown={handleAnswerKeyDown}
-            placeholder="모범 답안을 입력하세요"
-            rows={6}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="autoNumbering"
-            checked={formData.autoNumbering}
-            onChange={(e) => handleAutoNumberingToggle(e.target.checked)}
-            className="w-4 h-4 rounded border-gray-300 cursor-pointer"
-          />
-          <Label htmlFor="autoNumbering" className="cursor-pointer text-sm font-normal">
-            엔터 기준으로 답안 번호 자동 생성
-          </Label>
-        </div>
+
+        {hasInlineBulkDelimiter ? (
+          <div className="space-y-2">
+            <Label htmlFor="bulk-input">블록 일괄 입력 *</Label>
+            <Textarea
+              id="bulk-input"
+              value={bulkInputValue}
+              onChange={(e) => handleBulkInputChange(e.target.value)}
+              placeholder={"문제제목\n답안/본문\n---\n다음문제제목\n답안/본문"}
+              rows={12}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="question">질문 *</Label>
+              <Textarea
+                id="question"
+                ref={questionTextareaRef}
+                value={formData.question}
+                onChange={(e) => handleQuestionChange(e.target.value)}
+                placeholder="예: 조선시대의 주요 사건을 시대순으로 나열하시오"
+                rows={3}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="answer">답안 *</Label>
+              <Textarea
+                id="answer"
+                ref={answerTextareaRef}
+                value={formData.answer}
+                onChange={(e) => handleAnswerChange(e.target.value)}
+                onKeyDown={handleAnswerKeyDown}
+                placeholder="모범 답안을 입력하세요"
+                rows={6}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="autoNumbering"
+                checked={formData.autoNumbering}
+                onChange={(e) => handleAutoNumberingToggle(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+              />
+              <Label htmlFor="autoNumbering" className="cursor-pointer text-sm font-normal">
+                엔터 기준으로 답안 번호 자동 생성
+              </Label>
+            </div>
+          </>
+        )}
       </TabsContent>
 
       <TabsContent value="image" className="space-y-4 mt-4">
@@ -1053,14 +1531,15 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
 
       <TabsContent value="ocr" className="space-y-4 mt-4">
         <OCRUploader
-          onExtractedText={(text) => {
+          onExtractedText={({ blockText, fullText }) => {
+            const bulkRaw = blockText.trim() || fullText.trim();
             setFormData((prev) => ({
               ...prev,
-              question: text,
+              question: bulkRaw,
               answer: "",
             }));
             setActiveTab("text");
-            toast.success("OCR 결과가 질문에 입력되었습니다. 답안을 입력하세요.");
+            toast.success("OCR 결과를 일괄입력으로 반영했습니다.");
           }}
         />
       </TabsContent>
@@ -1074,7 +1553,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           variant="ghost"
           size="icon"
           className="h-8 w-8"
-          onClick={() => setLocation(isDemo ? "/demo" : "/")}
+          onClick={() => setLocation(isReadOnlyDemo || isDemoWorkspace ? "/demo" : "/")}
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -1107,7 +1586,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
         </div>
         <div className="flex gap-1.5 flex-shrink-0 items-center">
           {/* 과목 설정 버튼 (시험일 설정) */}
-          {!isDemo && (
+          {!isReadOnlyDemo && !isDemoWorkspace && (
             <Popover open={isSubjectSettingOpen} onOpenChange={(open) => {
               setIsSubjectSettingOpen(open);
               if (open) {
@@ -1134,6 +1613,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                   <div className="flex gap-2">
                     <Input
                       type="datetime-local"
+                      step={600}
                       value={examDateInput}
                       onChange={(e) => setExamDateInput(e.target.value)}
                       className="h-8 text-sm"
@@ -1171,7 +1651,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           )}
           {questions && questions.length > 0 && (
             <>
-              {!isDemo && (
+              {!isReadOnlyDemo && !isDemoWorkspace && (
               <Button
                 variant="outline"
                 size="sm"
@@ -1186,7 +1666,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                 연속 연습
               </Button>
               )}
-              {!isDemo && (
+              {!isReadOnlyDemo && !isDemoWorkspace && (
               <Button
                 variant="outline"
                 size="sm"
@@ -1199,7 +1679,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
               )}
             </>
           )}
-          {!isDemo && (
+          {!isReadOnlyDemo && (
             <Button size="sm" className="gap-1.5 h-8" onClick={() => setIsCreateOpen(true)}>
               <Plus className="h-3.5 w-3.5" />
               추가
@@ -1216,7 +1696,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
             displayOrder: q.displayOrder,
             isStarred: q.isStarred || 0,
           }))}
-          onSelectQuestion={(id) => setLocation(isDemo ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
+          onSelectQuestion={(id) => setLocation(isReadOnlyDemo || isDemoWorkspace ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
           confidenceData={Object.fromEntries(
             Array.from(confidenceMap.entries()).map(([qId, conf]) => [
               qId,
@@ -1237,10 +1717,14 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
           <CardHeader>
             <CardTitle>문제가 없습니다</CardTitle>
             <CardDescription>
-              {isDemo ? "데모 문제가 아직 설정되지 않았습니다" : "첫 문제를 추가하여 학습을 시작하세요"}
+              {isReadOnlyDemo
+                ? "데모 문제가 아직 설정되지 않았습니다"
+                : isDemoWorkspace
+                  ? "데모 문제를 추가해 게스트 화면에 반영하세요"
+                  : "첫 문제를 추가하여 학습을 시작하세요"}
             </CardDescription>
           </CardHeader>
-          {!isDemo && (
+          {!isReadOnlyDemo && (
             <CardContent>
               <Button onClick={() => setIsCreateOpen(true)} className="gap-2">
                 <Plus className="h-4 w-4" />
@@ -1268,15 +1752,23 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                     <SortableQuestionCard
                       key={question.id}
                       question={question}
-                      readOnly={isDemo}
-                      confidence={confidenceMap.get(question.id)}
+                      readOnly={isReadOnlyDemo}
+                      hideDragHandle={isDemoWorkspace}
+                      hideCopyMove={isDemoWorkspace}
+                      confidence={isDemoWorkspace ? undefined : confidenceMap.get(question.id)}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
-                      onPractice={(id) => setLocation(isDemo ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
-                      onTest={(id) => setLocation(isDemo ? `/demo/test/${id}` : `/test/${id}`)}
+                      onPractice={(id) => setLocation(isReadOnlyDemo || isDemoWorkspace ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
+                      onTest={(id) => setLocation(isReadOnlyDemo || isDemoWorkspace ? `/demo/test/${id}` : `/test/${id}`)}
                       onCopy={handleCopy}
                       onMove={handleMove}
-                      onToggleStar={(id) => toggleStarMutation.mutate({ id })}
+                      onToggleStar={(id) => {
+                        if (isDemoWorkspace) {
+                          toggleDemoStarMutation.mutate({ questionId: id });
+                          return;
+                        }
+                        toggleStarMutation.mutate({ id });
+                      }}
                       onConfidenceClick={(id, title) => { setConfidenceHistoryId(id); setConfidenceHistoryTitle(title); }}
                     />
                   ))}
@@ -1298,8 +1790,13 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm(); }}>취소</Button>
-                <Button onClick={handleCreate} disabled={createMutation.isPending}>
-                  {createMutation.isPending ? "생성 중..." : "생성"}
+                <Button
+                  onClick={handleCreate}
+                  disabled={isBulkCreating || (isDemoWorkspace ? createDemoMutation.isPending : createMutation.isPending)}
+                >
+                  {isDemoWorkspace
+                    ? (createDemoMutation.isPending ? "생성 중..." : isBulkCreating ? "일괄 생성 중..." : "생성")
+                    : (createMutation.isPending ? "생성 중..." : isBulkCreating ? "일괄 생성 중..." : "생성")}
                 </Button>
               </div>
             </div>
@@ -1320,7 +1817,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                     className="h-4 w-4 accent-amber-500"
                   />
                 </div>
-                {isAdmin && (
+                {!isDemoWorkspace && isAdmin && DEMO_PUBLISHING_ENABLED && (
                   <div className="flex items-center gap-3 rounded-md border border-border bg-muted/30 px-4 py-3">
                     <span className="text-xs text-muted-foreground flex-shrink-0">데모</span>
                     <div className="flex-1">
@@ -1353,8 +1850,10 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => { setIsEditOpen(false); resetForm(); }}>취소</Button>
-                <Button onClick={handleUpdate} disabled={updateMutation.isPending}>
-                  {updateMutation.isPending ? "수정 중..." : "저장"}
+                <Button onClick={handleUpdate} disabled={isDemoWorkspace ? updateDemoMutation.isPending : updateMutation.isPending}>
+                  {isDemoWorkspace
+                    ? (updateDemoMutation.isPending ? "수정 중..." : "저장")
+                    : (updateMutation.isPending ? "수정 중..." : "저장")}
                 </Button>
               </div>
             </div>
@@ -1375,7 +1874,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
                     className="h-4 w-4 accent-amber-500"
                   />
                 </div>
-                {isAdmin && (
+                {!isDemoWorkspace && isAdmin && DEMO_PUBLISHING_ENABLED && (
                   <div className="flex items-center gap-3 rounded-md border border-border bg-muted/30 px-4 py-3">
                     <span className="text-xs text-muted-foreground flex-shrink-0">데모</span>
                     <div className="flex-1">
@@ -1398,7 +1897,7 @@ export default function Questions({ subjectId, isDemo = false }: QuestionsProps)
       )}
 
       {/* Copy/Move Dialog */}
-      {!isDemo && (
+      {!isReadOnlyDemo && !isDemoWorkspace && (
         <Dialog open={isCopyMoveOpen} onOpenChange={setIsCopyMoveOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader>

@@ -1,34 +1,131 @@
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Circle, Image as ImageIcon, Table2, Eye, EyeOff, Zap, StickyNote, Pencil, Repeat, Save, X, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { splitGraphemes, isPartialMatch, isHangul, decomposeHangul } from "@/lib/hangul";
+import { splitGraphemes, isPartialMatch, isHangul, isJamo, decomposeHangul } from "@/lib/hangul";
 import { TableEditor, TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { trackQuestionAttempt, trackPracticeComplete } from "@/lib/ga4Events";
 import { DamageNumber } from "@/components/DamageNumber";
 import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CONFIDENCE_THRESHOLDS, estimatePracticeConfidenceDelta } from "@shared/examConfidence";
+import { buildNextAutoNumberingValue, getForcedPrefixByTemplateProgress, getLinePrefixHint } from "@/lib/autoNumbering";
+import { getImageAttribution } from "@/lib/imageAttribution";
 
 interface PracticeProps {
   questionId: number;
   isDemo?: boolean;
 }
 
-function findNextLineNumber(textBeforeCursor: string): number {
-  const matches = Array.from(textBeforeCursor.matchAll(/(?:^|\n)\s*(\d+)\.\s*/g));
-  if (matches.length > 0) {
-    const last = parseInt(matches[matches.length - 1][1], 10);
-    if (Number.isFinite(last)) return last + 1;
+type InputLayoutPreference = "horizontal" | "vertical";
+
+const JAMO_TO_KEYSTROKE: Record<string, string> = {
+  "ㄱ": "r",
+  "ㄲ": "r",
+  "ㄴ": "s",
+  "ㄷ": "e",
+  "ㄸ": "e",
+  "ㄹ": "f",
+  "ㅁ": "a",
+  "ㅂ": "q",
+  "ㅃ": "q",
+  "ㅅ": "t",
+  "ㅆ": "t",
+  "ㅇ": "d",
+  "ㅈ": "w",
+  "ㅉ": "w",
+  "ㅊ": "c",
+  "ㅋ": "z",
+  "ㅌ": "x",
+  "ㅍ": "v",
+  "ㅎ": "g",
+  "ㅏ": "k",
+  "ㅐ": "o",
+  "ㅑ": "i",
+  "ㅒ": "o",
+  "ㅓ": "j",
+  "ㅔ": "p",
+  "ㅕ": "u",
+  "ㅖ": "p",
+  "ㅗ": "h",
+  "ㅘ": "hk",
+  "ㅙ": "ho",
+  "ㅚ": "hl",
+  "ㅛ": "y",
+  "ㅜ": "n",
+  "ㅝ": "nj",
+  "ㅞ": "np",
+  "ㅟ": "nl",
+  "ㅠ": "b",
+  "ㅡ": "m",
+  "ㅢ": "ml",
+  "ㅣ": "l",
+  "ㄳ": "rt",
+  "ㄵ": "sw",
+  "ㄶ": "sg",
+  "ㄺ": "fr",
+  "ㄻ": "fa",
+  "ㄼ": "fq",
+  "ㄽ": "ft",
+  "ㄾ": "fx",
+  "ㄿ": "fv",
+  "ㅀ": "fg",
+  "ㅄ": "qt",
+};
+
+const ALNUM_REGEX = /^[a-z0-9]$/i;
+
+function toTypingKeyUnit(char: string): string {
+  if (!char) return "";
+  if (ALNUM_REGEX.test(char)) return char.toLowerCase();
+
+  if (isHangul(char)) {
+    const d = decomposeHangul(char);
+    if (!d) return char.toLowerCase();
+    return `${JAMO_TO_KEYSTROKE[d.cho] ?? d.cho}${JAMO_TO_KEYSTROKE[d.jung] ?? d.jung}${
+      d.jong ? JAMO_TO_KEYSTROKE[d.jong] ?? d.jong : ""
+    }`.toLowerCase();
   }
-  const nonEmptyLineCount = textBeforeCursor
-    .split("\n")
-    .filter((line) => line.trim().length > 0).length;
-  return Math.max(1, nonEmptyLineCount + 1);
+
+  if (isJamo(char)) {
+    return (JAMO_TO_KEYSTROKE[char] ?? char).toLowerCase();
+  }
+
+  return char.toLowerCase();
+}
+
+function toTypingKeySequence(text: string): string {
+  return splitGraphemes(text)
+    .map((char) => toTypingKeyUnit(char))
+    .join("");
+}
+
+function toInitialKeySequence(text: string): string {
+  return splitGraphemes(text)
+    .map((char) => {
+      if (isHangul(char)) {
+        const d = decomposeHangul(char);
+        if (!d) return "";
+        return (JAMO_TO_KEYSTROKE[d.cho] ?? d.cho).charAt(0).toLowerCase();
+      }
+      if (isJamo(char)) {
+        const key = JAMO_TO_KEYSTROKE[char] ?? char;
+        return key.charAt(0).toLowerCase();
+      }
+      if (ALNUM_REGEX.test(char)) return char.toLowerCase();
+      return "";
+    })
+    .join("");
+}
+
+function isLikelyInitialShortcutInput(text: string): boolean {
+  const chars = splitGraphemes(text);
+  if (chars.length === 0) return false;
+  return chars.every((char) => ALNUM_REGEX.test(char) || isJamo(char));
 }
 
 function deleteCurrentLineAtCursor(
@@ -100,6 +197,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const scrollNavCooldownRef = useRef(0);
   const scrollNavDeltaRef = useRef(0);
   const scrollNavDeltaResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [inputLayoutPreference, setInputLayoutPreference] = useState<InputLayoutPreference>(() => {
+    try {
+      const saved = localStorage.getItem("practice_input_layout_preference");
+      if (saved === "horizontal" || saved === "vertical") return saved;
+      if (saved === "split" || saved === "auto") return "horizontal";
+      if (saved === "stacked") return "vertical";
+    } catch {}
+    return "vertical";
+  });
   const [userInput, setUserInput] = useState("");
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -109,6 +215,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const setRevealedLabelsRef = useRef<React.Dispatch<React.SetStateAction<Set<number>>> | null>(null);
   const imageLabelsLengthRef = useRef<number>(0);
   const [startTime, setStartTime] = useState<number | null>(null);
+  const [currentContinuousStartAt, setCurrentContinuousStartAt] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isActive, setIsActive] = useState(true); // 측정 중 여부
   const [lastInputTime, setLastInputTime] = useState<number>(Date.now());
@@ -171,7 +278,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [showWarnZone, setShowWarnZone] = useState(false);
   const [scrollNavDirection, setScrollNavDirection] = useState<"prev" | "next" | null>(null);
   const [isLeaving, setIsLeaving] = useState(false);
+  const [jumpInput, setJumpInput] = useState("");
   const isRestoringDraftRef = useRef(false);
+  const autoSeededQuestionRef = useRef<number | null>(null);
   // 문제 수정 모드
   const [editMode, setEditMode] = useState(false);
   const [editQuestion, setEditQuestion] = useState('');
@@ -212,14 +321,23 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const currentIndex = subjectQuestions?.findIndex(q => q.id === questionId) ?? -1;
   const prevQuestion = currentIndex > 0 ? subjectQuestions?.[currentIndex - 1] : null;
   const nextQuestion = currentIndex >= 0 && subjectQuestions && currentIndex < subjectQuestions.length - 1 ? subjectQuestions[currentIndex + 1] : null;
+  const totalQuestions = subjectQuestions?.length ?? 0;
   const showToothMorphologySource = (subject?.name ?? "").includes("치아형태학");
   const { data: practiceCountData } = trpc.practice.countByQuestion.useQuery(
+    { questionId },
+    { enabled: !!questionId && !isDemo }
+  );
+  const { data: practiceSessionsData } = trpc.practice.getByQuestion.useQuery(
     { questionId },
     { enabled: !!questionId && !isDemo }
   );
   const { data: confidenceData } = trpc.confidence.getByQuestion.useQuery(
     { questionId },
     { enabled: !!questionId && !isDemo }
+  );
+  const imageAttribution = useMemo(
+    () => getImageAttribution(question?.id, question?.imageUrl),
+    [question?.id, question?.imageUrl]
   );
   const utils = trpc.useUtils();
   const createSession = trpc.practice.create.useMutation({
@@ -257,6 +375,37 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const hasBeenSaved = useRef(false);
   const savePracticeSessionRef = useRef<() => Promise<void>>(async () => {});
 
+  const navigateWithMorph = useCallback((targetQuestionId: number, forcedDirection?: "prev" | "next") => {
+    if (!subjectQuestions || totalQuestions <= 0) return;
+    if (isLeaving || targetQuestionId === questionId) return;
+
+    const targetIndex = subjectQuestions.findIndex((q) => q.id === targetQuestionId);
+    if (targetIndex < 0) return;
+
+    const direction = forcedDirection ?? (targetIndex > currentIndex ? "next" : "prev");
+    setScrollNavDirection(direction);
+    setIsLeaving(true);
+    void savePracticeSessionRef.current();
+    setTimeout(() => {
+      setLocation(`/practice/${targetQuestionId}${isScrollNavMode ? "?scrollNav=1" : ""}`);
+    }, 240);
+  }, [currentIndex, isLeaving, isScrollNavMode, questionId, setLocation, subjectQuestions, totalQuestions]);
+
+  const jumpToQuestionByNumber = useCallback((rawValue: string) => {
+    if (!subjectQuestions || totalQuestions <= 0) return;
+    const parsed = Number.parseInt(rawValue.trim(), 10);
+    if (!Number.isFinite(parsed)) {
+      setJumpInput(currentIndex >= 0 ? String(currentIndex + 1) : "");
+      return;
+    }
+    const clamped = Math.max(1, Math.min(totalQuestions, parsed));
+    setJumpInput(String(clamped));
+    const target = subjectQuestions[clamped - 1];
+    if (target && target.id !== questionId) {
+      navigateWithMorph(target.id);
+    }
+  }, [currentIndex, navigateWithMorph, questionId, subjectQuestions, totalQuestions]);
+
   // 문제별 애니메이션 기준 점수 초기화
   useEffect(() => {
     confidenceScoreForAnimationRef.current = null;
@@ -267,6 +416,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setIsLeaving(false);
     setScrollNavDirection(null);
   }, [questionId]);
+
+  useEffect(() => {
+    if (!subjectQuestions || currentIndex < 0) {
+      setJumpInput("");
+      return;
+    }
+    setJumpInput(String(currentIndex + 1));
+  }, [currentIndex, questionId, subjectQuestions]);
 
   // 첫 로드 시 현재 안정도 점수를 애니메이션 기준값으로 설정
   useEffect(() => {
@@ -342,10 +499,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         event.preventDefault();
         scrollNavDeltaRef.current = 0;
         scrollNavCooldownRef.current = now;
-        setScrollNavDirection("next");
-        setIsLeaving(true);
-        void savePracticeSessionRef.current();
-        setTimeout(() => setLocation(`/practice/${nextQuestion.id}?scrollNav=1`), 180);
+        navigateWithMorph(nextQuestion.id, "next");
         return;
       }
 
@@ -354,10 +508,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         event.preventDefault();
         scrollNavDeltaRef.current = 0;
         scrollNavCooldownRef.current = now;
-        setScrollNavDirection("prev");
-        setIsLeaving(true);
-        void savePracticeSessionRef.current();
-        setTimeout(() => setLocation(`/practice/${prevQuestion.id}?scrollNav=1`), 180);
+        navigateWithMorph(prevQuestion.id, "prev");
       }
     };
 
@@ -370,7 +521,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
       scrollNavDeltaRef.current = 0;
     };
-  }, [isScrollNavMode, isDemo, prevQuestion, nextQuestion, setLocation, isLeaving]);
+  }, [isScrollNavMode, isDemo, prevQuestion, nextQuestion, isLeaving, navigateWithMorph]);
 
   // 모바일 sticky 입력창: 부모 main 요소의 overflow를 제어하여 Practice 내부에서 스크롤 처리
   useEffect(() => {
@@ -419,7 +570,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 새로운 문제로 이동할 때 hasBeenSaved 초기화
   useEffect(() => {
     hasBeenSaved.current = false;
+    autoSeededQuestionRef.current = null;
     tablePartialSavedRatioRef.current = 0;
+    setHideMode("none");
+    setHiddenLines(new Set());
+    setStartTime(null);
+    setCurrentContinuousStartAt(null);
     setIsLeaving(false);
     setHasInteracted(false);
     // 반복 연습 상태도 초기화
@@ -461,9 +617,36 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     } catch {}
   }, [questionId, userInput]);
 
-  const targetText = question?.answer || "";
+  const targetText = (question?.answer || "").replace(/\s+$/g, "");
+  const targetVisualLineCount = useMemo(() => {
+    const lines = targetText.split("\n");
+    while (lines.length > 1 && lines[lines.length - 1]?.trim() === "") {
+      lines.pop();
+    }
+    return Math.max(1, lines.length);
+  }, [targetText]);
+  const answerPanelMinHeightPx = useMemo(() => {
+    const estimatedAnswerLineHeight = 34;
+    const verticalPadding = 24;
+    const raw = targetVisualLineCount * estimatedAnswerLineHeight + verticalPadding;
+    const min = memoOpen ? 260 : 140;
+    const max = memoOpen ? 560 : 460;
+    return Math.min(Math.max(raw, min), max);
+  }, [targetVisualLineCount, memoOpen]);
+  const inputPanelMinHeightPx = useMemo(() => {
+    const estimatedInputLineHeight = 24;
+    const verticalPadding = 24;
+    const raw = targetVisualLineCount * estimatedInputLineHeight + verticalPadding;
+    return Math.min(Math.max(raw, 200), 420);
+  }, [targetVisualLineCount]);
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("practice_input_layout_preference", inputLayoutPreference);
+    } catch {}
+  }, [inputLayoutPreference]);
 
   // 메모 초기화: question 로드 시 DB에서 가져오기
   useEffect(() => {
@@ -579,26 +762,62 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     });
   };
 
-  const toggleHideAll = () => {
-    if (hideMode === 'all') {
-      setHideMode('none');
-      setHiddenLines(new Set());
-    } else {
-      setHideMode('all');
-      setHiddenLines(new Set());
+  const toggleHideAll = useCallback(() => {
+    setHideMode((prev) => (prev === "all" ? "none" : "all"));
+    setHiddenLines(new Set());
+  }, []);
+
+  const handleImagePracticeNoteChange = useCallback((value: string) => {
+    setPracticeNote(value);
+    if (!hasInteracted && value.trim().length > 0) setHasInteracted(true);
+    const now = Date.now();
+    if (!startTime) setStartTime(now);
+    setLastInputTime(now);
+    if (!isActive) {
+      setIsActive(true);
+      setCurrentContinuousStartAt(now);
     }
-  };
+  }, [hasInteracted, isActive, startTime]);
 
   // 메모장에 미리 줄바꿈 채워넣기 (줄이 그어진 연습장처럼 어디서나 클릭 시 바로 입력 가능)
   useEffect(() => {
-    if (!isImageQuestion) return;
+    if (!isImageQuestion || isDemo) return;
     // practiceNote가 비어있을 때만 초기화
     if (practiceNote === "") {
       setPracticeNote("\n".repeat(notepadLines));
     }
-  }, [isImageQuestion, notepadLines]);
+  }, [isDemo, isImageQuestion, notepadLines, practiceNote]);
   const tableData: TableData | null = question?.tableData ? JSON.parse(question.tableData) : null;
   const isTableQuestion = !!tableData;
+  const shouldAutoSeedPracticeNumbering =
+    !isTableQuestion &&
+    !isImageQuestion &&
+    question?.autoNumbering === 1;
+  const getPracticeInputSeed = useCallback((templateLine?: string) => {
+    if (!shouldAutoSeedPracticeNumbering) return "";
+    if (templateLine) {
+      const hint = getLinePrefixHint(templateLine);
+      if (hint?.prefix) return hint.prefix;
+    }
+    return "1. ";
+  }, [shouldAutoSeedPracticeNumbering]);
+  const useHorizontalInputLayout =
+    !isImageQuestion &&
+    !isTableQuestion &&
+    inputLayoutPreference === "horizontal";
+  const contentBottomPaddingClass = isImageQuestion
+    ? "pb-6"
+    : useHorizontalInputLayout
+    ? "pb-28"
+    : "pb-72";
+  const answerPanelMaxHeight = memoOpen
+    ? "58vh"
+    : useHorizontalInputLayout
+    ? "74vh"
+    : "62vh";
+  const horizontalInputMinHeightPx = useHorizontalInputLayout
+    ? Math.max(inputPanelMinHeightPx, 360)
+    : inputPanelMinHeightPx;
   const [tableAnswers, setTableAnswers] = useState<Record<string, string>>({});
   const [tableResults, setTableResults] = useState<Record<string, boolean> | null>(null);
   const [tablePracticeCount, setTablePracticeCount] = useState(0);
@@ -626,11 +845,68 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const tableCellInputRef = useRef<HTMLTextAreaElement>(null);
   const tableInputResettingRef = useRef(false);
   const tablePartialSavedRatioRef = useRef(0);
+
+  useEffect(() => {
+    if (!question?.id || !shouldAutoSeedPracticeNumbering) return;
+    if (autoSeededQuestionRef.current === question.id) return;
+    if (userInput.trim().length > 0) {
+      autoSeededQuestionRef.current = question.id;
+      return;
+    }
+
+    const seeded = "1. ";
+    autoSeededQuestionRef.current = question.id;
+    setUserInput(seeded);
+    lastInputRef.current = seeded;
+    setInputHistory([seeded]);
+    setHistoryIndex(0);
+    setCurrentCursorLineIndex(0);
+
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) return;
+      textareaRef.current.value = seeded;
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(seeded.length, seeded.length);
+    });
+  }, [question?.id, shouldAutoSeedPracticeNumbering, userInput]);
   
 
 
-  // Normalize text: remove spaces and newlines for completion check
-  const normalizeText = (text: string) => text.replace(/\s+/g, "");
+  const AUTO_NUMBER_LINE_PREFIX_REGEX = /^\s*\d{1,3}\s*[.)]\s*/;
+  const BULLET_LINE_PREFIX_REGEX = /^\s*(?:[-*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
+  const stripLineNumberPrefix = (line: string) =>
+    line.replace(AUTO_NUMBER_LINE_PREFIX_REGEX, "").trim();
+  const stripBulletPrefix = (line: string) =>
+    line.replace(BULLET_LINE_PREFIX_REGEX, "").trim();
+  const normalizeLineForComparison = (line: string) => {
+    const lineWithoutNumber =
+      question?.autoNumbering === 1 ? stripLineNumberPrefix(line) : line.trim();
+    const lineWithoutListPrefix = stripBulletPrefix(lineWithoutNumber);
+    return lineWithoutListPrefix.replace(/\s+/g, "");
+  };
+  const normalizeLineForTypingCompare = (line: string) =>
+    toTypingKeySequence(normalizeLineForComparison(line));
+  // Normalize text: remove spaces/newlines and (auto-numbering question only) leading line numbers
+  const normalizeText = (text: string) =>
+    text
+      .split("\n")
+      .map((line) => normalizeLineForComparison(line))
+      .join("");
+  const normalizeTextForTypingCompare = (text: string) =>
+    text
+      .split("\n")
+      .map((line) => normalizeLineForTypingCompare(line))
+      .join("");
+  const isInitialShortcutComplete = (input: string, target: string) => {
+    const normalizedInput = normalizeText(input);
+    const normalizedTarget = normalizeText(target);
+    if (!normalizedInput || !normalizedTarget) return false;
+    if (!isLikelyInitialShortcutInput(normalizedInput)) return false;
+    if (!/[가-힣]/.test(normalizedTarget)) return false;
+    const userInitials = toInitialKeySequence(normalizedInput);
+    const targetInitials = toInitialKeySequence(normalizedTarget);
+    return targetInitials.length > 0 && userInitials === targetInitials;
+  };
   // 띄어쓰기/줄바꿈을 무시하고 정답 완주 여부를 판정 (한글 조합 허용)
   const isNormalizedComplete = (input: string, target: string) => {
     const normalizedInput = normalizeText(input);
@@ -643,7 +919,36 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const r = isPartialMatch(userChars[i], targetChars[i], targetChars[i + 1]);
       if (r !== "complete" && r !== "partial_complete") return false;
     }
+
     return true;
+  };
+  const isTypingEquivalentComplete = (input: string, target: string) => {
+    if (isNormalizedComplete(input, target)) return true;
+
+    const typingInput = normalizeTextForTypingCompare(input);
+    const typingTarget = normalizeTextForTypingCompare(target);
+    if (typingTarget.length > 0 && typingInput === typingTarget) return true;
+
+    if (isInitialShortcutComplete(input, target)) return true;
+    return false;
+  };
+  const findCompletedSentenceIndex = (input: string, target: string): number => {
+    const targetLines = target.split("\n");
+    const userLines = input.split("\n");
+
+    for (let ui = userLines.length - 1; ui >= 0; ui--) {
+      const userLine = userLines[ui] ?? "";
+      if (normalizeLineForComparison(userLine).length === 0) continue;
+      for (let ti = 0; ti < targetLines.length; ti++) {
+        const targetLine = targetLines[ti] ?? "";
+        if (normalizeLineForComparison(targetLine).length === 0) continue;
+        if (isTypingEquivalentComplete(userLine, targetLine)) {
+          return ti;
+        }
+      }
+    }
+
+    return -1;
   };
 
   // 표 모드: 코어 함수들 (컨포넌트 레벨)
@@ -695,14 +1000,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   const tableCorrectAnswerRef = useRef<((n?: number) => void) | null>(null);
   const isTableInputCorrect = (input: string, target: string) => {
-    const targetChars = splitGraphemes(target.replace(/\s+/g, ''));
-    const userChars = splitGraphemes(input.replace(/\s+/g, ''));
-    if (userChars.length !== targetChars.length) return false;
-    for (let i = 0; i < userChars.length; i++) {
-      const result = isPartialMatch(userChars[i], targetChars[i], targetChars[i + 1]);
-      if (result !== 'complete' && result !== 'partial_complete') return false;
-    }
-    return true;
+    return isTypingEquivalentComplete(input, target);
   };
 
   const completeCurrentTableCell = (cellKey: string) => {
@@ -792,15 +1090,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   };
 
   const handleTableKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Tab') {
+    if ((e.key === 'Tab' || e.code === 'Tab') && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
+      e.stopPropagation();
       toggleHideAll();
       return;
     }
     if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
       if (question) {
-        setLocation(`/test/${question.id}`);
+        setLocation(`/test/${question.id}?autostart=1`);
       }
       return;
     }
@@ -908,7 +1207,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // Auto-start on mount
   useEffect(() => {
     if (question && !startTime) {
-      setStartTime(Date.now());
+      const now = Date.now();
+      setStartTime(now);
+      setCurrentContinuousStartAt(now);
       if (textareaRef.current) {
         textareaRef.current.setSelectionRange(0, 0);
         textareaRef.current.focus();
@@ -939,6 +1240,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       
       inactivityTimerRef.current = setTimeout(() => {
         setIsActive(false);
+        setCurrentContinuousStartAt(null);
       }, 60000);
     }
 
@@ -959,80 +1261,60 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     imageLabelsLengthRef.current = imageLabels.length;
   }, [imageLabels]);
 
-  // Tab 키: 가림막 전체 표시/제거 (마지막 클릭 행동 기반)
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Tab 키이고, 이미지 문제인 경우에만 처리
-      if (e.key === 'Tab' && isImageQuestion && imageLabels.length > 0) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        // 마지막 클릭 행동과 동일하게 Tab 동작
-        // reveal = 가림막 제거(숫자 보임), hide = 가림막 표시(숫자 가려짐)
-        // 마지막 클릭이 제거(reveal)였으면 → Tab도 전체 제거
-        // 마지막 클릭이 가리기(hide)였거나 초기 상태 → Tab도 전체 가리기
-        if (lastLabelActionRef.current === 'reveal') {
-          // 마지막 행동이 가림막 제거(reveal)였으면 → Tab도 전체 제거 (모두 보이기)
-          const len = imageLabelsLengthRef.current;
-          const indices = Array.from({length: len}, (_, i) => i);
-          const allLabels = new Set<number>(indices);
-          revealedLabelsRef.current = allLabels;
-          if (setRevealedLabelsRef.current) {
-            setRevealedLabelsRef.current(new Set<number>(indices));
-          }
-          // 다음 Tab은 반대 동작
-          lastLabelActionRef.current = 'hide';
-        } else {
-          // 마지막 행동이 가리기(hide)였거나 초기 상태 → Tab도 전체 가리기
-          const emptySet = new Set<number>();
-          revealedLabelsRef.current = emptySet;
-          if (setRevealedLabelsRef.current) {
-            setRevealedLabelsRef.current(new Set<number>());
-          }
-          // 다음 Tab은 반대 동작
-          lastLabelActionRef.current = 'reveal';
-        }
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [imageLabels, isImageQuestion]);
+    const isTabKey = (e: KeyboardEvent) =>
+      e.key === "Tab" || e.code === "Tab" || (e as KeyboardEvent & { keyCode?: number }).keyCode === 9;
 
-
-  useEffect(() => {
-    const handleGlobalKeyDown = async (e: KeyboardEvent) => {
-      // Tab: 답 가리기 토글 (입력창 포커스 여부 관계없이 전역에서 작동)
-      if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
-        // 이미지 문제는 별도 Tab 로직 사용
-        if (isImageQuestion) {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (isTabKey(e) && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const targetEl = e.target as HTMLElement | null;
+        const handledByLocalInput = !!targetEl?.closest(
+          'textarea[data-practice-input="main"], textarea[data-practice-input="table"]'
+        );
+        if (handledByLocalInput) {
           return;
         }
+
         e.preventDefault();
         e.stopPropagation();
-        toggleHideAll();
+
+        if (isImageQuestion && imageLabels.length > 0) {
+          if (lastLabelActionRef.current === "reveal") {
+            const len = imageLabelsLengthRef.current;
+            const indices = Array.from({ length: len }, (_, i) => i);
+            revealedLabelsRef.current = new Set<number>(indices);
+            setRevealedLabelsRef.current?.(new Set<number>(indices));
+            lastLabelActionRef.current = "hide";
+          } else {
+            revealedLabelsRef.current = new Set<number>();
+            setRevealedLabelsRef.current?.(new Set<number>());
+            lastLabelActionRef.current = "reveal";
+          }
+        } else {
+          toggleHideAll();
+        }
         return;
       }
 
       if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
         if (question) {
           e.preventDefault();
-          setLocation(`/test/${question.id}`);
+          setLocation(`/test/${question.id}?autostart=1`);
         }
         return;
       }
-      
+
       if (e.key === "Escape") {
         e.preventDefault();
         handleGoBack();
       }
     };
 
-    window.addEventListener("keydown", handleGlobalKeyDown, true);
+    window.addEventListener("keydown", handleGlobalKeyDown);
     return () => {
-      window.removeEventListener("keydown", handleGlobalKeyDown, true);
+      window.removeEventListener("keydown", handleGlobalKeyDown);
     };
-  }, [question, userInput, imageLabelAnswers, revealedLabels, elapsedTime, createSession, isDemo, setLocation, targetText, isImageQuestion, hideMode]);
+  }, [imageLabels.length, isImageQuestion, question, setLocation, toggleHideAll]);
 
   const handleCompositionStart = () => {
     setIsComposing(true);
@@ -1066,9 +1348,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
     // Resume if was inactive
     if (!isActive) {
+      const now = Date.now();
       setIsActive(true);
+      setCurrentContinuousStartAt(now);
       if (!startTime) {
-        setStartTime(Date.now());
+        setStartTime(now);
       }
     }
     
@@ -1078,14 +1362,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
 
     // Auto-complete when normalized text matches
-    const normalized = normalizeText(newValue);
+    const normalized = normalizeTextForTypingCompare(newValue);
     
     // 반복 연습 모드: ref를 통해 항상 최신 상태 사용 (stale closure 방지)
     const { isRepeatMode: rm, repeatLinesSorted: rls, repeatCurrentIdx: rci, targetText: tt } = repeatStateRef.current;
     if (rm && rls.length > 0) {
       const lineIdx = rls[rci % rls.length];
       const currentLineText = tt.split('\n')[lineIdx] || '';
-      const normalizedRepeatTarget = normalizeText(currentLineText);
+      const normalizedRepeatTarget = normalizeTextForTypingCompare(currentLineText);
       if (normalizedRepeatTarget.length > 0 && normalized === normalizedRepeatTarget) {
         const nextIdx = rci + 1;
         const isLastLine = nextIdx >= rls.length;
@@ -1110,11 +1394,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const newIdx = isLastLine ? 0 : nextIdx;
         setRepeatCurrentIdx(newIdx);
         repeatStateRef.current = { ...repeatStateRef.current, repeatCurrentIdx: newIdx };
-        // 입력창 즉시 초기화 (React state + DOM 직접)
-        setUserInput('');
-        lastInputRef.current = '';
+        // 입력창 즉시 초기화 (auto-numbering 문제는 1. 재시드)
+        const nextRepeatLineIdx = rls[newIdx] ?? lineIdx;
+        const nextRepeatLineText = tt.split('\n')[nextRepeatLineIdx] || "";
+        const seeded = getPracticeInputSeed(nextRepeatLineText);
+        setUserInput(seeded);
+        lastInputRef.current = seeded;
         if (textareaRef.current) {
-          textareaRef.current.value = '';
+          textareaRef.current.value = seeded;
+          textareaRef.current.setSelectionRange(seeded.length, seeded.length);
         }
         return;
       }
@@ -1124,12 +1412,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // 텍스트 모드: 정답 자동 감지 (isPartialMatch 기반)
     if (!isTableQuestion && !isImageQuestion) {
       const currentTargetText = repeatStateRef.current.targetText;
+      if (hideMode === "all") {
+        const completedSentenceIndex = findCompletedSentenceIndex(newValue, currentTargetText);
+        if (completedSentenceIndex >= 0) {
+          setHideMode("none");
+          setHiddenLines(new Set());
+          handleCorrectAnswer(newValue.length);
+          return;
+        }
+      }
       const targetLines = currentTargetText.split('\n');
       const userLines = newValue.split('\n');
       let allLinesComplete = true;
       for (let li = 0; li < targetLines.length; li++) {
-        const tChars = splitGraphemes(targetLines[li].replace(/\s+/g, ''));
-        const uChars = splitGraphemes((userLines[li] || '').replace(/\s+/g, ''));
+        const tChars = splitGraphemes(normalizeLineForComparison(targetLines[li]));
+        const uChars = splitGraphemes(normalizeLineForComparison(userLines[li] || ''));
         if (tChars.length === 0) continue;
         if (uChars.length < tChars.length) { allLinesComplete = false; break; }
         for (let i = 0; i < tChars.length; i++) {
@@ -1138,12 +1435,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         }
         if (!allLinesComplete) break;
       }
-      if (allLinesComplete && targetLines.some(l => l.replace(/\s+/g, '').length > 0)) {
+      if (allLinesComplete && targetLines.some(l => normalizeLineForComparison(l).length > 0)) {
         handleCorrectAnswer(newValue.length);
         return;
       }
       // fallback: 줄 경계와 무관하게 공백 무시 완주도 인정
-      if (isNormalizedComplete(newValue, currentTargetText)) {
+      if (isTypingEquivalentComplete(newValue, currentTargetText)) {
         handleCorrectAnswer(newValue.length);
         return;
       }
@@ -1198,9 +1495,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
     // Resume if was inactive
     if (!isActive) {
+      const now = Date.now();
       setIsActive(true);
+      setCurrentContinuousStartAt(now);
       if (!startTime) {
-        setStartTime(Date.now());
+        setStartTime(now);
       }
     }
     
@@ -1210,14 +1509,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
 
     // Auto-complete when normalized text matches
-    const normalized = normalizeText(newValue);
+    const normalized = normalizeTextForTypingCompare(newValue);
     
     // 반복 연습 모드: ref를 통해 항상 최신 상태 사용 (stale closure 방지)
     const { isRepeatMode: rm2, repeatLinesSorted: rls2, repeatCurrentIdx: rci2, targetText: tt2 } = repeatStateRef.current;
     if (rm2 && rls2.length > 0) {
       const lineIdx2 = rls2[rci2 % rls2.length];
       const currentLineText2 = tt2.split('\n')[lineIdx2] || '';
-      const normalizedRepeatTarget = normalizeText(currentLineText2);
+      const normalizedRepeatTarget = normalizeTextForTypingCompare(currentLineText2);
       if (normalizedRepeatTarget.length > 0 && normalized === normalizedRepeatTarget) {
         const nextIdx2 = rci2 + 1;
         const isLastLine2 = nextIdx2 >= rls2.length;
@@ -1242,11 +1541,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const newIdx2 = isLastLine2 ? 0 : nextIdx2;
         setRepeatCurrentIdx(newIdx2);
         repeatStateRef.current = { ...repeatStateRef.current, repeatCurrentIdx: newIdx2 };
-        // 입력창 즉시 초기화 (React state + DOM 직접)
-        setUserInput('');
-        lastInputRef.current = '';
+        // 입력창 즉시 초기화 (auto-numbering 문제는 1. 재시드)
+        const nextRepeatLineIdx2 = rls2[newIdx2] ?? lineIdx2;
+        const nextRepeatLineText2 = tt2.split('\n')[nextRepeatLineIdx2] || "";
+        const seeded = getPracticeInputSeed(nextRepeatLineText2);
+        setUserInput(seeded);
+        lastInputRef.current = seeded;
         if (textareaRef.current) {
-          textareaRef.current.value = '';
+          textareaRef.current.value = seeded;
+          textareaRef.current.setSelectionRange(seeded.length, seeded.length);
         }
         return;
       }
@@ -1255,12 +1558,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
      // 텍스트 모드: 정답 자동 감지 (isPartialMatch 기반)
     if (!isTableQuestion && !isImageQuestion) {
       const currentTargetText = repeatStateRef.current.targetText;
+      if (hideMode === "all") {
+        const completedSentenceIndex = findCompletedSentenceIndex(newValue, currentTargetText);
+        if (completedSentenceIndex >= 0) {
+          setHideMode("none");
+          setHiddenLines(new Set());
+          handleCorrectAnswer(newValue.length);
+          return;
+        }
+      }
       const targetLines = currentTargetText.split('\n');
       const userLines = newValue.split('\n');
       let allLinesComplete = true;
       for (let li = 0; li < targetLines.length; li++) {
-        const tChars = splitGraphemes(targetLines[li].replace(/\s+/g, ''));
-        const uChars = splitGraphemes((userLines[li] || '').replace(/\s+/g, ''));
+        const tChars = splitGraphemes(normalizeLineForComparison(targetLines[li]));
+        const uChars = splitGraphemes(normalizeLineForComparison(userLines[li] || ''));
         if (tChars.length === 0) continue;
         if (uChars.length < tChars.length) { allLinesComplete = false; break; }
         for (let i = 0; i < tChars.length; i++) {
@@ -1269,12 +1581,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         }
         if (!allLinesComplete) break;
       }
-      if (allLinesComplete && targetLines.some(l => l.replace(/\s+/g, '').length > 0)) {
+      if (allLinesComplete && targetLines.some(l => normalizeLineForComparison(l).length > 0)) {
         handleCorrectAnswer(newValue.length);
         return;
       }
       // fallback: 줄 경계와 무관하게 공백 무시 완주도 인정
-      if (isNormalizedComplete(newValue, currentTargetText)) {
+      if (isTypingEquivalentComplete(newValue, currentTargetText)) {
         handleCorrectAnswer(newValue.length);
         return;
       }
@@ -1300,6 +1612,42 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const practiceCountDisplay = useMemo(() => {
     return practiceCount;
   }, [practiceCount]);
+  const formatPracticeDateTime = useCallback((value: number | Date | string | null | undefined) => {
+    if (value === null || value === undefined) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleString("ko-KR", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  }, []);
+  const latestCompletedPracticeAt = useMemo(() => {
+    if (!practiceSessionsData || practiceSessionsData.length === 0) return null;
+    let latestMs = -1;
+    for (const session of practiceSessionsData as Array<{ completedAt?: Date | string | null }>) {
+      const value = session?.completedAt;
+      if (!value) continue;
+      const ms = new Date(value).getTime();
+      if (!Number.isNaN(ms) && ms > latestMs) latestMs = ms;
+    }
+    return latestMs > 0 ? latestMs : null;
+  }, [practiceSessionsData]);
+  const currentPracticeTitle = useMemo(() => {
+    if (isActive && currentContinuousStartAt) {
+      const at = formatPracticeDateTime(currentContinuousStartAt);
+      if (at) return `연속 진행 시작: ${at}`;
+    }
+    return "현재 진행 중인 연속 연습 세션이 없습니다.";
+  }, [isActive, currentContinuousStartAt, formatPracticeDateTime]);
+  const cumulativePracticeTitle = useMemo(() => {
+    const at = formatPracticeDateTime(latestCompletedPracticeAt);
+    if (at) return `가장 최근 연습 완료: ${at}`;
+    return "이전 연습 기록이 없습니다.";
+  }, [latestCompletedPracticeAt, formatPracticeDateTime]);
 
   // 학습 제안 로직: 연습 횟수에 따라 시험 추천
   const totalPracticeCount = (practiceCountData?.count || 0) + practiceCount;
@@ -1357,6 +1705,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       setHistoryIndex(Math.max(0, newHistory.length - 1));
     };
 
+    if ((e.key === "Tab" || e.code === "Tab") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleHideAll();
+      return;
+    }
+
     // Cmd/Ctrl+Z: Undo
     if (hasPrimaryModifier && !e.shiftKey && !e.altKey && keyLower === "z") {
       e.preventDefault();
@@ -1400,13 +1755,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return;
     }
     
-    // Tab 키는 이미 전역 이벤트에서 처리됨 - 입력창에서는 처리하지 않음
-    
     // Shift+Enter: 시험 모드 진입
     if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
       if (question) {
-        setLocation(`/test/${question.id}`);
+        setLocation(`/test/${question.id}?autostart=1`);
       }
       return;
     }
@@ -1430,32 +1783,22 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const selectionStart = textarea.selectionStart ?? 0;
         const selectionEnd = textarea.selectionEnd ?? selectionStart;
         const rawValue = textarea.value;
+        const forcedPrefix = getForcedPrefixByTemplateProgress(
+          rawValue,
+          selectionStart,
+          targetText
+        );
+        const autoNumberingOptions =
+          typeof forcedPrefix === "string"
+            ? { forcedPrefix }
+            : undefined;
 
-        let nextValue = rawValue;
-        let nextCursor = selectionStart;
-
-        if (rawValue.trim().length === 0) {
-          nextValue = "1. ";
-          nextCursor = nextValue.length;
-        } else {
-          let workingValue = rawValue;
-          let start = selectionStart;
-          let end = selectionEnd;
-
-          const hasAnyNumbering = /(^|\n)\s*\d+\.\s/.test(workingValue);
-          if (!hasAnyNumbering && workingValue.trim().length > 0) {
-            workingValue = `1. ${workingValue}`;
-            start += 3;
-            end += 3;
-          }
-
-          const before = workingValue.slice(0, start);
-          const after = workingValue.slice(end);
-          const nextNumber = findNextLineNumber(before);
-          const insertText = `\n${nextNumber}. `;
-          nextValue = `${before}${insertText}${after}`;
-          nextCursor = before.length + insertText.length;
-        }
+        const { nextValue, nextCursor } = buildNextAutoNumberingValue(
+          rawValue,
+          selectionStart,
+          selectionEnd,
+          autoNumberingOptions
+        );
 
         setUserInput(nextValue);
         setLastInputTime(Date.now());
@@ -1477,9 +1820,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         setHistoryIndex(prev => Math.min(prev + 1, 49));
 
         if (!isActive) {
+          const now = Date.now();
           setIsActive(true);
+          setCurrentContinuousStartAt(now);
           if (!startTime) {
-            setStartTime(Date.now());
+            setStartTime(now);
           }
         }
 
@@ -1637,6 +1982,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const next = prev + 1;
       if (next === 3) {
         setShowTestNudge(true);
+        setHideMode("all");
+        setHiddenLines(new Set());
       }
       return next;
     });
@@ -1650,15 +1997,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setTimeout(() => {
       isResettingRef.current = true; // 초기화 시작 플래그
       setIsComposing(false); // 한글 조합 강제 종료
-      setUserInput('');
-      lastInputRef.current = '';
-      setInputHistory(['']);
+      const seeded = getPracticeInputSeed();
+      setUserInput(seeded);
+      lastInputRef.current = seeded;
+      setInputHistory([seeded]);
       setStartTime(null);
+      setCurrentContinuousStartAt(null);
       if (textareaRef.current) {
         // blur → value 초기화 → focus: 조합 중인 IME 세션을 완전히 종료
         textareaRef.current.blur();
-        textareaRef.current.value = '';
-        textareaRef.current.setSelectionRange(0, 0);
+        textareaRef.current.value = seeded;
+        textareaRef.current.setSelectionRange(seeded.length, seeded.length);
       }
       setCurrentCursorLineIndex(0); // 커서 줄 인덱스 첫 줄로 리셋
       setTimeout(() => {
@@ -1666,7 +2015,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         isResettingRef.current = false; // 초기화 완료
         if (textareaRef.current) {
           textareaRef.current.focus();
-          textareaRef.current.setSelectionRange(0, 0); // 커서를 첫 줄 첫 글자로
+          textareaRef.current.setSelectionRange(seeded.length, seeded.length); // 커서를 입력 끝으로
         }
       }, 50);
     }, 400);
@@ -1778,15 +2127,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     
     // 각 줄별 채점 정보
     const lineResults: Array<{
-      userChars: string[];
       targetChars: string[];
+      charStates: Array<'complete' | 'partial' | 'wrong' | 'pending'>;
       completedCount: number;
-      isLastCharPartial: boolean;
-      lastCharMatchResult: string | null;
     }> = [];
     
-    // 엔터 없이 입력 시 초과분을 다음 줄로 이월하기 위한 변수
-    let carryOverChars: string[] = [];
+    // 엔터 없이 입력 시 초과 키 입력을 다음 줄로 이월하기 위한 변수
+    let carryOverKeys = "";
     
     for (let lineIdx = 0; lineIdx < targetLines.length; lineIdx++) {
       // 반복 모드: 현재 체크된 줄에만 사용자 입력을 매핑
@@ -1801,62 +2148,57 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
       const targetLine = targetLines[lineIdx] || '';
       
-      // 각 줄의 글자를 분리 (띄어쓰기 제거)
-      let userChars = splitGraphemes(userLine.replace(/\s+/g, ''));
       const targetChars = splitGraphemes(targetLine.replace(/\s+/g, ''));
-      
-      // 이전 줄에서 이월된 초과 입력을 현재 줄 앞에 추가
-      if (!isInRepeatMode && carryOverChars.length > 0) {
-        userChars = [...carryOverChars, ...userChars];
-        carryOverChars = [];
+      const targetKeyUnits = targetChars.map((char) => toTypingKeyUnit(char));
+      let userKeySequence = toTypingKeySequence(userLine.replace(/\s+/g, ''));
+
+      // 이전 줄에서 이월된 초과 키 입력을 현재 줄 앞에 추가
+      if (!isInRepeatMode && carryOverKeys.length > 0) {
+        userKeySequence = `${carryOverKeys}${userKeySequence}`;
+        carryOverKeys = "";
       }
-      
-      // 조합 중인 마지막 글자는 제외하지 않음
-      // (isComposing 상태가 정확하지 않을 수 있으므로)
-      const isLastLine = lineIdx === targetLines.length - 1;
-      
+
+      const charStates: Array<'complete' | 'partial' | 'wrong' | 'pending'> = targetChars.map(() => 'pending');
       let completedCount = 0;
-      
-      for (let i = 0; i < userChars.length && i < targetChars.length; i++) {
-        const userChar = userChars[i];
-        const targetChar = targetChars[i];
-        const nextTargetChar = targetChars[i + 1];
-        
-        const matchResult = isPartialMatch(userChar, targetChar, nextTargetChar);
-        
-        if (matchResult === 'complete' || matchResult === 'partial_complete') {
+      let keyCursor = 0;
+
+      for (let i = 0; i < targetChars.length; i++) {
+        if (keyCursor >= userKeySequence.length) break;
+        const targetUnit = targetKeyUnits[i];
+        const remainingUser = userKeySequence.slice(keyCursor);
+
+        if (remainingUser.length >= targetUnit.length && remainingUser.slice(0, targetUnit.length) === targetUnit) {
+          charStates[i] = 'complete';
           completedCount = i + 1;
-        } else if (matchResult === 'partial') {
-          completedCount = i;
+          keyCursor += targetUnit.length;
+          continue;
+        }
+
+        if (targetUnit.startsWith(remainingUser)) {
+          charStates[i] = 'partial';
+          keyCursor = userKeySequence.length;
           break;
-        } else {
-          completedCount = i + 1;
         }
+
+        charStates[i] = 'wrong';
+        break;
       }
-      
-      if (userChars.length > targetChars.length) {
-        completedCount = targetChars.length;
-        // 초과 입력을 다음 줄로 이월 (엔터 없이 계속 입력하는 경우)
-        if (!isInRepeatMode && lineIdx < targetLines.length - 1) {
-          carryOverChars = userChars.slice(targetChars.length);
-          userChars = userChars.slice(0, targetChars.length);
-        }
+
+      // 현재 줄을 정확히 완주했고 초과 입력이 있으면 다음 줄로 이월
+      const targetKeyLength = targetKeyUnits.reduce((sum, unit) => sum + unit.length, 0);
+      if (
+        completedCount >= targetChars.length &&
+        userKeySequence.length > targetKeyLength &&
+        !isInRepeatMode &&
+        lineIdx < targetLines.length - 1
+      ) {
+        carryOverKeys = userKeySequence.slice(targetKeyLength);
       }
-      
-      const lastUserChar = userChars[userChars.length - 1];
-      const lastTargetChar = targetChars[userChars.length - 1];
-      const nextTargetChar = targetChars[userChars.length];
-      const lastMatchResult = lastUserChar && lastTargetChar 
-        ? isPartialMatch(lastUserChar, lastTargetChar, nextTargetChar)
-        : null;
-      const isLastCharPartial = lastMatchResult === 'partial' || lastMatchResult === 'partial_complete';
-      
+
       lineResults.push({
-        userChars,
         targetChars,
+        charStates,
         completedCount,
-        isLastCharPartial,
-        lastCharMatchResult: lastMatchResult
       });
     }
     
@@ -1948,15 +2290,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         );
       }
       
-      const chars = line.split('');
+      const chars = splitGraphemes(line);
       let charIdx = 0; // 띄어쓰기 제외한 글자 인덱스
       
       const renderedChars = chars.map((char, charIndex) => {
         // 띄어쓰기는 그대로 표시
-        if (char === ' ') {
+        if (/\s/.test(char)) {
           return (
             <span key={`${lineIdx}-${charIndex}`} className="text-muted-foreground" style={{ opacity: lineOpacity }}>
-              {' '}
+              {char}
             </span>
           );
         }
@@ -1973,66 +2315,30 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           );
         }
         
-        const { userChars, targetChars, completedCount, lastCharMatchResult } = lineResult;
-        
-        // 아직 입력하지 않은 글자
-        if (currentCharIdx >= userChars.length) {
-          // 현재 입력 위치 (다음에 입력할 글자) - 언더바 표시 (현재 비활성화)
-          // 단, 현재 커서 위치의 줄에만 언더바 표시
-          // if (lineIdx === activeLineIdx && currentCharIdx === completedCount) {
-          //   return (
-          //     <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl animate-pulse" style={{ opacity: 1 }}>
-          //       {char}
-          //     </span>
-          //   );
-          // }
-          // 미입력 글자
-          return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
-              {char}
-            </span>
-          );
-        }
-        
-        // 입력한 글자 채점
-        const userChar = userChars[currentCharIdx];
-        const targetChar = targetChars[currentCharIdx];
-        const nextTargetChar = targetChars[currentCharIdx + 1];
-        
-        // 마지막 글자는 lastCharMatchResult 사용
-        const isLastChar = currentCharIdx === userChars.length - 1;
-        const matchResult = isLastChar && lastCharMatchResult ? lastCharMatchResult : isPartialMatch(userChar, targetChar, nextTargetChar);
-        
-        if (matchResult === 'complete') {
+        const charState = lineResult.charStates[currentCharIdx] ?? 'pending';
+
+        if (charState === 'complete') {
           const fadeClass = isFadingOut ? (lineIdx === 0 ? "text-gray-600" : "text-gray-300") : "text-foreground";
           return (
             <span key={`${lineIdx}-${charIndex}`} className={fadeClass + " relative font-semibold text-xl transition-colors duration-300"} style={{ opacity: 1 }}>
               {char}
             </span>
           );
-        } else if (matchResult === 'partial' || matchResult === 'partial_complete') {
-          if (matchResult === 'partial_complete') {
-            const fadeClass = isFadingOut ? (lineIdx === 0 ? "text-gray-600" : "text-gray-300") : "text-foreground";
-            return (
-              <span key={`${lineIdx}-${charIndex}`} className={fadeClass + " relative font-semibold text-xl transition-colors duration-300"} style={{ opacity: 1 }}>
-                {char}
-              </span>
-            );
-          }
-          // partial 상태 언더바 표시 (현재 비활성화)
-          // return (
-          //   <span key={`${lineIdx}-${charIndex}`} className="border-b-4 border-gray-600 text-gray-600 relative font-semibold text-xl" style={{ opacity: 1 }}>
-          //     {char}
-          //   </span>
-          // );
+        } else if (charState === 'partial') {
           return (
             <span key={`${lineIdx}-${charIndex}`} className="text-gray-600 relative font-semibold text-xl" style={{ opacity: 1 }}>
               {char}
             </span>
           );
-        } else {
+        } else if (charState === 'wrong') {
           return (
             <span key={`${lineIdx}-${charIndex}`} className="text-red-500 relative font-semibold text-xl" style={{ opacity: 1 }}>
+              {char}
+            </span>
+          );
+        } else {
+          return (
+            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
               {char}
             </span>
           );
@@ -2098,7 +2404,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           ? 'oklch(0.97 0.02 25 / 0.6)'
           : 'transparent',
         borderRadius: '2px',
-        marginLeft: canSelectLine ? '-10px' : '0',
+        marginLeft: '0',
         paddingRight: '4px',
         transition: 'background-color 0.15s, border-color 0.15s',
       };
@@ -2168,10 +2474,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }
 
   return (
-    <div className={`relative flex flex-col flex-1 min-h-0 h-full w-full overflow-hidden overscroll-x-none transition-all duration-200 ${
+    <div className={`relative flex flex-col flex-1 min-h-0 h-full w-full overflow-y-hidden overflow-x-visible overscroll-x-none transition-all duration-300 ease-out ${
       isLeaving
-        ? `opacity-0 ${scrollNavDirection === "next" ? "-translate-y-2" : scrollNavDirection === "prev" ? "translate-y-2" : "translate-y-1"} scale-[0.995] pointer-events-none`
-        : "opacity-100 translate-y-0 scale-100"
+        ? `opacity-0 ${scrollNavDirection === "next" ? "-translate-x-8 -rotate-[0.2deg]" : scrollNavDirection === "prev" ? "translate-x-8 rotate-[0.2deg]" : "translate-x-2"} scale-[0.988] blur-[1px] pointer-events-none`
+        : "opacity-100 translate-x-0 rotate-0 scale-100 blur-0"
     }`}>
       <DamageNumber
         value={damageValue}
@@ -2179,9 +2485,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         onComplete={() => setShowDamageNumber(false)}
       />
       {/* 스크롤 가능한 콘텐츠 영역 */}
-      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none ${isImageQuestion ? 'space-y-2 pb-6' : 'space-y-4 pb-44'} px-2 py-4 sm:px-3 lg:px-4`}>
-      <div className="relative mx-auto w-full max-w-[1320px]">
-      <div className="relative z-20 mx-auto w-full max-w-[1280px]">
+      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto overflow-x-visible overscroll-x-none ${isImageQuestion ? 'space-y-2' : 'space-y-4'} ${contentBottomPaddingClass} px-2 py-4 sm:px-3 lg:px-4`}>
+      <div className="relative mx-auto w-full max-w-[1360px]">
+      <div className="relative z-20 mx-auto w-full max-w-[1360px]">
       {isImageQuestion ? (
         /* 이미지 문제: 최소 상단 - 돌아가기 + 연습횟수를 한 줄에 작게 */
         <div className="flex items-center justify-between">
@@ -2190,8 +2496,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             돌아가기
           </Button>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span>{practiceCountDisplay} 현재</span>
-            <span>{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)} 누적</span>
+            <span title={currentPracticeTitle}>{practiceCountDisplay} 현재</span>
+            <span title={cumulativePracticeTitle}>{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)} 누적</span>
             <Circle className={`h-2 w-2 ${isActive ? "fill-green-500 text-green-500" : "fill-red-500 text-red-500"}`} />
           </div>
         </div>
@@ -2209,10 +2515,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             {/* 현재/누적 연습 */}
             <div className="flex items-center gap-1 shrink-0 text-xs">
               <span className="font-bold tabular-nums text-sm">{practiceCountDisplay}</span>
-              <span className="text-muted-foreground">현재</span>
+              <span className="text-muted-foreground" title={currentPracticeTitle}>현재</span>
               <span className="text-muted-foreground/40">/</span>
               <span className="font-bold tabular-nums text-sm">{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)}</span>
-              <span className="text-muted-foreground">누적</span>
+              <span className="text-muted-foreground" title={cumulativePracticeTitle}>누적</span>
             </div>
 
             {/* 구분선 */}
@@ -2303,10 +2609,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   size="sm"
                   variant="outline"
                   className="h-7 text-xs gap-1"
-                  onClick={() => setLocation(`/test/${question.id}`)}
+                  onClick={() => setLocation(`/test/${question.id}?autostart=1`)}
                 >
                   <Zap className="h-3 w-3" />
-                  백지시험
+                  시험 시작
                 </Button>
               </div>
             )}
@@ -2329,10 +2635,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       size="sm"
                       variant="outline"
                       className="h-7 text-xs gap-1 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
-                      onClick={() => setLocation(`/test/${question.id}`)}
+                      onClick={() => setLocation(`/test/${question.id}?autostart=1`)}
                     >
                       <Zap className="h-3 w-3" />
-                      백지시험
+                      시험 시작
                     </Button>
                   </div>
                 )}
@@ -2342,6 +2648,66 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </div>
       )}
 
+      {!isDemo && subjectQuestions && subjectQuestions.length > 1 && (
+        <div className="mb-2 flex items-center justify-center">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-2 py-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85">
+            {prevQuestion ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 xl:hidden"
+                onClick={() => navigateWithMorph(prevQuestion.id, "prev")}
+                aria-label="이전 문제"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+            ) : (
+              <span className="h-7 w-7 xl:hidden" aria-hidden="true" />
+            )}
+            <span className="text-xs font-semibold tabular-nums">
+              {Math.max(1, currentIndex + 1)} / {subjectQuestions.length}
+            </span>
+            <span className="hidden sm:inline text-[10px] text-muted-foreground">문제 이동</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              className="h-6 w-12 rounded-md border border-border bg-background px-1.5 text-center text-xs font-medium tabular-nums outline-none focus:border-primary"
+              value={jumpInput}
+              onChange={(e) => setJumpInput(e.target.value.replace(/[^\d]/g, ""))}
+              onBlur={() => jumpToQuestionByNumber(jumpInput)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                jumpToQuestionByNumber(jumpInput);
+              }}
+              aria-label="문제 번호 이동"
+            />
+            <span className="text-[10px] text-muted-foreground">/ {subjectQuestions.length}</span>
+            {nextQuestion ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 xl:hidden"
+                onClick={() => navigateWithMorph(nextQuestion.id, "next")}
+                aria-label="다음 문제"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            ) : (
+              <span className="h-7 w-7 xl:hidden" aria-hidden="true" />
+            )}
+          </div>
+        </div>
+      )}
+
+      <div
+        className={`relative ${
+          !isDemo && subjectQuestions && subjectQuestions.length > 1
+            ? "xl:px-14"
+            : ""
+        }`}
+      >
       <Card className={isImageQuestion ? 'shadow-none border-0' : 'shadow-elegant'}>
         {!isImageQuestion && (
           <CardHeader>
@@ -2393,12 +2759,34 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 </div>
                 {isTableQuestion && (
                   <CardDescription>
-                    셀 클릭으로 이동 · Enter: 다음 셀 · Tab: 답 가리기 · Shift+Enter: 백지시험
+                    셀 클릭으로 이동
                   </CardDescription>
                 )}
               </div>
               {!isImageQuestion && (
                 <div className="flex items-center gap-2">
+                  {!isTableQuestion && (
+                    <div className="inline-flex items-center rounded-md border border-border bg-muted/40 p-0.5">
+                      <button
+                        type="button"
+                        className={`h-6 rounded px-2 text-[11px] font-medium transition-colors ${
+                          inputLayoutPreference === "horizontal" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        onClick={() => setInputLayoutPreference("horizontal")}
+                      >
+                        가로
+                      </button>
+                      <button
+                        type="button"
+                        className={`h-6 rounded px-2 text-[11px] font-medium transition-colors ${
+                          inputLayoutPreference === "vertical" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        onClick={() => setInputLayoutPreference("vertical")}
+                      >
+                        세로
+                      </button>
+                    </div>
+                  )}
                   {/* 답 가리기 전체 토글 */}
                   <div className="flex flex-col items-center gap-0">
                     <Button
@@ -2410,7 +2798,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       {hideMode === 'all' ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                       {hideMode === 'all' ? '답 보기' : '답 가리기'}
                     </Button>
-                    <span className="text-[10px] text-muted-foreground/50 leading-none">(tab)</span>
+                    <span className="text-[10px] text-muted-foreground/70 leading-none">Tab</span>
                   </div>
                   {question && (
                     <div className="flex flex-col items-center gap-0">
@@ -2418,12 +2806,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         variant="ghost"
                         size="sm"
                         className="h-8 gap-1.5 text-xs"
-                        onClick={() => setLocation(`/test/${question.id}`)}
+                        onClick={() => setLocation(`/test/${question.id}?autostart=1`)}
                       >
                         <Zap className="h-3.5 w-3.5" />
-                        백지시험
+                        시험 시작
                       </Button>
-                      <span className="text-[10px] text-muted-foreground/50 leading-none">(shift+enter)</span>
+                      <span className="text-[10px] text-muted-foreground/70 leading-none">Shift+Enter</span>
                     </div>
                   )}
                   {!isDemo && question && (
@@ -2622,10 +3010,24 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             </div>
           ) : isImageQuestion ? (
             /* Image question with label boxes - resizable 2 column layout */
-            <div>
-              <div className="flex flex-col lg:flex-row gap-2" style={{ alignItems: 'flex-start' }}>
+            <div className="space-y-2">
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`h-8 gap-1.5 text-xs ${hideMode === 'all' ? 'bg-amber-500/10 text-amber-600' : ''}`}
+                  onClick={toggleHideAll}
+                >
+                  {hideMode === 'all' ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                  {hideMode === 'all' ? '가림막 해제' : '가림막'}
+                </Button>
+                <span className="text-[11px] text-muted-foreground">
+                  가림막 전환: <kbd className="rounded border px-1 py-0.5 text-[10px]">Tab</kbd>
+                </span>
+              </div>
+              <div className={`flex flex-col ${isDemo ? "" : "lg:flex-row"} gap-2`} style={{ alignItems: 'flex-start' }}>
                 {/* Left: Image with labels */}
-                <div className="flex-shrink-0 relative" style={{ width: `${imageScale}%`, minWidth: '200px' }}>
+                <div className="flex-shrink-0 relative" style={{ width: isDemo ? "100%" : `${imageScale}%`, minWidth: '200px' }}>
                   {/* Size control - floating overlay on top-right of image */}
                   <div className="absolute top-1 right-1 z-10 flex items-center gap-1 bg-background/80 backdrop-blur-sm rounded px-1.5 py-0.5 border border-border/50">
                     <div className="flex items-center gap-0.5">
@@ -2702,9 +3104,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                             revealedLabelsRef.current = newRevealed;
                             setRevealedLabels(newRevealed);
                             if (!hasInteracted) setHasInteracted(true);
-                            if (!startTime) setStartTime(Date.now());
-                            setLastInputTime(Date.now());
-                            if (!isActive) setIsActive(true);
+                            const now = Date.now();
+                            if (!startTime) setStartTime(now);
+                            setLastInputTime(now);
+                            if (!isActive) {
+                              setIsActive(true);
+                              setCurrentContinuousStartAt(now);
+                            }
                           }}
                         >
                           {!isRevealed && (
@@ -2716,28 +3122,30 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       );
                     })}
                   </div>
-                  {/* License information */}
-                  <div className="mt-2 text-xs text-muted-foreground space-y-0.5 border-t border-border/50 pt-1">
-                    {question?.id === 570001 ? (
-                      <>
-                        <p>© Ksiom, Kwj2772 / Wikimedia Commons</p>
-                        <p>Licensed under Public Domain</p>
-                      </>
-                    ) : question?.id === 570002 ? (
-                      <>
-                        <p>© Jonathan Richter</p>
-                        <p>https://richterguitar.com</p>
-                      </>
-                    ) : question?.id === 600004 ? (
-                      <>
-                        <p>머리 및 목 해부학 2021 개정판</p>
-                        <p>저자: 김명국, p.10</p>
-                      </>
-                    ) : null}
-                  </div>
+                  {imageAttribution && (
+                    <div className="mt-2 text-[10px] text-muted-foreground/75 space-y-0.5 border-t border-border/50 pt-1 select-none">
+                      {imageAttribution.lines.map((line, index) =>
+                        line.href ? (
+                          <p key={`${line.text}-${index}`}>
+                            <a
+                              href={line.href}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              className="hover:underline underline-offset-2"
+                            >
+                              {line.text}
+                            </a>
+                          </p>
+                        ) : (
+                          <p key={`${line.text}-${index}`}>{line.text}</p>
+                        )
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Right: Lined notebook-style practice note */}
+                {!isDemo && (
                 <div className="flex-1 flex flex-col" style={{ minWidth: '200px' }}>
                   <div
                     className="relative rounded-lg border-2 border-border bg-background overflow-hidden cursor-text"
@@ -2776,13 +3184,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     <textarea
                       ref={notepadRef}
                       value={practiceNote}
-                      onChange={(e) => {
-                        setPracticeNote(e.target.value);
-                        if (!hasInteracted && e.target.value.trim().length > 0) setHasInteracted(true);
-                        if (!startTime) setStartTime(Date.now());
-                        setLastInputTime(Date.now());
-                        if (!isActive) setIsActive(true);
-                      }}
+                      onChange={(e) => handleImagePracticeNoteChange(e.target.value)}
                       className="absolute inset-0 bg-transparent resize-none focus:outline-none font-mono text-sm text-foreground"
                       style={{
                         lineHeight: '28px',
@@ -2792,22 +3194,41 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         zIndex: 1,
                         overflow: 'hidden',
                       }}
-                      placeholder=""
+                      placeholder="연습장처럼 자유롭게 적어보세요."
                       spellCheck={false}
                     />
                   </div>
                 </div>
+                )}
               </div>
+              {isDemo && (
+                <div className="rounded-xl border-2 border-border bg-background px-4 py-3">
+                  <div className="mb-2 text-xs text-muted-foreground">연습장</div>
+                  <textarea
+                    ref={notepadRef}
+                    value={practiceNote}
+                    onChange={(e) => handleImagePracticeNoteChange(e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring text-sm leading-6 px-3 py-2"
+                    style={{ minHeight: "160px", maxHeight: "40vh" }}
+                    placeholder="정답을 가리고 떠오르는 라벨명을 자유롭게 적어보세요."
+                    spellCheck={false}
+                  />
+                </div>
+              )}
             </div>
           ) : (
             /* Text question with visual feedback */
             <>
-              {/* 메모 열린 경우: 정답 좌 / 메모 우 2단 레이아웃 */}
-              <div className={memoOpen ? "flex gap-4 items-stretch" : ""}>
-                <div className={memoOpen ? "flex-1" : ""}>
+              {/* 가로 모드/메모 모드: 정답 우측에 패널 배치 */}
+              <div className={memoOpen || useHorizontalInputLayout ? `flex flex-col xl:flex-row gap-4 items-stretch ${useHorizontalInputLayout ? "xl:min-h-[66vh]" : ""}` : ""}>
+                <div className={memoOpen || useHorizontalInputLayout ? "flex-1 min-w-0" : ""}>
                   <div
                     ref={answerDisplayRef}
-                    className={`p-6 bg-muted/30 rounded-lg border-2 border-border overflow-y-auto ${memoOpen ? 'max-h-[500px]' : 'max-h-[400px]'}`}
+                    className="px-5 py-5 bg-muted/25 rounded-xl border-2 border-border overflow-y-auto"
+                    style={{
+                      minHeight: `${answerPanelMinHeightPx}px`,
+                      maxHeight: answerPanelMaxHeight,
+                    }}
                   >
                     <div className="leading-relaxed whitespace-pre-wrap">
                       {renderTextWithFeedback}
@@ -2819,6 +3240,34 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     </p>
                   )}
                 </div>
+
+                {/* 가로 모드 입력 패널: 답안 우측 빈 공간 활용 */}
+                {useHorizontalInputLayout && (
+                  <div className="w-full xl:w-[42%] xl:min-w-[420px] rounded-xl border-2 border-border bg-background py-3 flex flex-col gap-2">
+                    <div className="px-5 text-xs text-muted-foreground">연습장 입력</div>
+                    <div className="px-5 text-[11px] text-muted-foreground">
+                      띄어쓰기·엔터·한/영 전환 없이 써도 되고, 초성 입력도 인정돼요.
+                    </div>
+                    <div className="px-5">
+                      <textarea
+                        data-practice-input="main"
+                        ref={textareaRef}
+                        value={userInput}
+                        onCompositionStart={handleCompositionStart}
+                        onCompositionEnd={handleCompositionEnd}
+                        onChange={handleInputChange}
+                        onKeyDown={handleKeyDown}
+                        onKeyUp={handleKeyUp}
+                        className="w-full flex-1 rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm leading-6 px-5 py-3"
+                        style={{
+                          minHeight: `${horizontalInputMinHeightPx}px`,
+                          maxHeight: "74vh",
+                        }}
+                        placeholder="연습장처럼 편하게 입력해보세요. 떠오르는 내용부터 적어도 괜찮아요."
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* 메모 패널 - 정답과 나란히 */}
                 {memoOpen && (
@@ -2866,65 +3315,51 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           )}
         </CardContent>
       </Card>
-      {/* Quizlet 스타일 좌우 이동 컨트롤 */}
       {!isDemo && subjectQuestions && subjectQuestions.length > 1 && (
-        <div className="mt-2 px-1 pb-2">
-          <div className="mx-auto flex w-full max-w-md items-center justify-between rounded-2xl border border-border bg-background/95 px-2 py-2 shadow-sm backdrop-blur">
+        <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-30 hidden xl:block">
+          {prevQuestion && (
             <Button
-              variant="ghost"
-              size="sm"
-              className="h-9 min-w-[92px] gap-1.5"
-              disabled={!prevQuestion}
-              onClick={() => {
-                if (!prevQuestion) return;
-                void savePracticeSession();
-                setLocation(`/practice/${prevQuestion.id}${isScrollNavMode ? "?scrollNav=1" : ""}`);
-              }}
+              variant="outline"
+              size="icon"
+              className="pointer-events-auto absolute left-2 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full border-border/70 bg-background/92 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85"
+              onClick={() => navigateWithMorph(prevQuestion.id, "prev")}
+              aria-label="이전 문제"
             >
-              <ChevronLeft className="h-4 w-4" />
-              이전
+              <ChevronLeft className="h-5 w-5" />
             </Button>
-            <div className="text-center">
-              <p className="text-xs font-semibold tabular-nums">
-                {Math.max(1, currentIndex + 1)} / {subjectQuestions.length}
-              </p>
-              <p className="text-[10px] text-muted-foreground">문제 이동</p>
-            </div>
+          )}
+          {nextQuestion && (
             <Button
-              variant="ghost"
-              size="sm"
-              className="h-9 min-w-[92px] gap-1.5"
-              disabled={!nextQuestion}
-              onClick={() => {
-                if (!nextQuestion) return;
-                void savePracticeSession();
-                setLocation(`/practice/${nextQuestion.id}${isScrollNavMode ? "?scrollNav=1" : ""}`);
-              }}
+              variant="outline"
+              size="icon"
+              className="pointer-events-auto absolute right-2 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full border-border/70 bg-background/92 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85"
+              onClick={() => navigateWithMorph(nextQuestion.id, "next")}
+              aria-label="다음 문제"
             >
-              다음
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-5 w-5" />
             </Button>
-          </div>
+          )}
         </div>
       )}
+      </div>
       </div>
       </div>
       </div>{/* 스크롤 영역 끝 */}
 
       {/* 하단 고정 입력 패널 - 표 모드 전용 */}
       {isTableQuestion && tableData && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 md:pl-12">
-          <div className="mx-auto w-full max-w-[1400px] px-3 md:px-4">
-            <div className="shrink-0 rounded-t-xl border border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 space-y-2">
+        <div className="fixed inset-x-0 bottom-0 z-40">
+          <div className="mx-auto w-full max-w-[1360px] px-2 sm:px-3 lg:px-4">
+            <div className="mt-2 shrink-0 rounded-t-2xl border-x border-t border-border bg-background/95 px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 shadow-[0_-10px_24px_rgba(0,0,0,0.08)] backdrop-blur supports-[backdrop-filter]:bg-background/85 space-y-2">
               {tableActiveCellKey && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span>셀 {tableTargetCells.indexOf(tableActiveCellKey) + 1}/{tableTargetCells.length}</span>
-                  <span className="text-muted-foreground/60">Enter: 다음 셀 · Tab: 답 가리기 · Shift+Enter: 백지시험</span>
                   {tableCheckedCells.size > 0 && <span className="text-muted-foreground/80 ml-auto">집중 연습 {tableCheckedCells.size}셀</span>}
                 </div>
               )}
               {/* 입력창 */}
               <textarea
+                data-practice-input="table"
                 ref={tableCellInputRef}
                 value={tableCellInput}
                 onChange={(e) => handleTableInputChange(e.target.value)}
@@ -2938,26 +3373,33 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   }
                   handleTableInputChange((e.target as HTMLTextAreaElement).value);
                 }}
-                className="w-full min-h-[80px] max-h-[200px] p-3 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm"
-                placeholder="여기에 입력하세요... (Enter: 다음 셀 · Tab: 답 가리기 · Shift+Enter: 백지시험)"
+                className="w-full rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm leading-6 px-5 py-3"
+                style={{
+                  minHeight: `${inputPanelMinHeightPx}px`,
+                  maxHeight: "320px",
+                }}
+                placeholder="칸을 채우며 외워보세요. 떠오르는 답을 바로 입력해보세요."
                 autoFocus
               />
               {/* 연습 횟수 + 초기화 */}
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">연습 {practiceCount}회</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => {
-                    setTableCompletedCells(new Set());
-                    setTableActiveCellIdx(0);
-                    setTableWrongCells(new Set());
-                    clearTableInput(true);
-                  }}
-                >
-                  초기화
-                </Button>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-muted-foreground">연습장 모드: 띄어쓰기·엔터·한/영 전환 없이 입력해도 돼요. 초성 입력도 인정됩니다.</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">연습 {practiceCount}회</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      setTableCompletedCells(new Set());
+                      setTableActiveCellIdx(0);
+                      setTableWrongCells(new Set());
+                      clearTableInput(true);
+                    }}
+                  >
+                    초기화
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -2966,20 +3408,34 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
       {/* 하단 고정 입력 패널 - 텍스트 모드 전용 */}
       {!isImageQuestion && !isTableQuestion && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 md:pl-12">
-          <div className="mx-auto w-full max-w-[1400px] px-3 md:px-4">
-            <div className="shrink-0 rounded-t-xl border border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 space-y-2">
-              <textarea
-                ref={textareaRef}
-                value={userInput}
-                onCompositionStart={handleCompositionStart}
-                onCompositionEnd={handleCompositionEnd}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                onKeyUp={handleKeyUp}
-                className="w-full min-h-[80px] max-h-[200px] p-3 rounded-lg border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm"
-                placeholder="여기에 입력하세요... (Cmd/Ctrl+Z 실행취소 · Cmd/Ctrl+Shift+Z 다시실행 · Option/Alt+Backspace 단어삭제 · Shift+Backspace 줄삭제)"
-              />
+        <div className="fixed inset-x-0 bottom-0 z-40">
+          <div className="mx-auto w-full max-w-[1360px] px-2 sm:px-3 lg:px-4">
+            <div className="mt-2 shrink-0 rounded-t-2xl border-x border-t border-border bg-background/95 px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 shadow-[0_-10px_24px_rgba(0,0,0,0.08)] backdrop-blur supports-[backdrop-filter]:bg-background/85 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">연습장 모드: 띄어쓰기·엔터·한/영 전환 없이 입력해도 돼요. 초성 입력도 인정됩니다.</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">연습 {practiceCount}회</span>
+                </div>
+              </div>
+
+              {!useHorizontalInputLayout && (
+                <textarea
+                  data-practice-input="main"
+                  ref={textareaRef}
+                  value={userInput}
+                  onCompositionStart={handleCompositionStart}
+                  onCompositionEnd={handleCompositionEnd}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  onKeyUp={handleKeyUp}
+                  className="w-full rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm leading-6 px-5 py-3"
+                  style={{
+                    minHeight: `${inputPanelMinHeightPx}px`,
+                    maxHeight: "320px",
+                  }}
+                  placeholder="연습장처럼 편하게 입력해보세요. 떠오르는 내용부터 적어도 괜찮아요."
+                />
+              )}
             </div>
           </div>
         </div>
