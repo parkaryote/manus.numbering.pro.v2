@@ -9,6 +9,11 @@ import App from "./App";
 import { getLoginUrl } from "./const";
 import "./index.css";
 
+if (typeof window !== "undefined" && window.location.hostname === "www.numbering.pro") {
+  const target = `https://numbering.pro${window.location.pathname}${window.location.search}${window.location.hash}`;
+  window.location.replace(target);
+}
+
 // Declare gtag for TypeScript
 declare global {
   interface Window {
