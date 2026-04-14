@@ -10,7 +10,7 @@ export type TrpcContext = {
   user: User | null;
 };
 
-const AUTH_CONTEXT_TIMEOUT_MS = Number(process.env.AUTH_CONTEXT_TIMEOUT_MS ?? "5000");
+const AUTH_CONTEXT_TIMEOUT_MS = Number(process.env.AUTH_CONTEXT_TIMEOUT_MS ?? "12000");
 
 function getRawCookieHeader(req: CreateExpressContextOptions["req"]): string {
   const reqLike = req as unknown as {

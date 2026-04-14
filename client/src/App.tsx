@@ -391,6 +391,17 @@ function AppContent() {
     );
   }
 
+  if (!currentUser && location !== "/login" && hasRecentAuthAttempt()) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-muted-foreground">로그인 세션 확인 중...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <TooltipProvider>
       <Toaster />

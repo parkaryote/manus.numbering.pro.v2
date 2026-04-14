@@ -19,12 +19,6 @@ const GOOGLE_SOCIAL_BUTTON_META = {
 const GUEST_ID_KEY = "numbering_guest_id";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 const RECENT_AUTH_AT_KEY = "numbering_recent_auth_at";
-const AUTH_SESSION_WAIT_MS = 20_000;
-
-type SessionUser = {
-  id: number;
-  loginMethod?: string | null;
-};
 
 function getOrCreateId(key: string): string {
   try {
@@ -46,36 +40,6 @@ function markRecentAuthAttempt() {
   }
 }
 
-async function fetchAuthMeSnapshot(timeoutMs: number): Promise<SessionUser | null> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch("/api/trpc/auth.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D", {
-      credentials: "include",
-      signal: controller.signal,
-    });
-    if (!res.ok) return null;
-    const body = await res.json();
-    return (body?.[0]?.result?.data?.json ?? null) as SessionUser | null;
-  } catch {
-    return null;
-  } finally {
-    window.clearTimeout(timeout);
-  }
-}
-
-async function waitForNonGuestSession(maxWaitMs: number): Promise<SessionUser | null> {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < maxWaitMs) {
-    const user = await fetchAuthMeSnapshot(4500);
-    if (user && user.loginMethod !== "guest") {
-      return user;
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, 350));
-  }
-  return null;
-}
-
 export default function Login() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
@@ -89,24 +53,18 @@ export default function Login() {
   const [blockingMessage, setBlockingMessage] = useState<string | null>(null);
   const googleReturnToRef = useRef("/");
 
-  const waitAndRedirectAfterAuth = async (nextPath: string, successMessage: string) => {
-    setBlockingMessage("로그인 확인 중...");
-    const user = await waitForNonGuestSession(AUTH_SESSION_WAIT_MS);
-    if (!user) {
-      setBlockingMessage(null);
-      toast.error("로그인 확인이 지연되고 있습니다. 잠시 후 다시 시도해주세요.");
-      return false;
-    }
+  const finishAuthAndRedirect = (nextPath: string, successMessage: string) => {
+    setBlockingMessage("로그인 완료, 이동 중...");
+    markRecentAuthAttempt();
     toast.success(successMessage);
     void utils.auth.me.invalidate();
     window.location.replace(nextPath);
-    return true;
   };
 
   const googleLogin = trpc.auth.googleLoginWithCode.useMutation({
-    onSuccess: async () => {
+    onSuccess: () => {
       const nextPath = googleReturnToRef.current || "/";
-      await waitAndRedirectAfterAuth(nextPath, "로그인되었습니다.");
+      finishAuthAndRedirect(nextPath, "로그인되었습니다.");
     },
     onError: (error) => {
       setBlockingMessage(null);
@@ -120,8 +78,8 @@ export default function Login() {
   });
 
   const loginMutation = trpc.auth.simpleLogin.useMutation({
-    onSuccess: async () => {
-      await waitAndRedirectAfterAuth("/", "로그인되었습니다.");
+    onSuccess: () => {
+      finishAuthAndRedirect("/", "로그인되었습니다.");
     },
     onError: (error) => {
       setBlockingMessage(null);
@@ -130,8 +88,8 @@ export default function Login() {
   });
 
   const signupMutation = trpc.auth.simpleSignup.useMutation({
-    onSuccess: async () => {
-      await waitAndRedirectAfterAuth("/", "가입 완료! 로그인되었습니다.");
+    onSuccess: () => {
+      finishAuthAndRedirect("/", "가입 완료! 로그인되었습니다.");
     },
     onError: (error) => {
       setBlockingMessage(null);

@@ -13,6 +13,24 @@ export function createApp() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+  app.use((req, res, next) => {
+    if (process.env.NODE_ENV !== "production") return next();
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+
+    const forwardedHost = req.headers["x-forwarded-host"];
+    const rawHost = Array.isArray(forwardedHost)
+      ? forwardedHost[0]
+      : forwardedHost || req.headers.host || "";
+    const host = String(rawHost).split(",")[0]?.trim().toLowerCase().split(":")[0];
+
+    if (host === "www.numbering.pro") {
+      const targetUrl = `https://numbering.pro${req.originalUrl || req.url || "/"}`;
+      return res.redirect(308, targetUrl);
+    }
+
+    return next();
+  });
+
   registerOAuthRoutes(app);
 
   // Keep /api prefix for existing clients, and also expose stripped paths

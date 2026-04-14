@@ -1,5 +1,3 @@
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
-
 type RequestLike = {
   protocol?: string;
   headers?: Record<string, string | string[] | undefined>;
@@ -12,12 +10,6 @@ type SessionCookieOptions = {
   sameSite: "lax" | "none";
   secure: boolean;
 };
-
-function isIpAddress(host: string) {
-  // Basic IPv4 check and IPv6 presence detection.
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
-  return host.includes(":");
-}
 
 function isSecureRequest(req: RequestLike) {
   if (req.protocol === "https") return true;
@@ -32,27 +24,27 @@ function isSecureRequest(req: RequestLike) {
   return protoList.some(proto => proto.trim().toLowerCase() === "https");
 }
 
+function getRequestHost(req: RequestLike): string {
+  const forwardedHost = req.headers?.["x-forwarded-host"];
+  const hostHeader = req.headers?.host;
+  const raw = Array.isArray(forwardedHost)
+    ? forwardedHost[0]
+    : forwardedHost || (Array.isArray(hostHeader) ? hostHeader[0] : hostHeader) || "";
+  const first = raw.split(",")[0]?.trim().toLowerCase() ?? "";
+  return first.split(":")[0] ?? "";
+}
+
 export function getSessionCookieOptions(
   req: RequestLike
 ): SessionCookieOptions {
-  // const hostname = req.hostname;
-  // const shouldSetDomain =
-  //   hostname &&
-  //   !LOCAL_HOSTS.has(hostname) &&
-  //   !isIpAddress(hostname) &&
-  //   hostname !== "127.0.0.1" &&
-  //   hostname !== "::1";
-
-  // const domain =
-  //   shouldSetDomain && !hostname.startsWith(".")
-  //     ? `.${hostname}`
-  //     : shouldSetDomain
-  //       ? hostname
-  //       : undefined;
+  const hostname = getRequestHost(req);
+  const shouldSetSharedDomain =
+    hostname === "numbering.pro" || hostname === "www.numbering.pro";
 
   const secure = isSecureRequest(req);
 
   return {
+    domain: shouldSetSharedDomain ? ".numbering.pro" : undefined,
     httpOnly: true,
     path: "/",
     // SameSite=None requires Secure=true. On local http dev, use Lax so
