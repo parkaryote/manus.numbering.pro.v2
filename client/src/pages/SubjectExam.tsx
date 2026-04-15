@@ -13,6 +13,7 @@ import { estimateTestConfidenceDelta } from "@shared/examConfidence";
 
 interface SubjectExamProps {
   subjectId: number;
+  isDemo?: boolean;
 }
 
 type ExamQuestion = {
@@ -103,8 +104,9 @@ function stateFromScore(score: number): string {
   return "red";
 }
 
-export default function SubjectExam({ subjectId }: SubjectExamProps) {
+export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamProps) {
   const [, setLocation] = useLocation();
+  const subjectQuestionsPath = isDemo ? `/demo/questions/${subjectId}` : `/questions/${subjectId}`;
 
   const [phase, setPhase] = useState<"intro" | "exam" | "result">("intro");
   const [textAnswers, setTextAnswers] = useState<Record<number, string>>({});
@@ -122,7 +124,15 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
   const [examQuestions, setExamQuestions] = useState<ExamQuestion[]>([]);
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
-  const { data: questions } = trpc.questions.listBySubject.useQuery({ subjectId });
+  const userQuestionsQuery = trpc.questions.listBySubject.useQuery(
+    { subjectId },
+    { enabled: !isDemo }
+  );
+  const demoQuestionsQuery = trpc.demo.questions.useQuery(
+    { subjectId },
+    { enabled: isDemo }
+  );
+  const questions = isDemo ? demoQuestionsQuery.data : userQuestionsQuery.data;
   const utils = trpc.useUtils();
 
   const evaluateMutation = trpc.test.evaluate.useMutation({
@@ -130,6 +140,7 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
       utils.confidence.getBySubject.invalidate({ subjectId });
     },
   });
+  const demoEvaluateMutation = trpc.demo.evaluate.useMutation();
   const createTestMutation = trpc.test.create.useMutation();
   const updateReviewMutation = trpc.review.updateAfterReview.useMutation();
 
@@ -215,15 +226,21 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
       const examEndDate = subject?.examEndDate ? new Date(subject.examEndDate) : null;
       const hoursUntilExam = examEndDate ? (examEndDate.getTime() - Date.now()) / (1000 * 60 * 60) : null;
 
-      await utils.confidence.getBySubject.invalidate({ subjectId });
-      const beforeConfidenceRaw = await utils.confidence.getBySubject.fetch({ subjectId });
+      if (!isDemo) {
+        await utils.confidence.getBySubject.invalidate({ subjectId });
+      }
+      const beforeConfidenceRaw = isDemo
+        ? await utils.demo.confidenceBySubject.fetch({ subjectId })
+        : await utils.confidence.getBySubject.fetch({ subjectId });
       const beforeSnapshot = toSubjectConfidenceSnapshot(beforeConfidenceRaw);
       const fetchQuestionConfidence = async (
         questionId: number,
         fallback?: QuestionConfidencePoint
       ): Promise<QuestionConfidencePoint> => {
         try {
-          const raw = await utils.confidence.getByQuestion.fetch({ questionId });
+          const raw = isDemo
+            ? await utils.demo.confidenceByQuestion.fetch({ questionId })
+            : await utils.confidence.getByQuestion.fetch({ questionId });
           return {
             score: clampScore(Number((raw as any)?.displayScore ?? fallback?.score ?? 0)),
             state: String((raw as any)?.state ?? fallback?.state ?? "red"),
@@ -242,7 +259,9 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
             score: beforeSnapshot.questionScoreMap[q.id] ?? 0,
             state: beforeSnapshot.questionStateMap[q.id] ?? "red",
           };
-          await utils.confidence.getByQuestion.invalidate({ questionId: q.id });
+          if (!isDemo) {
+            await utils.confidence.getByQuestion.invalidate({ questionId: q.id });
+          }
           const point = await fetchQuestionConfidence(q.id, fallback);
           return [q.id, point] as const;
         })
@@ -267,17 +286,19 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
         }
 
         if (!ans.trim()) {
-          await createTestMutation.mutateAsync({
-            questionId: q.id,
-            userAnswer: "",
-            isCorrect: 0,
-            recallTime: recallTimeForExam,
-            similarityScore: 0,
-          });
-          await updateReviewMutation.mutateAsync({
-            questionId: q.id,
-            quality: 0,
-          });
+          if (!isDemo) {
+            await createTestMutation.mutateAsync({
+              questionId: q.id,
+              userAnswer: "",
+              isCorrect: 0,
+              recallTime: recallTimeForExam,
+              similarityScore: 0,
+            });
+            await updateReviewMutation.mutateAsync({
+              questionId: q.id,
+              quality: 0,
+            });
+          }
 
           const beforePoint = beforeQuestionMap[q.id];
           const baseScore = beforePoint?.score ?? 0;
@@ -313,22 +334,23 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
             isCorrect: !!tableGrade.results[key],
           }));
 
-          await createTestMutation.mutateAsync({
-            questionId: q.id,
-            userAnswer: ans,
-            isCorrect: tableGrade.score === tableGrade.total ? 1 : 0,
-            recallTime: recallTimeForExam,
-            similarityScore,
-            mistakeHighlights: JSON.stringify(tableMistakes),
-          });
-
           const quality = tableGrade.score === tableGrade.total
             ? (recallTimeForExam <= 15 ? 5 : 4)
             : (similarityScore >= 80 ? 2 : similarityScore >= 60 ? 1 : 0);
-          await updateReviewMutation.mutateAsync({
-            questionId: q.id,
-            quality,
-          });
+          if (!isDemo) {
+            await createTestMutation.mutateAsync({
+              questionId: q.id,
+              userAnswer: ans,
+              isCorrect: tableGrade.score === tableGrade.total ? 1 : 0,
+              recallTime: recallTimeForExam,
+              similarityScore,
+              mistakeHighlights: JSON.stringify(tableMistakes),
+            });
+            await updateReviewMutation.mutateAsync({
+              questionId: q.id,
+              quality,
+            });
+          }
 
           nextOutcomes[q.id] = {
             eval: {
@@ -353,21 +375,26 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
           continue;
         }
 
-        const evalRaw = await evaluateMutation.mutateAsync({
+        const evalInput = {
           questionId: q.id,
           userAnswer: ans,
           recallTime: recallTimeForExam,
-        });
+        };
+        const evalRaw = isDemo
+          ? await demoEvaluateMutation.mutateAsync(evalInput)
+          : await evaluateMutation.mutateAsync(evalInput);
 
         const isCorrect = toBool((evalRaw as any)?.isCorrect);
         const similarityScore = Number((evalRaw as any)?.similarityScore ?? 0);
         const quality = isCorrect
           ? (recallTimeForExam <= 15 ? 5 : recallTimeForExam <= 35 ? 4 : 3)
           : (similarityScore >= 80 ? 2 : similarityScore >= 60 ? 1 : 0);
-        await updateReviewMutation.mutateAsync({
-          questionId: q.id,
-          quality,
-        });
+        if (!isDemo) {
+          await updateReviewMutation.mutateAsync({
+            questionId: q.id,
+            quality,
+          });
+        }
 
         nextOutcomes[q.id] = {
           eval: {
@@ -390,23 +417,27 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
         };
       }
 
-      await Promise.all(
-        examQuestions.map((q) => utils.confidence.getByQuestion.invalidate({ questionId: q.id }))
-      );
-      await utils.confidence.getBySubject.invalidate({ subjectId });
-      const afterConfidenceRaw = await utils.confidence.getBySubject.fetch({ subjectId });
-      const afterSnapshot = toSubjectConfidenceSnapshot(afterConfidenceRaw);
-      const afterQuestionEntries = await Promise.all(
-        examQuestions.map(async (q) => {
-          const fallback = {
-            score: afterSnapshot.questionScoreMap[q.id] ?? beforeQuestionMap[q.id]?.score ?? 0,
-            state: afterSnapshot.questionStateMap[q.id] ?? beforeQuestionMap[q.id]?.state ?? "red",
-          };
-          const point = await fetchQuestionConfidence(q.id, fallback);
-          return [q.id, point] as const;
-        })
-      );
-      const afterQuestionMap = Object.fromEntries(afterQuestionEntries) as Record<number, QuestionConfidencePoint>;
+      let afterSnapshot = beforeSnapshot;
+      let afterQuestionMap = beforeQuestionMap;
+      if (!isDemo) {
+        await Promise.all(
+          examQuestions.map((q) => utils.confidence.getByQuestion.invalidate({ questionId: q.id }))
+        );
+        await utils.confidence.getBySubject.invalidate({ subjectId });
+        const afterConfidenceRaw = await utils.confidence.getBySubject.fetch({ subjectId });
+        afterSnapshot = toSubjectConfidenceSnapshot(afterConfidenceRaw);
+        const afterQuestionEntries = await Promise.all(
+          examQuestions.map(async (q) => {
+            const fallback = {
+              score: afterSnapshot.questionScoreMap[q.id] ?? beforeQuestionMap[q.id]?.score ?? 0,
+              state: afterSnapshot.questionStateMap[q.id] ?? beforeQuestionMap[q.id]?.state ?? "red",
+            };
+            const point = await fetchQuestionConfidence(q.id, fallback);
+            return [q.id, point] as const;
+          })
+        );
+        afterQuestionMap = Object.fromEntries(afterQuestionEntries) as Record<number, QuestionConfidencePoint>;
+      }
 
       for (const q of examQuestions) {
         const beforePoint = beforeQuestionMap[q.id];
@@ -447,7 +478,14 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
 
       setOutcomes(nextOutcomes);
       setSubjectScoreBefore(beforeSnapshot.aggregateScore);
-      setSubjectScoreAfter(afterSnapshot.aggregateScore);
+      setSubjectScoreAfter(
+        isDemo
+          ? Math.round(
+              examQuestions.reduce((sum, q) => sum + (nextOutcomes[q.id]?.confidenceAfter ?? beforeQuestionMap[q.id]?.score ?? 0), 0) /
+                Math.max(1, examQuestions.length)
+            )
+          : afterSnapshot.aggregateScore
+      );
       setPhase("result");
     } catch (error: any) {
       toast.error("채점 실패: " + (error?.message || "알 수 없는 오류"));
@@ -464,11 +502,15 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
     imageLabelAnswers,
     textAnswers,
     evaluateMutation,
+    demoEvaluateMutation,
     createTestMutation,
     updateReviewMutation,
     utils.confidence.getBySubject,
     utils.confidence.getByQuestion,
+    utils.demo.confidenceBySubject,
+    utils.demo.confidenceByQuestion,
     subject,
+    isDemo,
   ]);
 
   if (!questions) {
@@ -488,7 +530,7 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
           variant="ghost"
           size="sm"
           className="mb-6 gap-1.5"
-          onClick={() => setLocation(`/questions/${subjectId}`)}
+          onClick={() => setLocation(subjectQuestionsPath)}
         >
           <ArrowLeft className="h-4 w-4" />
           과목으로 돌아가기
@@ -942,7 +984,7 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
           <RotateCcw className="h-4 w-4" />
           다시 시험
         </Button>
-        <Button className="flex-1 gap-1.5" onClick={() => setLocation(`/questions/${subjectId}`)}>
+        <Button className="flex-1 gap-1.5" onClick={() => setLocation(subjectQuestionsPath)}>
           <Trophy className="h-4 w-4" />
           과목으로 돌아가기
         </Button>

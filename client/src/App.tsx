@@ -293,6 +293,17 @@ function Router({
           )
         }
       </Route>
+      <Route path={"/demo/subject-exam/:subjectId"}>
+        {(params) =>
+          canAccessDemo ? (
+            <Layout>
+              <SubjectExam subjectId={parseInt(params.subjectId)} isDemo />
+            </Layout>
+          ) : (
+            <RouteRedirect to={`/subject-exam/${parseInt(params.subjectId)}`} />
+          )
+        }
+      </Route>
       <Route path={"/demo/questions"}>
         <RouteRedirect to="/demo" />
       </Route>

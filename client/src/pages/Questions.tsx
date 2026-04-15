@@ -1934,17 +1934,15 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                 <ScrollText className="h-3.5 w-3.5" />
                 랜덤 연습
               </Button>
-              {!isReadOnlyDemo && !isDemoWorkspace && (
               <Button
                 variant="outline"
                 size="sm"
                 className="gap-1.5 h-8"
-                onClick={() => setLocation(`/subject-exam/${subjectId}`)}
+                onClick={() => setLocation(isReadOnlyDemo || isDemoWorkspace ? `/demo/subject-exam/${subjectId}` : `/subject-exam/${subjectId}`)}
               >
                 <ClipboardCheck className="h-3.5 w-3.5" />
                 모의고사
               </Button>
-              )}
             </>
           )}
           {!isReadOnlyDemo && (
