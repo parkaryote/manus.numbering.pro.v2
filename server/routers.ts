@@ -2014,8 +2014,14 @@ type PublicUser = Omit<User, "passwordHash" | "openId">;
 function sanitizeUserForClient(user: User | null | undefined): PublicUser | null {
   if (!user) return null;
   // Never expose credential hash or raw provider-linked openId to client payloads.
-  const { passwordHash: _passwordHash, openId: _openId, ...safeUser } = user;
-  return safeUser;
+  const { passwordHash: _passwordHash, openId: rawOpenId, ...safeUser } = user;
+  // Backward compatibility: legacy guest rows may miss loginMethod, but still use guest_* openId.
+  const inferredLoginMethod =
+    safeUser.loginMethod ?? (rawOpenId?.startsWith("guest_") ? "guest" : null);
+  return {
+    ...safeUser,
+    loginMethod: inferredLoginMethod,
+  };
 }
 
 async function assertSubjectOwnershipOrThrow(subjectId: number, userId: number) {
@@ -2409,6 +2415,17 @@ export const appRouter = router({
 
         // 기존 게스트 계정 조회
         let user = await db.getUserByOpenId(guestOpenId);
+        if (user && user.loginMethod !== "guest") {
+          // Heal legacy guest rows that were created without loginMethod.
+          await db.upsertUser({
+            openId: guestOpenId,
+            name: user.name || `게스트_${input.guestId.substring(0, 6)}`,
+            email: user.email ?? null,
+            loginMethod: "guest",
+            lastSignedIn: new Date(),
+          });
+          user = await db.getUserByOpenId(guestOpenId);
+        }
 
         if (!user) {
           isNewGuest = true;
