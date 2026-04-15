@@ -991,61 +991,32 @@ function selectPublicDemoShowcaseQuestions<T extends { question?: string | null;
   });
 }
 
-const DEMO_SCENARIO_OVERRIDES_BY_ID: Record<number, DemoPreviewEvent[]> = {
-  431: [
-    { minutesAgo: 30 * 60, eventType: "practice", score: 18, practiceSessionCount: 1, practiceDelta: 6 },
-    { minutesAgo: 26 * 60, eventType: "practice", score: 26, practiceSessionCount: 2, practiceDelta: 8 },
-    { minutesAgo: 20 * 60, eventType: "test", score: 41, accuracyRate: 84, isCorrect: true },
-    { minutesAgo: 10 * 60, eventType: "practice", score: 47, practiceSessionCount: 3, practiceDelta: 6 },
-    { minutesAgo: 4 * 60, eventType: "test", score: 58, accuracyRate: 91, isCorrect: true },
-    { minutesAgo: 0, eventType: "now", score: 55 },
-  ],
-  437: [
-    { minutesAgo: 28 * 60, eventType: "practice", score: 12, practiceSessionCount: 1, practiceDelta: 5 },
-    { minutesAgo: 25 * 60, eventType: "practice", score: 19, practiceSessionCount: 2, practiceDelta: 7 },
-    { minutesAgo: 24 * 60, eventType: "test", score: 15, accuracyRate: 46, isCorrect: false },
-    { minutesAgo: 14 * 60, eventType: "practice", score: 24, practiceSessionCount: 3, practiceDelta: 5 },
-    { minutesAgo: 6 * 60, eventType: "test", score: 39, accuracyRate: 82, isCorrect: true },
-    { minutesAgo: 1 * 60, eventType: "practice", score: 44, practiceSessionCount: 4, practiceDelta: 5 },
-    { minutesAgo: 0, eventType: "now", score: 42 },
-  ],
-  441: [
-    { minutesAgo: 32 * 60, eventType: "practice", score: 28, practiceSessionCount: 1, practiceDelta: 8 },
-    { minutesAgo: 30 * 60, eventType: "practice", score: 36, practiceSessionCount: 2, practiceDelta: 8 },
-    { minutesAgo: 22 * 60, eventType: "test", score: 52, accuracyRate: 88, isCorrect: true },
-    { minutesAgo: 15 * 60, eventType: "practice", score: 61, practiceSessionCount: 3, practiceDelta: 9 },
-    { minutesAgo: 8 * 60, eventType: "practice", score: 70, practiceSessionCount: 4, practiceDelta: 9 },
-    { minutesAgo: 3 * 60, eventType: "test", score: 84, accuracyRate: 96, isCorrect: true },
-    { minutesAgo: 0, eventType: "now", score: 82 },
-  ],
-};
-
 const DEMO_SCENARIO_OVERRIDES_BY_SHOWCASE_KEY: Partial<Record<DemoShowcaseKey, DemoPreviewEvent[]>> = {
   box1: [
-    { minutesAgo: 32 * 60, eventType: "practice", score: 12, practiceSessionCount: 1, practiceDelta: 5 },
-    { minutesAgo: 26 * 60, eventType: "practice", score: 18, practiceSessionCount: 2, practiceDelta: 6 },
-    { minutesAgo: 23 * 60, eventType: "test", score: 14, accuracyRate: 44, isCorrect: false },
-    { minutesAgo: 16 * 60, eventType: "practice", score: 23, practiceSessionCount: 3, practiceDelta: 5 },
-    { minutesAgo: 8 * 60, eventType: "test", score: 31, accuracyRate: 62, isCorrect: false },
-    { minutesAgo: 2 * 60, eventType: "practice", score: 36, practiceSessionCount: 4, practiceDelta: 5 },
+    { minutesAgo: 42 * 60, eventType: "practice", score: 16, practiceSessionCount: 1, practiceDelta: 6 },
+    { minutesAgo: 34 * 60, eventType: "practice", score: 28, practiceSessionCount: 2, practiceDelta: 8 },
+    { minutesAgo: 27 * 60, eventType: "test", score: 21, accuracyRate: 48, isCorrect: false },
+    { minutesAgo: 19 * 60, eventType: "practice", score: 36, practiceSessionCount: 3, practiceDelta: 7 },
+    { minutesAgo: 11 * 60, eventType: "test", score: 32, accuracyRate: 64, isCorrect: false },
+    { minutesAgo: 4 * 60, eventType: "practice", score: 40, practiceSessionCount: 4, practiceDelta: 5 },
     { minutesAgo: 0, eventType: "now", score: 34 },
   ],
   box9: [
-    { minutesAgo: 34 * 60, eventType: "practice", score: 24, practiceSessionCount: 1, practiceDelta: 6 },
-    { minutesAgo: 30 * 60, eventType: "practice", score: 33, practiceSessionCount: 2, practiceDelta: 9 },
-    { minutesAgo: 22 * 60, eventType: "test", score: 46, accuracyRate: 78, isCorrect: false },
-    { minutesAgo: 14 * 60, eventType: "practice", score: 54, practiceSessionCount: 3, practiceDelta: 8 },
-    { minutesAgo: 6 * 60, eventType: "test", score: 60, accuracyRate: 84, isCorrect: true },
-    { minutesAgo: 1 * 60, eventType: "practice", score: 58, practiceSessionCount: 4, practiceDelta: 4 },
-    { minutesAgo: 0, eventType: "now", score: 56 },
+    { minutesAgo: 44 * 60, eventType: "practice", score: 22, practiceSessionCount: 1, practiceDelta: 7 },
+    { minutesAgo: 36 * 60, eventType: "practice", score: 38, practiceSessionCount: 2, practiceDelta: 10 },
+    { minutesAgo: 28 * 60, eventType: "test", score: 53, accuracyRate: 82, isCorrect: true },
+    { minutesAgo: 20 * 60, eventType: "practice", score: 63, practiceSessionCount: 3, practiceDelta: 7 },
+    { minutesAgo: 10 * 60, eventType: "test", score: 69, accuracyRate: 88, isCorrect: true },
+    { minutesAgo: 3 * 60, eventType: "practice", score: 66, practiceSessionCount: 4, practiceDelta: 3 },
+    { minutesAgo: 0, eventType: "now", score: 57 },
   ],
   table_i3: [
-    { minutesAgo: 40 * 60, eventType: "practice", score: 41, practiceSessionCount: 1, practiceDelta: 8 },
-    { minutesAgo: 32 * 60, eventType: "practice", score: 53, practiceSessionCount: 2, practiceDelta: 12 },
-    { minutesAgo: 24 * 60, eventType: "test", score: 66, accuracyRate: 86, isCorrect: true },
-    { minutesAgo: 14 * 60, eventType: "practice", score: 74, practiceSessionCount: 3, practiceDelta: 8 },
-    { minutesAgo: 7 * 60, eventType: "practice", score: 82, practiceSessionCount: 4, practiceDelta: 8 },
-    { minutesAgo: 2 * 60, eventType: "test", score: 89, accuracyRate: 97, isCorrect: true },
+    { minutesAgo: 46 * 60, eventType: "practice", score: 42, practiceSessionCount: 1, practiceDelta: 9 },
+    { minutesAgo: 38 * 60, eventType: "practice", score: 58, practiceSessionCount: 2, practiceDelta: 12 },
+    { minutesAgo: 27 * 60, eventType: "test", score: 75, accuracyRate: 91, isCorrect: true },
+    { minutesAgo: 18 * 60, eventType: "practice", score: 84, practiceSessionCount: 3, practiceDelta: 7 },
+    { minutesAgo: 8 * 60, eventType: "test", score: 93, accuracyRate: 97, isCorrect: true },
+    { minutesAgo: 2 * 60, eventType: "practice", score: 95, practiceSessionCount: 4, practiceDelta: 2 },
     { minutesAgo: 0, eventType: "now", score: 86 },
   ],
 };
@@ -1141,7 +1112,6 @@ function buildDemoQuestionPreview(
   const showcaseKey = resolveDemoShowcaseKeyByQuestionTitle(question.question);
   const scenario =
     (showcaseKey ? DEMO_SCENARIO_OVERRIDES_BY_SHOWCASE_KEY[showcaseKey] : undefined) ??
-    DEMO_SCENARIO_OVERRIDES_BY_ID[question.id] ??
     buildFallbackDemoScenarioEvents(question, initialEstimate);
   const nowMs = Date.now();
   const historyPoints = [...scenario]
