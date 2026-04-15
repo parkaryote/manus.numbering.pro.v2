@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { parseGoogleStateReturnTo, startGoogleOAuthLogin } from "@/lib/googleOAuth";
+import { getGoogleRedirectUri, parseGoogleStateReturnTo, startGoogleOAuthLogin } from "@/lib/googleOAuth";
 import { Chrome, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -138,7 +138,7 @@ export default function Login() {
     setBlockingMessage("Google 로그인 처리 중...");
     googleReturnToRef.current = parseGoogleStateReturnTo(state);
     window.history.replaceState({}, "", "/login");
-    googleLogin.mutate({ code });
+    googleLogin.mutate({ code, redirectUri: getGoogleRedirectUri() });
   }, [googleLogin, hasProcessedGoogleCode]);
 
   const requestedReturnTo = useMemo(() => {

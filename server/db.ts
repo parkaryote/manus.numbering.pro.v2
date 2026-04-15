@@ -1,4 +1,4 @@
-import { eq, and, or, desc, sql, lte, gte, isNotNull } from "drizzle-orm";
+import { eq, and, or, inArray, desc, sql, lte, gte, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -11,6 +11,8 @@ import {
   ocrJobs,
   typingAttempts,
   typingBaselines,
+  telemetryEvents,
+  subjectShares,
   InsertSubject,
   InsertQuestion,
   InsertPracticeSession,
@@ -18,7 +20,11 @@ import {
   InsertReviewSchedule,
   InsertOcrJob,
   InsertTypingAttempt,
+  InsertTelemetryEvent,
+  InsertSubjectShare,
+  User,
   OcrJob,
+  SubjectShare,
 } from "../drizzle/schema.js";
 import { ENV } from "./_core/env.js";
 
@@ -197,6 +203,15 @@ export async function updateSubject(id: number, data: Partial<InsertSubject>) {
   return db.update(subjects).set(data).where(eq(subjects.id, id));
 }
 
+export async function updateQuestionsIsDemoBySubjectId(subjectId: number, isDemo: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db
+    .update(questions)
+    .set({ isDemo: isDemo === 1 ? 1 : 0 })
+    .where(eq(questions.subjectId, subjectId));
+}
+
 export async function deleteSubject(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -258,7 +273,25 @@ export async function getQuestionsByExactQuestionText(questionText: string) {
 export async function createQuestion(question: InsertQuestion) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(questions).values(question);
+  let nextDisplayOrder =
+    question.displayOrder !== undefined && question.displayOrder !== null
+      ? question.displayOrder
+      : null;
+  if (nextDisplayOrder === null) {
+    const subjectQuestions = await db
+      .select({ displayOrder: questions.displayOrder })
+      .from(questions)
+      .where(eq(questions.subjectId, question.subjectId));
+    const maxOrder = subjectQuestions.reduce(
+      (max, row) => Math.max(max, row.displayOrder ?? 0),
+      0
+    );
+    nextDisplayOrder = maxOrder + 1;
+  }
+  const result = await db.insert(questions).values({
+    ...question,
+    displayOrder: nextDisplayOrder,
+  });
   const insertId = Number(result[0].insertId);
   const created = await db.select().from(questions).where(eq(questions.id, insertId)).limit(1);
   return created[0];
@@ -592,6 +625,107 @@ export async function getExpiringQuestions(userId: number) {
   return expiringQuestions;
 }
 
+// ========== Telemetry (Beta UX analytics) ==========
+export async function createTelemetryEvents(events: InsertTelemetryEvent[]) {
+  const db = await getDb();
+  if (!db || events.length === 0) return 0;
+  try {
+    await db.insert(telemetryEvents).values(events);
+    return events.length;
+  } catch (error) {
+    console.warn("[Telemetry] insert failed (table missing or DB error):", error);
+    return 0;
+  }
+}
+
+export async function getTelemetryEventsSince(since: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    return db
+      .select()
+      .from(telemetryEvents)
+      .where(gte(telemetryEvents.occurredAt, since))
+      .orderBy(telemetryEvents.occurredAt);
+  } catch (error) {
+    console.warn("[Telemetry] query failed:", error);
+    return [];
+  }
+}
+
+export async function getTelemetryEventsByUserSince(userId: number, since: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    return db
+      .select()
+      .from(telemetryEvents)
+      .where(and(eq(telemetryEvents.userId, userId), gte(telemetryEvents.occurredAt, since)))
+      .orderBy(telemetryEvents.occurredAt);
+  } catch (error) {
+    console.warn("[Telemetry] user query failed:", error);
+    return [];
+  }
+}
+
+export async function getUsersByIds(userIds: number[]): Promise<User[]> {
+  const db = await getDb();
+  if (!db || userIds.length === 0) return [];
+  return db.select().from(users).where(inArray(users.id, userIds));
+}
+
+// ========== Subject Shares (password-protected) ==========
+export async function getSubjectShareBySubjectIdOwner(subjectId: number, ownerUserId: number): Promise<SubjectShare | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(subjectShares)
+    .where(and(eq(subjectShares.subjectId, subjectId), eq(subjectShares.ownerUserId, ownerUserId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function createSubjectShare(data: InsertSubjectShare): Promise<SubjectShare> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(subjectShares).values(data);
+  const shareId = Number(result[0].insertId);
+  const created = await db.select().from(subjectShares).where(eq(subjectShares.id, shareId)).limit(1);
+  return created[0];
+}
+
+export async function updateSubjectShare(id: number, data: Partial<InsertSubjectShare>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(subjectShares).set(data).where(eq(subjectShares.id, id));
+  const result = await db.select().from(subjectShares).where(eq(subjectShares.id, id)).limit(1);
+  return result[0];
+}
+
+export async function getSubjectShareByToken(token: string): Promise<SubjectShare | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(subjectShares)
+    .where(and(eq(subjectShares.shareToken, token), eq(subjectShares.isActive, 1)))
+    .limit(1);
+  return result[0];
+}
+
+export async function markSubjectShareAccessed(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(subjectShares)
+    .set({
+      lastAccessedAt: new Date(),
+      viewCount: sql`${subjectShares.viewCount} + 1`,
+    })
+    .where(eq(subjectShares.id, id));
+}
+
 
 // Demo mode functions
 export async function getDemoSubjects() {
@@ -690,7 +824,25 @@ export async function deleteDemoQuestion(id: number) {
 export async function createDemoQuestion(data: InsertQuestion) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(questions).values(data);
+  let nextDisplayOrder =
+    data.displayOrder !== undefined && data.displayOrder !== null
+      ? data.displayOrder
+      : null;
+  if (nextDisplayOrder === null) {
+    const subjectQuestions = await db
+      .select({ displayOrder: questions.displayOrder })
+      .from(questions)
+      .where(eq(questions.subjectId, data.subjectId));
+    const maxOrder = subjectQuestions.reduce(
+      (max, row) => Math.max(max, row.displayOrder ?? 0),
+      0
+    );
+    nextDisplayOrder = maxOrder + 1;
+  }
+  const result = await db.insert(questions).values({
+    ...data,
+    displayOrder: nextDisplayOrder,
+  });
   const insertId = Number(result[0].insertId);
   const created = await db.select().from(questions).where(eq(questions.id, insertId)).limit(1);
   return created[0];

@@ -69,6 +69,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     setLocation(`/login?returnTo=${encodeURIComponent(returnTo)}`);
   };
 
+  const goDashboard = () => setLocation("/");
+
   if (isMobile) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
@@ -80,14 +82,24 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           >
             <Menu className="h-4 w-4" />
           </button>
-          <div className="flex items-center gap-1.5">
-            <span className="text-base font-extrabold tracking-tight text-black dark:text-white">
-              numbering.pro
+          <button
+            type="button"
+            onClick={goDashboard}
+            className="min-w-0 flex flex-col items-center leading-tight hover:opacity-90 transition-opacity"
+            aria-label="대시보드로 이동"
+          >
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-[20px] font-black tracking-tight text-black dark:text-white">
+                numbering.pro
+              </span>
+              <span className="text-[9px] font-semibold uppercase tracking-[0.09em] text-neutral-500 dark:text-neutral-400">
+                Beta
+              </span>
+            </div>
+            <span className="max-w-[210px] truncate text-[9px] font-medium text-neutral-500 dark:text-neutral-400">
+              Number it. Remember it like a pro
             </span>
-            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
-              Beta
-            </span>
-          </div>
+          </button>
           <button
             onClick={toggleTheme}
             className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-md transition-colors"
@@ -101,14 +113,27 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           <div className="fixed inset-0 z-50 flex">
             <div className="w-56 bg-background border-r flex flex-col py-3 gap-1">
               <div className="flex items-center justify-between px-3 mb-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-base font-extrabold tracking-tight text-black dark:text-white">
-                    numbering.pro
+                <button
+                  type="button"
+                  onClick={() => {
+                    goDashboard();
+                    setMobileOpen(false);
+                  }}
+                  className="min-w-0 flex flex-col items-start leading-tight hover:opacity-90 transition-opacity"
+                  aria-label="대시보드로 이동"
+                >
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[20px] font-black tracking-tight text-black dark:text-white">
+                      numbering.pro
+                    </span>
+                    <span className="text-[9px] font-semibold uppercase tracking-[0.09em] text-neutral-500 dark:text-neutral-400">
+                      Beta
+                    </span>
+                  </div>
+                  <span className="max-w-[190px] truncate text-[9px] font-medium text-neutral-500 dark:text-neutral-400">
+                    Number it. Remember it like a pro
                   </span>
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
-                    Beta
-                  </span>
-                </div>
+                </button>
                 <button
                   onClick={() => setMobileOpen(false)}
                   className="h-7 w-7 flex items-center justify-center hover:bg-accent rounded-md"
@@ -385,14 +410,24 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
         <div className="w-full max-w-[1400px] mx-auto px-3 md:px-4">
           <div className="hidden md:flex items-center justify-start pt-3 pb-2">
-            <div className="inline-flex items-end gap-2">
-              <span className="text-xl font-extrabold tracking-tight text-black dark:text-white">
-                numbering.pro
+            <button
+              type="button"
+              onClick={goDashboard}
+              className="inline-flex flex-col items-start leading-tight hover:opacity-90 transition-opacity text-left"
+              aria-label="대시보드로 이동"
+            >
+              <div className="inline-flex items-end gap-2">
+                <span className="text-[34px] font-black tracking-tight text-black dark:text-white">
+                  numbering.pro
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-[0.1em] text-neutral-500 dark:text-neutral-400">
+                  Beta Test
+                </span>
+              </div>
+              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                Number it. Remember it like a pro
               </span>
-              <span className="text-xs font-semibold uppercase tracking-[0.1em] text-neutral-500 dark:text-neutral-400">
-                Beta Test
-              </span>
-            </div>
+            </button>
           </div>
           {children}
         </div>

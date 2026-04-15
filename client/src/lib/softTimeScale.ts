@@ -28,6 +28,7 @@ function getSegmentSize(deltaMinutes: number, toEventType?: string): number {
 }
 
 function roundElapsedForLabel(minutes: number): number {
+  if (minutes < 10) return Math.round(minutes);
   if (minutes < 60) return Math.round(minutes / 5) * 5;
   if (minutes < 24 * 60) return Math.round(minutes / 30) * 30;
   if (minutes < 7 * 24 * 60) return Math.round(minutes / (60 * 3)) * (60 * 3);
@@ -101,7 +102,10 @@ export function formatSoftRelativeTick(
   firstTs: number
 ): string {
   const approxElapsed = estimateElapsedMinutesFromSoftX(xValue, nodes);
-  const rounded = Math.max(0, roundElapsedForLabel(approxElapsed));
+  let rounded = Math.max(0, roundElapsedForLabel(approxElapsed));
+  if (rounded === 0 && approxElapsed > 0.25) {
+    rounded = 1;
+  }
 
   if (rounded < 60) return `+${rounded}분`;
   if (rounded < 24 * 60) return `+${Math.round(rounded / 60)}시간`;

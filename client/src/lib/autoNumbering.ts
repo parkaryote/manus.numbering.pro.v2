@@ -85,6 +85,7 @@ export function buildNextAutoNumberingValue(
   selectionEnd: number,
   options?: {
     forcedPrefix?: string;
+    preserveEmptyListLine?: boolean;
   }
 ): { nextValue: string; nextCursor: number } {
   const normalizedValue = rawValue.replace(/\r\n/g, "\n");
@@ -96,7 +97,7 @@ export function buildNextAutoNumberingValue(
   const numberedLineMatch = line.match(NUMBERED_LINE_PATTERN);
   if (numberedLineMatch) {
     const content = (numberedLineMatch[3] ?? "").trim();
-    if (content.length === 0) {
+    if (content.length === 0 && !options?.preserveEmptyListLine) {
       // 메모앱/에디터 동작과 동일하게: 빈 번호 줄에서 Enter를 누르면 목록 종료
       return removeCurrentListLine(normalizedValue, selectionStart);
     }
@@ -105,7 +106,7 @@ export function buildNextAutoNumberingValue(
   const bulletLineMatch = line.match(BULLET_LINE_PATTERN);
   if (bulletLineMatch) {
     const content = (bulletLineMatch[3] ?? "").trim();
-    if (content.length === 0) {
+    if (content.length === 0 && !options?.preserveEmptyListLine) {
       // 메모앱/에디터 동작과 동일하게: 빈 불릿 줄에서 Enter를 누르면 목록 종료
       return removeCurrentListLine(normalizedValue, selectionStart);
     }

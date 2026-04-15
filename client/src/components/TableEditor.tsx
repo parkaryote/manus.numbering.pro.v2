@@ -64,6 +64,9 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const composingCellKeyRef = useRef<string | null>(null);
+  const lastCompositionEndAtRef = useRef(0);
+  const lastCellMoveAtRef = useRef(0);
 
   const updateTable = useCallback(
     (newData: TableData) => {
@@ -334,9 +337,42 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
     const cell = tableData.cells[row][col];
     const colSpan = cell.colSpan || 1;
     const rowSpan = cell.rowSpan || 1;
+    const cellKey = `${row}-${col}`;
+    const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number };
+    const isNavigationKey =
+      e.key === "Tab" ||
+      e.key === "ArrowRight" ||
+      e.key === "ArrowLeft" ||
+      e.key === "ArrowUp" ||
+      e.key === "ArrowDown" ||
+      (e.key === "Enter" && (e.ctrlKey || e.metaKey));
+    const isComposing =
+      Boolean(nativeEvent.isComposing) ||
+      nativeEvent.keyCode === 229 ||
+      composingCellKeyRef.current === cellKey;
+    const compositionJustEnded = Date.now() - lastCompositionEndAtRef.current < 120;
+
+    if (isNavigationKey && (isComposing || compositionJustEnded)) {
+      // IME 조합 중/직후에는 셀 이동을 막아 마지막 글자 유실·이동 셀 오입력을 방지
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    if (isNavigationKey) {
+      const now = Date.now();
+      if (e.repeat || now - lastCellMoveAtRef.current < 45) {
+        // 키 반복/중복 이벤트로 한 번에 두 칸 이동하는 현상 방지
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      lastCellMoveAtRef.current = now;
+    }
 
     if (e.key === "Tab") {
       e.preventDefault();
+      e.stopPropagation();
       if (e.shiftKey) {
         // 이전 셀
         if (col > 0) setActiveCell({ row, col: col - 1 });
@@ -353,6 +389,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       // Ctrl+Enter: 아래 셀로 이동
       e.preventDefault();
+      e.stopPropagation();
       const nextRow = row + rowSpan;
       if (nextRow < tableData.rows) setActiveCell({ row: nextRow, col });
       return;
@@ -360,6 +397,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
 
     if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       setActiveCell(null);
       const ta = textareaRefs.current[`${row}-${col}`];
       ta?.blur();
@@ -376,10 +414,12 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
 
       if (e.key === "ArrowRight" && atEnd) {
         e.preventDefault();
+        e.stopPropagation();
         const nextCol = col + colSpan;
         if (nextCol < tableData.cols) setActiveCell({ row, col: nextCol });
       } else if (e.key === "ArrowLeft" && atStart) {
         e.preventDefault();
+        e.stopPropagation();
         if (col > 0) setActiveCell({ row, col: col - 1 });
       } else if (e.key === "ArrowDown") {
         // 마지막 줄에 있을 때만 아래 셀로
@@ -387,6 +427,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
         const lineIdx = value.substring(0, ss ?? 0).split("\n").length - 1;
         if (lineIdx === lines.length - 1) {
           e.preventDefault();
+          e.stopPropagation();
           const nextRow = row + rowSpan;
           if (nextRow < tableData.rows) setActiveCell({ row: nextRow, col });
         }
@@ -395,6 +436,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
         const lineIdx = value.substring(0, ss ?? 0).split("\n").length - 1;
         if (lineIdx === 0) {
           e.preventDefault();
+          e.stopPropagation();
           if (row > 0) setActiveCell({ row: row - 1, col });
         }
       }
@@ -499,6 +541,20 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
                             value={cell.content}
                             onChange={(e) => updateCellContent(ri, ci, e.target.value)}
                             onKeyDown={(e) => handleKeyDown(ri, ci, e)}
+                            onCompositionStart={() => {
+                              composingCellKeyRef.current = cellKey;
+                            }}
+                            onCompositionEnd={() => {
+                              if (composingCellKeyRef.current === cellKey) {
+                                composingCellKeyRef.current = null;
+                              }
+                              lastCompositionEndAtRef.current = Date.now();
+                            }}
+                            onBlur={() => {
+                              if (composingCellKeyRef.current === cellKey) {
+                                composingCellKeyRef.current = null;
+                              }
+                            }}
                             onFocus={() => {
                               setActiveCell({ row: ri, col: ci });
                               setSelectedCells(new Set([cellKey]));

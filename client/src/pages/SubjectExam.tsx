@@ -10,7 +10,6 @@ import { ArrowLeft, Clock, Trophy, RotateCcw, ChevronRight } from "lucide-react"
 import { toast } from "sonner";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
-import { buildNextAutoNumberingValue, getLinePrefixHint } from "@/lib/autoNumbering";
 
 interface SubjectExamProps {
   subjectId: number;
@@ -44,6 +43,7 @@ type EvalResult = {
   llmFeedback?: string | null;
   userAnswer?: string;
   submitted: boolean;
+  wasBlank?: boolean;
 };
 
 type QuestionOutcome = {
@@ -267,6 +267,18 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
         }
 
         if (!ans.trim()) {
+          await createTestMutation.mutateAsync({
+            questionId: q.id,
+            userAnswer: "",
+            isCorrect: 0,
+            recallTime: recallTimeForExam,
+            similarityScore: 0,
+          });
+          await updateReviewMutation.mutateAsync({
+            questionId: q.id,
+            quality: 0,
+          });
+
           const beforePoint = beforeQuestionMap[q.id];
           const baseScore = beforePoint?.score ?? 0;
           nextOutcomes[q.id] = {
@@ -274,9 +286,10 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
               isCorrect: false,
               similarityScore: 0,
               accuracyRate: 0,
-              feedback: "미작성",
+              feedback: "미작성 (오답 처리)",
               userAnswer: "",
-              submitted: false,
+              submitted: true,
+              wasBlank: true,
             },
             confidenceBefore: baseScore,
             confidenceAfter: baseScore,
@@ -716,38 +729,6 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
                 <Textarea
                   value={textAnswers[q.id] || ""}
                   onChange={(e) => setTextAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                  onKeyDown={(e) => {
-                    if (q.autoNumbering !== 1) return;
-                    if (e.key !== "Enter" || e.ctrlKey || e.shiftKey || e.altKey) return;
-                    if ((e.nativeEvent as any).isComposing) return;
-
-                    e.preventDefault();
-                    e.stopPropagation();
-
-                    const textarea = e.currentTarget;
-                    const selectionStart = textarea.selectionStart ?? 0;
-                    const selectionEnd = textarea.selectionEnd ?? selectionStart;
-                    const rawValue = textarea.value.replace(/\r\n/g, "\n");
-                    const currentLineIndex = rawValue.slice(0, selectionStart).split("\n").length - 1;
-                    const templateLines = String(q.answer ?? "").replace(/\r\n/g, "\n").split("\n");
-                    const nextPrefixHint = getLinePrefixHint(templateLines[currentLineIndex + 1] ?? "");
-                    const autoNumberingOptions =
-                      nextPrefixHint
-                        ? { forcedPrefix: nextPrefixHint.kind === "bullet" ? "" : nextPrefixHint.prefix }
-                        : undefined;
-                    const { nextValue, nextCursor } = buildNextAutoNumberingValue(
-                      rawValue,
-                      selectionStart,
-                      selectionEnd,
-                      autoNumberingOptions
-                    );
-
-                    setTextAnswers((prev) => ({ ...prev, [q.id]: nextValue }));
-                    requestAnimationFrame(() => {
-                      textarea.focus();
-                      textarea.setSelectionRange(nextCursor, nextCursor);
-                    });
-                  }}
                   placeholder="정답을 입력하세요..."
                   className="min-h-[160px] resize-y font-medium"
                   autoComplete="off"
@@ -765,12 +746,16 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
   const subjectScoreDelta = (subjectScoreBefore !== null && subjectScoreAfter !== null)
     ? subjectScoreAfter - subjectScoreBefore
     : null;
-  const solvedOutcomes = examQuestions
+  const gradedOutcomes = examQuestions
     .map((q) => outcomes[q.id])
-    .filter((o): o is QuestionOutcome => !!o && o.eval.submitted);
-  const correctCount = solvedOutcomes.filter((o) => o.eval.isCorrect).length;
-  const avgSimilarity = solvedOutcomes.length > 0
-    ? Math.round(solvedOutcomes.reduce((sum, o) => sum + (o.eval.similarityScore || 0), 0) / solvedOutcomes.length)
+    .filter((o): o is QuestionOutcome => !!o);
+  const totalGradedCount = examQuestions.length;
+  const correctCount = gradedOutcomes.filter((o) => o.eval.isCorrect).length;
+  const avgSimilarity = totalGradedCount > 0
+    ? Math.round(
+        examQuestions.reduce((sum, q) => sum + (outcomes[q.id]?.eval.similarityScore ?? 0), 0) /
+          totalGradedCount
+      )
     : 0;
 
   return (
@@ -784,7 +769,7 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
           <div className="rounded-lg bg-background/60 border border-border p-2">
             <p className="text-muted-foreground">문항 정답</p>
-            <p className="font-bold text-sm">{correctCount}/{solvedOutcomes.length}</p>
+            <p className="font-bold text-sm">{correctCount}/{totalGradedCount}</p>
           </div>
           <div className="rounded-lg bg-background/60 border border-border p-2">
             <p className="text-muted-foreground">평균 유사도</p>
@@ -843,10 +828,16 @@ export default function SubjectExam({ subjectId }: SubjectExamProps) {
                     <p className="text-sm font-medium leading-snug">{q.question}</p>
                     {outcome ? (
                       <Badge
-                        variant={outcome.eval.submitted ? (outcome.eval.isCorrect ? "default" : "destructive") : "secondary"}
+                        variant={
+                          outcome.eval.wasBlank
+                            ? "secondary"
+                            : outcome.eval.submitted
+                              ? (outcome.eval.isCorrect ? "default" : "destructive")
+                              : "secondary"
+                        }
                         className="text-[11px]"
                       >
-                        {outcome.eval.submitted ? (outcome.eval.isCorrect ? "정답" : "오답") : "미작성"}
+                        {outcome.eval.wasBlank ? "미작성" : outcome.eval.submitted ? (outcome.eval.isCorrect ? "정답" : "오답") : "미작성"}
                       </Badge>
                     ) : (
                       <Badge variant="secondary" className="text-[11px]">미채점</Badge>

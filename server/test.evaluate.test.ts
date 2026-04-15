@@ -149,6 +149,69 @@ describe("test.evaluate - Line-by-line grading with similarity", () => {
     expect(result.similarityScore).toBeGreaterThan(0);
   });
 
+  it("should accept bullet spacing and mixed English/Korean line in word mode", async () => {
+    vi.spyOn(db, "getQuestionById").mockResolvedValueOnce({
+      id: testQuestionId,
+      userId: testUserId,
+      subjectId: testSubjectId,
+      question: "간접유지장치 문장을 입력하시오.",
+      answer: "– Anteroposterior tilting leverage 감소",
+      questionType: "text",
+      imageUrl: null,
+      imageLabels: null,
+      tableData: null,
+      useAIGrading: false,
+      displayOrder: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any);
+
+    const result = await caller.test.evaluate({
+      questionId: testQuestionId,
+      userAnswer: "-anteroposterior tilting leverage 감소",
+      recallTime: 30,
+    });
+
+    expect(result.isCorrect).toBe(true);
+    expect(result.accuracyRate).toBe(100);
+    expect(result.correctLineCount).toBe(1);
+    expect(result.totalLines).toBe(1);
+    expect(result.similarityScore).toBe(100);
+    expect(result.mistakes?.[0]?.isCorrect).toBe(true);
+    expect(result.mistakes?.[0]?.compareMode).toBe("word");
+  });
+
+  it("should not steal the next line match unless cross-line similarity is very high", async () => {
+    vi.spyOn(db, "getQuestionById").mockResolvedValueOnce({
+      id: testQuestionId,
+      userId: testUserId,
+      subjectId: testSubjectId,
+      question: "간접유지장치의 효과에 영향을 주는 요소",
+      answer: "1. 직접유지장치의 효과\n2. 지점선으로의 거리\n3. 주연결장치의 견고성\n4. 지지 치면의 효율성",
+      questionType: "text",
+      imageUrl: null,
+      imageLabels: null,
+      tableData: null,
+      useAIGrading: false,
+      displayOrder: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any);
+
+    const result = await caller.test.evaluate({
+      questionId: testQuestionId,
+      userAnswer: "1. 직접유지장치의 효과\n2. 지점선으로의 거리\n3. 몰라\n4. 지지 치면의 효율박영석",
+      recallTime: 30,
+    });
+
+    expect(result.mistakes?.[2]?.matchedUserLineIndex).toBe(3);
+    expect(result.mistakes?.[2]?.userAnswer).toContain("3. 몰라");
+    expect(result.mistakes?.[2]?.lineScore).toBeLessThan(80);
+
+    expect(result.mistakes?.[3]?.matchedUserLineIndex).toBe(4);
+    expect(result.mistakes?.[3]?.userAnswer).toContain("4. 지지 치면의 효율");
+  });
+
   it("should save test session with similarityScore (character-level)", async () => {
     await caller.test.evaluate({
       questionId: testQuestionId,

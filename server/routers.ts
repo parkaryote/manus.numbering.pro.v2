@@ -3,7 +3,7 @@ import { sdk } from "./_core/sdk.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 import { systemRouter } from "./_core/systemRouter.js";
 import { adminRouter } from "./adminRouter.js";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc.js";
+import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc.js";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db.js";
@@ -62,7 +62,8 @@ function calcCharSimilarity(userText: string, correctText: string): number {
 }
 
 const AUTO_NUMBER_PREFIX_REGEX = /^\s*\d{1,3}\s*[.)]\s*/;
-const BULLET_PREFIX_REGEX = /^\s*(?:[-*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
+const BULLET_PREFIX_REGEX = /^\s*(?:[-–—−*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
+const WORD_TOKEN_PATTERN = "[a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ]+(?:['’\\-][a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ]+)*";
 
 function stripAutoNumberPrefix(line: string): string {
   return line.replace(AUTO_NUMBER_PREFIX_REGEX, "").trim();
@@ -197,13 +198,13 @@ function isLikelyEnglishLine(text: string): boolean {
   return hangulCount === 0 || latinCount >= hangulCount * 2;
 }
 
-function tokenizeEnglishWords(text: string): string[] {
-  return text.match(/[a-z0-9]+(?:['’\-][a-z0-9]+)*/gi)?.map((w) => w.toLowerCase()) ?? [];
+function tokenizeWordTokens(text: string): string[] {
+  return text.match(new RegExp(WORD_TOKEN_PATTERN, "gi"))?.map((w) => w.toLowerCase()) ?? [];
 }
 
 function calcWordSimilarity(userText: string, correctText: string): number {
-  const a = tokenizeEnglishWords(userText);
-  const b = tokenizeEnglishWords(correctText);
+  const a = tokenizeWordTokens(userText);
+  const b = tokenizeWordTokens(correctText);
   if (b.length === 0) return a.length === 0 ? 100 : 0;
   if (a.length === 0) return 0;
 
@@ -238,8 +239,8 @@ function compareTextLine(
   const shouldUseWordMode = isLikelyEnglishLine(`${correctLineRaw} ${userLineRaw}`);
 
   if (shouldUseWordMode) {
-    const correctWords = tokenizeEnglishWords(wordCorrect);
-    const userWords = tokenizeEnglishWords(wordUser);
+    const correctWords = tokenizeWordTokens(wordCorrect);
+    const userWords = tokenizeWordTokens(wordUser);
     const isCorrect =
       correctWords.length === userWords.length &&
       correctWords.every((w, i) => w === userWords[i]);
@@ -262,8 +263,16 @@ function evaluateTextAnswerByBestLineMatch(
   const userLines = trimTrailingEmptyLines(userAnswer.split("\n").map((line) => line.trim()));
   const correctLines = trimTrailingEmptyLines(correctAnswer.split("\n").map((line) => line.trim()));
   const totalLines = correctLines.length;
+  const LINE_CROSS_MATCH_MIN_SCORE = 80;
+  const LINE_CROSS_MATCH_MARGIN = 12;
 
-  const remainingUserLines = userLines.map((raw, index) => ({ raw, index }));
+  const userLinePool = userLines.map((raw, index) => ({
+    raw,
+    index,
+    consumed: false,
+    normalized: normalizeLineForTextComparison(raw, ignoreAutoNumbering),
+  }));
+
   const lineComparisons: Array<{
     lineIndex: number;
     correctAnswer: string;
@@ -280,41 +289,76 @@ function evaluateTextAnswerByBestLineMatch(
   for (let i = 0; i < totalLines; i++) {
     const correctLineRaw = correctLines[i] ?? "";
     const defaultMode: TextLineCompareMode = isLikelyEnglishLine(correctLineRaw) ? "word" : "typing";
+    const directCandidate = userLinePool.find((candidate) => !candidate.consumed && candidate.index === i) ?? null;
+    const directCompared = directCandidate
+      ? compareTextLine(directCandidate.raw, correctLineRaw, ignoreAutoNumbering)
+      : null;
 
-    let bestIdx = -1;
-    let bestScore = -1;
-    let bestIsCorrect = false;
-    let bestMode: TextLineCompareMode = defaultMode;
+    let bestCrossCandidate: (typeof userLinePool)[number] | null = null;
+    let bestCrossScore = -1;
+    let bestCrossIsCorrect = false;
+    let bestCrossMode: TextLineCompareMode = defaultMode;
 
-    for (let j = 0; j < remainingUserLines.length; j++) {
-      const candidate = remainingUserLines[j];
+    for (const candidate of userLinePool) {
+      if (candidate.consumed) continue;
+      if (directCandidate && candidate.index === directCandidate.index) continue;
+
       const compared = compareTextLine(candidate.raw, correctLineRaw, ignoreAutoNumbering);
       if (
-        compared.score > bestScore ||
-        (compared.score === bestScore && compared.isCorrect && !bestIsCorrect)
+        compared.score > bestCrossScore ||
+        (compared.score === bestCrossScore && compared.isCorrect && !bestCrossIsCorrect)
       ) {
-        bestIdx = j;
-        bestScore = compared.score;
-        bestIsCorrect = compared.isCorrect;
-        bestMode = compared.compareMode;
+        bestCrossCandidate = candidate;
+        bestCrossScore = compared.score;
+        bestCrossIsCorrect = compared.isCorrect;
+        bestCrossMode = compared.compareMode;
       }
     }
 
-    const hasMeaningfulMatch = bestIdx >= 0 && (bestIsCorrect || bestScore >= 35);
+    let chosenCandidate: (typeof userLinePool)[number] | null = null;
+    let chosenScore = 0;
+    let chosenIsCorrect = false;
+    let chosenMode: TextLineCompareMode = defaultMode;
+
+    if (directCandidate && directCompared) {
+      const directHasMeaningfulInput = directCandidate.normalized.length > 0;
+      chosenCandidate = directHasMeaningfulInput ? directCandidate : null;
+      chosenScore = directHasMeaningfulInput ? directCompared.score : 0;
+      chosenIsCorrect = directHasMeaningfulInput ? directCompared.isCorrect : false;
+      chosenMode = directCompared.compareMode;
+
+      if (bestCrossCandidate) {
+        const crossStrongEnough = bestCrossIsCorrect || bestCrossScore >= LINE_CROSS_MATCH_MIN_SCORE;
+        const crossClearlyBetter =
+          !directHasMeaningfulInput ||
+          bestCrossScore >= directCompared.score + LINE_CROSS_MATCH_MARGIN;
+        if (!directCompared.isCorrect && crossStrongEnough && crossClearlyBetter) {
+          chosenCandidate = bestCrossCandidate;
+          chosenScore = bestCrossScore;
+          chosenIsCorrect = bestCrossIsCorrect;
+          chosenMode = bestCrossMode;
+        }
+      }
+    } else if (bestCrossCandidate && (bestCrossIsCorrect || bestCrossScore >= LINE_CROSS_MATCH_MIN_SCORE)) {
+      chosenCandidate = bestCrossCandidate;
+      chosenScore = bestCrossScore;
+      chosenIsCorrect = bestCrossIsCorrect;
+      chosenMode = bestCrossMode;
+    }
 
     let matchedUserRaw = "";
     let matchedUserLineIndex: number | null = null;
     let lineScore = 0;
     let lineIsCorrect = false;
-    let lineMode = bestMode;
+    let lineMode = chosenMode;
 
-    if (hasMeaningfulMatch) {
-      const matched = remainingUserLines.splice(bestIdx, 1)[0];
-      matchedUserRaw = matched.raw;
-      matchedUserLineIndex = matched.index + 1;
-      lineScore = Math.max(0, bestScore);
-      lineIsCorrect = bestIsCorrect;
-      lineMode = bestMode;
+    if (chosenCandidate) {
+      chosenCandidate.consumed = true;
+      matchedUserRaw = chosenCandidate.raw;
+      matchedUserLineIndex = chosenCandidate.index + 1;
+      lineScore = Math.max(0, chosenScore);
+      lineIsCorrect = chosenIsCorrect;
+      lineMode = chosenMode;
     }
 
     if (lineIsCorrect) correctLineCount++;
@@ -331,8 +375,8 @@ function evaluateTextAnswerByBestLineMatch(
     });
   }
 
-  const remainingMeaningfulUserLines = remainingUserLines.filter(
-    (item) => normalizeLineForTextComparison(item.raw, ignoreAutoNumbering).length > 0
+  const remainingMeaningfulUserLines = userLinePool.filter(
+    (item) => !item.consumed && item.normalized.length > 0
   ).length;
   const isCorrect =
     totalLines > 0
@@ -700,6 +744,539 @@ function applyStarterPracticeFloor(
   const floorScore = clampNumber(starterBaseScore + progressiveGain, 0, 100);
   if (base.displayScore >= floorScore) return base;
   return applyDisplayScoreValue(base, floorScore, { isColdStart: false });
+}
+
+function applyUnlearnedLabel(base: ConfidenceResult): ConfidenceResult {
+  if (!base.isColdStart) return base;
+  return {
+    ...base,
+    label: "미학습",
+  };
+}
+
+function buildUnlearnedScenarioEvents(
+  question: {
+    difficulty?: "easy" | "medium" | "hard" | null;
+    displayOrder?: number | null;
+  },
+  initialEstimate: { answerLength: number },
+  targetCurrentScore: number
+): DemoPreviewEvent[] {
+  const fallbackEvents = buildFallbackDemoScenarioEvents(question, initialEstimate);
+  const difficulty = question.difficulty ?? "medium";
+  const difficultyPenalty = difficulty === "hard" ? 9 : difficulty === "easy" ? 1 : 5;
+  const answerLength = Math.max(1, initialEstimate.answerLength);
+  const lengthBoost = Math.round(Math.log(answerLength + 6) * 1.6);
+
+  const baseP1 = fallbackEvents.find((event) => event.eventType === "practice")?.score ?? 18;
+  const baseP2 = fallbackEvents.filter((event) => event.eventType === "practice")[1]?.score ?? 27;
+  const baseP3 = fallbackEvents.filter((event) => event.eventType === "practice")[2]?.score ?? 36;
+  const baseT1 = fallbackEvents.find((event) => event.eventType === "test")?.score ?? 48;
+  const baseNow = fallbackEvents.find((event) => event.eventType === "now")?.score
+    ?? fallbackEvents[fallbackEvents.length - 1]?.score
+    ?? targetCurrentScore;
+
+  const earlyDip = clampNumber(Math.round((baseP2 + baseP3) / 2) - (6 + Math.floor(difficultyPenalty / 3)), 4, 90);
+  const midRecovery = clampNumber(baseP3 + 4 + lengthBoost, 8, 96);
+  const lateTest = clampNumber(baseT1 + 4 + Math.max(0, lengthBoost - 1), 10, 98);
+  const latePractice = clampNumber(lateTest - (difficulty === "hard" ? 2 : 1), 8, 97);
+
+  const earlyTestAcc = clampNumber(72 + lengthBoost - difficultyPenalty, 45, 84);
+  const lateTestAcc = clampNumber(earlyTestAcc + 17 + (difficulty === "easy" ? 3 : 0), 66, 97);
+
+  const shapedBase: DemoPreviewEvent[] = [
+    { minutesAgo: 42 * 60, eventType: "practice", score: baseP1, practiceSessionCount: 1, practiceDelta: 5 },
+    { minutesAgo: 34 * 60, eventType: "practice", score: baseP2, practiceSessionCount: 2, practiceDelta: 7 },
+    { minutesAgo: 28 * 60, eventType: "test", score: earlyDip, accuracyRate: earlyTestAcc, isCorrect: earlyTestAcc >= 80 },
+    { minutesAgo: 21 * 60, eventType: "practice", score: baseP3, practiceSessionCount: 3, practiceDelta: 8 },
+    { minutesAgo: 14 * 60, eventType: "practice", score: midRecovery, practiceSessionCount: 4, practiceDelta: 6 },
+    { minutesAgo: 8 * 60, eventType: "test", score: lateTest, accuracyRate: lateTestAcc, isCorrect: lateTestAcc >= 80 },
+    { minutesAgo: 3 * 60, eventType: "practice", score: latePractice, practiceSessionCount: 5, practiceDelta: 3 },
+    { minutesAgo: 0, eventType: "now", score: baseNow },
+  ];
+
+  const targetNow = clampNumber(targetCurrentScore, 0, 100);
+  const baseNowScore = shapedBase.find((event) => event.eventType === "now")?.score ?? targetNow;
+  const relativeOffsets = shapedBase.map((event) => event.score - baseNowScore);
+  const maxScaleFromUpper = Math.min(
+    1,
+    ...relativeOffsets
+      .filter((offset) => offset > 0)
+      .map((offset) => (100 - targetNow) / offset)
+  );
+  const maxScaleFromLower = Math.min(
+    1,
+    ...relativeOffsets
+      .filter((offset) => offset < 0)
+      .map((offset) => targetNow / Math.abs(offset))
+  );
+  const maxScale = Math.min(
+    Number.isFinite(maxScaleFromUpper) ? maxScaleFromUpper : 1,
+    Number.isFinite(maxScaleFromLower) ? maxScaleFromLower : 1
+  );
+  const scale = clampNumber(maxScale, 0.45, 1);
+
+  return shapedBase.map((event) => {
+    const offset = event.score - baseNowScore;
+    const shiftedScore = clampNumber(Math.round(targetNow + offset * scale), 0, 100);
+    if (event.accuracyRate === undefined) {
+      return {
+        ...event,
+        score: shiftedScore,
+      };
+    }
+
+    const adjustedAccuracy = clampNumber(
+      Math.round(event.accuracyRate + (shiftedScore - event.score) * 0.9),
+      35,
+      99
+    );
+    return {
+      ...event,
+      score: shiftedScore,
+      accuracyRate: adjustedAccuracy,
+      isCorrect: adjustedAccuracy >= 80,
+    };
+  });
+}
+
+function mapScenarioEventsToHistoryPoints(
+  scenario: DemoPreviewEvent[],
+  nowMs: number
+): Array<{
+  at: string;
+  score: number;
+  state: "green" | "yellow" | "red";
+  eventType: "practice" | "test" | "now";
+  isCorrect?: boolean;
+  accuracyRate?: number;
+  practiceSessionCount?: number;
+  practiceDelta?: number;
+}> {
+  return [...scenario]
+    .sort((a, b) => b.minutesAgo - a.minutesAgo)
+    .map((event) => {
+      const score = clampNumber(event.score, 0, 100);
+      const state = resolveStateFromScore(score);
+      return {
+        at: new Date(nowMs - event.minutesAgo * 60_000).toISOString(),
+        score,
+        state,
+        eventType: event.eventType,
+        isCorrect: event.isCorrect,
+        accuracyRate: event.accuracyRate,
+        practiceSessionCount: event.practiceSessionCount,
+        practiceDelta: event.practiceDelta,
+      };
+    });
+}
+
+type DemoPreviewEvent = {
+  minutesAgo: number;
+  eventType: "practice" | "test" | "now";
+  score: number;
+  isCorrect?: boolean;
+  accuracyRate?: number;
+  practiceSessionCount?: number;
+  practiceDelta?: number;
+};
+
+type DemoQuestionPreview = {
+  displayScore: number;
+  state: "green" | "yellow" | "red";
+  label: string;
+  isColdStart: boolean;
+  badges: {
+    lastTestWrong: boolean;
+    frequentlyWrong: boolean;
+    hasWarnZone: boolean;
+  };
+  warnZoneLines: Array<{ lineIndex: number; wrongCount: number }>;
+  lastTestWrongLines: number[];
+  lastTestAccuracyRate: number | null;
+  examDatePrediction: {
+    predictedScore: number;
+    predictedState: "green" | "yellow" | "red";
+    predictedLabel: string;
+    daysUntilExam: number;
+    hoursUntilExam: number;
+    minutesUntilExam: number;
+    examAtISO: string;
+    currentScore: number;
+    scoreDelta: number;
+    canReachGreen: boolean;
+  };
+  historyPoints: Array<{
+    at: string;
+    score: number;
+    state: "green" | "yellow" | "red";
+    eventType: "practice" | "test" | "now";
+    isCorrect?: boolean;
+    accuracyRate?: number;
+    practiceSessionCount?: number;
+    practiceDelta?: number;
+  }>;
+  isExample: true;
+};
+
+type DemoShowcaseKey = "box1" | "box9" | "table_i3";
+
+const DEMO_SHOWCASE_KEYS_IN_ORDER: DemoShowcaseKey[] = ["box1", "box9", "table_i3"];
+const DEMO_SHOWCASE_TITLE_CANDIDATES: Record<DemoShowcaseKey, string[]> = {
+  box1: ["Box-1 절치들의 근원심구별"],
+  box9: ["Box-9 하악 제1소구치와 제2소구치의 차이점"],
+  table_i3: ["표 I-3 상악 치아 크기", "표 I-3 하악 치아 크기"],
+};
+
+function normalizeDemoShowcaseLookupValue(value: string | null | undefined): string {
+  return normalizeQuestionTextValue(value).replace(/[^0-9a-z가-힣]/g, "");
+}
+
+const DEMO_SHOWCASE_TITLE_LOOKUP: Record<DemoShowcaseKey, string[]> = {
+  box1: DEMO_SHOWCASE_TITLE_CANDIDATES.box1.map((title) => normalizeDemoShowcaseLookupValue(title)),
+  box9: DEMO_SHOWCASE_TITLE_CANDIDATES.box9.map((title) => normalizeDemoShowcaseLookupValue(title)),
+  table_i3: DEMO_SHOWCASE_TITLE_CANDIDATES.table_i3.map((title) => normalizeDemoShowcaseLookupValue(title)),
+};
+
+function resolveDemoShowcaseKeyByQuestionTitle(questionTitle: string | null | undefined): DemoShowcaseKey | null {
+  const normalizedQuestionTitle = normalizeDemoShowcaseLookupValue(questionTitle);
+  if (!normalizedQuestionTitle) return null;
+
+  for (const key of DEMO_SHOWCASE_KEYS_IN_ORDER) {
+    const candidates = DEMO_SHOWCASE_TITLE_LOOKUP[key];
+    if (
+      candidates.some(
+        (candidate) =>
+          normalizedQuestionTitle.includes(candidate) || candidate.includes(normalizedQuestionTitle)
+      )
+    ) {
+      return key;
+    }
+  }
+
+  return null;
+}
+
+function isPublicDemoShowcaseSubject(subject: { name?: string | null } | null | undefined): boolean {
+  return (subject?.name ?? "").trim() === TOOTH_MORPHOLOGY_SUBJECT_NAME;
+}
+
+function isPublicDemoShowcaseQuestion(
+  question: { question?: string | null } | null | undefined,
+  subject: { name?: string | null } | null | undefined
+): boolean {
+  if (!isPublicDemoShowcaseSubject(subject)) return false;
+  return resolveDemoShowcaseKeyByQuestionTitle(question?.question) !== null;
+}
+
+function selectPublicDemoShowcaseQuestions<T extends { question?: string | null; displayOrder?: number | null }>(
+  subject: { name?: string | null } | null | undefined,
+  questions: T[]
+): T[] {
+  if (!isPublicDemoShowcaseSubject(subject)) return [];
+  if (!Array.isArray(questions) || questions.length === 0) return [];
+
+  const sorted = [...questions].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+  const pickedByKey = new Map<DemoShowcaseKey, T>();
+
+  for (const question of sorted) {
+    const key = resolveDemoShowcaseKeyByQuestionTitle(question.question);
+    if (!key || pickedByKey.has(key)) continue;
+    pickedByKey.set(key, question);
+  }
+
+  return DEMO_SHOWCASE_KEYS_IN_ORDER.flatMap((key) => {
+    const row = pickedByKey.get(key);
+    return row ? [row] : [];
+  });
+}
+
+const DEMO_SCENARIO_OVERRIDES_BY_ID: Record<number, DemoPreviewEvent[]> = {
+  431: [
+    { minutesAgo: 30 * 60, eventType: "practice", score: 18, practiceSessionCount: 1, practiceDelta: 6 },
+    { minutesAgo: 26 * 60, eventType: "practice", score: 26, practiceSessionCount: 2, practiceDelta: 8 },
+    { minutesAgo: 20 * 60, eventType: "test", score: 41, accuracyRate: 84, isCorrect: true },
+    { minutesAgo: 10 * 60, eventType: "practice", score: 47, practiceSessionCount: 3, practiceDelta: 6 },
+    { minutesAgo: 4 * 60, eventType: "test", score: 58, accuracyRate: 91, isCorrect: true },
+    { minutesAgo: 0, eventType: "now", score: 55 },
+  ],
+  437: [
+    { minutesAgo: 28 * 60, eventType: "practice", score: 12, practiceSessionCount: 1, practiceDelta: 5 },
+    { minutesAgo: 25 * 60, eventType: "practice", score: 19, practiceSessionCount: 2, practiceDelta: 7 },
+    { minutesAgo: 24 * 60, eventType: "test", score: 15, accuracyRate: 46, isCorrect: false },
+    { minutesAgo: 14 * 60, eventType: "practice", score: 24, practiceSessionCount: 3, practiceDelta: 5 },
+    { minutesAgo: 6 * 60, eventType: "test", score: 39, accuracyRate: 82, isCorrect: true },
+    { minutesAgo: 1 * 60, eventType: "practice", score: 44, practiceSessionCount: 4, practiceDelta: 5 },
+    { minutesAgo: 0, eventType: "now", score: 42 },
+  ],
+  441: [
+    { minutesAgo: 32 * 60, eventType: "practice", score: 28, practiceSessionCount: 1, practiceDelta: 8 },
+    { minutesAgo: 30 * 60, eventType: "practice", score: 36, practiceSessionCount: 2, practiceDelta: 8 },
+    { minutesAgo: 22 * 60, eventType: "test", score: 52, accuracyRate: 88, isCorrect: true },
+    { minutesAgo: 15 * 60, eventType: "practice", score: 61, practiceSessionCount: 3, practiceDelta: 9 },
+    { minutesAgo: 8 * 60, eventType: "practice", score: 70, practiceSessionCount: 4, practiceDelta: 9 },
+    { minutesAgo: 3 * 60, eventType: "test", score: 84, accuracyRate: 96, isCorrect: true },
+    { minutesAgo: 0, eventType: "now", score: 82 },
+  ],
+};
+
+const DEMO_SCENARIO_OVERRIDES_BY_SHOWCASE_KEY: Partial<Record<DemoShowcaseKey, DemoPreviewEvent[]>> = {
+  box1: [
+    { minutesAgo: 32 * 60, eventType: "practice", score: 12, practiceSessionCount: 1, practiceDelta: 5 },
+    { minutesAgo: 26 * 60, eventType: "practice", score: 18, practiceSessionCount: 2, practiceDelta: 6 },
+    { minutesAgo: 23 * 60, eventType: "test", score: 14, accuracyRate: 44, isCorrect: false },
+    { minutesAgo: 16 * 60, eventType: "practice", score: 23, practiceSessionCount: 3, practiceDelta: 5 },
+    { minutesAgo: 8 * 60, eventType: "test", score: 31, accuracyRate: 62, isCorrect: false },
+    { minutesAgo: 2 * 60, eventType: "practice", score: 36, practiceSessionCount: 4, practiceDelta: 5 },
+    { minutesAgo: 0, eventType: "now", score: 34 },
+  ],
+  box9: [
+    { minutesAgo: 34 * 60, eventType: "practice", score: 24, practiceSessionCount: 1, practiceDelta: 6 },
+    { minutesAgo: 30 * 60, eventType: "practice", score: 33, practiceSessionCount: 2, practiceDelta: 9 },
+    { minutesAgo: 22 * 60, eventType: "test", score: 46, accuracyRate: 78, isCorrect: false },
+    { minutesAgo: 14 * 60, eventType: "practice", score: 54, practiceSessionCount: 3, practiceDelta: 8 },
+    { minutesAgo: 6 * 60, eventType: "test", score: 60, accuracyRate: 84, isCorrect: true },
+    { minutesAgo: 1 * 60, eventType: "practice", score: 58, practiceSessionCount: 4, practiceDelta: 4 },
+    { minutesAgo: 0, eventType: "now", score: 56 },
+  ],
+  table_i3: [
+    { minutesAgo: 40 * 60, eventType: "practice", score: 41, practiceSessionCount: 1, practiceDelta: 8 },
+    { minutesAgo: 32 * 60, eventType: "practice", score: 53, practiceSessionCount: 2, practiceDelta: 12 },
+    { minutesAgo: 24 * 60, eventType: "test", score: 66, accuracyRate: 86, isCorrect: true },
+    { minutesAgo: 14 * 60, eventType: "practice", score: 74, practiceSessionCount: 3, practiceDelta: 8 },
+    { minutesAgo: 7 * 60, eventType: "practice", score: 82, practiceSessionCount: 4, practiceDelta: 8 },
+    { minutesAgo: 2 * 60, eventType: "test", score: 89, accuracyRate: 97, isCorrect: true },
+    { minutesAgo: 0, eventType: "now", score: 86 },
+  ],
+};
+
+function buildFallbackDemoScenarioEvents(
+  question: {
+    difficulty?: "easy" | "medium" | "hard" | null;
+    displayOrder?: number | null;
+  },
+  initialEstimate: { answerLength: number }
+): DemoPreviewEvent[] {
+  const difficulty = question.difficulty ?? "medium";
+  const answerLength = Math.max(1, initialEstimate.answerLength);
+  const lengthBoost = Math.round(Math.log(answerLength + 4) * 4);
+  const difficultyBoost = difficulty === "easy" ? 7 : difficulty === "hard" ? -1 : 3;
+  const orderOffset = (((question.displayOrder ?? 1) % 5) - 2) * 2;
+
+  const s1 = clampNumber(14 + lengthBoost + difficultyBoost + orderOffset, 8, 58);
+  const s2 = clampNumber(s1 + 6 + Math.round(lengthBoost * 0.2), 12, 66);
+  const s3 = clampNumber(s2 + 7, 16, 74);
+  const t1 = clampNumber(s3 + (difficulty === "hard" ? 7 : 11), 24, 88);
+  const nowScore = clampNumber(t1 - (difficulty === "hard" ? 4 : 2), 20, 92);
+  const testAcc = clampNumber(
+    (difficulty === "hard" ? 76 : 83) + Math.round(lengthBoost * 0.8),
+    70,
+    95
+  );
+
+  return [
+    { minutesAgo: 26 * 60, eventType: "practice", score: s1, practiceSessionCount: 1, practiceDelta: 5 },
+    { minutesAgo: 18 * 60, eventType: "practice", score: s2, practiceSessionCount: 2, practiceDelta: 6 },
+    { minutesAgo: 11 * 60, eventType: "practice", score: s3, practiceSessionCount: 3, practiceDelta: 7 },
+    { minutesAgo: 5 * 60, eventType: "test", score: t1, accuracyRate: testAcc, isCorrect: testAcc >= 80 },
+    { minutesAgo: 0, eventType: "now", score: nowScore },
+  ];
+}
+
+function buildDemoExamPrediction(
+  subject: { examEndDate?: Date | string | null } | null,
+  displayScore: number,
+  initialEstimate: { answerLength: number; difficulty: "easy" | "medium" | "hard" }
+) {
+  const now = new Date();
+  let examDate = toDateOrNull(subject?.examEndDate ?? null);
+  if (!examDate || examDate.getTime() <= now.getTime()) {
+    examDate = new Date(now.getTime() + 12 * 60 * 60 * 1000);
+  }
+  const minutesUntilExam = Math.max(
+    1,
+    Math.round((examDate.getTime() - now.getTime()) / 60000)
+  );
+  const daysUntilExam = Math.floor(minutesUntilExam / (60 * 24));
+  const hoursUntilExam = Math.floor((minutesUntilExam % (60 * 24)) / 60);
+
+  const answerLength = Math.max(1, initialEstimate.answerLength);
+  const lengthNorm = clampNumber((answerLength - 24) / 160, 0, 1);
+  const forgetting =
+    4 +
+    Math.round(lengthNorm * 7) +
+    (initialEstimate.difficulty === "hard"
+      ? 4
+      : initialEstimate.difficulty === "medium"
+        ? 2
+        : 1);
+  const predictedScore = clampNumber(displayScore - forgetting, 0, 100);
+  const predictedState = resolveStateFromScore(predictedScore);
+  return {
+    predictedScore,
+    predictedState,
+    predictedLabel: TRAFFIC_LIGHT_LABELS[predictedState],
+    daysUntilExam,
+    hoursUntilExam,
+    minutesUntilExam,
+    examAtISO: examDate.toISOString(),
+    currentScore: displayScore,
+    scoreDelta: predictedScore - displayScore,
+    canReachGreen: predictedScore >= 80,
+  };
+}
+
+function buildDemoQuestionPreview(
+  question: {
+    id: number;
+    question?: string | null;
+    difficulty?: "easy" | "medium" | "hard" | null;
+    displayOrder?: number | null;
+    answer?: string | null;
+    tableData?: string | null;
+  },
+  subject: { examEndDate?: Date | string | null } | null
+): DemoQuestionPreview {
+  const initialEstimate = buildInitialConfidenceEstimate(question);
+  const showcaseKey = resolveDemoShowcaseKeyByQuestionTitle(question.question);
+  const scenario =
+    (showcaseKey ? DEMO_SCENARIO_OVERRIDES_BY_SHOWCASE_KEY[showcaseKey] : undefined) ??
+    DEMO_SCENARIO_OVERRIDES_BY_ID[question.id] ??
+    buildFallbackDemoScenarioEvents(question, initialEstimate);
+  const nowMs = Date.now();
+  const historyPoints = [...scenario]
+    .sort((a, b) => b.minutesAgo - a.minutesAgo)
+    .map((event) => {
+      const score = clampNumber(event.score, 0, 100);
+      const state = resolveStateFromScore(score);
+      return {
+        at: new Date(nowMs - event.minutesAgo * 60_000).toISOString(),
+        score,
+        state,
+        eventType: event.eventType,
+        isCorrect: event.isCorrect,
+        accuracyRate: event.accuracyRate,
+        practiceSessionCount: event.practiceSessionCount,
+        practiceDelta: event.practiceDelta,
+      };
+    });
+
+  const currentPoint =
+    historyPoints
+      .filter((point) => point.eventType === "now")
+      .at(-1) ??
+    historyPoints[historyPoints.length - 1];
+  const displayScore = clampNumber(currentPoint?.score ?? 0, 0, 100);
+  const state = resolveStateFromScore(displayScore);
+  const lastTestPoint = [...historyPoints].reverse().find((point) => point.eventType === "test");
+  const lastTestAccuracyRate =
+    typeof lastTestPoint?.accuracyRate === "number" ? lastTestPoint.accuracyRate : null;
+  const lastTestWrong = lastTestPoint
+    ? (typeof lastTestPoint.accuracyRate === "number"
+      ? lastTestPoint.accuracyRate < 80
+      : !lastTestPoint.isCorrect)
+    : false;
+
+  const warnZoneLines =
+    showcaseKey === "box1"
+      ? [
+          { lineIndex: 2, wrongCount: 2 },
+          { lineIndex: 4, wrongCount: 2 },
+        ]
+      : [];
+  const lastTestWrongLines = showcaseKey === "box1" ? [2, 4] : [];
+
+  return {
+    displayScore,
+    state,
+    label: TRAFFIC_LIGHT_LABELS[state],
+    isColdStart: false,
+    badges: {
+      lastTestWrong,
+      frequentlyWrong: showcaseKey === "box1",
+      hasWarnZone: warnZoneLines.length > 0,
+    },
+    warnZoneLines,
+    lastTestWrongLines,
+    lastTestAccuracyRate,
+    examDatePrediction: buildDemoExamPrediction(subject, displayScore, initialEstimate),
+    historyPoints,
+    isExample: true,
+  };
+}
+
+function buildDemoSubjectHistoryFromPreviews(
+  previews: DemoQuestionPreview[]
+): Array<{
+  at: string;
+  score: number;
+  state: "green" | "yellow" | "red";
+  eventType: "practice" | "test" | "now";
+  questionCount: number;
+}> {
+  if (previews.length === 0) return [];
+
+  const timeline = Array.from(
+    new Set(
+      previews
+        .flatMap((preview) => preview.historyPoints)
+        .map((point) => point.at)
+    )
+  ).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
+  if (timeline.length === 0) return [];
+
+  return timeline.map((at, index) => {
+    const atMs = new Date(at).getTime();
+    const scores = previews.map((preview) => {
+      const points = preview.historyPoints
+        .filter((point) => new Date(point.at).getTime() <= atMs)
+        .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+      const fallback = preview.historyPoints[0];
+      return (points.at(-1) ?? fallback)?.score ?? 0;
+    });
+    const avgScore = scores.length > 0
+      ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
+      : 0;
+    const eventType = index === timeline.length - 1
+      ? "now"
+      : previews.some((preview) =>
+          preview.historyPoints.some((point) => point.at === at && point.eventType === "test")
+        )
+        ? "test"
+        : "practice";
+
+    return {
+      at,
+      score: avgScore,
+      state: resolveStateFromScore(avgScore),
+      eventType,
+      questionCount: previews.length,
+    };
+  });
+}
+
+function aggregateDemoPreviewByQuestions(
+  items: Array<{ displayScore: number; state: "green" | "yellow" | "red" }>
+) {
+  const totalQuestions = items.length;
+  const averageScore =
+    totalQuestions > 0
+      ? Math.round(items.reduce((sum, item) => sum + item.displayScore, 0) / totalQuestions)
+      : 0;
+  const greenCount = items.filter((item) => item.state === "green").length;
+  const yellowCount = items.filter((item) => item.state === "yellow").length;
+  const redCount = items.filter((item) => item.state === "red").length;
+  const state = resolveStateFromScore(averageScore);
+  return {
+    totalQuestions,
+    averageScore,
+    greenCount,
+    yellowCount,
+    redCount,
+    state,
+    label: TRAFFIC_LIGHT_LABELS[state],
+  };
 }
 
 async function ensureCriticalToothDemoQuestionExists() {
@@ -1672,6 +2249,7 @@ export const appRouter = router({
       .input(
         z.object({
           code: z.string().min(8),
+          redirectUri: z.string().url().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -1682,7 +2260,7 @@ export const appRouter = router({
           });
         }
 
-        const redirectUri = resolveGoogleRedirectUri(ctx.req as any);
+        const redirectUri = input.redirectUri?.trim() || resolveGoogleRedirectUri(ctx.req as any);
         const tokenResponse = await exchangeGoogleCodeForTokens({
           code: input.code,
           redirectUri,
@@ -1868,13 +2446,110 @@ export const appRouter = router({
   // Demo mode - public access
   demo: router({
     subjects: publicProcedure.query(async () => {
-      return db.getDemoSubjects();
+      const demoSubjects = await db.getDemoSubjects();
+      return demoSubjects;
     }),
     
     questions: publicProcedure
       .input(z.object({ subjectId: z.number() }))
       .query(async ({ input }) => {
-        return db.getDemoQuestions(input.subjectId);
+        const subject = await db.getSubjectById(input.subjectId);
+        if (!subject || subject.isDemo !== 1) {
+          return [];
+        }
+        const rawQuestions = await db.getDemoQuestions(input.subjectId);
+        return selectPublicDemoShowcaseQuestions(subject, rawQuestions);
+      }),
+
+    confidenceByQuestion: publicProcedure
+      .input(z.object({ questionId: z.number() }))
+      .query(async ({ input }) => {
+        const question = await db.getQuestionById(input.questionId);
+        if (!question || question.isDemo !== 1) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "데모 문제를 찾을 수 없습니다" });
+        }
+        const subject = question.subjectId ? await db.getSubjectById(question.subjectId) : null;
+        if (!isPublicDemoShowcaseQuestion(question, subject)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "선택한 데모 문제를 찾을 수 없습니다" });
+        }
+        const preview = buildDemoQuestionPreview(question, subject ?? null);
+        return {
+          ...preview,
+          previewLabel: "예시 화면",
+        };
+      }),
+
+    confidenceHistory: publicProcedure
+      .input(z.object({ questionId: z.number() }))
+      .query(async ({ input }) => {
+        const question = await db.getQuestionById(input.questionId);
+        if (!question || question.isDemo !== 1) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "데모 문제를 찾을 수 없습니다" });
+        }
+        const subject = question.subjectId ? await db.getSubjectById(question.subjectId) : null;
+        if (!isPublicDemoShowcaseQuestion(question, subject)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "선택한 데모 문제를 찾을 수 없습니다" });
+        }
+        const preview = buildDemoQuestionPreview(question, subject ?? null);
+        return {
+          points: preview.historyPoints,
+          isExample: true,
+          previewLabel: "예시 화면",
+        };
+      }),
+
+    confidenceBySubject: publicProcedure
+      .input(z.object({ subjectId: z.number() }))
+      .query(async ({ input }) => {
+        const subject = await db.getSubjectById(input.subjectId);
+        if (!subject || subject.isDemo !== 1) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다" });
+        }
+        const rawQuestions = await db.getDemoQuestions(input.subjectId);
+        const questions = selectPublicDemoShowcaseQuestions(subject, rawQuestions);
+        const sortedQuestions = [...questions].sort(
+          (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
+        );
+
+        const previewRows = sortedQuestions.map((question) => {
+          const preview = buildDemoQuestionPreview(question, subject);
+          return {
+            questionId: question.id,
+            displayScore: preview.displayScore,
+            state: preview.state,
+            label: preview.label,
+            isColdStart: preview.isColdStart,
+            displayOrder: question.displayOrder ?? 0,
+            isStarred: question.isStarred ?? 0,
+            badges: preview.badges,
+          };
+        });
+
+        return {
+          questions: previewRows,
+          aggregate: aggregateDemoPreviewByQuestions(
+            previewRows.map((row) => ({ displayScore: row.displayScore, state: row.state }))
+          ),
+          isExample: true,
+          previewLabel: "예시 화면",
+        };
+      }),
+
+    confidenceHistoryBySubject: publicProcedure
+      .input(z.object({ subjectId: z.number() }))
+      .query(async ({ input }) => {
+        const subject = await db.getSubjectById(input.subjectId);
+        if (!subject || subject.isDemo !== 1) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다" });
+        }
+        const rawQuestions = await db.getDemoQuestions(input.subjectId);
+        const questions = selectPublicDemoShowcaseQuestions(subject, rawQuestions);
+        const previews = questions.map((question) => buildDemoQuestionPreview(question, subject));
+        return {
+          points: buildDemoSubjectHistoryFromPreviews(previews),
+          isExample: true,
+          previewLabel: "예시 화면",
+        };
       }),
 
     evaluate: publicProcedure
@@ -1887,6 +2562,10 @@ export const appRouter = router({
         const question = await db.getQuestionById(input.questionId);
         if (!question) {
           throw new Error("문제를 찾을 수 없습니다");
+        }
+        const subject = question.subjectId ? await db.getSubjectById(question.subjectId) : null;
+        if (!isPublicDemoShowcaseQuestion(question, subject)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "선택한 데모 문제를 찾을 수 없습니다" });
         }
 
         // 이미지 문제인 경우 imageLabels에서 정답 추출
@@ -2016,6 +2695,7 @@ export const appRouter = router({
         const { id, examEndDate, ...data } = input;
         await assertSubjectOwnershipOrThrow(id, ctx.user.id);
         const updateData: any = { ...data };
+        let nextDemoValue: number | undefined;
         if (updateData.isDemo === undefined) {
           delete updateData.isDemo;
         }
@@ -2023,9 +2703,14 @@ export const appRouter = router({
           updateData.examEndDate = examEndDate ? parseExamEndDateInput(examEndDate) : null;
         }
         if (input.isDemo !== undefined) {
-          updateData.isDemo = resolveRequestedDemoValue(input.isDemo, ctx.user.role) ?? 0;
+          nextDemoValue = resolveRequestedDemoValue(input.isDemo, ctx.user.role) ?? 0;
+          updateData.isDemo = nextDemoValue;
         }
-        return db.updateSubject(id, updateData);
+        const updated = await db.updateSubject(id, updateData);
+        if (nextDemoValue !== undefined) {
+          await db.updateQuestionsIsDemoBySubjectId(id, nextDemoValue);
+        }
+        return updated;
       }),
     
     delete: protectedProcedure
@@ -2044,6 +2729,206 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         return db.updateSubjectOrder(ctx.user.id, input.subjectOrders);
+      }),
+  }),
+
+  // Password-protected subject share (Quizlet-like set sharing)
+  share: router({
+    getMineBySubject: protectedProcedure
+      .input(z.object({ subjectId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await assertSubjectOwnershipOrThrow(input.subjectId, ctx.user.id);
+        const share = await db.getSubjectShareBySubjectIdOwner(input.subjectId, ctx.user.id);
+        if (!share) return null;
+        return {
+          subjectId: share.subjectId,
+          token: share.shareToken,
+          isActive: share.isActive === 1,
+          viewCount: share.viewCount ?? 0,
+          lastAccessedAt: share.lastAccessedAt?.toISOString() ?? null,
+          sharePath: `/shared/${share.shareToken}`,
+        };
+      }),
+
+    upsertBySubject: protectedProcedure
+      .input(
+        z.object({
+          subjectId: z.number(),
+          password: z.string().min(4).max(128),
+        })
+      )
+      .mutation(async ({ ctx, input, }) => {
+        await assertSubjectOwnershipOrThrow(input.subjectId, ctx.user.id);
+        const bcrypt = await import("bcryptjs");
+        const passwordHash = await bcrypt.hash(input.password, 10);
+        const nextToken = nanoid(24);
+
+        const existing = await db.getSubjectShareBySubjectIdOwner(input.subjectId, ctx.user.id);
+        const saved = existing
+          ? await db.updateSubjectShare(existing.id, {
+              shareToken: nextToken,
+              passwordHash,
+              isActive: 1,
+            })
+          : await db.createSubjectShare({
+              subjectId: input.subjectId,
+              ownerUserId: ctx.user.id,
+              shareToken: nextToken,
+              passwordHash,
+              isActive: 1,
+            });
+
+        return {
+          success: true,
+          token: saved.shareToken,
+          sharePath: `/shared/${saved.shareToken}`,
+        };
+      }),
+
+    disableBySubject: protectedProcedure
+      .input(z.object({ subjectId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await assertSubjectOwnershipOrThrow(input.subjectId, ctx.user.id);
+        const existing = await db.getSubjectShareBySubjectIdOwner(input.subjectId, ctx.user.id);
+        if (!existing) return { success: true };
+        await db.updateSubjectShare(existing.id, { isActive: 0 });
+        return { success: true };
+      }),
+
+    accessByToken: publicProcedure
+      .input(
+        z.object({
+          token: z.string().min(8).max(80),
+          password: z.string().min(1).max(128),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const share = await db.getSubjectShareByToken(input.token);
+        if (!share || share.isActive !== 1) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "공유 링크를 찾을 수 없습니다." });
+        }
+
+        const bcrypt = await import("bcryptjs");
+        const ok = await bcrypt.compare(input.password, share.passwordHash);
+        if (!ok) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "비밀번호가 올바르지 않습니다." });
+        }
+
+        const subject = await db.getSubjectById(share.subjectId);
+        if (!subject) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "공유 과목을 찾을 수 없습니다." });
+        }
+        const questions = await db.getQuestionsBySubjectId(subject.id);
+
+        await db.markSubjectShareAccessed(share.id);
+
+        return {
+          subject: {
+            id: subject.id,
+            name: subject.name,
+            description: subject.description,
+            color: subject.color,
+          },
+          questions: questions.map((q) => ({
+            id: q.id,
+            question: q.question,
+            answer: q.answer,
+            imageUrl: q.imageUrl,
+            imageLabels: q.imageLabels,
+            tableData: q.tableData,
+            autoNumbering: q.autoNumbering,
+            displayOrder: q.displayOrder,
+          })),
+          disclaimer:
+            "저작권이 있는 자료의 유출에는 본인 책임입니다. 공유받은 자료의 재배포/유출을 금지합니다.",
+        };
+      }),
+
+    importByToken: protectedProcedure
+      .input(
+        z.object({
+          token: z.string().min(8).max(80),
+          password: z.string().min(1).max(128),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const share = await db.getSubjectShareByToken(input.token);
+        if (!share || share.isActive !== 1) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "공유 링크를 찾을 수 없습니다." });
+        }
+
+        const bcrypt = await import("bcryptjs");
+        const ok = await bcrypt.compare(input.password, share.passwordHash);
+        if (!ok) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "비밀번호가 올바르지 않습니다." });
+        }
+
+        const sourceSubject = await db.getSubjectById(share.subjectId);
+        if (!sourceSubject) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "공유 과목을 찾을 수 없습니다." });
+        }
+        const sourceQuestions = await db.getQuestionsBySubjectId(sourceSubject.id);
+
+        const mySubjects = await db.getSubjectsByUserId(ctx.user.id);
+        const normalizeName = (value: string) => value.trim().toLowerCase();
+        const usedNames = new Set(mySubjects.map((subject) => normalizeName(subject.name)));
+        const baseName = sourceSubject.name?.trim() || "공유 과목";
+        let nextName = baseName;
+        if (usedNames.has(normalizeName(nextName))) {
+          let suffix = 1;
+          while (true) {
+            const candidate = `${baseName} (공유${suffix === 1 ? "" : ` ${suffix}`})`;
+            if (!usedNames.has(normalizeName(candidate))) {
+              nextName = candidate;
+              break;
+            }
+            suffix += 1;
+          }
+        }
+        const nextSubjectDisplayOrder =
+          mySubjects.reduce((max, subject) => Math.max(max, subject.displayOrder ?? 0), 0) + 1;
+
+        const createdSubject = await db.createSubject({
+          userId: ctx.user.id,
+          name: nextName,
+          description: sourceSubject.description ?? "",
+          color: sourceSubject.color ?? "#3B82F6",
+          examEndDate: sourceSubject.examEndDate ?? undefined,
+          displayOrder: nextSubjectDisplayOrder,
+          isDemo: 0,
+        });
+
+        const orderedQuestions = [...sourceQuestions].sort(
+          (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || a.id - b.id
+        );
+        for (let i = 0; i < orderedQuestions.length; i++) {
+          const sourceQuestion = orderedQuestions[i];
+          await db.createQuestion({
+            userId: ctx.user.id,
+            subjectId: createdSubject.id,
+            question: sourceQuestion.question,
+            answer: sourceQuestion.answer ?? "",
+            imageUrl: sourceQuestion.imageUrl ?? undefined,
+            imageLabels: sourceQuestion.imageLabels ?? undefined,
+            useAIGrading: sourceQuestion.useAIGrading ?? 0,
+            autoNumbering: sourceQuestion.autoNumbering ?? 1,
+            tableData: sourceQuestion.tableData ?? undefined,
+            difficulty: sourceQuestion.difficulty ?? "medium",
+            displayOrder: i + 1,
+            isDemo: 0,
+            isStarred: sourceQuestion.isStarred ?? 0,
+            memo: sourceQuestion.memo ?? undefined,
+          });
+        }
+
+        await db.markSubjectShareAccessed(share.id);
+
+        return {
+          success: true,
+          subjectId: createdSubject.id,
+          subjectName: createdSubject.name,
+          questionCount: orderedQuestions.length,
+        };
       }),
   }),
 
@@ -2103,7 +2988,13 @@ export const appRouter = router({
         isDemo: z.number().optional(), // 0 or 1
       }))
       .mutation(async ({ ctx, input }) => {
-        const safeDemoValue = resolveRequestedDemoValue(input.isDemo, ctx.user.role);
+        await assertSubjectOwnershipOrThrow(input.subjectId, ctx.user.id);
+        const subject = await db.getSubjectById(input.subjectId);
+        const defaultDemoBySubject = subject?.isDemo === 1 ? 1 : 0;
+        const safeDemoValue =
+          input.isDemo !== undefined
+            ? resolveRequestedDemoValue(input.isDemo, ctx.user.role)
+            : defaultDemoBySubject;
         return db.createQuestion({
           userId: ctx.user.id,
           subjectId: input.subjectId,
@@ -2134,13 +3025,14 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
-        await assertQuestionOwnershipOrThrow(id, ctx.user.id);
+        const ownedQuestion = await assertQuestionOwnershipOrThrow(id, ctx.user.id);
+        const parentSubject = await db.getSubjectById(ownedQuestion.subjectId);
+        const defaultDemoBySubject = parentSubject?.isDemo === 1 ? 1 : 0;
         const updateData: any = { ...data };
-        if (updateData.isDemo === undefined) {
+        if (input.isDemo === undefined) {
           delete updateData.isDemo;
-        }
-        if (input.isDemo !== undefined) {
-          updateData.isDemo = resolveRequestedDemoValue(input.isDemo, ctx.user.role) ?? 0;
+        } else {
+          updateData.isDemo = resolveRequestedDemoValue(input.isDemo, ctx.user.role) ?? defaultDemoBySubject;
         }
         return db.updateQuestion(id, updateData);
       }),
@@ -2249,6 +3141,7 @@ export const appRouter = router({
           typingSpeed: input.typingSpeed,
           accuracy: input.accuracy,
           errorCount: input.errorCount,
+          completedAt: new Date(),
         });
       }),
     
@@ -2334,6 +3227,7 @@ export const appRouter = router({
           similarityScore: input.similarityScore,
           mistakeHighlights: input.mistakeHighlights,
           llmFeedback: input.llmFeedback,
+          completedAt: new Date(),
         });
       }),
     
@@ -2417,6 +3311,7 @@ export const appRouter = router({
                 similarityScore: accuracyRate,
                 mistakeHighlights: JSON.stringify(labelComparisons),
                 llmFeedback: null,
+                completedAt: new Date(),
               });
               
               return {
@@ -2451,6 +3346,7 @@ export const appRouter = router({
             similarityScore: graded.similarityScore,
             mistakeHighlights: JSON.stringify(graded.mistakes),
             llmFeedback: null,
+            completedAt: new Date(),
           });
 
           return graded;
@@ -2553,6 +3449,7 @@ ${input.userAnswer}
             similarityScore,
             mistakeHighlights,
             llmFeedback,
+            completedAt: new Date(),
           });
 
           return {
@@ -2583,6 +3480,7 @@ ${input.userAnswer}
             similarityScore,
             mistakeHighlights: null,
             llmFeedback: null,
+            completedAt: new Date(),
           });
 
           return {
@@ -3280,6 +4178,402 @@ ${input.userAnswer}
     }),
   }),
 
+  // 베타 UX 텔레메트리
+  telemetry: router({
+    ingest: protectedProcedure
+      .input(
+        z.object({
+          events: z.array(
+            z.object({
+              sessionId: z.string().min(1).max(96),
+              path: z.string().min(1).max(512),
+              eventType: z.string().min(1).max(64),
+              activeMs: z.number().int().min(0).max(10 * 60 * 1000).optional(),
+              interactionCount: z.number().int().min(0).max(10_000).optional(),
+              visible: z.boolean().optional(),
+              occurredAt: z.string().optional(),
+              payload: z.unknown().optional(),
+            })
+          ).min(1).max(100),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const rows = input.events.map((event) => {
+          const parsedOccurredAt = event.occurredAt ? new Date(event.occurredAt) : null;
+          const occurredAt = parsedOccurredAt && !Number.isNaN(parsedOccurredAt.getTime())
+            ? parsedOccurredAt
+            : new Date();
+          return {
+            userId: ctx.user.id,
+            sessionId: event.sessionId,
+            path: event.path,
+            eventType: event.eventType,
+            activeMs: Math.max(0, Math.min(10 * 60 * 1000, event.activeMs ?? 0)),
+            interactionCount: Math.max(0, Math.min(10_000, event.interactionCount ?? 0)),
+            visible: event.visible === false ? 0 : 1,
+            payload: event.payload === undefined ? null : JSON.stringify(event.payload),
+            occurredAt,
+          };
+        });
+
+        const saved = await db.createTelemetryEvents(rows);
+        return { success: true, saved };
+      }),
+
+    getOverview: adminProcedure
+      .input(z.object({ days: z.number().int().min(1).max(90).default(14) }).optional())
+      .query(async ({ input }) => {
+        const days = input?.days ?? 14;
+        const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+        const events = await db.getTelemetryEventsSince(since);
+
+        const userIds = Array.from(new Set(events.map((e) => e.userId)));
+        const userRows = await db.getUsersByIds(userIds);
+        const userMap = new Map(userRows.map((u) => [u.id, u]));
+
+        type SessionAgg = {
+          userId: number;
+          sessionId: string;
+          firstAt: Date;
+          lastAt: Date;
+          activeMs: number;
+          interactionCount: number;
+          pageViews: number;
+          paths: Set<string>;
+        };
+
+        const sessions = new Map<string, SessionAgg>();
+        const pathAgg = new Map<string, {
+          path: string;
+          activeMs: number;
+          interactionCount: number;
+          pageViews: number;
+          sessions: Set<string>;
+        }>();
+        const eventTypeCount = new Map<string, number>();
+        const daily = new Map<string, {
+          users: Set<number>;
+          sessions: Set<string>;
+          activeMs: number;
+          interactionCount: number;
+          pageViews: number;
+        }>();
+        const userAgg = new Map<number, {
+          userId: number;
+          activeMs: number;
+          interactionCount: number;
+          pageViews: number;
+          sessions: Set<string>;
+          lastSeenAt: Date | null;
+        }>();
+
+        const isPageViewEvent = (eventType: string) => eventType === "page_view";
+
+        for (const event of events) {
+          const at = new Date(event.occurredAt);
+          const sessionKey = `${event.userId}:${event.sessionId}`;
+
+          let session = sessions.get(sessionKey);
+          if (!session) {
+            session = {
+              userId: event.userId,
+              sessionId: event.sessionId,
+              firstAt: at,
+              lastAt: at,
+              activeMs: 0,
+              interactionCount: 0,
+              pageViews: 0,
+              paths: new Set<string>(),
+            };
+            sessions.set(sessionKey, session);
+          }
+          session.firstAt = at < session.firstAt ? at : session.firstAt;
+          session.lastAt = at > session.lastAt ? at : session.lastAt;
+          session.activeMs += event.activeMs ?? 0;
+          session.interactionCount += event.interactionCount ?? 0;
+          if (isPageViewEvent(event.eventType)) session.pageViews += 1;
+          session.paths.add(event.path);
+
+          let pathRow = pathAgg.get(event.path);
+          if (!pathRow) {
+            pathRow = {
+              path: event.path,
+              activeMs: 0,
+              interactionCount: 0,
+              pageViews: 0,
+              sessions: new Set<string>(),
+            };
+            pathAgg.set(event.path, pathRow);
+          }
+          pathRow.activeMs += event.activeMs ?? 0;
+          pathRow.interactionCount += event.interactionCount ?? 0;
+          if (isPageViewEvent(event.eventType)) pathRow.pageViews += 1;
+          pathRow.sessions.add(sessionKey);
+
+          eventTypeCount.set(event.eventType, (eventTypeCount.get(event.eventType) ?? 0) + 1);
+
+          const dateKey = at.toISOString().slice(0, 10);
+          let day = daily.get(dateKey);
+          if (!day) {
+            day = {
+              users: new Set<number>(),
+              sessions: new Set<string>(),
+              activeMs: 0,
+              interactionCount: 0,
+              pageViews: 0,
+            };
+            daily.set(dateKey, day);
+          }
+          day.users.add(event.userId);
+          day.sessions.add(sessionKey);
+          day.activeMs += event.activeMs ?? 0;
+          day.interactionCount += event.interactionCount ?? 0;
+          if (isPageViewEvent(event.eventType)) day.pageViews += 1;
+
+          let perUser = userAgg.get(event.userId);
+          if (!perUser) {
+            perUser = {
+              userId: event.userId,
+              activeMs: 0,
+              interactionCount: 0,
+              pageViews: 0,
+              sessions: new Set<string>(),
+              lastSeenAt: null,
+            };
+            userAgg.set(event.userId, perUser);
+          }
+          perUser.activeMs += event.activeMs ?? 0;
+          perUser.interactionCount += event.interactionCount ?? 0;
+          if (isPageViewEvent(event.eventType)) perUser.pageViews += 1;
+          perUser.sessions.add(sessionKey);
+          perUser.lastSeenAt = !perUser.lastSeenAt || at > perUser.lastSeenAt ? at : perUser.lastSeenAt;
+        }
+
+        const sessionList = Array.from(sessions.values());
+        const totalActiveMs = sessionList.reduce((sum, s) => sum + s.activeMs, 0);
+        const totalInteractions = sessionList.reduce((sum, s) => sum + s.interactionCount, 0);
+        const totalPageViews = sessionList.reduce((sum, s) => sum + s.pageViews, 0);
+        const bounceSessionCount = sessionList.filter((s) => s.pageViews <= 1).length;
+        const longStaySessionCount = sessionList.filter((s) => s.activeMs >= 5 * 60 * 1000).length;
+        const avgActiveMsPerSession = sessionList.length > 0 ? Math.round(totalActiveMs / sessionList.length) : 0;
+        const avgInteractionsPerSession = sessionList.length > 0
+          ? Number((totalInteractions / sessionList.length).toFixed(1))
+          : 0;
+
+        const topPaths = Array.from(pathAgg.values())
+          .map((row) => ({
+            path: row.path,
+            activeMs: row.activeMs,
+            activeMinutes: Number((row.activeMs / 60000).toFixed(1)),
+            interactionCount: row.interactionCount,
+            pageViews: row.pageViews,
+            sessionCount: row.sessions.size,
+          }))
+          .sort((a, b) => b.activeMs - a.activeMs)
+          .slice(0, 12);
+
+        const topUsers = Array.from(userAgg.values())
+          .map((row) => {
+            const user = userMap.get(row.userId);
+            return {
+              userId: row.userId,
+              name: user?.name ?? null,
+              email: user?.email ?? null,
+              loginMethod: user?.loginMethod ?? null,
+              activeMs: row.activeMs,
+              activeMinutes: Number((row.activeMs / 60000).toFixed(1)),
+              interactionCount: row.interactionCount,
+              pageViews: row.pageViews,
+              sessionCount: row.sessions.size,
+              lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+            };
+          })
+          .sort((a, b) => b.activeMs - a.activeMs)
+          .slice(0, 20);
+
+        const dauTrend = Array.from(daily.entries())
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([date, row]) => ({
+            date,
+            activeUsers: row.users.size,
+            sessions: row.sessions.size,
+            activeMinutes: Number((row.activeMs / 60000).toFixed(1)),
+            interactions: row.interactionCount,
+            pageViews: row.pageViews,
+          }));
+
+        const eventTypeDistribution = Array.from(eventTypeCount.entries())
+          .map(([eventType, count]) => ({ eventType, count }))
+          .sort((a, b) => b.count - a.count);
+
+        return {
+          days,
+          since: since.toISOString(),
+          summary: {
+            activeUserCount: userIds.length,
+            sessionCount: sessionList.length,
+            totalEventCount: events.length,
+            totalPageViews,
+            totalActiveMs,
+            totalActiveMinutes: Number((totalActiveMs / 60000).toFixed(1)),
+            totalInteractions,
+            avgActiveMsPerSession,
+            avgActiveMinutesPerSession: Number((avgActiveMsPerSession / 60000).toFixed(1)),
+            avgInteractionsPerSession,
+            bounceRate: sessionList.length > 0 ? Math.round((bounceSessionCount / sessionList.length) * 100) : 0,
+            longStayRate: sessionList.length > 0 ? Math.round((longStaySessionCount / sessionList.length) * 100) : 0,
+          },
+          dauTrend,
+          topPaths,
+          topUsers,
+          eventTypeDistribution,
+        };
+      }),
+
+    getUserEngagement: adminProcedure
+      .input(
+        z.object({
+          userId: z.number().int().positive().optional(),
+          email: z.string().email().optional(),
+          days: z.number().int().min(1).max(90).default(14),
+        }).refine((value) => value.userId !== undefined || value.email !== undefined, {
+          message: "userId 또는 email이 필요합니다.",
+        })
+      )
+      .query(async ({ input }) => {
+        let targetUserId = input.userId;
+        if (!targetUserId && input.email) {
+          const user = await db.getUserByEmail(input.email);
+          if (!user) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "해당 이메일 사용자 없음" });
+          }
+          targetUserId = user.id;
+        }
+        if (!targetUserId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "조회 대상 사용자 누락" });
+        }
+
+        const [targetUser] = await db.getUsersByIds([targetUserId]);
+        if (!targetUser) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "사용자를 찾을 수 없습니다." });
+        }
+
+        const since = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000);
+        const events = await db.getTelemetryEventsByUserSince(targetUserId, since);
+
+        type SessionAgg = {
+          sessionId: string;
+          firstAt: Date;
+          lastAt: Date;
+          activeMs: number;
+          interactionCount: number;
+          pageViews: number;
+          paths: Set<string>;
+        };
+        const sessions = new Map<string, SessionAgg>();
+        const routes = new Map<string, { path: string; activeMs: number; interactionCount: number; pageViews: number }>();
+        const timeline = new Map<string, { date: string; activeMs: number; interactionCount: number; pageViews: number }>();
+        const isPageViewEvent = (eventType: string) => eventType === "page_view";
+
+        for (const event of events) {
+          const at = new Date(event.occurredAt);
+          let session = sessions.get(event.sessionId);
+          if (!session) {
+            session = {
+              sessionId: event.sessionId,
+              firstAt: at,
+              lastAt: at,
+              activeMs: 0,
+              interactionCount: 0,
+              pageViews: 0,
+              paths: new Set<string>(),
+            };
+            sessions.set(event.sessionId, session);
+          }
+          session.firstAt = at < session.firstAt ? at : session.firstAt;
+          session.lastAt = at > session.lastAt ? at : session.lastAt;
+          session.activeMs += event.activeMs ?? 0;
+          session.interactionCount += event.interactionCount ?? 0;
+          if (isPageViewEvent(event.eventType)) session.pageViews += 1;
+          session.paths.add(event.path);
+
+          let route = routes.get(event.path);
+          if (!route) {
+            route = { path: event.path, activeMs: 0, interactionCount: 0, pageViews: 0 };
+            routes.set(event.path, route);
+          }
+          route.activeMs += event.activeMs ?? 0;
+          route.interactionCount += event.interactionCount ?? 0;
+          if (isPageViewEvent(event.eventType)) route.pageViews += 1;
+
+          const dateKey = at.toISOString().slice(0, 10);
+          let day = timeline.get(dateKey);
+          if (!day) {
+            day = { date: dateKey, activeMs: 0, interactionCount: 0, pageViews: 0 };
+            timeline.set(dateKey, day);
+          }
+          day.activeMs += event.activeMs ?? 0;
+          day.interactionCount += event.interactionCount ?? 0;
+          if (isPageViewEvent(event.eventType)) day.pageViews += 1;
+        }
+
+        const sessionList = Array.from(sessions.values())
+          .map((session) => ({
+            sessionId: session.sessionId,
+            firstAt: session.firstAt.toISOString(),
+            lastAt: session.lastAt.toISOString(),
+            durationMinutes: Number(((session.lastAt.getTime() - session.firstAt.getTime()) / 60000).toFixed(1)),
+            activeMinutes: Number((session.activeMs / 60000).toFixed(1)),
+            interactionCount: session.interactionCount,
+            pageViews: session.pageViews,
+            pathCount: session.paths.size,
+          }))
+          .sort((a, b) => b.activeMinutes - a.activeMinutes);
+
+        const routeBreakdown = Array.from(routes.values())
+          .map((route) => ({
+            path: route.path,
+            activeMinutes: Number((route.activeMs / 60000).toFixed(1)),
+            interactionCount: route.interactionCount,
+            pageViews: route.pageViews,
+          }))
+          .sort((a, b) => b.activeMinutes - a.activeMinutes);
+
+        const timelineRows = Array.from(timeline.values()).sort((a, b) => a.date.localeCompare(b.date));
+        const totalActiveMs = events.reduce((sum, event) => sum + (event.activeMs ?? 0), 0);
+        const totalInteractions = events.reduce((sum, event) => sum + (event.interactionCount ?? 0), 0);
+        const totalPageViews = events.filter((event) => isPageViewEvent(event.eventType)).length;
+
+        return {
+          user: {
+            id: targetUser.id,
+            name: targetUser.name ?? null,
+            email: targetUser.email ?? null,
+            loginMethod: targetUser.loginMethod ?? null,
+          },
+          period: { days: input.days, since: since.toISOString() },
+          summary: {
+            totalEvents: events.length,
+            totalActiveMinutes: Number((totalActiveMs / 60000).toFixed(1)),
+            totalInteractions,
+            totalPageViews,
+            sessionCount: sessionList.length,
+            avgActiveMinutesPerSession: sessionList.length > 0
+              ? Number(((totalActiveMs / sessionList.length) / 60000).toFixed(1))
+              : 0,
+          },
+          sessions: sessionList,
+          routes: routeBreakdown,
+          timeline: timelineRows.map((row) => ({
+            date: row.date,
+            activeMinutes: Number((row.activeMs / 60000).toFixed(1)),
+            interactionCount: row.interactionCount,
+            pageViews: row.pageViews,
+          })),
+        };
+      }),
+  }),
+
   // Expiring questions management
   expiring: router({
     // 만료 예정 문제 조회 (1달 이내 삭제 예정)
@@ -3388,6 +4682,7 @@ ${input.userAnswer}
         if (starterBaseScore !== null && qTests.length === 0 && qPractice.length > 0) {
           effectiveConfidence = applyStarterPracticeFloor(effectiveConfidence, starterBaseScore, qPractice.length);
         }
+        effectiveConfidence = applyUnlearnedLabel(effectiveConfidence);
 
         // 시험일 예측: question의 subjectId를 통해 과목의 examEndDate 조회
         let examDatePrediction: ReturnType<typeof predictExamDayConfidence> | null = null;
@@ -3572,6 +4867,7 @@ ${input.userAnswer}
           if (starterBaseScore !== null && qTests.length === 0 && qPractice.length > 0) {
             confidence = applyStarterPracticeFloor(confidence, starterBaseScore, qPractice.length);
           }
+          confidence = applyUnlearnedLabel(confidence);
           results.push({ questionId: qId, confidence });
         }
 
@@ -3637,10 +4933,65 @@ ${input.userAnswer}
           ...qTests.map((t, i) => ({ at: new Date(t.completedAt), type: 'test' as const, idx: i })),
         ].sort((a, b) => a.at.getTime() - b.at.getTime());
 
-        if (events.length === 0) return { points: [] };
+        if (events.length === 0) {
+          const nowForPreview = new Date();
+          const emptyPracticeSignal: PracticeSignal = {
+            practiceCount: 0,
+            totalPracticeDuration: 0,
+            mostRecentPracticeAt: null,
+          };
+          const emptyTestSignal: TestSignal = {
+            testCount: 0,
+            correctCount: 0,
+            wrongCount: 0,
+            averageSimilarityScore: 0,
+            mostRecentTestAt: null,
+            recentCorrectStreak: 0,
+            mostRecentTestWasPoor: false,
+            recentTestHistory: [],
+          };
+          const baseConfidence = computeExamConfidence({
+            practice: emptyPracticeSignal,
+            test: emptyTestSignal,
+            now: nowForPreview,
+            examDate,
+            userProfile,
+            initialEstimate,
+          });
+          const starterInitialScoreOverride = getStarterInitialScoreOverride({
+            subjectName: subject?.name,
+            question,
+            practiceCount: 0,
+            testCount: 0,
+            userRole: ctx.user.role,
+          });
+          const effectiveConfidence = applyUnlearnedLabel(
+            starterInitialScoreOverride === null
+              ? baseConfidence
+              : applyDisplayScoreOverride(baseConfidence, starterInitialScoreOverride)
+          );
+          const scenario = buildUnlearnedScenarioEvents(
+            question,
+            initialEstimate ?? buildInitialConfidenceEstimate(question),
+            effectiveConfidence.displayScore
+          );
+          return {
+            points: mapScenarioEventsToHistoryPoints(scenario, nowForPreview.getTime()),
+            isExample: true,
+            previewLabel: "미학습 예상 시나리오",
+          };
+        }
 
         // 각 이벤트 시점에서 안정도 계산 (누적 방식)
-        const points: { at: string; score: number; state: string; eventType: string; isCorrect?: boolean; accuracyRate?: number }[] = [];
+        const points: {
+          at: string;
+          score: number;
+          state: string;
+          eventType: string;
+          isCorrect?: boolean;
+          accuracyRate?: number;
+          practiceSessionCount?: number;
+        }[] = [];
         let pCount = 0, pDuration = 0;
         let mostRecentPracticeAt: Date | null = null;
         const cumTests: typeof qTests = [];
@@ -3703,6 +5054,7 @@ ${input.userAnswer}
             score: result.displayScore,
             state: result.state,
             eventType: ev.type,
+            ...(ev.type === "practice" ? { practiceSessionCount: pCount } : {}),
             ...(ev.type === 'test' ? {
               isCorrect: lastTest?.isCorrect === 1,
               accuracyRate: testAccuracyRate,

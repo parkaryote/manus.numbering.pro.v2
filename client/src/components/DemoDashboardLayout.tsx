@@ -212,6 +212,7 @@ export default function DemoDashboardLayout({
   onAuthSuccess?: () => void;
 }) {
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
   const isGuest = isGuestUser(user);
   const [authOpen, setAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState<AuthTab>("login");
@@ -224,9 +225,19 @@ export default function DemoDashboardLayout({
     <div className="h-screen flex flex-col bg-background">
       <div className="shrink-0 border-b bg-background/95 px-4 py-2">
         <div className="mx-auto w-full max-w-[1400px] flex items-center justify-between">
-          <span className="text-xl font-extrabold tracking-tight text-black dark:text-white">
-            numbering.pro
-          </span>
+          <button
+            type="button"
+            onClick={() => setLocation("/")}
+            className="inline-flex flex-col items-start leading-tight hover:opacity-90 transition-opacity text-left"
+            aria-label="대시보드로 이동"
+          >
+            <span className="text-[30px] font-black tracking-tight text-black dark:text-white">
+              numbering.pro
+            </span>
+            <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+              Number it. Remember it like a pro
+            </span>
+          </button>
           <span className="text-xs font-semibold uppercase tracking-[0.1em] text-neutral-500 dark:text-neutral-400">
             Beta Test
           </span>

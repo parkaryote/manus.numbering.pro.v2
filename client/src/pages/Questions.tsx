@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
-import { Plus, ArrowLeft, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star, ScrollText, Settings, Calendar, BookOpen } from "lucide-react";
+import { Plus, ArrowLeft, ClipboardCheck, Edit, Trash2, Upload, Image as ImageIcon, GripVertical, Copy, MoveRight, Star, ScrollText, Settings, Calendar, BookOpen, Share2, Link2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
@@ -106,6 +106,45 @@ const BULLET_LINE_REGEX = /^\s*[-*•]\s+.+$/;
 const BLANK_MARKER_REGEX = /^\s*(?:\{\{([\s\S]*?)\}\}|\[\[([\s\S]*?)\]\]|\[([\s\S]*?)\])\s*$/;
 const BULK_DELIMITER_REGEX = /(?:^|\n)\s*---+\s*(?:\n|$)/;
 const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function buildUnlearnedConfidenceFallback(question: any, index: number): ConfidenceData {
+  const difficulty = question?.difficulty ?? "medium";
+  const answerText = typeof question?.answer === "string" ? question.answer : "";
+  const answerLength = answerText.replace(/\s+/g, "").length;
+  const lineCount = Math.max(
+    1,
+    answerText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0).length
+  );
+  const hasTable = Boolean(question?.tableData);
+  const displayOrder = Number(question?.displayOrder ?? index + 1);
+
+  const difficultyBase = difficulty === "easy" ? 50 : difficulty === "hard" ? 24 : 37;
+  const lengthPenalty = Math.min(14, Math.round(Math.log1p(Math.max(1, answerLength)) * 2.1));
+  const linePenalty = Math.min(8, Math.max(0, lineCount - 1));
+  const tablePenalty = hasTable ? 6 : 0;
+  const orderOffset = ((displayOrder % 5) - 2) * 1.5;
+  const displayScore = clampScore(difficultyBase - lengthPenalty * 0.6 - linePenalty * 0.45 - tablePenalty + orderOffset);
+  const state: "green" | "yellow" | "red" =
+    displayScore >= CONFIDENCE_THRESHOLDS.green
+      ? "green"
+      : displayScore >= CONFIDENCE_THRESHOLDS.yellow
+        ? "yellow"
+        : "red";
+
+  return {
+    displayScore,
+    state,
+    label: "미학습",
+    isColdStart: true,
+  };
+}
 
 type BulkTableDelimiter = "\t" | "|" | ",";
 
@@ -398,7 +437,7 @@ function SortableQuestionCard({
           onClick={() => onPractice(question.id)}
           title="클릭하여 연습 시작"
         >
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-start gap-1.5">
             {hasImage && (
               <ImageIcon className="h-3 w-3 text-blue-500 flex-shrink-0" />
             )}
@@ -408,7 +447,12 @@ function SortableQuestionCard({
             {question.isDemo === 1 && (
               <span className="text-xs text-amber-600 font-medium flex-shrink-0">데모</span>
             )}
-            <p className="text-base font-medium truncate leading-tight flex-1">{question.question}</p>
+            <p
+              className="text-base font-medium leading-tight flex-1 whitespace-pre-line break-words [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden"
+              title={question.question}
+            >
+              {question.question}
+            </p>
             {!readOnly && !disableStarToggle && (
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleStar(question.id); }}
@@ -615,14 +659,13 @@ function SortableQuestionCard({
 export default function Questions({ subjectId, isDemo = false, demoWorkspace = false }: QuestionsProps) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
-  const isDemoWorkspace = demoWorkspace && isAdmin;
-  const isReadOnlyDemo = isDemo && !isDemoWorkspace;
   const [confidenceHistoryId, setConfidenceHistoryId] = useState<number | null>(null);
   const [confidenceHistoryTitle, setConfidenceHistoryTitle] = useState("");
   const [subjectConfidenceOpen, setSubjectConfidenceOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isSubjectSettingOpen, setIsSubjectSettingOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [sharePassword, setSharePassword] = useState("");
   const [examDateInput, setExamDateInput] = useState("");
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isCopyMoveOpen, setIsCopyMoveOpen] = useState(false);
@@ -654,16 +697,38 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     { id: subjectId },
     { enabled: Number.isFinite(subjectId) }
   );
+  const isAdmin = user?.role === "admin";
+  const subjectIsDemo = subject?.isDemo === 1;
+  const isDemoWorkspace = isAdmin && (demoWorkspace || subjectIsDemo);
+  const isReadOnlyDemo = (isDemo || subjectIsDemo) && !isDemoWorkspace;
+  const { data: shareInfo } = trpc.share.getMineBySubject.useQuery(
+    { subjectId },
+    { enabled: Number.isFinite(subjectId) && !isReadOnlyDemo && !isDemoWorkspace }
+  );
+  const demoReadOnlyQuestionsQuery = trpc.demo.questions.useQuery(
+    { subjectId },
+    { enabled: Number.isFinite(subjectId) && isReadOnlyDemo }
+  );
   const userQuestionsQuery = trpc.questions.listBySubject.useQuery(
     { subjectId },
-    { enabled: Number.isFinite(subjectId) && !isDemoWorkspace }
+    { enabled: Number.isFinite(subjectId) && !isDemoWorkspace && !isReadOnlyDemo }
   );
   const demoWorkspaceQuestionsQuery = trpc.admin.demo.questions.useQuery(
     { subjectId },
     { enabled: Number.isFinite(subjectId) && isDemoWorkspace }
   );
-  const questions = (isDemoWorkspace ? demoWorkspaceQuestionsQuery.data : userQuestionsQuery.data) ?? [];
-  const isLoading = isDemoWorkspace ? demoWorkspaceQuestionsQuery.isLoading : userQuestionsQuery.isLoading;
+  const questions = (
+    isDemoWorkspace
+      ? demoWorkspaceQuestionsQuery.data
+      : isReadOnlyDemo
+        ? demoReadOnlyQuestionsQuery.data
+        : userQuestionsQuery.data
+  ) ?? [];
+  const isLoading = isDemoWorkspace
+    ? demoWorkspaceQuestionsQuery.isLoading
+    : isReadOnlyDemo
+      ? demoReadOnlyQuestionsQuery.isLoading
+      : userQuestionsQuery.isLoading;
   const updateSubjectMutation = trpc.subjects.update.useMutation({
     onSuccess: () => {
       utils.subjects.getById.invalidate({ id: subjectId });
@@ -675,15 +740,40 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       toast.error("저장 실패: " + error.message);
     },
   });
-  const { data: confidenceData } = trpc.confidence.getBySubject.useQuery(
+  const { data: userConfidenceData } = trpc.confidence.getBySubject.useQuery(
     { subjectId },
     { enabled: !!user && !isReadOnlyDemo && !isDemoWorkspace }
   );
+  const { data: demoConfidenceData } = trpc.demo.confidenceBySubject.useQuery(
+    { subjectId },
+    { enabled: Number.isFinite(subjectId) && isReadOnlyDemo }
+  );
+  const confidenceData = isReadOnlyDemo ? demoConfidenceData : userConfidenceData;
   const utils = trpc.useUtils();
+  const shareUpsertMutation = trpc.share.upsertBySubject.useMutation({
+    onSuccess: () => {
+      void utils.share.getMineBySubject.invalidate({ subjectId });
+      setSharePassword("");
+      toast.success("공유 링크가 생성되었습니다.");
+    },
+    onError: (error) => toast.error(error.message || "공유 링크 생성 실패"),
+  });
+  const shareDisableMutation = trpc.share.disableBySubject.useMutation({
+    onSuccess: () => {
+      void utils.share.getMineBySubject.invalidate({ subjectId });
+      toast.success("공유 링크가 비활성화되었습니다.");
+    },
+    onError: (error) => toast.error(error.message || "공유 링크 비활성화 실패"),
+  });
   const invalidateDemoQuestionCaches = () => {
     utils.admin.demo.questions.invalidate({ subjectId });
     utils.admin.demo.allQuestions.invalidate();
     utils.demo.questions.invalidate({ subjectId });
+  };
+  const invalidateUserQuestionAndConfidenceCaches = (targetSubjectId: number) => {
+    utils.questions.listBySubject.invalidate({ subjectId: targetSubjectId });
+    utils.confidence.getBySubject.invalidate({ subjectId: targetSubjectId });
+    utils.confidence.getHistoryBySubject.invalidate({ subjectId: targetSubjectId });
   };
 
   // Build confidence lookup map
@@ -696,11 +786,78 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     return map;
   }, [confidenceData]);
 
+  // 데모 예시 데이터가 비어도 신호등/점수 칸이 사라지지 않도록 폴백
+  const displayConfidenceMap = useMemo(() => {
+    if (!isReadOnlyDemo) {
+      if (confidenceMap.size === 0 && (!questions || questions.length === 0)) return confidenceMap;
+      const merged = new Map<number, ConfidenceData>(confidenceMap);
+      const sorted = [...(questions ?? [])].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+      sorted.forEach((q, index) => {
+        if (merged.has(q.id)) return;
+        merged.set(q.id, buildUnlearnedConfidenceFallback(q, index));
+      });
+      return merged;
+    }
+    if (confidenceMap.size > 0) return confidenceMap;
+    if (!questions || questions.length === 0) return confidenceMap;
+
+    const fallbackStates: Array<"green" | "yellow" | "red"> = ["green", "yellow", "red"];
+    const fallbackScores = [86, 56, 34];
+    const fallback = new Map<number, ConfidenceData>();
+    const sorted = [...questions].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+    sorted.forEach((q, index) => {
+      const state = fallbackStates[index % fallbackStates.length];
+      const displayScore = fallbackScores[index % fallbackScores.length];
+      fallback.set(q.id, {
+        displayScore,
+        state,
+        label: state === "green" ? "안정" : state === "yellow" ? "학습중" : "취약",
+        isColdStart: false,
+      });
+    });
+    return fallback;
+  }, [confidenceMap, isReadOnlyDemo, questions]);
+
+  const displayAggregate = useMemo(() => {
+    if (!isReadOnlyDemo && confidenceData?.aggregate && confidenceData.aggregate.totalQuestions === displayConfidenceMap.size) {
+      return confidenceData.aggregate;
+    }
+    if (isReadOnlyDemo && confidenceData?.aggregate && confidenceData.aggregate.totalQuestions > 0) {
+      return confidenceData.aggregate;
+    }
+    if (displayConfidenceMap.size === 0) return confidenceData?.aggregate ?? null;
+
+    const rows = Array.from(displayConfidenceMap.values());
+    const totalQuestions = rows.length;
+    const averageScore = Math.round(
+      rows.reduce((sum, row) => sum + Math.round(row.displayScore), 0) / Math.max(1, totalQuestions)
+    );
+    const greenCount = rows.filter((row) => row.state === "green").length;
+    const yellowCount = rows.filter((row) => row.state === "yellow").length;
+    const redCount = rows.filter((row) => row.state === "red").length;
+    const state =
+      averageScore >= CONFIDENCE_THRESHOLDS.green
+        ? "green"
+        : averageScore >= CONFIDENCE_THRESHOLDS.yellow
+          ? "yellow"
+          : "red";
+
+    return {
+      totalQuestions,
+      averageScore,
+      greenCount,
+      yellowCount,
+      redCount,
+      state,
+      label: state === "green" ? "안정" : state === "yellow" ? "학습중" : "취약",
+    };
+  }, [confidenceData?.aggregate, displayConfidenceMap, isReadOnlyDemo]);
+
   const createMutation = trpc.questions.create.useMutation({
     onSuccess: (data: any) => {
       const questionType = data.imageUrl && data.imageLabels ? 'image' : (data.tableData ? 'table' : 'text');
       trackQuestionCreate(data.id, subjectId, questionType as 'text' | 'image' | 'table');
-      utils.questions.listBySubject.invalidate({ subjectId });
+      invalidateUserQuestionAndConfidenceCaches(subjectId);
       setIsCreateOpen(false);
       resetForm();
       toast.success("문제가 생성되었습니다");
@@ -729,7 +886,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     onSuccess: (data: any) => {
       const questionType = data.imageUrl && data.imageLabels ? 'image' : (data.tableData ? 'table' : 'text');
       trackQuestionUpdate(data.id, subjectId, questionType as 'text' | 'image' | 'table');
-      utils.questions.listBySubject.invalidate({ subjectId });
+      invalidateUserQuestionAndConfidenceCaches(subjectId);
       setIsEditOpen(false);
       setEditingQuestion(null);
       resetForm();
@@ -760,7 +917,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       if (editingQuestion) {
         trackQuestionDelete(editingQuestion.id, subjectId);
       }
-      utils.questions.listBySubject.invalidate({ subjectId });
+      invalidateUserQuestionAndConfidenceCaches(subjectId);
       toast.success("문제가 삭제되었습니다");
     },
     onError: (error) => {
@@ -783,14 +940,14 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   const updateOrderMutation = trpc.questions.updateOrder.useMutation({
     onError: (error) => {
       toast.error("순서 변경 실패: " + error.message);
-      utils.questions.listBySubject.invalidate({ subjectId });
+      invalidateUserQuestionAndConfidenceCaches(subjectId);
     },
   });
 
   const copyMutation = trpc.questions.copy.useMutation({
     onSuccess: (_, variables) => {
-      utils.questions.listBySubject.invalidate({ subjectId });
-      utils.questions.listBySubject.invalidate({ subjectId: variables.targetSubjectId });
+      invalidateUserQuestionAndConfidenceCaches(subjectId);
+      invalidateUserQuestionAndConfidenceCaches(variables.targetSubjectId);
       setIsCopyMoveOpen(false);
       setSelectedQuestion(null);
       toast.success("문제가 복사되었습니다");
@@ -802,8 +959,8 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
 
   const moveMutation = trpc.questions.move.useMutation({
     onSuccess: (_, variables) => {
-      utils.questions.listBySubject.invalidate({ subjectId });
-      utils.questions.listBySubject.invalidate({ subjectId: variables.targetSubjectId });
+      invalidateUserQuestionAndConfidenceCaches(subjectId);
+      invalidateUserQuestionAndConfidenceCaches(variables.targetSubjectId);
       setIsCopyMoveOpen(false);
       setSelectedQuestion(null);
       toast.success("문제가 이동되었습니다");
@@ -815,7 +972,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
 
   const toggleStarMutation = trpc.questions.toggleStar.useMutation({
     onSuccess: () => {
-      utils.questions.listBySubject.invalidate({ subjectId });
+      invalidateUserQuestionAndConfidenceCaches(subjectId);
     },
     onError: (error) => {
       toast.error("별표 업데이트 실패: " + error.message);
@@ -1066,7 +1223,11 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
         await utils.admin.demo.allQuestions.invalidate();
         await utils.demo.questions.invalidate({ subjectId });
       } else {
-        await utils.questions.listBySubject.invalidate({ subjectId });
+        await Promise.all([
+          utils.questions.listBySubject.invalidate({ subjectId }),
+          utils.confidence.getBySubject.invalidate({ subjectId }),
+          utils.confidence.getHistoryBySubject.invalidate({ subjectId }),
+        ]);
       }
     } finally {
       setIsBulkCreating(false);
@@ -1546,6 +1707,33 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     </Tabs>
   );
 
+  const activeShareLink = useMemo(() => {
+    if (!shareInfo?.token) return "";
+    if (typeof window === "undefined") return `/shared/${shareInfo.token}`;
+    return `${window.location.origin}/shared/${shareInfo.token}`;
+  }, [shareInfo?.token]);
+
+  const handleCreateShare = () => {
+    if (!sharePassword.trim() || sharePassword.trim().length < 4) {
+      toast.error("공유 비밀번호를 4자 이상 입력하세요.");
+      return;
+    }
+    shareUpsertMutation.mutate({
+      subjectId,
+      password: sharePassword.trim(),
+    });
+  };
+
+  const handleCopyShareLink = async () => {
+    if (!activeShareLink) return;
+    try {
+      await navigator.clipboard.writeText(activeShareLink);
+      toast.success("공유 링크를 복사했습니다.");
+    } catch {
+      toast.error("링크 복사에 실패했습니다.");
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
@@ -1569,18 +1757,21 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
             <span className="text-base text-muted-foreground flex-shrink-0">
               {questions?.length || 0}문제
             </span>
-            {confidenceData?.aggregate && confidenceData.aggregate.totalQuestions > 0 && (
+            {displayAggregate && displayAggregate.totalQuestions > 0 && (
               <button
                 onClick={() => setSubjectConfidenceOpen(true)}
                 className={`text-sm font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${
-                  confidenceData.aggregate.state === 'green' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                  confidenceData.aggregate.state === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                  displayAggregate.state === 'green' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                  displayAggregate.state === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
                   'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                 }`}
                 title="클릭하여 과목 안정도 추이 보기"
               >
-                과목 안정도 {confidenceData.aggregate.averageScore}점
+                과목 안정도 {displayAggregate.averageScore}점
               </button>
+            )}
+            {isReadOnlyDemo && (confidenceData as any)?.isExample && (
+              <span className="text-xs text-amber-600 dark:text-amber-400">예시 화면</span>
             )}
           </div>
         </div>
@@ -1649,23 +1840,88 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
               </PopoverContent>
             </Popover>
           )}
+          {!isReadOnlyDemo && !isDemoWorkspace && (
+            <Dialog open={isShareOpen} onOpenChange={setIsShareOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 h-8">
+                  <Share2 className="h-3.5 w-3.5" />
+                  공유
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>과목 공유</DialogTitle>
+                  <DialogDescription>
+                    비밀번호로 보호된 공유 링크를 만들 수 있습니다.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    저작권이 있는 자료의 유출에는 본인 책임입니다.
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="share-password">공유 비밀번호 (4자 이상)</Label>
+                    <Input
+                      id="share-password"
+                      type="password"
+                      value={sharePassword}
+                      onChange={(e) => setSharePassword(e.target.value)}
+                      placeholder="비밀번호 입력"
+                    />
+                  </div>
+                  <Button
+                    className="w-full"
+                    disabled={shareUpsertMutation.isPending}
+                    onClick={handleCreateShare}
+                  >
+                    {shareUpsertMutation.isPending ? "생성 중..." : "공유 링크 생성/갱신"}
+                  </Button>
+                  {shareInfo?.token && shareInfo.isActive && (
+                    <div className="space-y-2 rounded-md border p-3">
+                      <p className="text-xs text-muted-foreground">
+                        현재 링크 · 조회 {shareInfo.viewCount}회
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Input readOnly value={activeShareLink} className="h-8 text-xs" />
+                        <Button variant="outline" size="sm" className="h-8" onClick={handleCopyShareLink}>
+                          <Link2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive"
+                        disabled={shareDisableMutation.isPending}
+                        onClick={() => shareDisableMutation.mutate({ subjectId })}
+                      >
+                        공유 비활성화
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
           {questions && questions.length > 0 && (
             <>
-              {!isReadOnlyDemo && !isDemoWorkspace && (
               <Button
                 variant="outline"
                 size="sm"
                 className="gap-1.5 h-8"
                 onClick={() => {
-                  const firstId = questions?.[0]?.id;
-                  if (!firstId) return;
-                  setLocation(`/practice/${firstId}?scrollNav=1`);
+                  if (isReadOnlyDemo || isDemoWorkspace) {
+                    if (!questions || questions.length === 0) return;
+                    const sorted = [...questions].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+                    const target = sorted[Math.floor(Math.random() * sorted.length)];
+                    if (target?.id) setLocation(`/demo/practice/${target.id}`);
+                    return;
+                  }
+                  setLocation(`/subject-practice/${subjectId}?scrollNav=1&random=1`);
                 }}
               >
                 <ScrollText className="h-3.5 w-3.5" />
-                연속 연습
+                랜덤 연습
               </Button>
-              )}
               {!isReadOnlyDemo && !isDemoWorkspace && (
               <Button
                 variant="outline"
@@ -1698,9 +1954,9 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
           }))}
           onSelectQuestion={(id) => setLocation(isReadOnlyDemo || isDemoWorkspace ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
           confidenceData={Object.fromEntries(
-            Array.from(confidenceMap.entries()).map(([qId, conf]) => [
+            Array.from(displayConfidenceMap.entries()).map(([qId, conf]) => [
               qId,
-              { state: conf.state, displayScore: conf.displayScore }
+              { state: conf.state, displayScore: conf.displayScore, label: conf.label, isColdStart: conf.isColdStart }
             ])
           )}
         />
@@ -1755,7 +2011,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                       readOnly={isReadOnlyDemo}
                       hideDragHandle={isDemoWorkspace}
                       hideCopyMove={isDemoWorkspace}
-                      confidence={isDemoWorkspace ? undefined : confidenceMap.get(question.id)}
+                      confidence={isDemoWorkspace ? undefined : displayConfidenceMap.get(question.id)}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
                       onPractice={(id) => setLocation(isReadOnlyDemo || isDemoWorkspace ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
@@ -1945,6 +2201,8 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
         questionTitle={confidenceHistoryTitle}
         open={confidenceHistoryId !== null}
         onClose={() => setConfidenceHistoryId(null)}
+        isDemo={isReadOnlyDemo}
+        previewLabel={(confidenceData as any)?.previewLabel}
       />
 
       {/* 과목 안정도 추이 그래프 모달 */}
@@ -1953,6 +2211,8 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
         subjectName={subject?.name}
         open={subjectConfidenceOpen}
         onClose={() => setSubjectConfidenceOpen(false)}
+        isDemo={isReadOnlyDemo}
+        previewLabel={(confidenceData as any)?.previewLabel}
       />
     </div>
   );

@@ -4,26 +4,67 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { BookOpen, Star, LogIn, UserPlus, Zap, X } from "lucide-react";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-// 과목별 미니 그리드 (데모용 — 안정도 데이터 없이 회색 점만 표시)
-function DemoSubjectMiniGrid({ subjectId }: { subjectId: number }) {
-  const { data: questions } = trpc.demo.questions.useQuery({ subjectId });
-  if (!questions || questions.length === 0) return null;
-  const sorted = [...questions].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+type DemoConfidenceRow = {
+  questionId: number;
+  displayOrder: number;
+  displayScore: number;
+  state: "green" | "yellow" | "red";
+  isStarred: number;
+};
+
+function getSignalFillClass(state?: string) {
+  if (state === "green") return "bg-emerald-500";
+  if (state === "yellow") return "bg-amber-400";
+  if (state === "red") return "bg-rose-500 dark:bg-rose-400";
+  return "bg-neutral-200 dark:bg-neutral-700";
+}
+
+function getAggregateBadgeClass(state?: string) {
+  if (state === "green") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
+  if (state === "yellow") return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400";
+  if (state === "red") return "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400";
+  return "bg-muted text-muted-foreground";
+}
+
+// 과목별 미니 그리드 (데모용 — 예시 안정도 반영)
+function DemoSubjectMiniGrid({ items }: { items?: DemoConfidenceRow[] }) {
+  const sorted = [...(items ?? [])].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+  if (sorted.length === 0) {
+    return (
+      <div className="flex items-center gap-1.5 mt-2">
+        {Array.from({ length: 3 }).map((_, idx) => (
+          <div
+            key={`placeholder-${idx}`}
+            className="rounded-md w-3 h-3 bg-neutral-200 dark:bg-neutral-700 border border-neutral-200 dark:border-neutral-700"
+            title="데모 문제 미설정"
+          />
+        ))}
+        <span className="text-[11px] text-muted-foreground">미리보기 없음</span>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-wrap gap-1 mt-2">
-      {sorted.map((q) => (
+      {sorted.map((q) => {
+        const fill = getSignalFillClass(q.state);
+        const border = q.isStarred === 1
+          ? "border-[2px] border-black dark:border-black"
+          : "border border-neutral-200 dark:border-neutral-700";
+        return (
         <div
-          key={q.id}
-          className="rounded-md w-3 h-3 bg-neutral-200 dark:bg-neutral-700 border border-neutral-200 dark:border-neutral-700"
-          title={q.question}
+          key={q.questionId}
+          className={`rounded-md w-3 h-3 ${fill} ${border}`}
+          title={`문제 ${q.displayOrder} · ${Math.round(q.displayScore)}점${q.isStarred === 1 ? " (중요)" : ""}`}
         />
-      ))}
+      );
+      })}
     </div>
   );
 }
@@ -201,9 +242,16 @@ export default function Demo() {
 
 function DemoSubjectCard({ subject }: { subject: any }) {
   const [, setLocation] = useLocation();
-  const { data: questions } = trpc.demo.questions.useQuery({ subjectId: subject.id });
-
-  const questionCount = questions?.length ?? 0;
+  const { data: confidencePreview } = trpc.demo.confidenceBySubject.useQuery({ subjectId: subject.id });
+  const questionCount = confidencePreview?.aggregate?.totalQuestions ?? 0;
+  const avgScore = confidencePreview?.aggregate?.averageScore ?? 0;
+  const aggregateState = confidencePreview?.aggregate?.state;
+  const aggregateClass = getAggregateBadgeClass(aggregateState);
+  const isExample = Boolean((confidencePreview as any)?.isExample);
+  const helperText =
+    questionCount > 0
+      ? `${questionCount}개 문제 · 클릭하여 연습 시작`
+      : "공개 데모 문제가 아직 없습니다";
 
   return (
     <Card className="shadow-elegant hover:shadow-lg transition-all cursor-pointer"
@@ -221,9 +269,18 @@ function DemoSubjectCard({ subject }: { subject: any }) {
           {subject.description && (
             <CardDescription className="line-clamp-1 mb-1">{subject.description}</CardDescription>
           )}
-          <p className="text-xs text-muted-foreground mb-1">{questionCount}개 문제 · 클릭하여 연습 시작</p>
-          {/* 미니 그리드 (회색 점 — 안정도는 로그인 후 쌓임) */}
-          <DemoSubjectMiniGrid subjectId={subject.id} />
+          <div className="flex items-center gap-2 mb-1">
+            <p className="text-xs text-muted-foreground">{helperText}</p>
+            {questionCount > 0 && (
+              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${aggregateClass}`}>
+                안정도 {Math.round(avgScore)}점
+              </span>
+            )}
+            {isExample && (
+              <span className="text-[11px] text-amber-600 dark:text-amber-400">예시</span>
+            )}
+          </div>
+          <DemoSubjectMiniGrid items={(confidencePreview?.questions as DemoConfidenceRow[] | undefined) ?? []} />
         </div>
       </CardHeader>
     </Card>

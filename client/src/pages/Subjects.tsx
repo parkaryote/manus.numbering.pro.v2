@@ -31,14 +31,44 @@ import { CSS } from '@dnd-kit/utilities';
 
 const colorOptions = [
   "#3B82F6", // Blue
-  "#8B5CF6", // Purple
-  "#EC4899", // Pink
-  "#F59E0B", // Amber
-  "#10B981", // Green
-  "#EF4444", // Red
+  "#2563EB", // Blue Deep
+  "#1D4ED8", // Blue Strong
   "#6366F1", // Indigo
+  "#4F46E5", // Indigo Deep
+  "#8B5CF6", // Purple
+  "#7C3AED", // Purple Deep
+  "#A855F7", // Violet
+  "#C026D3", // Fuchsia
+  "#EC4899", // Pink
+  "#DB2777", // Pink Deep
+  "#E11D48", // Rose
+  "#EF4444", // Red
+  "#DC2626", // Red Deep
+  "#F97316", // Orange
+  "#EA580C", // Orange Deep
+  "#F59E0B", // Amber
+  "#D97706", // Amber Deep
+  "#EAB308", // Yellow
+  "#84CC16", // Lime
+  "#22C55E", // Green
+  "#10B981", // Emerald
+  "#059669", // Emerald Deep
   "#14B8A6", // Teal
+  "#0D9488", // Teal Deep
+  "#06B6D4", // Cyan
+  "#0891B2", // Cyan Deep
+  "#0EA5E9", // Sky
+  "#6B7280", // Gray
+  "#475569", // Slate
 ];
+const HEX_COLOR_RE = /^#[0-9A-F]{6}$/;
+
+function sanitizeColorInput(value: string): string {
+  const trimmed = value.trim().toUpperCase();
+  const withHash = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+  const hexOnly = withHash.replace(/[^#0-9A-F]/g, "");
+  return hexOnly.slice(0, 7);
+}
 const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
 
 function toDateTimeLocalValue(value?: string | Date | null): string {
@@ -114,11 +144,23 @@ function DemoSubjectMiniGrid({ subjectId }: { subjectId: number }) {
 
 interface SubjectCardProps {
   subject: any;
+  isAdmin: boolean;
+  canPublishDemo: boolean;
+  isTogglePending?: boolean;
+  onToggleDemo: (subject: any) => void;
   onEdit: (subject: any) => void;
   onDelete: (id: number, name: string) => void;
 }
 
-function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
+function SortableSubjectCard({
+  subject,
+  isAdmin,
+  canPublishDemo,
+  isTogglePending = false,
+  onToggleDemo,
+  onEdit,
+  onDelete,
+}: SubjectCardProps) {
   const { data: subjectConfidence } = trpc.confidence.getBySubject.useQuery(
     { subjectId: subject.id },
     {
@@ -204,6 +246,20 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
           <SubjectMiniGrid items={subjectConfidence?.questions as SubjectMiniGridItem[] | undefined} />
         </div>
         <div className="flex gap-1 flex-shrink-0">
+          {isAdmin && canPublishDemo && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={isTogglePending}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleDemo(subject);
+              }}
+              title={subject.isDemo === 1 ? "데모 게시 해제" : "데모 게시"}
+            >
+              <Star className={`h-4 w-4 ${subject.isDemo === 1 ? "text-amber-500 fill-amber-500" : "text-muted-foreground"}`} />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -230,7 +286,15 @@ function SortableSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
   );
 }
 
-function DemoWorkspaceSubjectCard({ subject, onEdit, onDelete }: SubjectCardProps) {
+function DemoWorkspaceSubjectCard({
+  subject,
+  onEdit,
+  onDelete,
+}: {
+  subject: any;
+  onEdit: (subject: any) => void;
+  onDelete: (id: number, name: string) => void;
+}) {
   const [, setLocation] = useLocation();
   const { data: demoQuestions } = trpc.demo.questions.useQuery({ subjectId: subject.id });
   const questionCount = demoQuestions?.length ?? 0;
@@ -364,6 +428,17 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
       toast.error("과목 수정 실패: " + error.message);
     },
   });
+  const toggleDemoMutation = trpc.subjects.update.useMutation({
+    onSuccess: () => {
+      void utils.subjects.list.invalidate();
+      void utils.admin.demo.subjects.invalidate();
+      void utils.demo.subjects.invalidate();
+      toast.success("데모 게시 설정이 반영되었습니다");
+    },
+    onError: (error) => {
+      toast.error("데모 게시 설정 실패: " + error.message);
+    },
+  });
   const updateDemoMutation = trpc.admin.demo.updateSubject.useMutation({
     onSuccess: () => {
       utils.admin.demo.subjects.invalidate();
@@ -409,11 +484,15 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
       toast.error("과목명을 입력하세요");
       return;
     }
+    if (!HEX_COLOR_RE.test(formData.color.toUpperCase())) {
+      toast.error("색상은 #RRGGBB 형식으로 입력하세요");
+      return;
+    }
     if (isDemoWorkspace) {
       createDemoMutation.mutate({
         name: formData.name,
         description: formData.description,
-        color: formData.color,
+        color: formData.color.toUpperCase(),
       });
       return;
     }
@@ -424,7 +503,7 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
     createMutation.mutate({
       name: formData.name,
       description: formData.description,
-      color: formData.color,
+      color: formData.color.toUpperCase(),
       examEndDate: formData.examEndDate || undefined,
       displayOrder: maxOrder + 1,
       isDemo: requestedDemoValue,
@@ -448,12 +527,16 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
       toast.error("과목명을 입력하세요");
       return;
     }
+    if (!HEX_COLOR_RE.test(formData.color.toUpperCase())) {
+      toast.error("색상은 #RRGGBB 형식으로 입력하세요");
+      return;
+    }
     if (isDemoWorkspace) {
       updateDemoMutation.mutate({
         subjectId: editingSubject.id,
         name: formData.name,
         description: formData.description,
-        color: formData.color,
+        color: formData.color.toUpperCase(),
       });
       return;
     }
@@ -464,7 +547,7 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
       id: editingSubject.id,
       name: formData.name,
       description: formData.description,
-      color: formData.color,
+      color: formData.color.toUpperCase(),
       examEndDate: formData.examEndDate || null,
       isDemo: requestedDemoValue,
     } as any);
@@ -478,6 +561,15 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
       }
       deleteMutation.mutate({ id });
     }
+  };
+
+  const handleToggleDemo = (subject: any) => {
+    if (!isAdmin || !DEMO_PUBLISHING_ENABLED) return;
+    const next = subject.isDemo === 1 ? 0 : 1;
+    toggleDemoMutation.mutate({
+      id: subject.id,
+      isDemo: next,
+    } as any);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -548,7 +640,7 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
               </div>
               <div className="space-y-2">
                 <Label>색상</Label>
-                <div className="flex gap-2 flex-wrap">
+                <div className="grid grid-cols-10 gap-2">
                   {colorOptions.map((color) => (
                     <button
                       key={color}
@@ -560,6 +652,23 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
                       onClick={() => setFormData({ ...formData, color })}
                     />
                   ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="color"
+                    value={HEX_COLOR_RE.test(formData.color.toUpperCase()) ? formData.color : colorOptions[0]}
+                    onChange={(e) => setFormData({ ...formData, color: e.target.value.toUpperCase() })}
+                    className="h-9 w-14 cursor-pointer p-1"
+                    aria-label="커스텀 색상 선택"
+                  />
+                  <Input
+                    value={formData.color}
+                    onChange={(e) => setFormData({ ...formData, color: sanitizeColorInput(e.target.value) })}
+                    placeholder="#3B82F6"
+                    maxLength={7}
+                    className="w-32 font-mono uppercase"
+                  />
+                  <span className="text-xs text-muted-foreground">직접 입력 가능</span>
                 </div>
               </div>
               {!isDemoWorkspace && (
@@ -651,6 +760,10 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
                 <SortableSubjectCard
                   key={subject.id}
                   subject={subject}
+                  isAdmin={isAdmin}
+                  canPublishDemo={DEMO_PUBLISHING_ENABLED}
+                  isTogglePending={toggleDemoMutation.isPending}
+                  onToggleDemo={handleToggleDemo}
                   onEdit={handleEdit}
                   onDelete={handleDelete}
                 />
@@ -689,7 +802,7 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
             </div>
             <div className="space-y-2">
               <Label>색상</Label>
-              <div className="flex gap-2 flex-wrap">
+              <div className="grid grid-cols-10 gap-2">
                 {colorOptions.map((color) => (
                   <button
                     key={color}
@@ -701,6 +814,23 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
                     onClick={() => setFormData({ ...formData, color })}
                   />
                 ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="color"
+                  value={HEX_COLOR_RE.test(formData.color.toUpperCase()) ? formData.color : colorOptions[0]}
+                  onChange={(e) => setFormData({ ...formData, color: e.target.value.toUpperCase() })}
+                  className="h-9 w-14 cursor-pointer p-1"
+                  aria-label="커스텀 색상 선택"
+                />
+                <Input
+                  value={formData.color}
+                  onChange={(e) => setFormData({ ...formData, color: sanitizeColorInput(e.target.value) })}
+                  placeholder="#3B82F6"
+                  maxLength={7}
+                  className="w-32 font-mono uppercase"
+                />
+                <span className="text-xs text-muted-foreground">직접 입력 가능</span>
               </div>
             </div>
             {!isDemoWorkspace && (

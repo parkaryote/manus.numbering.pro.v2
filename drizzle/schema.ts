@@ -190,3 +190,44 @@ export const typingBaselines = mysqlTable("typingBaselines", {
 
 export type TypingBaseline = typeof typingBaselines.$inferSelect;
 export type InsertTypingBaseline = typeof typingBaselines.$inferInsert;
+
+/**
+ * 베타 UX 텔레메트리 이벤트
+ * - 체류시간(activeMs), 상호작용(interactionCount), 페이지 흐름(page_view/route_change) 저장
+ * - 관리자 분석용 원천 데이터
+ */
+export const telemetryEvents = mysqlTable("telemetryEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  sessionId: varchar("sessionId", { length: 96 }).notNull(),
+  path: varchar("path", { length: 512 }).notNull(),
+  eventType: varchar("eventType", { length: 64 }).notNull(),
+  activeMs: int("activeMs").default(0).notNull(),
+  interactionCount: int("interactionCount").default(0).notNull(),
+  visible: int("visible").default(1).notNull(), // 1: visible, 0: hidden
+  payload: text("payload"),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type TelemetryEvent = typeof telemetryEvents.$inferSelect;
+export type InsertTelemetryEvent = typeof telemetryEvents.$inferInsert;
+
+/**
+ * 과목 공유 링크 (비밀번호 보호)
+ */
+export const subjectShares = mysqlTable("subjectShares", {
+  id: int("id").autoincrement().primaryKey(),
+  subjectId: int("subjectId").notNull(),
+  ownerUserId: int("ownerUserId").notNull(),
+  shareToken: varchar("shareToken", { length: 80 }).notNull().unique(),
+  passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  viewCount: int("viewCount").default(0).notNull(),
+  lastAccessedAt: timestamp("lastAccessedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SubjectShare = typeof subjectShares.$inferSelect;
+export type InsertSubjectShare = typeof subjectShares.$inferInsert;

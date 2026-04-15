@@ -3,9 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, Cell, LineChart, Line } from "recharts";
-import { Target, BookOpen, TrendingUp, AlertTriangle, Dumbbell, ClipboardCheck, Timer, Brain, ChevronDown, ChevronUp, RotateCcw, Keyboard } from "lucide-react";
+import { Target, BookOpen, TrendingUp, AlertTriangle, Dumbbell, ClipboardCheck, Timer, Brain, ChevronDown, ChevronUp, RotateCcw, Keyboard, Users, Activity, MousePointerClick, Route } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 
 function formatDuration(seconds: number) {
@@ -16,10 +16,31 @@ function formatDuration(seconds: number) {
   return `${mins}분`;
 }
 
+function formatMinutes(minutes: number) {
+  if (minutes < 1) return `${Math.round(minutes * 60)}초`;
+  if (minutes < 60) return `${minutes.toFixed(1)}분`;
+  const hours = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  return `${hours}시간 ${mins}분`;
+}
+
 export default function Statistics() {
   const [, setLocation] = useLocation();
+  const { data: me } = trpc.auth.me.useQuery();
   const { data: summary, isLoading: summaryLoading } = trpc.statistics.getSummary.useQuery();
   const { data: subjectAnalysis, isLoading: analysisLoading } = trpc.statistics.getSubjectAnalysis.useQuery();
+  const isAdmin = me?.role === "admin";
+  const [uxDays, setUxDays] = useState(14);
+  const { data: uxOverview, isLoading: uxLoading } = trpc.telemetry.getOverview.useQuery(
+    { days: uxDays },
+    { enabled: isAdmin, refetchOnWindowFocus: false }
+  );
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const { data: selectedUserEngagement, isLoading: selectedUserLoading } =
+    trpc.telemetry.getUserEngagement.useQuery(
+      { userId: selectedUserId ?? undefined, days: uxDays },
+      { enabled: isAdmin && selectedUserId !== null, refetchOnWindowFocus: false }
+    );
   const [expandedSubject, setExpandedSubject] = useState<number | null>(null);
 
   const utils = trpc.useUtils();
@@ -41,6 +62,14 @@ export default function Statistics() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState("");
   const resetInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!uxOverview || selectedUserId !== null) return;
+    const firstUser = uxOverview.topUsers?.[0];
+    if (firstUser?.userId) {
+      setSelectedUserId(firstUser.userId);
+    }
+  }, [selectedUserId, uxOverview]);
 
   const handleResetStats = async () => {
     if (resetConfirmText !== "초기화") return;
@@ -261,6 +290,220 @@ export default function Statistics() {
               </CardContent>
             </Card>
           </div>
+
+          {isAdmin && (
+            <Card className="shadow-elegant">
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="w-5 h-5" />
+                      베타 UX 분석 (관리자)
+                    </CardTitle>
+                    <CardDescription>체류시간, 상호작용, 경로별 사용성 데이터를 기반으로 개선 포인트를 확인합니다.</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {[7, 14, 30].map((days) => (
+                      <Button
+                        key={days}
+                        size="sm"
+                        variant={uxDays === days ? "default" : "outline"}
+                        onClick={() => setUxDays(days)}
+                      >
+                        {days}일
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {uxLoading || !uxOverview ? (
+                  <p className="text-sm text-muted-foreground">UX 통계를 집계 중입니다...</p>
+                ) : (
+                  <>
+                    <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground flex items-center gap-1"><Users className="w-3 h-3" />활성 사용자</p>
+                          <p className="text-xl font-semibold">{uxOverview.summary.activeUserCount}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">세션 수</p>
+                          <p className="text-xl font-semibold">{uxOverview.summary.sessionCount}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">평균 체류/세션</p>
+                          <p className="text-xl font-semibold">{formatMinutes(uxOverview.summary.avgActiveMinutesPerSession)}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground flex items-center gap-1"><MousePointerClick className="w-3 h-3" />상호작용/세션</p>
+                          <p className="text-xl font-semibold">{uxOverview.summary.avgInteractionsPerSession}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">이탈률(1페이지)</p>
+                          <p className="text-xl font-semibold">{uxOverview.summary.bounceRate}%</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">5분+ 체류율</p>
+                          <p className="text-xl font-semibold">{uxOverview.summary.longStayRate}%</p>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-base">일자별 활성 추이</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <ResponsiveContainer width="100%" height={220}>
+                            <LineChart data={uxOverview.dauTrend}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis
+                                dataKey="date"
+                                tickFormatter={(d) => {
+                                  const parts = String(d).split("-");
+                                  return `${parts[1]}/${parts[2]}`;
+                                }}
+                                fontSize={12}
+                              />
+                              <YAxis yAxisId="left" fontSize={12} />
+                              <YAxis yAxisId="right" orientation="right" fontSize={12} />
+                              <Tooltip />
+                              <Legend />
+                              <Line yAxisId="left" type="monotone" dataKey="activeUsers" name="활성 사용자" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} />
+                              <Line yAxisId="left" type="monotone" dataKey="sessions" name="세션" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 2 }} />
+                              <Line yAxisId="right" type="monotone" dataKey="activeMinutes" name="체류시간(분)" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-base flex items-center gap-2">
+                            <Route className="w-4 h-4" />
+                            상위 경로 (체류시간)
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <ResponsiveContainer width="100%" height={220}>
+                            <BarChart data={uxOverview.topPaths.slice(0, 8)}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis
+                                dataKey="path"
+                                tickFormatter={(value) => String(value).replace(/^\/+/, "").slice(0, 10) || "/"}
+                                fontSize={11}
+                              />
+                              <YAxis fontSize={12} />
+                              <Tooltip
+                                formatter={(value: any, name: string) => {
+                                  if (name === "체류시간(분)") return [formatMinutes(Number(value)), name];
+                                  return [value, name];
+                                }}
+                              />
+                              <Bar dataKey="activeMinutes" name="체류시간(분)" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-base">사용자별 체류/상호작용</CardTitle>
+                          <CardDescription>클릭하면 해당 사용자의 세션/경로 상세를 확인할 수 있습니다.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          {uxOverview.topUsers.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">아직 수집된 사용자 데이터가 없습니다.</p>
+                          ) : (
+                            uxOverview.topUsers.slice(0, 10).map((user) => (
+                              <button
+                                key={user.userId}
+                                type="button"
+                                onClick={() => setSelectedUserId(user.userId)}
+                                className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                                  selectedUserId === user.userId ? "border-primary bg-primary/5" : "hover:bg-muted/40"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium">
+                                      {user.email || user.name || `User #${user.userId}`}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      체류 {formatMinutes(user.activeMinutes)} · 상호작용 {user.interactionCount} · 세션 {user.sessionCount}
+                                    </p>
+                                  </div>
+                                  <Badge variant="secondary">{user.loginMethod || "unknown"}</Badge>
+                                </div>
+                              </button>
+                            ))
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-base">선택 사용자 상세</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {selectedUserLoading ? (
+                            <p className="text-sm text-muted-foreground">상세 데이터 불러오는 중...</p>
+                          ) : !selectedUserEngagement ? (
+                            <p className="text-sm text-muted-foreground">사용자를 선택하면 상세 세션 분석이 표시됩니다.</p>
+                          ) : (
+                            <>
+                              <div className="grid grid-cols-2 gap-2 text-sm">
+                                <div className="rounded-md border p-2">
+                                  <p className="text-xs text-muted-foreground">총 체류</p>
+                                  <p className="font-semibold">{formatMinutes(selectedUserEngagement.summary.totalActiveMinutes)}</p>
+                                </div>
+                                <div className="rounded-md border p-2">
+                                  <p className="text-xs text-muted-foreground">총 상호작용</p>
+                                  <p className="font-semibold">{selectedUserEngagement.summary.totalInteractions}</p>
+                                </div>
+                                <div className="rounded-md border p-2">
+                                  <p className="text-xs text-muted-foreground">페이지뷰</p>
+                                  <p className="font-semibold">{selectedUserEngagement.summary.totalPageViews}</p>
+                                </div>
+                                <div className="rounded-md border p-2">
+                                  <p className="text-xs text-muted-foreground">세션 수</p>
+                                  <p className="font-semibold">{selectedUserEngagement.summary.sessionCount}</p>
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                {selectedUserEngagement.routes.slice(0, 5).map((route) => (
+                                  <div key={route.path} className="flex items-center justify-between rounded border px-2 py-1 text-xs">
+                                    <span className="truncate mr-2">{route.path}</span>
+                                    <span className="text-muted-foreground">
+                                      {formatMinutes(route.activeMinutes)} · 클릭 {route.interactionCount}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* 개인화된 학습 전략 */}
           <Card className="shadow-elegant border-l-4 border-l-primary">

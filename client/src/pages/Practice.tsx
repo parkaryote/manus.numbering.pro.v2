@@ -78,6 +78,14 @@ const JAMO_TO_KEYSTROKE: Record<string, string> = {
 };
 
 const ALNUM_REGEX = /^[a-z0-9]$/i;
+const AUTO_SEED_NUMBER_ONLY_REGEX = /^\s*\d{1,3}[.)]\s*$/;
+const AUTO_SEED_BULLET_ONLY_REGEX = /^\s*(?:[-*•·●○◦▪▫▸▹►▶‣⁃※])\s*$/;
+
+function scoreToConfidenceState(score: number): "green" | "yellow" | "red" {
+  if (score >= CONFIDENCE_THRESHOLDS.green) return "green";
+  if (score >= CONFIDENCE_THRESHOLDS.yellow) return "yellow";
+  return "red";
+}
 
 function toTypingKeyUnit(char: string): string {
   if (!char) return "";
@@ -188,10 +196,48 @@ function deleteWordBeforeCursor(
   };
 }
 
+function hashSeedToInt(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function seededRandomFactory(seed: string): () => number {
+  let a = hashSeedToInt(seed) || 1;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleBySeed<T>(items: T[], seed: string): T[] {
+  if (items.length <= 1) return [...items];
+  const result = [...items];
+  const random = seededRandomFactory(seed);
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
 export default function Practice({ questionId, isDemo = false }: PracticeProps) {
   const [, setLocation] = useLocation();
+  const SCORE_STATE_COLOR = {
+    green: "#10b981",
+    yellow: "#d4a72c",
+    red: "#d66b78",
+  } as const;
   const searchParams = new URLSearchParams(window.location.search);
   const isScrollNavMode = searchParams.get("scrollNav") !== "0";
+  const isRandomNavMode = searchParams.get("random") === "1";
+  const randomSeedParam = (searchParams.get("seed") || "").trim();
   const INPUT_DRAFT_KEY_PREFIX = "practice_input_draft_";
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollNavCooldownRef = useRef(0);
@@ -241,6 +287,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [historyIndex, setHistoryIndex] = useState(0);
   const [showInactiveAlert, setShowInactiveAlert] = useState(false); // 입력 시간 알림
   const [currentCursorLineIndex, setCurrentCursorLineIndex] = useState(0); // 현재 커서 위치의 줄 인덱스
+  const [lineIndicatorPulse, setLineIndicatorPulse] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showDamageNumber, setShowDamageNumber] = useState(false);
   const [damageValue, setDamageValue] = useState(0);
@@ -275,6 +322,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 연속 완료 카운트 (세션 내, 3회마다 백지시험 유도)
   const [sessionCompleteCount, setSessionCompleteCount] = useState(0);
   const [showTestNudge, setShowTestNudge] = useState(false);
+  const autoHideCompletedLinesRef = useRef<Set<number>>(new Set());
+  const autoHideViewedLinesRef = useRef<Set<number>>(new Set());
+  const autoHidePreCompletedLinesRef = useRef<Set<number>>(new Set());
+  const autoHideCompletionLockRef = useRef(0);
   const [showWarnZone, setShowWarnZone] = useState(false);
   const [scrollNavDirection, setScrollNavDirection] = useState<"prev" | "next" | null>(null);
   const [isLeaving, setIsLeaving] = useState(false);
@@ -318,10 +369,24 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     { subjectId: question?.subjectId ?? 0 },
     { enabled: !!question?.subjectId && !isDemo }
   );
-  const currentIndex = subjectQuestions?.findIndex(q => q.id === questionId) ?? -1;
-  const prevQuestion = currentIndex > 0 ? subjectQuestions?.[currentIndex - 1] : null;
-  const nextQuestion = currentIndex >= 0 && subjectQuestions && currentIndex < subjectQuestions.length - 1 ? subjectQuestions[currentIndex + 1] : null;
-  const totalQuestions = subjectQuestions?.length ?? 0;
+  const effectiveRandomSeed = useMemo(() => {
+    if (!isRandomNavMode) return "";
+    if (randomSeedParam) return randomSeedParam;
+    return `subject-${question?.subjectId ?? 0}`;
+  }, [isRandomNavMode, question?.subjectId, randomSeedParam]);
+
+  const orderedSubjectQuestions = useMemo(() => {
+    if (!subjectQuestions) return undefined;
+    if (!isRandomNavMode) return subjectQuestions;
+    return shuffleBySeed(subjectQuestions, effectiveRandomSeed);
+  }, [effectiveRandomSeed, isRandomNavMode, subjectQuestions]);
+
+  const currentIndex = orderedSubjectQuestions?.findIndex((q) => q.id === questionId) ?? -1;
+  const prevQuestion = currentIndex > 0 ? orderedSubjectQuestions?.[currentIndex - 1] : null;
+  const nextQuestion = currentIndex >= 0 && orderedSubjectQuestions && currentIndex < orderedSubjectQuestions.length - 1
+    ? orderedSubjectQuestions[currentIndex + 1]
+    : null;
+  const totalQuestions = orderedSubjectQuestions?.length ?? 0;
   const showToothMorphologySource = (subject?.name ?? "").includes("치아형태학");
   const { data: practiceCountData } = trpc.practice.countByQuestion.useQuery(
     { questionId },
@@ -375,11 +440,22 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const hasBeenSaved = useRef(false);
   const savePracticeSessionRef = useRef<() => Promise<void>>(async () => {});
 
+  const practiceNavSearch = useMemo(() => {
+    const params = new URLSearchParams();
+    if (isScrollNavMode) params.set("scrollNav", "1");
+    if (isRandomNavMode) {
+      params.set("random", "1");
+      if (effectiveRandomSeed) params.set("seed", effectiveRandomSeed);
+    }
+    const raw = params.toString();
+    return raw ? `?${raw}` : "";
+  }, [effectiveRandomSeed, isRandomNavMode, isScrollNavMode]);
+
   const navigateWithMorph = useCallback((targetQuestionId: number, forcedDirection?: "prev" | "next") => {
-    if (!subjectQuestions || totalQuestions <= 0) return;
+    if (!orderedSubjectQuestions || totalQuestions <= 0) return;
     if (isLeaving || targetQuestionId === questionId) return;
 
-    const targetIndex = subjectQuestions.findIndex((q) => q.id === targetQuestionId);
+    const targetIndex = orderedSubjectQuestions.findIndex((q) => q.id === targetQuestionId);
     if (targetIndex < 0) return;
 
     const direction = forcedDirection ?? (targetIndex > currentIndex ? "next" : "prev");
@@ -387,12 +463,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setIsLeaving(true);
     void savePracticeSessionRef.current();
     setTimeout(() => {
-      setLocation(`/practice/${targetQuestionId}${isScrollNavMode ? "?scrollNav=1" : ""}`);
+      setLocation(`/practice/${targetQuestionId}${practiceNavSearch}`);
     }, 240);
-  }, [currentIndex, isLeaving, isScrollNavMode, questionId, setLocation, subjectQuestions, totalQuestions]);
+  }, [currentIndex, isLeaving, orderedSubjectQuestions, practiceNavSearch, questionId, setLocation, totalQuestions]);
 
   const jumpToQuestionByNumber = useCallback((rawValue: string) => {
-    if (!subjectQuestions || totalQuestions <= 0) return;
+    if (!orderedSubjectQuestions || totalQuestions <= 0) return;
     const parsed = Number.parseInt(rawValue.trim(), 10);
     if (!Number.isFinite(parsed)) {
       setJumpInput(currentIndex >= 0 ? String(currentIndex + 1) : "");
@@ -400,11 +476,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
     const clamped = Math.max(1, Math.min(totalQuestions, parsed));
     setJumpInput(String(clamped));
-    const target = subjectQuestions[clamped - 1];
+    const target = orderedSubjectQuestions[clamped - 1];
     if (target && target.id !== questionId) {
       navigateWithMorph(target.id);
     }
-  }, [currentIndex, navigateWithMorph, questionId, subjectQuestions, totalQuestions]);
+  }, [currentIndex, navigateWithMorph, orderedSubjectQuestions, questionId, totalQuestions]);
 
   // 문제별 애니메이션 기준 점수 초기화
   useEffect(() => {
@@ -418,12 +494,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }, [questionId]);
 
   useEffect(() => {
-    if (!subjectQuestions || currentIndex < 0) {
+    if (!orderedSubjectQuestions || currentIndex < 0) {
       setJumpInput("");
       return;
     }
     setJumpInput(String(currentIndex + 1));
-  }, [currentIndex, questionId, subjectQuestions]);
+  }, [currentIndex, questionId, orderedSubjectQuestions]);
 
   // 첫 로드 시 현재 안정도 점수를 애니메이션 기준값으로 설정
   useEffect(() => {
@@ -446,6 +522,53 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return "red";
   }, [displayedConfidenceScore]);
 
+  const appendOptimisticConfidenceHistoryPoint = useCallback((params: {
+    score: number;
+    eventType: "practice" | "test";
+    practiceSessionCount?: number;
+    practiceDelta?: number;
+    isCorrect?: boolean;
+    accuracyRate?: number;
+    at?: string;
+  }) => {
+    if (!question || isDemo) return;
+    type HistoryPointCache = {
+      at: string;
+      score: number;
+      state: "green" | "yellow" | "red";
+      eventType: "practice" | "test" | "now";
+      isCorrect?: boolean;
+      accuracyRate?: number;
+      practiceSessionCount?: number;
+      practiceDelta?: number;
+    };
+
+    const nextPoint: HistoryPointCache = {
+      at: params.at ?? new Date().toISOString(),
+      score: params.score,
+      state: scoreToConfidenceState(params.score),
+      eventType: params.eventType,
+      ...(typeof params.practiceSessionCount === "number"
+        ? { practiceSessionCount: params.practiceSessionCount }
+        : {}),
+      ...(typeof params.practiceDelta === "number" ? { practiceDelta: params.practiceDelta } : {}),
+      ...(typeof params.isCorrect === "boolean" ? { isCorrect: params.isCorrect } : {}),
+      ...(typeof params.accuracyRate === "number" ? { accuracyRate: params.accuracyRate } : {}),
+    };
+
+    utils.confidence.getHistory.setData({ questionId: question.id }, (prev) => {
+      if (!prev) return prev;
+      const safePoints = (prev?.points ?? []) as HistoryPointCache[];
+      const withoutNow = safePoints.filter((point) => point.eventType !== "now");
+      const nextPoints = [...withoutNow, nextPoint];
+
+      return {
+        ...prev,
+        points: nextPoints,
+      };
+    });
+  }, [isDemo, question?.id, utils]);
+
   // 이미지 문제: 상호작용 시 practiceCount를 최소 1로 설정
   useEffect(() => {
     if (hasInteracted && practiceCount === 0) {
@@ -453,7 +576,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
   }, [hasInteracted]);
 
-  // 연속 연습 모드: 연습 박스에서 좌/우 스크롤(트랙패드 포함)로 이전/다음 문제 이동
+  // 문제 이동 모드: 연습 박스에서 좌/우 스크롤(트랙패드 포함)로 이전/다음 문제 이동
   useEffect(() => {
     if (!isScrollNavMode || isDemo) return;
     const el = scrollContainerRef.current;
@@ -572,6 +695,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     hasBeenSaved.current = false;
     autoSeededQuestionRef.current = null;
     tablePartialSavedRatioRef.current = 0;
+    autoHideCompletedLinesRef.current = new Set();
+    autoHideViewedLinesRef.current = new Set();
+    autoHidePreCompletedLinesRef.current = new Set();
+    autoHideCompletionLockRef.current = 0;
     setHideMode("none");
     setHiddenLines(new Set());
     setStartTime(null);
@@ -763,9 +890,40 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   };
 
   const toggleHideAll = useCallback(() => {
-    setHideMode((prev) => (prev === "all" ? "none" : "all"));
+    if (isImageQuestion && imageLabelsLengthRef.current > 0) {
+      const totalLabels = imageLabelsLengthRef.current;
+      const allRevealed = revealedLabelsRef.current.size >= totalLabels;
+      if (allRevealed) {
+        const hidden = new Set<number>();
+        revealedLabelsRef.current = hidden;
+        setRevealedLabels(hidden);
+        lastLabelActionRef.current = "reveal";
+      } else {
+        const shown = new Set<number>(Array.from({ length: totalLabels }, (_, i) => i));
+        revealedLabelsRef.current = shown;
+        setRevealedLabels(shown);
+        lastLabelActionRef.current = "hide";
+      }
+      return;
+    }
+    setHideMode((prev) => {
+      const next = prev === "all" ? "none" : "all";
+      if (next === "all") {
+        const sourceInput = lastInputRef.current ?? userInput;
+        autoHidePreCompletedLinesRef.current = collectCompletedTargetLineIndices(
+          sourceInput,
+          repeatStateRef.current.targetText
+        );
+      } else {
+        autoHidePreCompletedLinesRef.current = new Set();
+      }
+      return next;
+    });
     setHiddenLines(new Set());
-  }, []);
+    autoHideCompletedLinesRef.current = new Set();
+    autoHideViewedLinesRef.current = new Set();
+    autoHideCompletionLockRef.current = 0;
+  }, [isImageQuestion, userInput]);
 
   const handleImagePracticeNoteChange = useCallback((value: string) => {
     setPracticeNote(value);
@@ -793,18 +951,40 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     !isTableQuestion &&
     !isImageQuestion &&
     question?.autoNumbering === 1;
+  const firstTemplateLineForSeed = useMemo(() => {
+    const lines = targetText.split("\n");
+    return lines.find((line) => line.trim().length > 0) ?? lines[0] ?? "";
+  }, [targetText]);
   const getPracticeInputSeed = useCallback((templateLine?: string) => {
     if (!shouldAutoSeedPracticeNumbering) return "";
-    if (templateLine) {
-      const hint = getLinePrefixHint(templateLine);
+    const candidates = [templateLine, firstTemplateLineForSeed];
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const hint = getLinePrefixHint(candidate);
       if (hint?.prefix) return hint.prefix;
     }
     return "1. ";
-  }, [shouldAutoSeedPracticeNumbering]);
+  }, [firstTemplateLineForSeed, shouldAutoSeedPracticeNumbering]);
+  const isListPrefixOnlyDraft = useCallback((value: string) => {
+    const normalized = value.replace(/\r\n/g, "\n");
+    const nonEmptyLines = normalized
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter((line) => line.trim().length > 0);
+    if (nonEmptyLines.length === 0) return false;
+    return nonEmptyLines.every((line) => {
+      const trimmed = line.trim();
+      return AUTO_SEED_NUMBER_ONLY_REGEX.test(trimmed) || AUTO_SEED_BULLET_ONLY_REGEX.test(trimmed);
+    });
+  }, []);
   const useHorizontalInputLayout =
     !isImageQuestion &&
     !isTableQuestion &&
     inputLayoutPreference === "horizontal";
+  const isImageMaskActive =
+    isImageQuestion &&
+    imageLabels.length > 0 &&
+    revealedLabels.size < imageLabels.length;
   const contentBottomPaddingClass = isImageQuestion
     ? "pb-6"
     : useHorizontalInputLayout
@@ -849,12 +1029,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   useEffect(() => {
     if (!question?.id || !shouldAutoSeedPracticeNumbering) return;
     if (autoSeededQuestionRef.current === question.id) return;
-    if (userInput.trim().length > 0) {
+    const hasMeaningfulDraft = userInput.trim().length > 0 && !isListPrefixOnlyDraft(userInput);
+    if (hasMeaningfulDraft) {
       autoSeededQuestionRef.current = question.id;
       return;
     }
 
-    const seeded = "1. ";
+    const seeded = getPracticeInputSeed();
     autoSeededQuestionRef.current = question.id;
     setUserInput(seeded);
     lastInputRef.current = seeded;
@@ -868,7 +1049,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       textareaRef.current.focus();
       textareaRef.current.setSelectionRange(seeded.length, seeded.length);
     });
-  }, [question?.id, shouldAutoSeedPracticeNumbering, userInput]);
+  }, [getPracticeInputSeed, isListPrefixOnlyDraft, question?.id, shouldAutoSeedPracticeNumbering, userInput]);
   
 
 
@@ -932,23 +1113,347 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (isInitialShortcutComplete(input, target)) return true;
     return false;
   };
-  const findCompletedSentenceIndex = (input: string, target: string): number => {
+  const findCompletedSentenceIndex = (
+    input: string,
+    target: string,
+    options?: {
+      preferredUserLineIndex?: number;
+      excludeTargetLineIndices?: Set<number>;
+    }
+  ): number => {
+    const targetLines = target.split("\n");
+    const userLines = input.split("\n");
+    const excludedTargetLineIndices = options?.excludeTargetLineIndices ?? new Set<number>();
+    const preferredUserLineIndex = options?.preferredUserLineIndex ?? -1;
+
+    const candidateTargetIndices: number[] = [];
+    for (let ti = 0; ti < targetLines.length; ti++) {
+      if (excludedTargetLineIndices.has(ti)) continue;
+      if (normalizeLineForComparison(targetLines[ti] ?? "").length === 0) continue;
+      candidateTargetIndices.push(ti);
+    }
+
+    if (candidateTargetIndices.length === 0) return -1;
+
+    const tryMatchUserLine = (userLine: string, preferredTargetLineIndex?: number): number => {
+      if (normalizeLineForComparison(userLine).length === 0) return -1;
+
+      if (
+        typeof preferredTargetLineIndex === "number" &&
+        preferredTargetLineIndex >= 0 &&
+        !excludedTargetLineIndices.has(preferredTargetLineIndex) &&
+        normalizeLineForComparison(targetLines[preferredTargetLineIndex] ?? "").length > 0 &&
+        isTypingEquivalentComplete(userLine, targetLines[preferredTargetLineIndex] ?? "")
+      ) {
+        return preferredTargetLineIndex;
+      }
+
+      for (const ti of candidateTargetIndices) {
+        if (isTypingEquivalentComplete(userLine, targetLines[ti] ?? "")) {
+          return ti;
+        }
+      }
+
+      return -1;
+    };
+
+    if (preferredUserLineIndex >= 0 && preferredUserLineIndex < userLines.length) {
+      const preferredMatched = tryMatchUserLine(
+        userLines[preferredUserLineIndex] ?? "",
+        preferredUserLineIndex
+      );
+      if (preferredMatched >= 0) return preferredMatched;
+    }
+
+    for (let ui = userLines.length - 1; ui >= 0; ui--) {
+      if (ui === preferredUserLineIndex) continue;
+      const userLine = userLines[ui] ?? "";
+      const matched = tryMatchUserLine(userLine, ui);
+      if (matched >= 0) return matched;
+    }
+
+    return -1;
+  };
+
+  const markLineViewedInAutoHide = (lineIdx: number) => {
+    if (hideMode !== "all") return;
+    const next = new Set(autoHideViewedLinesRef.current);
+    next.add(lineIdx);
+    autoHideViewedLinesRef.current = next;
+  };
+
+  const collectCompletedTargetLineIndices = (
+    input: string,
+    target: string,
+    options?: {
+      excludeTargetLineIndices?: Set<number>;
+    }
+  ): Set<number> => {
+    const excludedTargetLineIndices = options?.excludeTargetLineIndices ?? new Set<number>();
+    const completed = new Set<number>();
     const targetLines = target.split("\n");
     const userLines = input.split("\n");
 
-    for (let ui = userLines.length - 1; ui >= 0; ui--) {
-      const userLine = userLines[ui] ?? "";
-      if (normalizeLineForComparison(userLine).length === 0) continue;
-      for (let ti = 0; ti < targetLines.length; ti++) {
-        const targetLine = targetLines[ti] ?? "";
-        if (normalizeLineForComparison(targetLine).length === 0) continue;
+    for (let ti = 0; ti < targetLines.length; ti++) {
+      if (excludedTargetLineIndices.has(ti)) continue;
+      const targetLine = targetLines[ti] ?? "";
+      if (normalizeLineForComparison(targetLine).length === 0) continue;
+      for (let ui = 0; ui < userLines.length; ui++) {
+        const userLine = userLines[ui] ?? "";
         if (isTypingEquivalentComplete(userLine, targetLine)) {
-          return ti;
+          completed.add(ti);
+          break;
         }
       }
     }
 
-    return -1;
+    return completed;
+  };
+
+  const getAutoHideExcludedLineIndices = () => {
+    const merged = new Set<number>(autoHideCompletedLinesRef.current);
+    autoHidePreCompletedLinesRef.current.forEach((idx) => merged.add(idx));
+    return merged;
+  };
+
+  const seedPracticeInput = (seeded: string) => {
+    isResettingRef.current = true;
+    setIsComposing(false);
+    setUserInput(seeded);
+    lastInputRef.current = seeded;
+    setInputHistory([seeded]);
+    setHistoryIndex(0);
+    setCurrentCursorLineIndex(0);
+    const now = Date.now();
+    setLastInputTime(now);
+    if (!isActive) setIsActive(true);
+    if (!startTime) setStartTime(now);
+    setCurrentContinuousStartAt(now);
+
+    if (textareaRef.current) {
+      textareaRef.current.value = seeded;
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(seeded.length, seeded.length);
+    }
+
+    requestAnimationFrame(() => {
+      isResettingRef.current = false;
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(seeded.length, seeded.length);
+      }
+    });
+  };
+
+  const applySentencePracticeReward = (params: {
+    typedLength: number;
+    completionRatio: number;
+    wasBlind: boolean;
+  }) => {
+    const { typedLength, completionRatio, wasBlind } = params;
+    setPracticeCount((prev) => prev + 1);
+
+    if (question && !isDemo) {
+      const baselineScore =
+        confidenceScoreForAnimationRef.current ??
+        Math.round(confidenceData?.displayScore ?? 0);
+      const minutesUntilExam = (confidenceData as any)?.examDatePrediction?.minutesUntilExam;
+      const daysUntilExam = (confidenceData as any)?.examDatePrediction?.daysUntilExam;
+      const estimatedHoursUntilExam =
+        typeof minutesUntilExam === "number"
+          ? minutesUntilExam / 60
+          : typeof daysUntilExam === "number"
+            ? daysUntilExam * 24
+            : null;
+
+      const baseDelta = estimatePracticeConfidenceDelta({
+        currentScore: baselineScore,
+        sessionPracticeCount: sessionCompleteCount + 1,
+        totalPracticeCount: (practiceCountData?.count || 0) + practiceCount + 1,
+        hoursUntilExam: estimatedHoursUntilExam,
+      });
+      const ratioWeight = Math.max(0.35, Math.min(1.25, 0.45 + completionRatio * 1.05));
+      const visibilityWeight = wasBlind ? 1 : 0.42;
+      const scaledDelta = Math.round(baseDelta * ratioWeight * visibilityWeight);
+      const estimatedDelta = Math.max(wasBlind ? 2 : 1, scaledDelta);
+
+      const optimisticScore = Math.max(0, Math.min(100, baselineScore + estimatedDelta));
+      confidenceScoreForAnimationRef.current = optimisticScore;
+      setOptimisticDisplayScore(optimisticScore);
+      appendOptimisticConfidenceHistoryPoint({
+        eventType: "practice",
+        score: optimisticScore,
+        practiceSessionCount: (practiceCountData?.count || 0) + practiceCount + 1,
+        practiceDelta: estimatedDelta,
+      });
+      setShowDamageNumber(false);
+      requestAnimationFrame(() => {
+        setDamageValue(estimatedDelta);
+        setShowDamageNumber(true);
+      });
+
+      (async () => {
+        try {
+          const durationWeight = Math.max(
+            0.16,
+            Math.min(1.1, (wasBlind ? 0.95 : 0.35) * (0.42 + completionRatio * 1.08))
+          );
+          const duration = Math.max(1, Math.round(Math.max(elapsedTime, 1) * durationWeight));
+          const timeInMinutes = duration / 60;
+          const typingSpeed = timeInMinutes > 0 ? Math.round(Math.max(typedLength, 1) / timeInMinutes) : 0;
+          await createSession.mutateAsync({
+            questionId: question.id,
+            duration,
+            typingSpeed,
+            accuracy: wasBlind ? 100 : 84,
+            errorCount: wasBlind ? 0 : 1,
+          });
+          await Promise.all([
+            utils.confidence.getByQuestion.invalidate({ questionId: question.id }),
+            utils.confidence.getHistory.invalidate({ questionId: question.id }),
+            utils.practice.countByQuestion.invalidate({ questionId: question.id }),
+          ]);
+          const [latestConfidence] = await Promise.all([
+            utils.confidence.getByQuestion.fetch({ questionId: question.id }),
+            utils.confidence.getHistory.fetch({ questionId: question.id }),
+          ]);
+          const latestScore = Math.round(latestConfidence?.displayScore ?? optimisticScore);
+          confidenceScoreForAnimationRef.current = latestScore;
+          setOptimisticDisplayScore(latestScore);
+        } catch (error) {
+          console.error("문장 단위 연습 기록 저장 실패:", error);
+        }
+      })();
+    }
+
+    if (isDemo && question) {
+      const storageKey = `demo_practice_count_${question.id}`;
+      const currentCount = parseInt(localStorage.getItem(storageKey) || "0", 10);
+      localStorage.setItem(storageKey, String(currentCount + 1));
+    }
+  };
+
+  const movePracticeCursorToLine = (baseInputValue: string, lineIdx: number) => {
+    const safeLineIdx = Math.max(0, lineIdx);
+    const targetLines = repeatStateRef.current.targetText.split("\n");
+    const lines = baseInputValue.replace(/\r\n/g, "\n").split("\n");
+
+    while (lines.length <= safeLineIdx) {
+      lines.push("");
+    }
+
+    const hintPrefix = getLinePrefixHint(targetLines[safeLineIdx] ?? "")?.prefix;
+    if (hintPrefix && lines[safeLineIdx].trim().length === 0) {
+      lines[safeLineIdx] = hintPrefix;
+    }
+
+    const nextValue = lines.join("\n");
+    const lineStartOffset = lines
+      .slice(0, safeLineIdx)
+      .reduce((sum, line) => sum + line.length + 1, 0);
+    const nextCursor = lineStartOffset + (lines[safeLineIdx]?.length ?? 0);
+
+    if (nextValue !== baseInputValue) {
+      setUserInput(nextValue);
+      lastInputRef.current = nextValue;
+      setInputHistory((prev) => {
+        const newHistory = prev.slice(0, historyIndex + 1);
+        if (newHistory[newHistory.length - 1] !== nextValue) {
+          newHistory.push(nextValue);
+          if (newHistory.length > 50) newHistory.shift();
+        }
+        return newHistory;
+      });
+      setHistoryIndex((prev) => Math.min(prev + 1, 49));
+    }
+
+    setCurrentCursorLineIndex(safeLineIdx);
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) return;
+      if (nextValue !== baseInputValue) {
+        textareaRef.current.value = nextValue;
+      }
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(nextCursor, nextCursor);
+    });
+  };
+
+  const handleAutoHideSentenceCompletion = (
+    completedSentenceIndex: number,
+    inputValue: string,
+    preferredUserLineIndex?: number
+  ) => {
+    if (completedSentenceIndex < 0) return;
+    const now = Date.now();
+    if (now - autoHideCompletionLockRef.current < 160) return;
+    autoHideCompletionLockRef.current = now;
+
+    const targetLines = repeatStateRef.current.targetText.split("\n");
+    const normalizedLengths = targetLines.map((line) => normalizeLineForComparison(line).length);
+    const nonEmptyIndices = normalizedLengths
+      .map((len, idx) => (len > 0 ? idx : -1))
+      .filter((idx) => idx >= 0);
+    if (!nonEmptyIndices.includes(completedSentenceIndex)) return;
+
+    const completedSet = new Set(autoHideCompletedLinesRef.current);
+    if (completedSet.has(completedSentenceIndex)) return;
+    const preCompletedSet = autoHidePreCompletedLinesRef.current;
+    if (preCompletedSet.has(completedSentenceIndex)) return;
+
+    const wasBlind = !autoHideViewedLinesRef.current.has(completedSentenceIndex);
+    completedSet.add(completedSentenceIndex);
+    autoHideCompletedLinesRef.current = completedSet;
+    const resolvedSet = new Set<number>(preCompletedSet);
+    completedSet.forEach((idx) => resolvedSet.add(idx));
+
+    setHiddenLines((prev) => {
+      const next = new Set(prev);
+      next.add(completedSentenceIndex);
+      return next;
+    });
+
+    const totalChars = Math.max(
+      1,
+      nonEmptyIndices.reduce((sum, idx) => sum + Math.max(1, normalizedLengths[idx]), 0)
+    );
+    const lineChars = Math.max(1, normalizedLengths[completedSentenceIndex] || 1);
+    const completionRatio = lineChars / totalChars;
+
+    applySentencePracticeReward({
+      typedLength: inputValue.length,
+      completionRatio,
+      wasBlind,
+    });
+
+    const isCycleComplete = nonEmptyIndices.every((idx) => resolvedSet.has(idx));
+    if (isCycleComplete) {
+      const nextSessionCount = sessionCompleteCount + 1;
+      setSessionCompleteCount(nextSessionCount);
+      if (nextSessionCount === 3) {
+        setShowTestNudge(true);
+      }
+
+      const keepAutoHide = nextSessionCount >= 3;
+      setHideMode(keepAutoHide ? "all" : "none");
+      setHiddenLines(new Set());
+      autoHideCompletedLinesRef.current = new Set();
+      autoHideViewedLinesRef.current = new Set();
+      autoHidePreCompletedLinesRef.current = new Set();
+
+      const firstLineIdx = nonEmptyIndices[0] ?? 0;
+      const firstLine = targetLines[firstLineIdx] ?? "";
+      const seeded = keepAutoHide ? getPracticeInputSeed(firstLine) : getPracticeInputSeed();
+      seedPracticeInput(seeded);
+      return;
+    }
+
+    const unresolved = nonEmptyIndices.filter((idx) => !resolvedSet.has(idx));
+    const nextLineIdx =
+      unresolved.find((idx) => idx > completedSentenceIndex) ??
+      unresolved.find((idx) => idx !== preferredUserLineIndex) ??
+      unresolved[0] ??
+      completedSentenceIndex;
+    movePracticeCursorToLine(inputValue, nextLineIdx);
   };
 
   // 표 모드: 코어 함수들 (컨포넌트 레벨)
@@ -1193,8 +1698,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       });
       hasBeenSaved.current = true;
       tablePartialSavedRatioRef.current = ratio;
-      await utils.confidence.getByQuestion.invalidate({ questionId: question.id });
-      await utils.practice.countByQuestion.invalidate({ questionId: question.id });
+      await Promise.all([
+        utils.confidence.getByQuestion.invalidate({ questionId: question.id }),
+        utils.confidence.getHistory.invalidate({ questionId: question.id }),
+        utils.practice.countByQuestion.invalidate({ questionId: question.id }),
+      ]);
     } catch (error) {
       console.error("표 부분 연습 기록 저장 실패:", error);
     }
@@ -1277,22 +1785,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
         e.preventDefault();
         e.stopPropagation();
-
-        if (isImageQuestion && imageLabels.length > 0) {
-          if (lastLabelActionRef.current === "reveal") {
-            const len = imageLabelsLengthRef.current;
-            const indices = Array.from({ length: len }, (_, i) => i);
-            revealedLabelsRef.current = new Set<number>(indices);
-            setRevealedLabelsRef.current?.(new Set<number>(indices));
-            lastLabelActionRef.current = "hide";
-          } else {
-            revealedLabelsRef.current = new Set<number>();
-            setRevealedLabelsRef.current?.(new Set<number>());
-            lastLabelActionRef.current = "reveal";
-          }
-        } else {
-          toggleHideAll();
-        }
+        toggleHideAll();
         return;
       }
 
@@ -1329,6 +1822,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
     // 조합 완료 후 입력값 처리
     const newValue = e.currentTarget.value;
+    const cursorPos = e.currentTarget.selectionStart ?? newValue.length;
+    const lineIndex = newValue.substring(0, cursorPos).split('\n').length - 1;
+    setCurrentCursorLineIndex(Math.max(0, lineIndex));
     setUserInput(newValue);
     setLastInputTime(Date.now());
     lastInputRef.current = newValue;
@@ -1413,11 +1909,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (!isTableQuestion && !isImageQuestion) {
       const currentTargetText = repeatStateRef.current.targetText;
       if (hideMode === "all") {
-        const completedSentenceIndex = findCompletedSentenceIndex(newValue, currentTargetText);
+        const completedSentenceIndex = findCompletedSentenceIndex(newValue, currentTargetText, {
+          preferredUserLineIndex: Math.max(0, lineIndex),
+          excludeTargetLineIndices: getAutoHideExcludedLineIndices(),
+        });
         if (completedSentenceIndex >= 0) {
-          setHideMode("none");
-          setHiddenLines(new Set());
-          handleCorrectAnswer(newValue.length);
+          handleAutoHideSentenceCompletion(
+            completedSentenceIndex,
+            newValue,
+            Math.max(0, lineIndex)
+          );
           return;
         }
       }
@@ -1559,11 +2060,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (!isTableQuestion && !isImageQuestion) {
       const currentTargetText = repeatStateRef.current.targetText;
       if (hideMode === "all") {
-        const completedSentenceIndex = findCompletedSentenceIndex(newValue, currentTargetText);
+        const completedSentenceIndex = findCompletedSentenceIndex(newValue, currentTargetText, {
+          preferredUserLineIndex: Math.max(0, lineIndex),
+          excludeTargetLineIndices: getAutoHideExcludedLineIndices(),
+        });
         if (completedSentenceIndex >= 0) {
-          setHideMode("none");
-          setHiddenLines(new Set());
-          handleCorrectAnswer(newValue.length);
+          handleAutoHideSentenceCompletion(
+            completedSentenceIndex,
+            newValue,
+            Math.max(0, lineIndex)
+          );
           return;
         }
       }
@@ -1639,10 +2145,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const currentPracticeTitle = useMemo(() => {
     if (isActive && currentContinuousStartAt) {
       const at = formatPracticeDateTime(currentContinuousStartAt);
-      if (at) return `연속 진행 시작: ${at}`;
+      if (at) return `${isRandomNavMode ? "랜덤" : "연속"} 진행 시작: ${at}`;
     }
-    return "현재 진행 중인 연속 연습 세션이 없습니다.";
-  }, [isActive, currentContinuousStartAt, formatPracticeDateTime]);
+    return `현재 진행 중인 ${isRandomNavMode ? "랜덤" : "연속"} 연습 세션이 없습니다.`;
+  }, [isActive, currentContinuousStartAt, formatPracticeDateTime, isRandomNavMode]);
   const cumulativePracticeTitle = useMemo(() => {
     const at = formatPracticeDateTime(latestCompletedPracticeAt);
     if (at) return `가장 최근 연습 완료: ${at}`;
@@ -1783,15 +2289,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const selectionStart = textarea.selectionStart ?? 0;
         const selectionEnd = textarea.selectionEnd ?? selectionStart;
         const rawValue = textarea.value;
-        const forcedPrefix = getForcedPrefixByTemplateProgress(
-          rawValue,
-          selectionStart,
-          targetText
-        );
-        const autoNumberingOptions =
-          typeof forcedPrefix === "string"
-            ? { forcedPrefix }
-            : undefined;
+        const cursorLineIndex = rawValue.slice(0, selectionStart).split('\n').length - 1;
+        const targetLines = targetText.split('\n');
+        const templateNextLine = targetLines[Math.min(cursorLineIndex + 1, Math.max(0, targetLines.length - 1))] ?? "";
+        const templateForcedPrefix =
+          getForcedPrefixByTemplateProgress(rawValue, selectionStart, targetText) ??
+          getLinePrefixHint(templateNextLine)?.prefix;
+        const autoNumberingOptions = {
+          preserveEmptyListLine: true,
+          ...(typeof templateForcedPrefix === "string" ? { forcedPrefix: templateForcedPrefix } : {}),
+        };
 
         const { nextValue, nextCursor } = buildNextAutoNumberingValue(
           rawValue,
@@ -1976,17 +2483,20 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const handleCorrectAnswer = (currentInputLength?: number) => {
     if (isResettingRef.current || isFadingOut) return;
     setPracticeCount(prev => prev + 1);
-    
-    // sessionCompleteCount 증가 + 3회 달성 시 백지시험 제안
-    setSessionCompleteCount(prev => {
-      const next = prev + 1;
-      if (next === 3) {
-        setShowTestNudge(true);
-        setHideMode("all");
-        setHiddenLines(new Set());
-      }
-      return next;
-    });
+    const nextSessionCount = sessionCompleteCount + 1;
+    const shouldKeepAutoHide = nextSessionCount >= 3;
+    autoHideCompletedLinesRef.current = new Set();
+    autoHideViewedLinesRef.current = new Set();
+    autoHidePreCompletedLinesRef.current = new Set();
+    autoHideCompletionLockRef.current = 0;
+    setSessionCompleteCount(nextSessionCount);
+    if (nextSessionCount === 3) {
+      setShowTestNudge(true);
+    }
+    if (shouldKeepAutoHide) {
+      setHideMode("all");
+      setHiddenLines(new Set());
+    }
     
     // 페이드아웃 애니메이션을 즉시 시작 (네트워크 요청 기다리지 않음)
     // 0.15초 delay 후 글자 색상 fade out 시작
@@ -2044,6 +2554,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const optimisticScore = Math.max(0, Math.min(100, baselineScore + estimatedDelta));
       confidenceScoreForAnimationRef.current = optimisticScore;
       setOptimisticDisplayScore(optimisticScore);
+      appendOptimisticConfidenceHistoryPoint({
+        eventType: "practice",
+        score: optimisticScore,
+        practiceSessionCount: (practiceCountData?.count || 0) + practiceCount + 1,
+        practiceDelta: estimatedDelta,
+      });
       setShowDamageNumber(false);
       requestAnimationFrame(() => {
         setDamageValue(estimatedDelta);
@@ -2061,12 +2577,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             accuracy: 100,
             errorCount: 0,
           });
-          // 캐시 무효화
-          await utils.confidence.getByQuestion.invalidate({ questionId: question.id });
-          await utils.practice.countByQuestion.invalidate({ questionId: question.id });
+          await Promise.all([
+            utils.confidence.getByQuestion.invalidate({ questionId: question.id }),
+            utils.confidence.getHistory.invalidate({ questionId: question.id }),
+            utils.practice.countByQuestion.invalidate({ questionId: question.id }),
+          ]);
 
-          // 실제 반영값을 직접 fetch해서 최신 점수 확보
-          const latestConfidence = await utils.confidence.getByQuestion.fetch({ questionId: question.id });
+          // 실제 반영값을 직접 fetch해서 최신 점수/그래프 동기화
+          const [latestConfidence] = await Promise.all([
+            utils.confidence.getByQuestion.fetch({ questionId: question.id }),
+            utils.confidence.getHistory.fetch({ questionId: question.id }),
+          ]);
           const latestScore = Math.round(latestConfidence?.displayScore ?? optimisticScore);
           confidenceScoreForAnimationRef.current = latestScore;
           setOptimisticDisplayScore(latestScore);
@@ -2219,6 +2740,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     
     return { lineResults, currentLineIndex, userLines, targetLines };
   }, [userInput, targetText, renderTrigger, currentCursorLineIndex, repeatCheckedLines, repeatCurrentIdx]);
+  const activePracticeLineNumber = Math.max(1, completionInfo.currentLineIndex + 1);
+
+  useEffect(() => {
+    setLineIndicatorPulse(true);
+    const timer = setTimeout(() => setLineIndicatorPulse(false), 900);
+    return () => clearTimeout(timer);
+  }, [activePracticeLineNumber]);
 
   // 실시간 단어 뷰: 줄 단위 opacity 계산
   const calculateLineOpacity = useMemo(() => {
@@ -2265,16 +2793,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       
       if (isLineHidden) {
         // 가려진 줄: 클릭하면 해당 줄만 보이기
-        const revealLine = (e: React.MouseEvent) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setHiddenLines(prev => {
-            const next = new Set(prev);
-            if (next.has(lineIdx)) next.delete(lineIdx);
-            else next.add(lineIdx);
-            return next;
-          });
-        };
+          const revealLine = (e: React.MouseEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setHiddenLines(prev => {
+              const next = new Set(prev);
+              const isCurrentlyRevealed = next.has(lineIdx);
+              if (isCurrentlyRevealed) {
+                next.delete(lineIdx);
+              } else {
+                next.add(lineIdx);
+                markLineViewedInAutoHide(lineIdx);
+              }
+              return next;
+            });
+          };
         return (
           <div
             key={`line-${lineIdx}`}
@@ -2332,7 +2865,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           );
         } else if (charState === 'wrong') {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-red-500 relative font-semibold text-xl" style={{ opacity: 1 }}>
+            <span
+              key={`${lineIdx}-${charIndex}`}
+              className="relative font-semibold text-xl"
+              style={{ opacity: 1, color: "var(--status-danger)" }}
+            >
               {char}
             </span>
           );
@@ -2368,7 +2905,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           // 답 가리기 모드이거나 이미 가려진 줄: 개별 토글
           setHiddenLines(prev => {
             const next = new Set(prev);
-            if (next.has(lineIdx)) next.delete(lineIdx); else next.add(lineIdx);
+            const isCurrentlyRevealed = next.has(lineIdx);
+            if (isCurrentlyRevealed) {
+              next.delete(lineIdx);
+            } else {
+              next.add(lineIdx);
+              markLineViewedInAutoHide(lineIdx);
+            }
             return next;
           });
         } else if (canSelectLine) {
@@ -2392,7 +2935,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           : isCurrentRepeat
           ? '3px solid oklch(0.55 0.2 290)'
           : isWrongLine
-          ? '3px solid oklch(0.55 0.22 25)'
+          ? '3px solid var(--status-danger-soft-border)'
           : canSelectLine
           ? '3px solid transparent'
           : 'none',
@@ -2401,7 +2944,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           : isChecked
           ? 'oklch(0.55 0.2 290 / 0.07)'
           : isWrongLine
-          ? 'oklch(0.97 0.02 25 / 0.6)'
+          ? 'var(--status-danger-soft-bg)'
           : 'transparent',
         borderRadius: '2px',
         marginLeft: '0',
@@ -2498,7 +3041,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span title={currentPracticeTitle}>{practiceCountDisplay} 현재</span>
             <span title={cumulativePracticeTitle}>{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)} 누적</span>
-            <Circle className={`h-2 w-2 ${isActive ? "fill-green-500 text-green-500" : "fill-red-500 text-red-500"}`} />
+            <Circle
+              className={`h-2 w-2 ${
+                isActive
+                  ? "fill-green-500 text-green-500"
+                  : "fill-rose-500 text-rose-500 dark:fill-rose-400 dark:text-rose-400"
+              }`}
+            />
           </div>
         </div>
       ) : (
@@ -2531,17 +3080,31 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 title="안정도 변화 그래프 보기"
                 onClick={() => setShowConfidenceHistory(true)}
               >
-                <span className="font-bold tabular-nums text-sm" style={{
-                  color: displayedConfidenceState === 'green' ? '#10b981' : displayedConfidenceState === 'yellow' ? '#f59e0b' : '#ef4444'
-                }}>{displayedConfidenceScore}점</span>
-                <span className="text-xs text-muted-foreground">안정도↗</span>
+                <span
+                  className="font-bold tabular-nums text-sm"
+                  style={{
+                    color:
+                      displayedConfidenceState === "green"
+                        ? SCORE_STATE_COLOR.green
+                        : displayedConfidenceState === "yellow"
+                          ? SCORE_STATE_COLOR.yellow
+                          : SCORE_STATE_COLOR.red,
+                  }}
+                >
+                  {displayedConfidenceScore}점
+                </span>
+                <span className="text-xs text-muted-foreground">안정도</span>
               </button>
             )}
 
             {/* 시험일 예측 */}
             {!isDemo && (confidenceData as any)?.examDatePrediction && (() => {
               const pred = (confidenceData as any).examDatePrediction;
-              const stateColor = pred.predictedState === 'green' ? '#10b981' : pred.predictedState === 'yellow' ? '#f59e0b' : '#ef4444';
+              const stateColor = pred.predictedState === 'green'
+                ? SCORE_STATE_COLOR.green
+                : pred.predictedState === 'yellow'
+                  ? SCORE_STATE_COLOR.yellow
+                  : SCORE_STATE_COLOR.red;
               const minutesToExam = typeof pred.minutesUntilExam === "number"
                 ? pred.minutesUntilExam
                 : (typeof pred.daysUntilExam === "number" ? pred.daysUntilExam * 24 * 60 : 0);
@@ -2560,7 +3123,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     <span className="text-muted-foreground">{remainingLabel}</span>
                     <span className="font-semibold" style={{ color: stateColor }}>{pred.predictedScore}점</span>
                     {pred.scoreDelta !== 0 && (
-                      <span className={pred.scoreDelta < 0 ? "text-red-400 font-medium" : "text-emerald-500 font-medium"}>
+                      <span className={pred.scoreDelta < 0 ? "text-rose-400 font-medium" : "text-emerald-500 font-medium"}>
                         ({pred.scoreDelta > 0 ? `+${pred.scoreDelta}` : pred.scoreDelta})
                       </span>
                     )}
@@ -2575,14 +3138,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             {/* 측정 상태 표시 */}
             <div className="flex items-center gap-1 shrink-0">
               <div className="relative w-4 h-4 flex items-center justify-center flex-shrink-0">
-                <div className={`h-2 w-2 rounded-full z-10 relative ${isActive ? 'bg-green-500' : 'bg-red-500'}`} />
+                <div className={`h-2 w-2 rounded-full z-10 relative ${isActive ? 'bg-green-500' : 'bg-rose-500 dark:bg-rose-400'}`} />
                 {isActive ? (
                   <div className="absolute inset-0 rounded-full bg-green-500/30 animate-ping" style={{animationDuration: '1.5s'}} />
                 ) : (
-                  <div className="absolute inset-0 rounded-full bg-red-500/20 animate-pulse" style={{animationDuration: '2s'}} />
+                  <div className="absolute inset-0 rounded-full bg-rose-500/20 dark:bg-rose-400/20 animate-pulse" style={{animationDuration: '2s'}} />
                 )}
               </div>
-              <span className={`text-[10px] font-medium whitespace-nowrap ${isActive ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+              <span className={`text-[10px] font-medium whitespace-nowrap ${isActive ? 'text-green-600 dark:text-green-400' : 'text-rose-500 dark:text-rose-400'}`}>
                 {isActive ? '측정중' : '중단됨'}
               </span>
             </div>
@@ -2648,7 +3211,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </div>
       )}
 
-      {!isDemo && subjectQuestions && subjectQuestions.length > 1 && (
+      {!isDemo && orderedSubjectQuestions && orderedSubjectQuestions.length > 1 && (
         <div className="mb-2 flex items-center justify-center">
           <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-2 py-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85">
             {prevQuestion ? (
@@ -2665,7 +3228,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               <span className="h-7 w-7 xl:hidden" aria-hidden="true" />
             )}
             <span className="text-xs font-semibold tabular-nums">
-              {Math.max(1, currentIndex + 1)} / {subjectQuestions.length}
+              {Math.max(1, currentIndex + 1)} / {totalQuestions}
             </span>
             <span className="hidden sm:inline text-[10px] text-muted-foreground">문제 이동</span>
             <input
@@ -2683,7 +3246,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               }}
               aria-label="문제 번호 이동"
             />
-            <span className="text-[10px] text-muted-foreground">/ {subjectQuestions.length}</span>
+            <span className="text-[10px] text-muted-foreground">/ {totalQuestions}</span>
             {nextQuestion ? (
               <Button
                 variant="ghost"
@@ -2703,7 +3266,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
       <div
         className={`relative ${
-          !isDemo && subjectQuestions && subjectQuestions.length > 1
+          !isDemo && orderedSubjectQuestions && orderedSubjectQuestions.length > 1
             ? "xl:px-14"
             : ""
         }`}
@@ -2711,14 +3274,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       <Card className={isImageQuestion ? 'shadow-none border-0' : 'shadow-elegant'}>
         {!isImageQuestion && (
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <CardTitle>{question.question}</CardTitle>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start gap-2 flex-wrap">
+                  <CardTitle className="max-w-full whitespace-pre-line break-words leading-snug [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
+                    {question.question}
+                  </CardTitle>
                   {!isDemo && confidenceData?.badges && (
                     <div className="ml-1 flex items-center gap-1">
                       {confidenceData.badges.lastTestWrong && (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-rose-100 text-rose-700 dark:bg-rose-950/35 dark:text-rose-300">
                           오답
                         </span>
                       )}
@@ -2743,7 +3308,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                                   {confidenceData.warnZoneLines.map((wz: { lineIndex: number; wrongCount: number }) => (
                                     <li key={wz.lineIndex} className="flex items-center justify-between px-2 py-1.5 rounded bg-yellow-50 dark:bg-yellow-900/20">
                                       <span className="text-xs font-medium text-yellow-800 dark:text-yellow-300">{wz.lineIndex}번째 줄</span>
-                                      <span className="text-xs font-bold text-red-500">{wz.wrongCount}회 오답</span>
+                                      <span className="text-xs font-bold text-rose-500 dark:text-rose-400">{wz.wrongCount}회 오답</span>
                                     </li>
                                   ))}
                                 </ul>
@@ -2764,12 +3329,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 )}
               </div>
               {!isImageQuestion && (
-                <div className="flex items-center gap-2">
+                <div className="flex max-w-full shrink-0 flex-wrap items-start justify-end gap-1.5">
                   {!isTableQuestion && (
-                    <div className="inline-flex items-center rounded-md border border-border bg-muted/40 p-0.5">
+                    <div className="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/40 p-0.5">
                       <button
                         type="button"
-                        className={`h-6 rounded px-2 text-[11px] font-medium transition-colors ${
+                        className={`h-6 min-w-[2.7rem] shrink-0 whitespace-nowrap rounded px-2 text-[11px] leading-none font-medium transition-colors ${
                           inputLayoutPreference === "horizontal" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                         }`}
                         onClick={() => setInputLayoutPreference("horizontal")}
@@ -2778,7 +3343,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       </button>
                       <button
                         type="button"
-                        className={`h-6 rounded px-2 text-[11px] font-medium transition-colors ${
+                        className={`h-6 min-w-[2.7rem] shrink-0 whitespace-nowrap rounded px-2 text-[11px] leading-none font-medium transition-colors ${
                           inputLayoutPreference === "vertical" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                         }`}
                         onClick={() => setInputLayoutPreference("vertical")}
@@ -3015,11 +3580,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 <Button
                   variant="ghost"
                   size="sm"
-                  className={`h-8 gap-1.5 text-xs ${hideMode === 'all' ? 'bg-amber-500/10 text-amber-600' : ''}`}
+                  className={`h-8 gap-1.5 text-xs ${isImageMaskActive ? 'bg-amber-500/10 text-amber-600' : ''}`}
                   onClick={toggleHideAll}
                 >
-                  {hideMode === 'all' ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                  {hideMode === 'all' ? '가림막 해제' : '가림막'}
+                  {isImageMaskActive ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                  {isImageMaskActive ? '가림막 해제' : '가림막'}
                 </Button>
                 <span className="text-[11px] text-muted-foreground">
                   가림막 전환: <kbd className="rounded border px-1 py-0.5 text-[10px]">Tab</kbd>
@@ -3220,7 +3785,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             /* Text question with visual feedback */
             <>
               {/* 가로 모드/메모 모드: 정답 우측에 패널 배치 */}
-              <div className={memoOpen || useHorizontalInputLayout ? `flex flex-col xl:flex-row gap-4 items-stretch ${useHorizontalInputLayout ? "xl:min-h-[66vh]" : ""}` : ""}>
+              <div
+                className={
+                  memoOpen || useHorizontalInputLayout
+                    ? useHorizontalInputLayout
+                      ? "flex flex-row gap-4 items-stretch min-h-[66vh] overflow-x-auto"
+                      : "flex flex-col gap-4 items-stretch"
+                    : ""
+                }
+              >
                 <div className={memoOpen || useHorizontalInputLayout ? "flex-1 min-w-0" : ""}>
                   <div
                     ref={answerDisplayRef}
@@ -3243,10 +3816,20 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
                 {/* 가로 모드 입력 패널: 답안 우측 빈 공간 활용 */}
                 {useHorizontalInputLayout && (
-                  <div className="w-full xl:w-[42%] xl:min-w-[420px] rounded-xl border-2 border-border bg-background py-3 flex flex-col gap-2">
+                  <div className="w-[42%] min-w-[300px] max-w-[560px] rounded-xl border-2 border-border bg-background py-3 flex flex-col gap-2">
                     <div className="px-5 text-xs text-muted-foreground">연습장 입력</div>
                     <div className="px-5 text-[11px] text-muted-foreground">
                       띄어쓰기·엔터·한/영 전환 없이 써도 되고, 초성 입력도 인정돼요.
+                    </div>
+                    <div
+                      key={`line-indicator-horizontal-${activePracticeLineNumber}`}
+                      className={`px-5 text-[11px] transition-all duration-700 ${
+                        lineIndicatorPulse
+                          ? "opacity-100 text-primary"
+                          : "opacity-65 text-muted-foreground"
+                      }`}
+                    >
+                      현재 {activePracticeLineNumber}번째 줄 연습 중
                     </div>
                     <div className="px-5">
                       <textarea
@@ -3258,7 +3841,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
                         onKeyUp={handleKeyUp}
-                        className="w-full flex-1 rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm leading-6 px-5 py-3"
+                        className="w-full flex-1 rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-xl font-semibold leading-[1.85] tracking-tight px-5 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
                         style={{
                           minHeight: `${horizontalInputMinHeightPx}px`,
                           maxHeight: "74vh",
@@ -3315,7 +3898,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           )}
         </CardContent>
       </Card>
-      {!isDemo && subjectQuestions && subjectQuestions.length > 1 && (
+      {!isDemo && orderedSubjectQuestions && orderedSubjectQuestions.length > 1 && (
         <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-30 hidden xl:block">
           {prevQuestion && (
             <Button
@@ -3412,7 +3995,19 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           <div className="mx-auto w-full max-w-[1360px] px-2 sm:px-3 lg:px-4">
             <div className="mt-2 shrink-0 rounded-t-2xl border-x border-t border-border bg-background/95 px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 shadow-[0_-10px_24px_rgba(0,0,0,0.08)] backdrop-blur supports-[backdrop-filter]:bg-background/85 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">연습장 모드: 띄어쓰기·엔터·한/영 전환 없이 입력해도 돼요. 초성 입력도 인정됩니다.</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-muted-foreground">연습장 모드: 띄어쓰기·엔터·한/영 전환 없이 입력해도 돼요. 초성 입력도 인정됩니다.</span>
+                  <span
+                    key={`line-indicator-vertical-${activePracticeLineNumber}`}
+                    className={`text-[11px] transition-all duration-700 ${
+                      lineIndicatorPulse
+                        ? "opacity-100 text-primary"
+                        : "opacity-65 text-muted-foreground"
+                    }`}
+                  >
+                    {activePracticeLineNumber}번째 줄 연습 중
+                  </span>
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">연습 {practiceCount}회</span>
                 </div>
@@ -3428,7 +4023,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   onKeyUp={handleKeyUp}
-                  className="w-full rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm leading-6 px-5 py-3"
+                  className="w-full rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-xl font-semibold leading-[1.85] tracking-tight px-5 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
                   style={{
                     minHeight: `${inputPanelMinHeightPx}px`,
                     maxHeight: "320px",

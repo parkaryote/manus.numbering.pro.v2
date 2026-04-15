@@ -18,6 +18,9 @@ import Demo from "./pages/Demo";
 import AdminDemoManagement from "./pages/AdminDemoManagement";
 import SubjectExam from "./pages/SubjectExam";
 import Login from "./pages/Login";
+import SharedSubject from "./pages/SharedSubject";
+import { useBetaTelemetry } from "./hooks/useBetaTelemetry";
+import { useVercelAnalytics } from "./hooks/useVercelAnalytics";
 
 const GUEST_ID_KEY = "numbering_guest_id";
 const RECENT_AUTH_AT_KEY = "numbering_recent_auth_at";
@@ -105,6 +108,37 @@ function RouteRedirect({ to }: { to: string }) {
   return null;
 }
 
+function hashSeedToInt(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function seededRandomFactory(seed: string): () => number {
+  let a = hashSeedToInt(seed) || 1;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleBySeed<T>(items: T[], seed: string): T[] {
+  if (items.length <= 1) return [...items];
+  const result = [...items];
+  const random = seededRandomFactory(seed);
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
 function SubjectPracticeRedirect({ subjectId }: { subjectId: number }) {
   const [, setLocation] = useLocation();
   const { data: questions } = trpc.questions.listBySubject.useQuery(
@@ -119,15 +153,26 @@ function SubjectPracticeRedirect({ subjectId }: { subjectId: number }) {
       return;
     }
 
-    const queryId = Number(new URLSearchParams(window.location.search).get("q"));
+    const params = new URLSearchParams(window.location.search);
+    const queryId = Number(params.get("q"));
+    const isRandomMode = params.get("random") !== "0";
     const hasQueryTarget = Number.isFinite(queryId) && questions.some((q) => q.id === queryId);
+    if (isRandomMode) {
+      const providedSeed = (params.get("seed") || "").trim();
+      const seed = providedSeed || `${subjectId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const ordered = shuffleBySeed(questions, seed);
+      const targetQuestionId = hasQueryTarget ? queryId : ordered[0].id;
+      setLocation(`/practice/${targetQuestionId}?scrollNav=1&random=1&seed=${encodeURIComponent(seed)}`);
+      return;
+    }
+
     const targetQuestionId = hasQueryTarget ? queryId : questions[0].id;
     setLocation(`/practice/${targetQuestionId}?scrollNav=1`);
   }, [questions, setLocation, subjectId]);
 
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="text-muted-foreground text-sm">연속 연습 여는 중...</div>
+      <div className="text-muted-foreground text-sm">랜덤 연습 여는 중...</div>
     </div>
   );
 }
@@ -206,6 +251,9 @@ function Router({
       <Route path={"/login"}>
         <Login />
       </Route>
+      <Route path={"/shared/:token"}>
+        {(params) => <SharedSubject token={params.token} />}
+      </Route>
       <Route path={"/demo/practice/:questionId"}>
         {(params) =>
           canAccessDemo ? (
@@ -277,6 +325,9 @@ function AppContent() {
     refetchOnWindowFocus: false,
     refetchInterval: initDone && location !== "/login" && hasRecentAuthAttempt() ? 1200 : false,
   });
+
+  useBetaTelemetry(currentUser, location);
+  useVercelAnalytics(location, currentUser);
 
   // 로그인/가입 성공 후 currentUser를 업데이트하는 함수 (reload 없이 레이아웃 전환)
   const handleAuthSuccess = async () => {

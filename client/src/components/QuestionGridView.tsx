@@ -7,7 +7,7 @@ interface Question {
 interface QuestionGridViewProps {
   questions: Question[];
   onSelectQuestion: (questionId: number) => void;
-  confidenceData?: Record<number, { state: string; displayScore: number }>;
+  confidenceData?: Record<number, { state: string; displayScore: number; label?: string; isColdStart?: boolean }>;
 }
 
 export function QuestionGridView({
@@ -25,7 +25,7 @@ export function QuestionGridView({
       case "yellow":
         return "bg-amber-400";
       case "red":
-        return "bg-red-500";
+        return "bg-rose-500 dark:bg-rose-400";
       default:
         return "bg-neutral-200 dark:bg-neutral-700";
     }
@@ -58,22 +58,10 @@ export function QuestionGridView({
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-base font-semibold text-foreground">문제 순서별 안정도</h3>
         <div className="flex gap-3 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1 cursor-help" title="초록(안정): 80점 이상">
-            <span className="inline-block w-3.5 h-3.5 rounded bg-emerald-500" />
-            안정
-          </span>
-          <span className="flex items-center gap-1 cursor-help" title="노랑(학습중): 40~79점">
-            <span className="inline-block w-3.5 h-3.5 rounded bg-amber-400" />
-            학습중
-          </span>
-          <span className="flex items-center gap-1 cursor-help" title="빨강(취약): 39점 이하">
-            <span className="inline-block w-3.5 h-3.5 rounded bg-red-500" />
-            취약
-          </span>
-          <span className="flex items-center gap-1 cursor-help" title="미학습">
-            <span className="inline-block w-3.5 h-3.5 rounded bg-neutral-200 dark:bg-neutral-700" />
-            미학습
-          </span>
+          <span className="inline-block w-3.5 h-3.5 rounded bg-emerald-500 cursor-help" title="초록: 80점 이상" />
+          <span className="inline-block w-3.5 h-3.5 rounded bg-amber-400 cursor-help" title="노랑: 40~79점" />
+          <span className="inline-block w-3.5 h-3.5 rounded bg-rose-500 dark:bg-rose-400 cursor-help" title="빨강: 39점 이하" />
+          <span className="inline-block w-3.5 h-3.5 rounded bg-neutral-200 dark:bg-neutral-700 cursor-help" title="회색: 기록 없음" />
         </div>
       </div>
 
@@ -101,11 +89,7 @@ export function QuestionGridView({
               `}
               title={
                 score !== undefined
-                  ? `문제 ${q.displayOrder} — 안정도 ${Math.round(score)}점 — ${
-                      state === "green" ? "안정" :
-                      state === "yellow" ? "학습중" :
-                      state === "red" ? "취약" : "미학습"
-                    }${starred ? " (중요)" : ""}`
+                  ? `문제 ${q.displayOrder} — 안정도 ${Math.round(score)}점${starred ? " (중요)" : ""}`
                   : `문제 ${q.displayOrder}${starred ? " (중요)" : ""}`
               }
               >

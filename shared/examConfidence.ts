@@ -375,34 +375,42 @@ function getSingleTestDisplayCap(input: {
     hoursUntilExam,
   } = input;
 
-  let cap = 78;
+  let cap = 82;
 
   if (latestIsCorrect) {
-    if (latestSimilarity >= 100) cap += 10;
-    else if (latestSimilarity >= 99) cap += 8;
-    else if (latestSimilarity >= 97) cap += 6;
-    else if (latestSimilarity >= 95) cap += 4;
-    else if (latestSimilarity >= 92) cap += 3;
-    else if (latestSimilarity >= 90) cap += 1;
+    if (latestSimilarity >= 100) cap += 14;
+    else if (latestSimilarity >= 99) cap += 12;
+    else if (latestSimilarity >= 97) cap += 10;
+    else if (latestSimilarity >= 95) cap += 8;
+    else if (latestSimilarity >= 92) cap += 6;
+    else if (latestSimilarity >= 90) cap += 4;
+    else if (latestSimilarity >= 85) cap += 2;
   } else {
-    if (latestSimilarity >= 95) cap += 2;
-    else if (latestSimilarity >= 90) cap += 1;
+    if (latestSimilarity >= 95) cap += 3;
+    else if (latestSimilarity >= 90) cap += 2;
     else cap -= 2;
   }
 
-  if (practiceCount >= 3) cap += 2;
-  if (practiceCount >= 8) cap += 1;
+  if (practiceCount <= 1 && latestSimilarity >= 95) cap += 3;
+  else if (practiceCount <= 3 && latestSimilarity >= 95) cap += 2;
+
+  if (practiceCount >= 6) cap += 1;
+  if (practiceCount >= 12) cap += 1;
 
   if (difficulty === "hard") cap += 2;
   else if (difficulty === "easy") cap -= 1;
 
-  if (hoursUntilExam !== null && hoursUntilExam <= 24) cap += 1;
+  if (hoursUntilExam !== null && hoursUntilExam <= 24 && latestSimilarity >= 92) cap += 1;
 
   if (!latestIsCorrect) {
-    return clamp(cap, 68, 88);
+    return clamp(cap, 68, 90);
   }
 
-  return clamp(cap, 80, 94);
+  if (latestSimilarity < 100) {
+    cap = Math.min(cap, 97);
+  }
+
+  return clamp(cap, 82, 99);
 }
 
 // ─── Main Scoring ──────────────────────────────────────────────────
@@ -515,11 +523,55 @@ function computeExamConfidenceInternal(
     else if (sim < 60) baseBoost = -5;
     else if (sim < 70) baseBoost = -2;
 
+    const latestPassed = latestTest.isCorrect || sim >= 92;
     if (latestTest.isCorrect) baseBoost += 3;
     else if (sim < 95) baseBoost -= 2;
     if (hoursUntilExam !== null && hoursUntilExam <= 24 && sim >= 90) baseBoost += 2;
 
-    recentSimilarityBoost = clamp(Math.round(baseBoost * freshness), -8, 20);
+    // 적은 연습으로 바로 맞추거나, 긴 공백 후에도 맞춘 경우를 강하게 보상한다.
+    const lowPractice = practice.practiceCount <= 3;
+    const gapFromLastPracticeHours = practice.mostRecentPracticeAt
+      ? Math.max(
+          0,
+          (latestTest.completedAt.getTime() - practice.mostRecentPracticeAt.getTime()) /
+            (1000 * 60 * 60)
+        )
+      : Number.POSITIVE_INFINITY;
+    const previousTest = sortedHistory[1];
+    const gapFromPreviousTestHours = previousTest
+      ? Math.max(
+          0,
+          (latestTest.completedAt.getTime() - previousTest.completedAt.getTime()) /
+            (1000 * 60 * 60)
+        )
+      : Number.POSITIVE_INFINITY;
+
+    if (latestPassed && lowPractice) {
+      const isShortPrepSuccess =
+        gapFromLastPracticeHours <= 1.5 ||
+        (practice.practiceCount === 0 && gapFromPreviousTestHours <= 1.5);
+      const isLongGapRecallSuccess =
+        gapFromLastPracticeHours >= 18 ||
+        gapFromPreviousTestHours >= 18 ||
+        (practice.practiceCount === 0 && !previousTest);
+
+      let surpriseBoost = 0;
+      if (isShortPrepSuccess) {
+        if (sim >= 99) surpriseBoost = 10;
+        else if (sim >= 97) surpriseBoost = 8;
+        else if (sim >= 94) surpriseBoost = 6;
+      } else if (isLongGapRecallSuccess) {
+        if (sim >= 99) surpriseBoost = 13;
+        else if (sim >= 97) surpriseBoost = 11;
+        else if (sim >= 94) surpriseBoost = 8;
+      }
+      if (hoursUntilExam !== null && hoursUntilExam <= 24 && surpriseBoost > 0) {
+        surpriseBoost += 1;
+      }
+      baseBoost += surpriseBoost;
+    }
+
+    recentSimilarityBoost = clamp(Math.round(baseBoost * freshness), -8, 24);
   }
 
   let timeWeightedStreakScore = 0;

@@ -1,6 +1,7 @@
 const GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_SCOPE = "openid email profile";
 const GOOGLE_REDIRECT_PATH = "/login";
+const GOOGLE_REDIRECT_URI_ENV = (import.meta.env.VITE_GOOGLE_OAUTH_REDIRECT_URI ?? "").trim();
 
 function base64Encode(input: string): string {
   const utf8 = encodeURIComponent(input).replace(/%([0-9A-F]{2})/g, (_, hex) =>
@@ -53,7 +54,7 @@ export function startGoogleOAuthLogin(input: {
     throw new Error("Google OAuth clientId가 비어 있습니다.");
   }
 
-  const redirectUri = `${window.location.origin}${GOOGLE_REDIRECT_PATH}`;
+  const redirectUri = getGoogleRedirectUri();
   const state = buildGoogleState(input.returnTo);
   const params = new URLSearchParams({
     client_id: clientId,
@@ -67,3 +68,7 @@ export function startGoogleOAuthLogin(input: {
   window.location.assign(`${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`);
 }
 
+export function getGoogleRedirectUri(): string {
+  if (GOOGLE_REDIRECT_URI_ENV) return GOOGLE_REDIRECT_URI_ENV;
+  return `${window.location.origin}${GOOGLE_REDIRECT_PATH}`;
+}

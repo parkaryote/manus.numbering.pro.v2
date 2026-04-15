@@ -13,7 +13,6 @@ import { TableView, TableData, getBlankCells, gradeTable } from "@/components/Ta
 import { trackTestSubmit } from "@/lib/ga4Events";
 import { ConfidencePopup } from "@/components/ConfidencePopup";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
-import { buildNextAutoNumberingValue, getForcedPrefixByTemplateProgress } from "@/lib/autoNumbering";
 import { getImageAttribution } from "@/lib/imageAttribution";
 
 interface TestProps {
@@ -79,9 +78,11 @@ function getMatchedCharPositions(correctText: string, answerText: string) {
   return { correctMatched, answerMatched };
 }
 
+const WORD_TOKEN_PATTERN = "[a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ]+(?:['’\\-][a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ]+)*";
+
 function buildWordTokens(text: string) {
   const tokens: Array<{ token: string; start: number; end: number }> = [];
-  const regex = /[a-z0-9]+(?:['’\-][a-z0-9]+)*/gi;
+  const regex = new RegExp(WORD_TOKEN_PATTERN, "gi");
   let match: RegExpExecArray | null;
   while ((match = regex.exec(text)) !== null) {
     const word = match[0] ?? "";
@@ -183,14 +184,17 @@ function renderComparedText(
     <span className="whitespace-pre-wrap break-words">
       {chars.map((ch, idx) => {
         const isWhitespace = /^\s$/.test(ch);
+        const isSymbolOrPunctuation = /[\p{P}\p{S}]/u.test(ch);
         const isMatched = !isWhitespace && matchedPositions.has(idx);
         const className = isWhitespace
           ? "text-current"
           : isMatched
-            ? "bg-emerald-100 text-emerald-800 rounded-sm"
-            : tone === "correct"
+            ? "rounded-sm bg-emerald-100 text-emerald-900 dark:bg-emerald-900/45 dark:text-emerald-100"
+            : isSymbolOrPunctuation
               ? "text-muted-foreground"
-              : "bg-rose-100 text-rose-700 rounded-sm";
+            : tone === "correct"
+              ? "text-foreground/85 dark:text-zinc-100/90"
+              : "rounded-sm bg-rose-100 text-rose-800 dark:bg-rose-900/45 dark:text-rose-100";
         return (
           <span key={`${idx}-${ch}`} className={className}>
             {ch}
@@ -446,13 +450,24 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     backspaceCountRef.current = 0;
     pasteDetectedRef.current = false;
     inputCharsRef.current = 0;
-    textareaRef.current?.focus();
   };
 
   useEffect(() => {
     if (!question || !shouldAutoStart || isStarted || isSubmitted) return;
     handleStart();
   }, [question, shouldAutoStart, isStarted, isSubmitted]);
+
+  useEffect(() => {
+    if (!isStarted || isSubmitted || isImageQuestion || isTableQuestion) return;
+    const timer = window.setTimeout(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus({ preventScroll: true });
+      const cursor = textarea.value.length;
+      textarea.setSelectionRange(cursor, cursor);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isStarted, isSubmitted, isImageQuestion, isTableQuestion]);
 
   const handleReset = () => {
     const resetAnswer = "";
@@ -681,8 +696,8 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       setAnswerHistoryIndex(Math.max(0, newHistory.length - 1));
     };
 
-    // Cmd/Ctrl + Enter: 즉시 제출 (OS 공통)
-    if (e.key === "Enter" && hasPrimaryModifier && !e.shiftKey && !e.altKey) {
+    // Shift+Enter: 즉시 제출
+    if (e.key === "Enter" && e.shiftKey && !hasPrimaryModifier && !e.altKey) {
       e.preventDefault();
       e.stopPropagation();
       if (canSubmitNow()) {
@@ -691,54 +706,6 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       return;
     }
 
-    // Enter: 시험모드는 시작 시 번호를 숨기되, 첫 입력 후 Enter에서 번호 흐름을 자동 생성
-    if (e.key === "Enter" && !hasPrimaryModifier && !e.shiftKey && !e.altKey && question?.autoNumbering === 1) {
-      if ((e.nativeEvent as any).isComposing) return;
-
-      const textarea = e.currentTarget;
-      const rawValue = textarea.value.replace(/\r\n/g, "\n");
-      if (rawValue.trim().length === 0) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      let selectionStart = textarea.selectionStart ?? 0;
-      let selectionEnd = textarea.selectionEnd ?? selectionStart;
-      let workingValue = rawValue;
-      const hasAnyNumbering = /(^|\n)\s*\d+\.\s/.test(workingValue);
-      if (!hasAnyNumbering) {
-        // 힌트 노출을 피하기 위해 시작 시엔 숨기고, 첫 Enter 시에만 내부적으로 1/2 흐름 생성
-        workingValue = `1. ${workingValue}`;
-        selectionStart += 3;
-        selectionEnd += 3;
-      }
-      const forcedPrefix = getForcedPrefixByTemplateProgress(
-        workingValue,
-        selectionStart,
-        String(question?.answer ?? "")
-      );
-      const autoNumberingOptions =
-        typeof forcedPrefix === "string"
-          ? { forcedPrefix }
-          : undefined;
-
-      const { nextValue, nextCursor } = buildNextAutoNumberingValue(
-        workingValue,
-        selectionStart,
-        selectionEnd,
-        autoNumberingOptions
-      );
-
-      setUserAnswer(nextValue);
-      pushAnswerHistory(nextValue);
-
-      requestAnimationFrame(() => {
-        textarea.focus();
-        textarea.setSelectionRange(nextCursor, nextCursor);
-      });
-      return;
-    }
-    
     // Cmd/Ctrl+Z: Undo
     if (hasPrimaryModifier && !e.shiftKey && !e.altKey && keyLower === "z") {
       e.preventDefault();
@@ -862,11 +829,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       return (
         <div className="space-y-2">
           {mistakes.map((mistake: any, index: number) => (
-            <div key={index} className="p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm font-medium text-red-900">
+            <div key={index} className="rounded-lg border border-rose-200 bg-rose-50 p-3 dark:border-rose-800/40 dark:bg-rose-950/20">
+              <p className="text-sm font-medium text-rose-900 dark:text-rose-200">
                 위치: {mistake.position} | 유형: {mistake.type}
               </p>
-              <p className="text-sm text-red-700 mt-1">{mistake.description}</p>
+              <p className="mt-1 text-sm text-rose-700 dark:text-rose-300">{mistake.description}</p>
             </div>
           ))}
         </div>
@@ -899,10 +866,8 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
 
   const isSubmitDisabled = !canSubmitNow();
 
-  const useFloatingTextInput = isStarted && !isSubmitted && !isImageQuestion && !isTableQuestion;
-
   return (
-    <div className={`relative space-y-6 ${useFloatingTextInput ? "pb-56 md:pb-64" : ""}`}>
+    <div className="relative space-y-6">
       <ConfidencePopup
         show={showConfidencePopup}
         previousScore={confidenceBefore}
@@ -1087,13 +1052,44 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 </div>
               ) : (
                 <>
-                  <div className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                    입력창은 하단 고정 패널에서 항상 표시됩니다.
-                  </div>
+                  <Textarea
+                    ref={textareaRef}
+                    autoFocus
+                    value={userAnswer}
+                    onChange={(e) => {
+                      const newValue = e.target.value;
+                      const now = Date.now();
+                      if (typingStartTimeRef.current === null && newValue.length > 0) {
+                        typingStartTimeRef.current = now;
+                        if (startTime !== null && timeToFirstKeyRef.current === null) {
+                          timeToFirstKeyRef.current = now - startTime;
+                        }
+                      }
+                      inputCharsRef.current = newValue.length;
+                      setUserAnswer(newValue);
+
+                      const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
+                      newHistory.push(newValue);
+                      if (newHistory.length > 50) {
+                        newHistory.shift();
+                      }
+                      setAnswerHistory(newHistory);
+                      setAnswerHistoryIndex(newHistory.length - 1);
+                    }}
+                    onPaste={() => { pasteDetectedRef.current = true; }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Backspace') backspaceCountRef.current++;
+                      handleKeyDown(e);
+                    }}
+                    placeholder="기억나는 답안을 큰 흐름부터 써보세요"
+                    rows={7}
+                    className="min-h-[180px] rounded-xl border-2 border-border bg-muted/10 px-5 py-4 text-xl font-semibold leading-[1.85] tracking-tight placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
+                  />
+                  <p className="text-xs text-muted-foreground/85">제출: Shift+Enter</p>
                 </>
               )}
 
-              {!isImageQuestion && !useFloatingTextInput && (
+              {!isImageQuestion && (
                 <>
                   <Separator />
 
@@ -1137,7 +1133,6 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
 
               {isImageQuestion && <Separator />}
 
-              {!useFloatingTextInput && (
               <div className="flex gap-2">
                 <Button
                   onClick={handleSubmit}
@@ -1152,7 +1147,6 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   다시 시작
                 </Button>
               </div>
-              )}
             </CardContent>
           </Card>
         </>
@@ -1243,14 +1237,14 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 {isImageQuestion ? (
                   <div className="space-y-2">
                     {result?.mistakes && result.mistakes.map((mistake: any) => (
-                      <div key={mistake.labelIndex} className={`p-3 rounded-lg border ${mistake.isCorrect ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+                      <div key={mistake.labelIndex} className={`rounded-lg border p-3 ${mistake.isCorrect ? 'border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30' : 'border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20'}`}>
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm font-semibold">라벨 {mistake.labelIndex}</span>
-                          <span className={`text-lg ${mistake.isCorrect ? 'text-green-600' : 'text-red-600'}`}>{mistake.isCorrect ? '✓' : '✗'}</span>
+                          <span className={`text-lg ${mistake.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}`}>{mistake.isCorrect ? '✓' : '✗'}</span>
                         </div>
                         <div className="text-xs space-y-1">
                           <div><span className="font-semibold">정답:</span> {mistake.correctAnswer}</div>
-                          <div className={mistake.isCorrect ? 'text-green-700' : 'text-red-700'}><span className="font-semibold">내 답:</span> {mistake.userAnswer || '(입력 없음)'}</div>
+                          <div className={mistake.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}><span className="font-semibold">내 답:</span> {mistake.userAnswer || '(입력 없음)'}</div>
                         </div>
                       </div>
                     ))}
@@ -1259,11 +1253,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
-                        <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-100 border border-emerald-300" />
+                        <span className="inline-block h-2.5 w-2.5 rounded-sm border border-emerald-300 bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/45" />
                         일치한 부분
                       </span>
                       <span className="inline-flex items-center gap-1">
-                        <span className="inline-block h-2.5 w-2.5 rounded-sm bg-rose-100 border border-rose-300" />
+                        <span className="inline-block h-2.5 w-2.5 rounded-sm border border-rose-300 bg-rose-100 dark:border-rose-700 dark:bg-rose-900/45" />
                         내 답에서 다른 부분
                       </span>
                     </div>
@@ -1276,10 +1270,10 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                           mistake.compareMode
                         );
                         return (
-                          <div key={mistake.lineIndex} className={`p-3 rounded-lg border ${mistake.isCorrect ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+                          <div key={mistake.lineIndex} className={`rounded-lg border p-3 ${mistake.isCorrect ? 'border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30' : 'border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20'}`}>
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-sm font-semibold">{mistake.lineIndex}번째 줄</span>
-                              <span className={`text-lg ${mistake.isCorrect ? 'text-green-600' : 'text-red-600'}`}>{mistake.isCorrect ? '✓' : '✗'}</span>
+                              <span className={`text-lg ${mistake.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}`}>{mistake.isCorrect ? '✓' : '✗'}</span>
                             </div>
                             <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                               <span>점수 {mistake.lineScore ?? 0}점</span>
@@ -1293,7 +1287,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                                 <span className="font-semibold">정답:</span>{" "}
                                 {renderComparedText(mistake.correctAnswer || "", correctMatched, "correct")}
                               </div>
-                              <div className={mistake.isCorrect ? 'text-green-700' : 'text-red-700'}>
+                              <div className={mistake.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}>
                                 <span className="font-semibold">내 답:</span>{" "}
                                 {mistake.userAnswer
                                   ? renderComparedText(mistake.userAnswer, answerMatched, "answer")
@@ -1313,15 +1307,15 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                           );
                           return (
                             <>
-                        <div className="p-3 bg-green-50 rounded-lg border border-green-300">
+                        <div className="rounded-lg border border-green-300 bg-green-50 p-3 dark:border-green-800/60 dark:bg-green-950/30">
                           <p className="text-xs font-semibold text-muted-foreground mb-1">정답</p>
                           <p className="text-sm font-medium whitespace-pre-wrap">
                             {renderComparedText(question?.answer || "", correctMatched, "correct")}
                           </p>
                         </div>
-                        <div className={`p-3 rounded-lg border ${result?.isCorrect ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+                        <div className={`rounded-lg border p-3 ${result?.isCorrect ? 'border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30' : 'border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20'}`}>
                           <p className="text-xs font-semibold text-muted-foreground mb-1">내 답</p>
-                          <p className={`text-sm font-medium whitespace-pre-wrap ${result?.isCorrect ? 'text-green-700' : 'text-red-700'}`}>
+                          <p className={`text-sm font-medium whitespace-pre-wrap ${result?.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}`}>
                             {renderComparedText(userAnswer || "", answerMatched, "answer")}
                           </p>
                         </div>
@@ -1353,63 +1347,6 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
         </>
       )}
 
-      {useFloatingTextInput && (
-        <div className="fixed bottom-0 left-0 right-0 z-50">
-          <div className="mx-auto w-full max-w-[1280px] px-3 md:px-4 pb-[env(safe-area-inset-bottom)]">
-            <div className="rounded-t-xl border border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 p-3 shadow-lg space-y-2">
-              <Textarea
-                ref={textareaRef}
-                value={userAnswer}
-                onChange={(e) => {
-                  const newValue = e.target.value;
-                  const now = Date.now();
-                  if (typingStartTimeRef.current === null && newValue.length > 0) {
-                    typingStartTimeRef.current = now;
-                    if (startTime !== null && timeToFirstKeyRef.current === null) {
-                      timeToFirstKeyRef.current = now - startTime;
-                    }
-                  }
-                  inputCharsRef.current = newValue.length;
-                  setUserAnswer(newValue);
-
-                  const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
-                  newHistory.push(newValue);
-                  if (newHistory.length > 50) {
-                    newHistory.shift();
-                  }
-                  setAnswerHistory(newHistory);
-                  setAnswerHistoryIndex(newHistory.length - 1);
-                }}
-                onPaste={() => { pasteDetectedRef.current = true; }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Backspace') backspaceCountRef.current++;
-                  handleKeyDown(e);
-                }}
-                placeholder="여기에 답안을 입력하세요"
-                rows={4}
-                className="text-base min-h-[96px] max-h-[220px]"
-              />
-              <div className="text-xs text-muted-foreground">
-                제출 {isMacPlatform ? "Cmd+Enter" : "Ctrl+Enter"} · 줄 삭제 Shift+Backspace · 단어 삭제 {isMacPlatform ? "Option+Backspace" : "Alt+Backspace"}
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleSubmit}
-                  disabled={isSubmitDisabled}
-                  className="gap-2"
-                >
-                  <Send className="h-4 w-4" />
-                  {evaluateMutation.isPending ? "평가 중..." : "제출"}
-                </Button>
-                <Button onClick={handleReset} variant="outline" className="gap-2">
-                  <RotateCcw className="h-4 w-4" />
-                  다시 시작
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
