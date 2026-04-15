@@ -346,6 +346,8 @@ export function ConfidenceHistoryModal({
   const projectionExamDatePrediction = effectiveExamDatePrediction;
 
   const allPoints: HistoryPoint[] = [...solidData];
+  let projectionMidAtISO: string | null = null;
+  let projectionExamAtISO: string | null = null;
   if (projectionExamDatePrediction) {
     let examDate = new Date(projectionExamDatePrediction.examAtISO);
     if (Number.isNaN(examDate.getTime())) {
@@ -361,10 +363,30 @@ export function ConfidenceHistoryModal({
     if (examDate.getTime() <= lastAt) {
       examDate = new Date(lastAt + 60_000);
     }
+    const lastScore = clampScore(
+      Number(allPoints.length > 0 ? allPoints[allPoints.length - 1].score : projectionExamDatePrediction.currentScore)
+    );
+    const predictedScore = clampScore(projectionExamDatePrediction.predictedScore);
+    const curveGapMs = Math.max(60_000, examDate.getTime() - lastAt);
+    const midAt = new Date(lastAt + Math.max(60_000, Math.floor(curveGapMs * 0.55)));
+    const delta = predictedScore - lastScore;
+    const curvedMidScore = clampScore(
+      lastScore +
+        delta * 0.72 +
+        (delta < 0 ? -2 : delta > 0 ? 2 : 0)
+    );
+    projectionMidAtISO = midAt.toISOString();
+    projectionExamAtISO = examDate.toISOString();
     allPoints.push({
-      at: examDate.toISOString(),
-      score: projectionExamDatePrediction.predictedScore,
-      state: projectionExamDatePrediction.predictedState,
+      at: projectionMidAtISO,
+      score: curvedMidScore,
+      state: stateFromScore(curvedMidScore),
+      eventType: "exam_predict_mid",
+    } as any);
+    allPoints.push({
+      at: projectionExamAtISO,
+      score: predictedScore,
+      state: stateFromScore(predictedScore),
       eventType: "exam_predict",
     } as any);
   }
@@ -375,17 +397,20 @@ export function ConfidenceHistoryModal({
   );
   const chartData = allPoints.map((p, i) => {
     const isPredict = (p as any).eventType === "exam_predict";
+    const isPredictMid = (p as any).eventType === "exam_predict_mid";
+    const isProjectionPoint = isPredict || isPredictMid;
     const xPos = timeScale.nodes[i]?.x ?? i * 24;
     const solidLastIdx = solidData.length - 1;
-    const isProjectionStart = !isPredict && i === solidLastIdx && Boolean(predictPoint);
+    const isProjectionStart = !isProjectionPoint && i === solidLastIdx && Boolean(predictPoint);
     return {
       ...p,
       score: p.score,
+      mainScore: isProjectionPoint ? null : p.score,
       idx: i,
       label: allPoints.length > 0 ? formatTimeLabel(p.at, allPoints) : "",
       xPos,
       isLatest: p.at === latestTestAt && (p as any).eventType === "test",
-      trendProjectionScore: isPredict
+      projectionCurveScore: isProjectionPoint
         ? p.score
         : isProjectionStart
           ? p.score
@@ -403,7 +428,9 @@ export function ConfidenceHistoryModal({
   });
 
   const hasData = solidData.length > 0;
-  const latestSolidChartPoint = chartData.filter((p) => p.eventType !== "exam_predict").at(-1);
+  const latestSolidChartPoint = chartData
+    .filter((p) => p.eventType !== "exam_predict" && p.eventType !== "exam_predict_mid")
+    .at(-1);
   const currentScore = hasData
     ? Math.round(Number(latestSolidChartPoint?.score ?? solidData[solidData.length - 1].score))
     : null;
@@ -431,12 +458,12 @@ export function ConfidenceHistoryModal({
     const hasEventLayerHover = activePayload.some((entry: any) => {
       const eventType = entry?.payload?.eventType;
       const dataKey = entry?.dataKey;
-      return dataKey === "score" && (eventType === "practice" || eventType === "test");
+      return dataKey === "mainScore" && (eventType === "practice" || eventType === "test");
     });
 
     const eventEntry = activePayload.find(
       (entry: any) =>
-        entry?.dataKey === "score" &&
+        entry?.dataKey === "mainScore" &&
         typeof entry?.value === "number"
     );
 
@@ -598,7 +625,7 @@ export function ConfidenceHistoryModal({
                   {/* 실선: 실제 안정도 흐름 */}
                   <Line
                     type={isExamplePreview ? "linear" : "monotone"}
-                    dataKey="score"
+                    dataKey="mainScore"
                     stroke={BRAND_COLOR}
                     strokeOpacity={0.9}
                     strokeWidth={3.4}
@@ -611,13 +638,17 @@ export function ConfidenceHistoryModal({
                   {predictPoint && (
                     <Line
                       type="monotone"
-                      dataKey="trendProjectionScore"
+                      dataKey="projectionCurveScore"
                       stroke={PREDICT_COLOR}
                       strokeOpacity={0.76}
                       strokeWidth={2.2}
                       strokeDasharray="5 4"
-                      dot={false}
-                      activeDot={false}
+                      dot={(props: any) =>
+                        props?.payload?.eventType === "exam_predict" ? <CustomDot {...props} /> : null
+                      }
+                      activeDot={(props: any) =>
+                        props?.payload?.eventType === "exam_predict" ? <CustomActiveDot {...props} /> : false
+                      }
                       isAnimationActive={false}
                       connectNulls={true}
                     />
