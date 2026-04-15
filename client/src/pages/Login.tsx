@@ -56,6 +56,11 @@ export default function Login() {
   const finishAuthAndRedirect = (nextPath: string, successMessage: string) => {
     setBlockingMessage("로그인 완료, 이동 중...");
     markRecentAuthAttempt();
+    try {
+      localStorage.removeItem(GUEST_ID_KEY);
+    } catch {
+      // ignore
+    }
     toast.success(successMessage);
     void utils.auth.me.invalidate();
     window.location.replace(nextPath);

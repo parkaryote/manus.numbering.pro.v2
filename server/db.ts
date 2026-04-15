@@ -251,6 +251,28 @@ export async function countQuestionsByUserId(userId: number) {
   return allQuestions.length;
 }
 
+export async function hasUserCustomSubject(userId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ id: subjects.id })
+    .from(subjects)
+    .where(and(eq(subjects.userId, userId), sql`${subjects.demoSourceSubjectId} IS NULL`))
+    .limit(1);
+  return rows.length > 0;
+}
+
+export async function hasUserCustomQuestion(userId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ id: questions.id })
+    .from(questions)
+    .where(and(eq(questions.userId, userId), sql`${questions.demoSourceQuestionId} IS NULL`))
+    .limit(1);
+  return rows.length > 0;
+}
+
 export async function getQuestionById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
@@ -410,6 +432,17 @@ export async function getPracticeSessionsByUserId(userId: number) {
   return db.select().from(practiceSessions).where(eq(practiceSessions.userId, userId));
 }
 
+export async function hasPracticeSessionByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ id: practiceSessions.id })
+    .from(practiceSessions)
+    .where(eq(practiceSessions.userId, userId))
+    .limit(1);
+  return rows.length > 0;
+}
+
 export async function getPracticeSessionsBySubjectId(userId: number, subjectId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -462,6 +495,17 @@ export async function getTestSessionsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(testSessions).where(eq(testSessions.userId, userId));
+}
+
+export async function hasTestSessionByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ id: testSessions.id })
+    .from(testSessions)
+    .where(eq(testSessions.userId, userId))
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function createTestSession(session: InsertTestSession) {

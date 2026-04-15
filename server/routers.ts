@@ -1946,6 +1946,21 @@ async function mergeGuestDataToUser(sourceUserId: number, targetUserId: number) 
   }
 }
 
+async function shouldMergeGuestData(sourceUserId: number) {
+  try {
+    const [hasPractice, hasTest, hasCustomSubject, hasCustomQuestion] = await Promise.all([
+      db.hasPracticeSessionByUserId(sourceUserId),
+      db.hasTestSessionByUserId(sourceUserId),
+      db.hasUserCustomSubject(sourceUserId),
+      db.hasUserCustomQuestion(sourceUserId),
+    ]);
+    return hasPractice || hasTest || hasCustomSubject || hasCustomQuestion;
+  } catch (error) {
+    console.warn("[Auth] Failed to inspect guest merge necessity, falling back to safe merge:", error);
+    return true;
+  }
+}
+
 function ensureOCREnabled() {
   if (!ocrModule.isOCREnabled()) {
     throw new TRPCError({
@@ -2148,11 +2163,13 @@ export const appRouter = router({
 
         // 게스트에서 바로 가입한 경우, 학습 이력을 신규 계정으로 병합해 통계 유실을 방지한다.
         if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
-          await mergeGuestDataToUser(ctx.user.id, user.id);
+          if (await shouldMergeGuestData(ctx.user.id)) {
+            await mergeGuestDataToUser(ctx.user.id, user.id);
+          }
         }
 
-        // 신규 사용자 초기 학습 데이터 보장
-        await syncStarterDataSafely(user.id);
+        // 로그인 응답 지연을 줄이기 위해 스타터 동기화는 백그라운드로 처리
+        triggerStarterSyncInBackground(user.id, { force: true });
 
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(simpleOpenId, {
@@ -2230,11 +2247,13 @@ export const appRouter = router({
 
         // 게스트 진행 데이터가 있으면 로그인 계정으로 병합
         if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
-          await mergeGuestDataToUser(ctx.user.id, user.id);
+          if (await shouldMergeGuestData(ctx.user.id)) {
+            await mergeGuestDataToUser(ctx.user.id, user.id);
+          }
         }
 
-        // 로그인 사용자도 과목 0개 상태면 데모 기반 스타터 데이터 자동 복구
-        await syncStarterDataSafely(user.id);
+        // 로그인 응답 지연을 줄이기 위해 스타터 동기화는 백그라운드로 처리
+        triggerStarterSyncInBackground(user.id, { force: true });
 
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(user.openId, {
@@ -2359,10 +2378,13 @@ export const appRouter = router({
         }
 
         if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
-          await mergeGuestDataToUser(ctx.user.id, user.id);
+          if (await shouldMergeGuestData(ctx.user.id)) {
+            await mergeGuestDataToUser(ctx.user.id, user.id);
+          }
         }
 
-        await syncStarterDataSafely(user.id);
+        // 로그인 응답 지연을 줄이기 위해 스타터 동기화는 백그라운드로 처리
+        triggerStarterSyncInBackground(user.id, { force: true });
 
         const sessionToken = await sdk.createSessionToken(user.openId, {
           name: preferredName || user.name || "Google 사용자",
