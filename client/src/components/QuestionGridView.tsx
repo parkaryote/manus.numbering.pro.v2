@@ -19,6 +19,18 @@ export function QuestionGridView({
   const getFillColor = (questionId: number) => {
     const data = confidenceData[questionId];
     if (!data) return "bg-neutral-200 dark:bg-neutral-700";
+    if (data.isColdStart) {
+      switch (data.state) {
+        case "green":
+          return "bg-emerald-200/85 dark:bg-emerald-900/55";
+        case "yellow":
+          return "bg-amber-200/85 dark:bg-amber-900/55";
+        case "red":
+          return "bg-rose-200/85 dark:bg-rose-900/55";
+        default:
+          return "bg-neutral-200/70 dark:bg-neutral-700/65";
+      }
+    }
     switch (data.state) {
       case "green":
         return "bg-emerald-500";
@@ -41,6 +53,18 @@ export function QuestionGridView({
   const getTextColor = (questionId: number) => {
     const data = confidenceData[questionId];
     if (!data) return "text-foreground";
+    if (data.isColdStart) {
+      switch (data.state) {
+        case "green":
+          return "text-emerald-600 dark:text-emerald-200";
+        case "yellow":
+          return "text-amber-600 dark:text-amber-200";
+        case "red":
+          return "text-rose-600 dark:text-rose-200";
+        default:
+          return "text-muted-foreground";
+      }
+    }
     switch (data.state) {
       case "green":
       case "yellow":
@@ -53,24 +77,27 @@ export function QuestionGridView({
 
   const sorted = [...questions].sort((a, b) => a.displayOrder - b.displayOrder);
 
-  const getStatusLabel = (questionId: number) => {
-    const data = confidenceData[questionId];
-    if (!data || data.isColdStart) return "미학습";
-    if (data.state === "green") return "안정";
-    if (data.state === "yellow") return "위험";
-    if (data.state === "red") return "취약";
-    return data.label ?? "미학습";
-  };
-
   return (
     <div className="mb-4 p-4 bg-card rounded-xl border border-border shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-base font-semibold text-foreground">문제 순서별 안정도</h3>
-        <div className="flex gap-3 text-sm text-muted-foreground">
-          <span className="inline-block w-3.5 h-3.5 rounded bg-emerald-500 cursor-help" title="초록: 80점 이상" />
-          <span className="inline-block w-3.5 h-3.5 rounded bg-amber-400 cursor-help" title="노랑: 40~79점" />
-          <span className="inline-block w-3.5 h-3.5 rounded bg-rose-500 dark:bg-rose-400 cursor-help" title="빨강: 39점 이하" />
-          <span className="inline-block w-3.5 h-3.5 rounded bg-neutral-200 dark:bg-neutral-700 cursor-help" title="회색: 기록 없음" />
+        <div className="flex flex-wrap justify-end gap-2 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5" title="80점 이상">
+            <span className="inline-block w-3.5 h-3.5 rounded bg-emerald-500" />
+            안정
+          </span>
+          <span className="inline-flex items-center gap-1.5" title="40~79점">
+            <span className="inline-block w-3.5 h-3.5 rounded bg-amber-400" />
+            위험
+          </span>
+          <span className="inline-flex items-center gap-1.5" title="39점 이하">
+            <span className="inline-block w-3.5 h-3.5 rounded bg-rose-500 dark:bg-rose-400" />
+            취약
+          </span>
+          <span className="inline-flex items-center gap-1.5" title="기록이 없어 난이도 기반 미학습 값을 표시">
+            <span className="inline-block w-3.5 h-3.5 rounded bg-foreground/10 ring-1 ring-border" />
+            연한 색: 미학습
+          </span>
         </div>
       </div>
 
@@ -78,11 +105,9 @@ export function QuestionGridView({
         {sorted.map((q) => {
           const starred = q.isStarred === 1 || q.isStarred === true;
           const score = confidenceData[q.id]?.displayScore;
-          const state = confidenceData[q.id]?.state;
           const fillColor = getFillColor(q.id);
           const borderColor = getBorderColor(starred);
           const textColor = getTextColor(q.id);
-          const statusLabel = getStatusLabel(q.id);
 
           return (
             <button
@@ -99,8 +124,8 @@ export function QuestionGridView({
               `}
               title={
                 score !== undefined
-                  ? `문제 ${q.displayOrder} — ${statusLabel} · 안정도 ${Math.round(score)}점${starred ? " (중요)" : ""}`
-                  : `문제 ${q.displayOrder} — ${statusLabel}${starred ? " (중요)" : ""}`
+                  ? `문제 ${q.displayOrder} — 안정도 ${Math.round(score)}점${confidenceData[q.id]?.isColdStart ? " (미학습)" : ""}${starred ? " (중요)" : ""}`
+                  : `문제 ${q.displayOrder}${starred ? " (중요)" : ""}`
               }
               >
               {/* 번호 */}
@@ -117,9 +142,6 @@ export function QuestionGridView({
                   —
                 </span>
               )}
-              <span className={`text-[11px] font-semibold leading-none ${textColor} opacity-90`}>
-                {statusLabel}
-              </span>
             </button>
           );
         })}

@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Eye, EyeOff, RotateCcw, Merge, Split } from "lucide-react";
 import { toast } from "sonner";
-import { isPartialMatch, splitGraphemes } from "@/lib/hangul";
+import { isPartialMatch, splitGraphemes, isHangul, isJamo, decomposeHangul } from "@/lib/hangul";
 
 // 표 데이터 타입 정의
 export interface TableCell {
@@ -44,6 +44,99 @@ const createDefaultTable = (): TableData => ({
   headerRow: true,
   headerCol: false,
 });
+
+const JAMO_TO_KEYSTROKE: Record<string, string> = {
+  "ㄱ": "r",
+  "ㄲ": "r",
+  "ㄴ": "s",
+  "ㄷ": "e",
+  "ㄸ": "e",
+  "ㄹ": "f",
+  "ㅁ": "a",
+  "ㅂ": "q",
+  "ㅃ": "q",
+  "ㅅ": "t",
+  "ㅆ": "t",
+  "ㅇ": "d",
+  "ㅈ": "w",
+  "ㅉ": "w",
+  "ㅊ": "c",
+  "ㅋ": "z",
+  "ㅌ": "x",
+  "ㅍ": "v",
+  "ㅎ": "g",
+  "ㅏ": "k",
+  "ㅐ": "o",
+  "ㅑ": "i",
+  "ㅒ": "o",
+  "ㅓ": "j",
+  "ㅔ": "p",
+  "ㅕ": "u",
+  "ㅖ": "p",
+  "ㅗ": "h",
+  "ㅘ": "hk",
+  "ㅙ": "ho",
+  "ㅚ": "hl",
+  "ㅛ": "y",
+  "ㅜ": "n",
+  "ㅝ": "nj",
+  "ㅞ": "np",
+  "ㅟ": "nl",
+  "ㅠ": "b",
+  "ㅡ": "m",
+  "ㅢ": "ml",
+  "ㅣ": "l",
+  "ㄳ": "rt",
+  "ㄵ": "sw",
+  "ㄶ": "sg",
+  "ㄺ": "fr",
+  "ㄻ": "fa",
+  "ㄼ": "fq",
+  "ㄽ": "ft",
+  "ㄾ": "fx",
+  "ㄿ": "fv",
+  "ㅀ": "fg",
+  "ㅄ": "qt",
+};
+
+const ALNUM_REGEX = /^[a-z0-9]$/i;
+
+function normalizeTableCellText(text: string): string {
+  return text.trim().replace(/\s+/g, "");
+}
+
+function toTypingKeyUnit(char: string): string {
+  if (!char) return "";
+  if (ALNUM_REGEX.test(char)) return char.toLowerCase();
+
+  if (isHangul(char)) {
+    const d = decomposeHangul(char);
+    if (!d) return char.toLowerCase();
+    return `${JAMO_TO_KEYSTROKE[d.cho] ?? d.cho}${JAMO_TO_KEYSTROKE[d.jung] ?? d.jung}${
+      d.jong ? JAMO_TO_KEYSTROKE[d.jong] ?? d.jong : ""
+    }`.toLowerCase();
+  }
+
+  if (isJamo(char)) {
+    return (JAMO_TO_KEYSTROKE[char] ?? char).toLowerCase();
+  }
+
+  return char.toLowerCase();
+}
+
+function toTypingKeySequence(text: string): string {
+  return splitGraphemes(text)
+    .map((char) => toTypingKeyUnit(char))
+    .join("");
+}
+
+function isEquivalentTableCellAnswer(input: string, target: string): boolean {
+  const normalizedInput = normalizeTableCellText(input);
+  const normalizedTarget = normalizeTableCellText(target);
+  if (!normalizedInput || !normalizedTarget) return false;
+  if (normalizedInput.toLowerCase() === normalizedTarget.toLowerCase()) return true;
+  return toTypingKeySequence(normalizedInput) === toTypingKeySequence(normalizedTarget);
+}
 
 interface ContextMenu {
   x: number;
@@ -636,6 +729,7 @@ interface TableViewProps {
   answers?: Record<string, string>; // "row-col" -> 사용자 입력
   onAnswerChange?: (key: string, value: string) => void;
   showAnswers?: boolean; // 정답 표시 여부 (시험 모드에서 오답 시 정답 표시)
+  hideAnswer?: boolean; // 연습 모드 답 가리기
   results?: Record<string, boolean>; // "row-col" -> 정답 여부
   readOnly?: boolean;
   practiceMode?: boolean; // 연습 모드 (정답 표시 + 실시간 타이핑 피드백)
@@ -657,6 +751,7 @@ export function TableView({
   answers = {},
   onAnswerChange,
   showAnswers = false,
+  hideAnswer = false,
   results,
   readOnly = false,
   practiceMode = false,
@@ -672,26 +767,79 @@ export function TableView({
   wrongCells = new Set(),
 }: TableViewProps) {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const composingCellsRef = useRef<Set<string>>(new Set());
+  const lastCompositionEndAtRef = useRef(0);
+  const lastNavigationRef = useRef<{ signature: string; at: number } | null>(null);
   const blankCells = getBlankCells(tableData);
+  const parseCellKey = (cellKey: string) => {
+    const [rowRaw, colRaw] = cellKey.split("-");
+    return { row: Number(rowRaw), col: Number(colRaw) };
+  };
 
-  // Tab 키로 다음 연습 셀으로 이동
+  const findVerticalNeighborKey = (fromKey: string, direction: "up" | "down"): string | null => {
+    const from = parseCellKey(fromKey);
+    const candidates = blankCells
+      .map((k) => ({ key: k, ...parseCellKey(k) }))
+      .filter((pos) => (direction === "up" ? pos.row < from.row : pos.row > from.row))
+      .sort((a, b) => {
+        const da = Math.abs(a.row - from.row);
+        const db = Math.abs(b.row - from.row);
+        if (da !== db) return da - db;
+        return Math.abs(a.col - from.col) - Math.abs(b.col - from.col);
+      });
+    return candidates.length > 0 ? candidates[0].key : null;
+  };
+
+  const renderMaskedCellContent = (content: string) => (
+    <span className="relative block whitespace-pre-wrap" style={{ wordBreak: "keep-all", overflowWrap: "break-word" }}>
+      <span className="invisible select-none">{content || " "}</span>
+      <span className="absolute inset-0 text-slate-300 select-none pointer-events-none">•••</span>
+    </span>
+  );
+
+  // Tab/Enter/Arrow 키로 셀 이동
   const handleKeyDown = (key: string, e: React.KeyboardEvent) => {
-    if (e.key === "Tab") {
-      e.preventDefault();
-      const currentIdx = blankCells.findIndex((k) => k === key);
-      const nextIdx = e.shiftKey
-        ? (currentIdx - 1 + blankCells.length) % blankCells.length
-        : (currentIdx + 1) % blankCells.length;
-      const nextKey = blankCells[nextIdx];
-      inputRefs.current[nextKey]?.focus();
+    if (e.key !== "Tab" && e.key !== "Enter" && e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    if (blankCells.length === 0) return;
+
+    const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+    const isComposing = composingCellsRef.current.has(key) || !!nativeEvent.isComposing;
+    if (isComposing) return;
+
+    // 한글 조합 확정 직후 Enter/Tab이 즉시 이동으로 이어지며 마지막 글자가 다음 셀에 새는 현상 방지
+    if (Date.now() - lastCompositionEndAtRef.current < 45) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const signature = `${key}:${e.key}:${e.shiftKey ? "1" : "0"}`;
+    const now = Date.now();
+    if (lastNavigationRef.current && lastNavigationRef.current.signature === signature) {
+      if (now - lastNavigationRef.current.at < 80) return;
     }
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const currentIdx = blankCells.findIndex((k) => k === key);
-      const nextIdx = (currentIdx + 1) % blankCells.length;
-      const nextKey = blankCells[nextIdx];
-      inputRefs.current[nextKey]?.focus();
+    lastNavigationRef.current = { signature, at: now };
+
+    const currentIdx = blankCells.findIndex((k) => k === key);
+    if (currentIdx < 0) return;
+
+    let nextKey: string | null = null;
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      nextKey = findVerticalNeighborKey(key, e.key === "ArrowUp" ? "up" : "down");
+    } else {
+      const step = e.key === "Tab" ? (e.shiftKey ? -1 : 1) : 1;
+      const nextIdx = (currentIdx + step + blankCells.length) % blankCells.length;
+      nextKey = blankCells[nextIdx];
     }
+    if (!nextKey || nextKey === key) return;
+
+    // 현재 키 이벤트가 완전히 끝난 뒤 이동해 입력 꼬임 방지
+    setTimeout(() => {
+      const nextInput = inputRefs.current[nextKey];
+      if (!nextInput) return;
+      nextInput.focus();
+      const cursor = nextInput.value.length;
+      nextInput.setSelectionRange(cursor, cursor);
+    }, 0);
   };
 
   return (
@@ -711,10 +859,12 @@ export function TableView({
                 const isBlank = cell.isBlank;
                 const userAnswer = answers[cellKey] || "";
                 const isCorrect = results?.[cellKey];
+                const shouldMaskBlank =
+                  hideAnswer && isBlank && !showAnswers;
 
-                const normalizeText = (text: string) => text.replace(/\s+/g, "");
                 const isTypingCorrect = practiceMode && isBlank
-                  ? normalizeText(userAnswer) === normalizeText(cell.content.slice(0, userAnswer.length))
+                  ? normalizeTableCellText(userAnswer).toLowerCase() ===
+                    normalizeTableCellText(cell.content.slice(0, userAnswer.length)).toLowerCase()
                   : undefined;
 
                 // 하단 입력창 연습 모드 셀 상태
@@ -729,15 +879,12 @@ export function TableView({
                 if (!practiceMode && isBlank && !showAnswers) bgColor = "bg-yellow-50";
                 if (isCorrect === true) bgColor = "bg-green-50";
                 if (isCorrect === false) bgColor = "bg-red-50";
-                if (activeCellKey !== null && isBlank && isWrongCell && !isCompleted) bgColor = "bg-red-50/50";
                 // 하단 입력창 모드: 집중 연습 선택된 셀은 연한 보라 배경 tint (인라인 스타일로 적용)
                 const isFocusCell = activeCellKey !== null && isBlank && isCellChecked && !isActiveCell;
 
                 // 하단 입력창 모드에서 활성 셀 테두리 강조 (active: 두꺼운 보라 + glow)
                 const cellBorderClass = isActiveCell
-                  ? cellSubmittedResult === 'wrong'
-                    ? 'border-2 border-red-500 shadow-[0_0_0_2px_oklch(0.62_0.23_24_/_0.18)]'
-                    : 'border-2 border-purple-500 shadow-[0_0_0_2px_oklch(0.55_0.2_290_/_0.2)]'
+                  ? 'border-2 border-purple-500 shadow-[0_0_0_2px_oklch(0.55_0.2_290_/_0.2)]'
                   : 'border border-slate-300';
 
                 return (
@@ -771,7 +918,9 @@ export function TableView({
                         {/* 채점 시각화: 활성 셀 - 실시간 글자별 색상 표시 (isPartialMatch 기반) */}
                         {isActiveCell && !isCompleted && (
                           <div className="text-sm font-semibold cursor-text">
-                            {cellSubmittedResult === 'correct' ? (
+                            {shouldMaskBlank ? (
+                              renderMaskedCellContent(cell.content)
+                            ) : cellSubmittedResult === 'correct' ? (
                               // 정답: 전체 검정 (텍스트 모드와 동일)
                               <span className="text-foreground">{cell.content}</span>
                             ) : partialInput.length > 0 ? (
@@ -838,7 +987,9 @@ export function TableView({
                               onCellCheck?.(cellKey);
                             }}
                             title="클릭: 이 셀 연습 / 더블클릭: 집중 연습 토글"
-                          >{cell.content}</div>
+                          >
+                            {shouldMaskBlank ? renderMaskedCellContent(cell.content) : cell.content}
+                          </div>
                         )}
                       </>
                     )}
@@ -856,7 +1007,7 @@ export function TableView({
                           onChange={(e) => {
                             const newValue = e.target.value;
                             onAnswerChange?.(cellKey, newValue);
-                            if (normalizeText(newValue) === normalizeText(cell.content)) {
+                            if (isEquivalentTableCellAnswer(newValue, cell.content)) {
                               onCorrectAnswer?.(cellKey);
                               const currentIdx = blankCells.findIndex((k) => k === cellKey);
                               if (currentIdx < blankCells.length - 1) {
@@ -866,10 +1017,20 @@ export function TableView({
                             }
                           }}
                           onFocus={() => onCellFocus?.(cellKey)}
+                          onCompositionStart={() => {
+                            composingCellsRef.current.add(cellKey);
+                          }}
+                          onCompositionEnd={() => {
+                            composingCellsRef.current.delete(cellKey);
+                            lastCompositionEndAtRef.current = Date.now();
+                          }}
+                          onBlur={() => {
+                            composingCellsRef.current.delete(cellKey);
+                          }}
                           onKeyDown={(e) => handleKeyDown(cellKey, e)}
                           readOnly={readOnly}
                           className={`relative z-10 w-full bg-transparent outline-none text-sm px-2 py-1.5 ${
-                            normalizeText(userAnswer) === normalizeText(cell.content)
+                            isEquivalentTableCellAnswer(userAnswer, cell.content)
                               ? "text-green-600 font-semibold"
                               : "text-black"
                           }`}
@@ -883,6 +1044,16 @@ export function TableView({
                           value={userAnswer}
                           onChange={(e) => onAnswerChange?.(cellKey, e.target.value)}
                           onFocus={() => onCellFocus?.(cellKey)}
+                          onCompositionStart={() => {
+                            composingCellsRef.current.add(cellKey);
+                          }}
+                          onCompositionEnd={() => {
+                            composingCellsRef.current.delete(cellKey);
+                            lastCompositionEndAtRef.current = Date.now();
+                          }}
+                          onBlur={() => {
+                            composingCellsRef.current.delete(cellKey);
+                          }}
                           onKeyDown={(e) => handleKeyDown(cellKey, e)}
                           readOnly={readOnly}
                           placeholder="?"
@@ -903,7 +1074,7 @@ export function TableView({
                         style={{ whiteSpace: 'pre-wrap', wordBreak: 'keep-all', overflowWrap: 'break-word' }}
                       >
                         {showAnswers && isBlank ? (
-                          <span className="text-green-600 font-medium">{cell.content}</span>
+                          <span className="text-foreground font-medium">{cell.content}</span>
                         ) : (
                           cell.content
                         )}
@@ -946,9 +1117,9 @@ export function gradeTable(
       const cell = tableData.cells[ri][ci];
       if (cell.isBlank && !cell.isMerged) {
         const key = `${ri}-${ci}`;
-        const userAnswer = (answers[key] || "").trim().replace(/\s+/g, "");
-        const correctAnswer = cell.content.trim().replace(/\s+/g, "");
-        const isCorrect = userAnswer.toLowerCase() === correctAnswer.toLowerCase();
+        const userAnswer = answers[key] || "";
+        const correctAnswer = cell.content;
+        const isCorrect = isEquivalentTableCellAnswer(userAnswer, correctAnswer);
         results[key] = isCorrect;
         if (isCorrect) correct++;
         total++;

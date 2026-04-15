@@ -238,6 +238,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const isScrollNavMode = searchParams.get("scrollNav") !== "0";
   const isRandomNavMode = searchParams.get("random") === "1";
   const randomSeedParam = (searchParams.get("seed") || "").trim();
+  const isDemoLinkedMode = !isDemo && searchParams.get("demo") === "1";
+  const demoLinkedSubjectIdRaw = Number.parseInt(searchParams.get("demoSubjectId") || "", 10);
+  const demoLinkedSubjectId =
+    Number.isFinite(demoLinkedSubjectIdRaw) && demoLinkedSubjectIdRaw > 0
+      ? demoLinkedSubjectIdRaw
+      : null;
   const INPUT_DRAFT_KEY_PREFIX = "practice_input_draft_";
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollNavCooldownRef = useRef(0);
@@ -270,11 +276,19 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [notepadLines, setNotepadLines] = useState(50); // 메모장 줄 수
   const [imageScale, setImageScaleRaw] = useState(() => {
     const saved = localStorage.getItem('imageScale');
-    return saved ? Math.max(30, Math.min(100, parseInt(saved, 10))) : 60;
+    if (!saved) return 60;
+    const parsed = parseInt(saved, 10);
+    if (!Number.isFinite(parsed)) return 60;
+    return Math.max(30, Math.min(100, parsed));
   }); // 이미지 크기 비율 (%)
+  const imageLayoutRowRef = useRef<HTMLDivElement>(null);
+  const imageAnswerPanelRef = useRef<HTMLDivElement>(null);
+  const imageElementRef = useRef<HTMLImageElement>(null);
+  const imageNaturalSizeRef = useRef({ width: 0, height: 0 });
   const setImageScale = (val: number) => {
-    setImageScaleRaw(val);
-    localStorage.setItem('imageScale', String(val));
+    const safeVal = Math.max(30, Math.min(100, Math.round(val)));
+    setImageScaleRaw(safeVal);
+    localStorage.setItem('imageScale', String(safeVal));
   };
   const [imageContainerHeight, setImageContainerHeight] = useState(400); // 이미지 컨테이너 높이
   const imageContainerRef = useRef<HTMLDivElement>(null);
@@ -297,6 +311,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // hiddenLines: 개별 줄 가리기/보이기 토글 (hideMode와 독립적으로 동작)
   const [hideMode, setHideMode] = useState<'none' | 'all'>('none');
   const [hiddenLines, setHiddenLines] = useState<Set<number>>(new Set());
+  const [autoHideWrongLines, setAutoHideWrongLines] = useState<Set<number>>(new Set());
   // 학습 제안 상태
   const [showStudySuggestion, setShowStudySuggestion] = useState(false);
   const [suggestionDismissed, setSuggestionDismissed] = useState(false);
@@ -369,17 +384,33 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     { subjectId: question?.subjectId ?? 0 },
     { enabled: !!question?.subjectId && !isDemo }
   );
+  const demoLinkedPreviewQuery = trpc.demo.questions.useQuery(
+    { subjectId: demoLinkedSubjectId ?? 0 },
+    { enabled: isDemoLinkedMode && !!demoLinkedSubjectId, refetchOnWindowFocus: false }
+  );
   const effectiveRandomSeed = useMemo(() => {
     if (!isRandomNavMode) return "";
     if (randomSeedParam) return randomSeedParam;
     return `subject-${question?.subjectId ?? 0}`;
   }, [isRandomNavMode, question?.subjectId, randomSeedParam]);
 
-  const orderedSubjectQuestions = useMemo(() => {
+  const filteredSubjectQuestions = useMemo(() => {
     if (!subjectQuestions) return undefined;
-    if (!isRandomNavMode) return subjectQuestions;
-    return shuffleBySeed(subjectQuestions, effectiveRandomSeed);
-  }, [effectiveRandomSeed, isRandomNavMode, subjectQuestions]);
+    if (!isDemoLinkedMode || !demoLinkedSubjectId) return subjectQuestions;
+    if (!demoLinkedPreviewQuery.data) return [];
+    const allowedSourceQuestionIds = new Set(
+      demoLinkedPreviewQuery.data.map((q) => q.id)
+    );
+    return subjectQuestions.filter((q: any) =>
+      allowedSourceQuestionIds.has(q.demoSourceQuestionId ?? -1)
+    );
+  }, [demoLinkedPreviewQuery.data, demoLinkedSubjectId, isDemoLinkedMode, subjectQuestions]);
+
+  const orderedSubjectQuestions = useMemo(() => {
+    if (!filteredSubjectQuestions) return undefined;
+    if (!isRandomNavMode) return filteredSubjectQuestions;
+    return shuffleBySeed(filteredSubjectQuestions, effectiveRandomSeed);
+  }, [effectiveRandomSeed, filteredSubjectQuestions, isRandomNavMode]);
 
   const currentIndex = orderedSubjectQuestions?.findIndex((q) => q.id === questionId) ?? -1;
   const prevQuestion = currentIndex > 0 ? orderedSubjectQuestions?.[currentIndex - 1] : null;
@@ -447,9 +478,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       params.set("random", "1");
       if (effectiveRandomSeed) params.set("seed", effectiveRandomSeed);
     }
+    if (isDemoLinkedMode && demoLinkedSubjectId) {
+      params.set("demo", "1");
+      params.set("demoSubjectId", String(demoLinkedSubjectId));
+    }
     const raw = params.toString();
     return raw ? `?${raw}` : "";
-  }, [effectiveRandomSeed, isRandomNavMode, isScrollNavMode]);
+  }, [demoLinkedSubjectId, effectiveRandomSeed, isDemoLinkedMode, isRandomNavMode, isScrollNavMode]);
 
   const navigateWithMorph = useCallback((targetQuestionId: number, forcedDirection?: "prev" | "next") => {
     if (!orderedSubjectQuestions || totalQuestions <= 0) return;
@@ -466,6 +501,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       setLocation(`/practice/${targetQuestionId}${practiceNavSearch}`);
     }, 240);
   }, [currentIndex, isLeaving, orderedSubjectQuestions, practiceNavSearch, questionId, setLocation, totalQuestions]);
+
+  const buildTestPath = useCallback(() => {
+    if (!question) return "";
+    const params = new URLSearchParams();
+    params.set("autostart", "1");
+    if (isDemoLinkedMode && demoLinkedSubjectId) {
+      params.set("demo", "1");
+      params.set("demoSubjectId", String(demoLinkedSubjectId));
+    }
+    return `/test/${question.id}?${params.toString()}`;
+  }, [demoLinkedSubjectId, isDemoLinkedMode, question]);
 
   const jumpToQuestionByNumber = useCallback((rawValue: string) => {
     if (!orderedSubjectQuestions || totalQuestions <= 0) return;
@@ -701,6 +747,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     autoHideCompletionLockRef.current = 0;
     setHideMode("none");
     setHiddenLines(new Set());
+    setAutoHideWrongLines(new Set());
     setStartTime(null);
     setCurrentContinuousStartAt(null);
     setIsLeaving(false);
@@ -761,13 +808,57 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return Math.min(Math.max(raw, min), max);
   }, [targetVisualLineCount, memoOpen]);
   const inputPanelMinHeightPx = useMemo(() => {
-    const estimatedInputLineHeight = 24;
+    const estimatedInputLineHeight = 34;
     const verticalPadding = 24;
     const raw = targetVisualLineCount * estimatedInputLineHeight + verticalPadding;
     return Math.min(Math.max(raw, 200), 420);
   }, [targetVisualLineCount]);
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+
+  const applyImageFitScale = useCallback(() => {
+    if (!isImageQuestion) return;
+
+    const naturalWidth = imageNaturalSizeRef.current.width;
+    const naturalHeight = imageNaturalSizeRef.current.height;
+    if (!naturalWidth || !naturalHeight) return;
+
+    const rowEl = imageLayoutRowRef.current;
+    const answerEl = imageAnswerPanelRef.current;
+    if (!rowEl) return;
+
+    const rowRect = rowEl.getBoundingClientRect();
+    const answerRect = answerEl?.getBoundingClientRect();
+    const gapPx = 8;
+    const reserved = Math.max(0, answerRect?.width ?? 0);
+    const availableWidth = Math.max(240, rowRect.width - reserved - gapPx);
+    const panelHeight = window.innerHeight * (isDemo ? 0.78 : 0.7);
+    const targetScaleByWidth = Math.min(100, (availableWidth / naturalWidth) * 100);
+    const targetScaleByHeight = Math.min(100, (panelHeight / naturalHeight) * 100);
+    const candidate = Math.floor(Math.max(30, Math.min(targetScaleByWidth, targetScaleByHeight)));
+    setImageScale(Math.max(30, Math.min(100, candidate)));
+  }, [isDemo, isImageQuestion]);
+
+  useEffect(() => {
+    if (!isImageQuestion) return;
+    const handleResize = () => {
+      window.requestAnimationFrame(() => {
+        applyImageFitScale();
+      });
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [applyImageFitScale, isImageQuestion]);
+
+  useEffect(() => {
+    if (isImageQuestion && questionId) {
+      imageNaturalSizeRef.current = { width: 0, height: 0 };
+      setImageLoaded(false);
+    }
+  }, [questionId, isImageQuestion]);
 
   useEffect(() => {
     try {
@@ -920,6 +1011,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return next;
     });
     setHiddenLines(new Set());
+    setAutoHideWrongLines(new Set());
     autoHideCompletedLinesRef.current = new Set();
     autoHideViewedLinesRef.current = new Set();
     autoHideCompletionLockRef.current = 0;
@@ -963,7 +1055,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const hint = getLinePrefixHint(candidate);
       if (hint?.prefix) return hint.prefix;
     }
-    return "1. ";
+    return "";
   }, [firstTemplateLineForSeed, shouldAutoSeedPracticeNumbering]);
   const isListPrefixOnlyDraft = useCallback((value: string) => {
     const normalized = value.replace(/\r\n/g, "\n");
@@ -1055,6 +1147,36 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   const AUTO_NUMBER_LINE_PREFIX_REGEX = /^\s*\d{1,3}\s*[.)]\s*/;
   const BULLET_LINE_PREFIX_REGEX = /^\s*(?:[-*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
+  type ListPrefixInfo = {
+    kind: "number" | "bullet" | null;
+    prefix: string;
+    body: string;
+  };
+  const getListPrefixInfo = (line: string): ListPrefixInfo => {
+    const numberMatch = line.match(AUTO_NUMBER_LINE_PREFIX_REGEX);
+    if (numberMatch) {
+      const prefix = numberMatch[0] ?? "";
+      return {
+        kind: "number",
+        prefix,
+        body: line.slice(prefix.length),
+      };
+    }
+    const bulletMatch = line.match(BULLET_LINE_PREFIX_REGEX);
+    if (bulletMatch) {
+      const prefix = bulletMatch[0] ?? "";
+      return {
+        kind: "bullet",
+        prefix,
+        body: line.slice(prefix.length),
+      };
+    }
+    return {
+      kind: null,
+      prefix: "",
+      body: line,
+    };
+  };
   const stripLineNumberPrefix = (line: string) =>
     line.replace(AUTO_NUMBER_LINE_PREFIX_REGEX, "").trim();
   const stripBulletPrefix = (line: string) =>
@@ -1113,6 +1235,86 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (isInitialShortcutComplete(input, target)) return true;
     return false;
   };
+  const buildLineComparePair = (userLineRaw: string, targetLineRaw: string) => {
+    const targetPrefixInfo = getListPrefixInfo(targetLineRaw);
+    const userPrefixInfo = getListPrefixInfo(userLineRaw);
+    const shouldSkipTargetPrefixForCompare =
+      targetPrefixInfo.kind !== null && userPrefixInfo.kind === null;
+
+    return {
+      userLineForCompare: userLineRaw,
+      targetLineForCompare: shouldSkipTargetPrefixForCompare
+        ? targetPrefixInfo.body
+        : targetLineRaw,
+    };
+  };
+  const normalizeLinePairForComparison = (userLineRaw: string, targetLineRaw: string) => {
+    const { userLineForCompare, targetLineForCompare } = buildLineComparePair(
+      userLineRaw,
+      targetLineRaw
+    );
+    return {
+      user: userLineForCompare.replace(/\s+/g, ""),
+      target: targetLineForCompare.replace(/\s+/g, ""),
+    };
+  };
+  const normalizeLinePairForTypingCompare = (userLineRaw: string, targetLineRaw: string) => {
+    const normalized = normalizeLinePairForComparison(userLineRaw, targetLineRaw);
+    return {
+      user: toTypingKeySequence(normalized.user),
+      target: toTypingKeySequence(normalized.target),
+    };
+  };
+  const isLinePairNormalizedComplete = (userLineRaw: string, targetLineRaw: string) => {
+    const normalized = normalizeLinePairForComparison(userLineRaw, targetLineRaw);
+    if (!normalized.target) return false;
+    const targetChars = splitGraphemes(normalized.target);
+    const userChars = splitGraphemes(normalized.user);
+    if (userChars.length < targetChars.length) return false;
+    for (let i = 0; i < targetChars.length; i++) {
+      const r = isPartialMatch(userChars[i], targetChars[i], targetChars[i + 1]);
+      if (r !== "complete" && r !== "partial_complete") return false;
+    }
+    return true;
+  };
+  const isLinePairTypingEquivalentComplete = (userLineRaw: string, targetLineRaw: string) => {
+    if (isLinePairNormalizedComplete(userLineRaw, targetLineRaw)) return true;
+
+    const typingNormalized = normalizeLinePairForTypingCompare(userLineRaw, targetLineRaw);
+    if (typingNormalized.target.length > 0 && typingNormalized.user.startsWith(typingNormalized.target)) {
+      return true;
+    }
+
+    const comparePair = buildLineComparePair(userLineRaw, targetLineRaw);
+    if (isInitialShortcutComplete(comparePair.userLineForCompare, comparePair.targetLineForCompare)) {
+      return true;
+    }
+
+    return false;
+  };
+  const isTypingEquivalentCompleteByLineFlow = (input: string, target: string) => {
+    const userLines = input.split("\n");
+    const targetLines = target.split("\n");
+    let carryOverKeys = "";
+    let hasMeaningfulTarget = false;
+
+    for (let lineIdx = 0; lineIdx < targetLines.length; lineIdx++) {
+      const targetLineRaw = targetLines[lineIdx] ?? "";
+      const pair = buildLineComparePair(userLines[lineIdx] ?? "", targetLineRaw);
+      const targetTyping = toTypingKeySequence(pair.targetLineForCompare.replace(/\s+/g, ""));
+      if (targetTyping.length === 0) continue;
+      hasMeaningfulTarget = true;
+
+      let userTyping = toTypingKeySequence(pair.userLineForCompare.replace(/\s+/g, ""));
+      if (carryOverKeys.length > 0) {
+        userTyping = `${carryOverKeys}${userTyping}`;
+      }
+      if (!userTyping.startsWith(targetTyping)) return false;
+      carryOverKeys = userTyping.slice(targetTyping.length);
+    }
+
+    return hasMeaningfulTarget;
+  };
   const findCompletedSentenceIndex = (
     input: string,
     target: string,
@@ -1143,13 +1345,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         preferredTargetLineIndex >= 0 &&
         !excludedTargetLineIndices.has(preferredTargetLineIndex) &&
         normalizeLineForComparison(targetLines[preferredTargetLineIndex] ?? "").length > 0 &&
-        isTypingEquivalentComplete(userLine, targetLines[preferredTargetLineIndex] ?? "")
+        isLinePairTypingEquivalentComplete(userLine, targetLines[preferredTargetLineIndex] ?? "")
       ) {
         return preferredTargetLineIndex;
       }
 
       for (const ti of candidateTargetIndices) {
-        if (isTypingEquivalentComplete(userLine, targetLines[ti] ?? "")) {
+        if (isLinePairTypingEquivalentComplete(userLine, targetLines[ti] ?? "")) {
           return ti;
         }
       }
@@ -1200,7 +1402,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       if (normalizeLineForComparison(targetLine).length === 0) continue;
       for (let ui = 0; ui < userLines.length; ui++) {
         const userLine = userLines[ui] ?? "";
-        if (isTypingEquivalentComplete(userLine, targetLine)) {
+        if (isLinePairTypingEquivalentComplete(userLine, targetLine)) {
           completed.add(ti);
           break;
         }
@@ -1403,6 +1605,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const wasBlind = !autoHideViewedLinesRef.current.has(completedSentenceIndex);
     completedSet.add(completedSentenceIndex);
     autoHideCompletedLinesRef.current = completedSet;
+    setAutoHideWrongLines((prev) => {
+      if (!prev.has(completedSentenceIndex)) return prev;
+      const next = new Set(prev);
+      next.delete(completedSentenceIndex);
+      return next;
+    });
     const resolvedSet = new Set<number>(preCompletedSet);
     completedSet.forEach((idx) => resolvedSet.add(idx));
 
@@ -1436,6 +1644,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const keepAutoHide = nextSessionCount >= 3;
       setHideMode(keepAutoHide ? "all" : "none");
       setHiddenLines(new Set());
+      setAutoHideWrongLines(new Set());
       autoHideCompletedLinesRef.current = new Set();
       autoHideViewedLinesRef.current = new Set();
       autoHidePreCompletedLinesRef.current = new Set();
@@ -1454,6 +1663,58 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       unresolved[0] ??
       completedSentenceIndex;
     movePracticeCursorToLine(inputValue, nextLineIdx);
+  };
+
+  const handleAutoHideEnterSubmission = (
+    inputValue: string,
+    cursorLineIndex: number
+  ) => {
+    const targetLines = repeatStateRef.current.targetText.split("\n");
+    const excluded = getAutoHideExcludedLineIndices();
+    const unresolved = targetLines
+      .map((line, idx) =>
+        !excluded.has(idx) && normalizeLineForComparison(line).length > 0 ? idx : -1
+      )
+      .filter((idx) => idx >= 0);
+
+    if (unresolved.length === 0) {
+      return;
+    }
+
+    const clampedCursor = Math.max(0, cursorLineIndex);
+    const skippedBeforeCursor = unresolved.filter((idx) => idx < clampedCursor);
+    if (skippedBeforeCursor.length > 0) {
+      setAutoHideWrongLines((prev) => {
+        const next = new Set(prev);
+        skippedBeforeCursor.forEach((idx) => next.add(idx));
+        return next;
+      });
+    }
+
+    const currentTargetIdx = unresolved.includes(clampedCursor)
+      ? clampedCursor
+      : unresolved.find((idx) => idx > clampedCursor) ?? unresolved[0];
+    if (currentTargetIdx === undefined) return;
+
+    const userLines = inputValue.split("\n");
+    const userLine = userLines[currentTargetIdx] ?? userLines[clampedCursor] ?? "";
+    const targetLine = targetLines[currentTargetIdx] ?? "";
+    const isCompleted = isLinePairTypingEquivalentComplete(userLine, targetLine);
+
+    if (isCompleted) {
+      handleAutoHideSentenceCompletion(currentTargetIdx, inputValue, clampedCursor);
+      return;
+    }
+
+    setAutoHideWrongLines((prev) => {
+      const next = new Set(prev);
+      next.add(currentTargetIdx);
+      return next;
+    });
+
+    const nextUnresolved =
+      unresolved.find((idx) => idx > currentTargetIdx) ?? unresolved[0] ?? currentTargetIdx;
+    movePracticeCursorToLine(inputValue, nextUnresolved);
   };
 
   // 표 모드: 코어 함수들 (컨포넌트 레벨)
@@ -1503,6 +1764,34 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     clearTableInput(true);
   };
 
+  const tableMoveVertical = (direction: 'up' | 'down') => {
+    if (!tableActiveCellKey || tableTargetCells.length === 0) return;
+    const [rowRaw, colRaw] = tableActiveCellKey.split('-');
+    const currentRow = Number(rowRaw);
+    const currentCol = Number(colRaw);
+    if (!Number.isFinite(currentRow) || !Number.isFinite(currentCol)) return;
+
+    const candidates = tableTargetCells
+      .map((key) => {
+        const [rRaw, cRaw] = key.split('-');
+        return { key, row: Number(rRaw), col: Number(cRaw) };
+      })
+      .filter((pos) => (direction === 'up' ? pos.row < currentRow : pos.row > currentRow))
+      .sort((a, b) => {
+        const da = Math.abs(a.row - currentRow);
+        const db = Math.abs(b.row - currentRow);
+        if (da !== db) return da - db;
+        return Math.abs(a.col - currentCol) - Math.abs(b.col - currentCol);
+      });
+
+    const nextKey = candidates.length > 0 ? candidates[0].key : null;
+    if (!nextKey) return;
+    const nextBlankIdx = tableBlankCells.indexOf(nextKey);
+    if (nextBlankIdx < 0) return;
+    setTableActiveCellIdx(nextBlankIdx);
+    clearTableInput(true);
+  };
+
   const tableCorrectAnswerRef = useRef<((n?: number) => void) | null>(null);
   const isTableInputCorrect = (input: string, target: string) => {
     return isTypingEquivalentComplete(input, target);
@@ -1549,52 +1838,42 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (isCorrect) {
       completeCurrentTableCell(tableActiveCellKey);
     } else {
-      setTableCellSubmittedResult(tableCellInput.trim().length > 0 ? 'wrong' : null);
-      setTableWrongCells(prev => {
-        const next = new Set(prev);
-        if (tableCellInput.trim().length > 0) next.add(tableActiveCellKey);
-        return next;
-      });
+      // 입력 도중 즉시 오답 상태(빨간 셀)로 전환하지 않는다.
+      setTableCellSubmittedResult(tableCellInput.trim().length > 0 ? 'typing' : null);
     }
   };
 
   const handleTableInputChange = (value: string) => {
     if (tableInputResettingRef.current) return;
     setTableCellInput(value);
-    setTableCellSubmittedResult(value.trim().length > 0 ? 'typing' : null);
     if (!startTime) setStartTime(Date.now());
     setLastInputTime(Date.now());
     setIsActive(true);
     
-    // isPartialMatch 기반 실시간 자동 채점: 모든 글자가 complete이면 자동으로 다음 셀로 이동
+    // 입력 중에는 자동 셀 이동/초기화를 하지 않고 상태만 표시한다.
     if (tableActiveCellKey && tableData) {
       const ri = parseInt(tableActiveCellKey.split('-')[0]);
       const ci = parseInt(tableActiveCellKey.split('-')[1]);
       const cell = tableData.cells[ri]?.[ci];
       if (cell) {
-        const targetChars = splitGraphemes(cell.content.replace(/\s+/g, ''));
-        const userChars = splitGraphemes(value.replace(/\s+/g, ''));
         const allComplete = isTableInputCorrect(value, cell.content);
-
-        if (allComplete) {
-          setTimeout(() => {
-            completeCurrentTableCell(tableActiveCellKey);
-          }, 110);
-        } else if (userChars.length >= targetChars.length && value.trim().length > 0) {
-          setTableCellSubmittedResult('wrong');
-          setTableWrongCells(prev => {
-            const next = new Set(prev);
-            next.add(tableActiveCellKey);
-            return next;
-          });
-        } else {
-          setTableCellSubmittedResult('typing');
-        }
+        setTableCellSubmittedResult(
+          value.trim().length === 0 ? null : allComplete ? 'correct' : 'typing'
+        );
       }
+    } else {
+      setTableCellSubmittedResult(value.trim().length > 0 ? 'typing' : null);
     }
   };
 
   const handleTableKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isTableComposing || (e.nativeEvent as any)?.isComposing) return;
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      tableMoveVertical(e.key === 'ArrowUp' ? 'up' : 'down');
+      return;
+    }
     if ((e.key === 'Tab' || e.code === 'Tab') && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
       e.stopPropagation();
@@ -1604,13 +1883,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
       if (question) {
-        setLocation(`/test/${question.id}?autostart=1`);
+        const testPath = buildTestPath();
+        if (testPath) setLocation(testPath);
       }
       return;
     }
     if (e.key === 'Enter' && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
-      tableMoveToCell('next');
+      tableSubmitCurrentCell();
     }
   };
 
@@ -1792,7 +2072,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
         if (question) {
           e.preventDefault();
-          setLocation(`/test/${question.id}?autostart=1`);
+          const testPath = buildTestPath();
+          if (testPath) setLocation(testPath);
         }
         return;
       }
@@ -1807,7 +2088,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown);
     };
-  }, [imageLabels.length, isImageQuestion, question, setLocation, toggleHideAll]);
+  }, [buildTestPath, imageLabels.length, isImageQuestion, question, setLocation, toggleHideAll]);
 
   const handleCompositionStart = () => {
     setIsComposing(true);
@@ -1908,40 +2189,24 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // 텍스트 모드: 정답 자동 감지 (isPartialMatch 기반)
     if (!isTableQuestion && !isImageQuestion) {
       const currentTargetText = repeatStateRef.current.targetText;
-      if (hideMode === "all") {
-        const completedSentenceIndex = findCompletedSentenceIndex(newValue, currentTargetText, {
-          preferredUserLineIndex: Math.max(0, lineIndex),
-          excludeTargetLineIndices: getAutoHideExcludedLineIndices(),
-        });
-        if (completedSentenceIndex >= 0) {
-          handleAutoHideSentenceCompletion(
-            completedSentenceIndex,
-            newValue,
-            Math.max(0, lineIndex)
-          );
-          return;
-        }
-      }
       const targetLines = currentTargetText.split('\n');
       const userLines = newValue.split('\n');
       let allLinesComplete = true;
       for (let li = 0; li < targetLines.length; li++) {
-        const tChars = splitGraphemes(normalizeLineForComparison(targetLines[li]));
-        const uChars = splitGraphemes(normalizeLineForComparison(userLines[li] || ''));
-        if (tChars.length === 0) continue;
-        if (uChars.length < tChars.length) { allLinesComplete = false; break; }
-        for (let i = 0; i < tChars.length; i++) {
-          const r = isPartialMatch(uChars[i], tChars[i], tChars[i + 1]);
-          if (r !== 'complete' && r !== 'partial_complete') { allLinesComplete = false; break; }
+        const targetLine = targetLines[li] ?? '';
+        const userLine = userLines[li] ?? '';
+        if (normalizeLineForComparison(targetLine).length === 0) continue;
+        if (!isLinePairNormalizedComplete(userLine, targetLine)) {
+          allLinesComplete = false;
+          break;
         }
-        if (!allLinesComplete) break;
       }
       if (allLinesComplete && targetLines.some(l => normalizeLineForComparison(l).length > 0)) {
         handleCorrectAnswer(newValue.length);
         return;
       }
       // fallback: 줄 경계와 무관하게 공백 무시 완주도 인정
-      if (isTypingEquivalentComplete(newValue, currentTargetText)) {
+      if (isTypingEquivalentCompleteByLineFlow(newValue, currentTargetText)) {
         handleCorrectAnswer(newValue.length);
         return;
       }
@@ -2059,40 +2324,24 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
      // 텍스트 모드: 정답 자동 감지 (isPartialMatch 기반)
     if (!isTableQuestion && !isImageQuestion) {
       const currentTargetText = repeatStateRef.current.targetText;
-      if (hideMode === "all") {
-        const completedSentenceIndex = findCompletedSentenceIndex(newValue, currentTargetText, {
-          preferredUserLineIndex: Math.max(0, lineIndex),
-          excludeTargetLineIndices: getAutoHideExcludedLineIndices(),
-        });
-        if (completedSentenceIndex >= 0) {
-          handleAutoHideSentenceCompletion(
-            completedSentenceIndex,
-            newValue,
-            Math.max(0, lineIndex)
-          );
-          return;
-        }
-      }
       const targetLines = currentTargetText.split('\n');
       const userLines = newValue.split('\n');
       let allLinesComplete = true;
       for (let li = 0; li < targetLines.length; li++) {
-        const tChars = splitGraphemes(normalizeLineForComparison(targetLines[li]));
-        const uChars = splitGraphemes(normalizeLineForComparison(userLines[li] || ''));
-        if (tChars.length === 0) continue;
-        if (uChars.length < tChars.length) { allLinesComplete = false; break; }
-        for (let i = 0; i < tChars.length; i++) {
-          const r = isPartialMatch(uChars[i], tChars[i], tChars[i + 1]);
-          if (r !== 'complete' && r !== 'partial_complete') { allLinesComplete = false; break; }
+        const targetLine = targetLines[li] ?? '';
+        const userLine = userLines[li] ?? '';
+        if (normalizeLineForComparison(targetLine).length === 0) continue;
+        if (!isLinePairNormalizedComplete(userLine, targetLine)) {
+          allLinesComplete = false;
+          break;
         }
-        if (!allLinesComplete) break;
       }
       if (allLinesComplete && targetLines.some(l => normalizeLineForComparison(l).length > 0)) {
         handleCorrectAnswer(newValue.length);
         return;
       }
       // fallback: 줄 경계와 무관하게 공백 무시 완주도 인정
-      if (isTypingEquivalentComplete(newValue, currentTargetText)) {
+      if (isTypingEquivalentCompleteByLineFlow(newValue, currentTargetText)) {
         handleCorrectAnswer(newValue.length);
         return;
       }
@@ -2265,13 +2514,30 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
       if (question) {
-        setLocation(`/test/${question.id}?autostart=1`);
+        const testPath = buildTestPath();
+        if (testPath) setLocation(testPath);
       }
       return;
     }
 
     // Enter: autoNumbering 문제에서는 다음 번호 자동 삽입
     if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+      if (
+        !isTableQuestion &&
+        !isImageQuestion &&
+        hideMode === "all" &&
+        !(e.nativeEvent as any).isComposing &&
+        !isComposing
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        const textarea = e.currentTarget;
+        const selectionStart = textarea.selectionStart ?? textarea.value.length;
+        const cursorLineIndex = textarea.value.slice(0, selectionStart).split("\n").length - 1;
+        handleAutoHideEnterSubmission(textarea.value, cursorLineIndex);
+        return;
+      }
+
       const isTextAutoNumbering =
         !isTableQuestion &&
         !isImageQuestion &&
@@ -2455,7 +2721,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   // 돌아가기 버튼 클릭 핸들러
   const handleGoBack = async () => {
-    const targetPath = `/questions/${question?.subjectId || 1}`;
+    const basePath = `/questions/${question?.subjectId || 1}`;
+    const targetPath =
+      isDemoLinkedMode && demoLinkedSubjectId
+        ? `${basePath}?demo=1&demoSubjectId=${demoLinkedSubjectId}`
+        : basePath;
 
     if (isDemo) {
       // 데모 모드: 현재 연습만 초기화하고 돌아가기 (누적 연습은 이미 실시간으로 저장됨)
@@ -2489,6 +2759,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     autoHideViewedLinesRef.current = new Set();
     autoHidePreCompletedLinesRef.current = new Set();
     autoHideCompletionLockRef.current = 0;
+    setAutoHideWrongLines(new Set());
     setSessionCompleteCount(nextSessionCount);
     if (nextSessionCount === 3) {
       setShowTestNudge(true);
@@ -2668,8 +2939,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         userLine = userLines[lineIdx] || '';
       }
       const targetLine = targetLines[lineIdx] || '';
-      
-      const targetChars = splitGraphemes(targetLine.replace(/\s+/g, ''));
+
+      const targetPrefixInfo = getListPrefixInfo(targetLine);
+      const userPrefixInfo = getListPrefixInfo(userLine);
+      const shouldSkipTargetPrefixForCompare =
+        targetPrefixInfo.kind !== null && userPrefixInfo.kind === null;
+      const targetCompareLine = shouldSkipTargetPrefixForCompare
+        ? targetPrefixInfo.body
+        : targetLine;
+
+      const targetChars = splitGraphemes(targetCompareLine.replace(/\s+/g, ''));
       const targetKeyUnits = targetChars.map((char) => toTypingKeyUnit(char));
       let userKeySequence = toTypingKeySequence(userLine.replace(/\s+/g, ''));
 
@@ -2716,9 +2995,20 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         carryOverKeys = userKeySequence.slice(targetKeyLength);
       }
 
+      const skippedPrefixCharCount = shouldSkipTargetPrefixForCompare
+        ? splitGraphemes(targetPrefixInfo.prefix.replace(/\s+/g, '')).length
+        : 0;
+      const displayCharStates: Array<'complete' | 'partial' | 'wrong' | 'pending'> =
+        skippedPrefixCharCount > 0
+          ? [
+              ...Array.from({ length: skippedPrefixCharCount }, () => 'pending' as const),
+              ...charStates,
+            ]
+          : charStates;
+
       lineResults.push({
         targetChars,
-        charStates,
+        charStates: displayCharStates,
         completedCount,
       });
     }
@@ -2730,7 +3020,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // 엔터 없이도 다음 줄 자동 인식:
     // 현재 줄의 모든 글자가 완성(completedCount === targetChars.length)이면
     // 다음 줄의 첫 글자에 언더바를 표시하기 위해 activeLineIdx를 다음 줄로 이동
-    if (!isInRepeatMode && currentLineIndex < targetLines.length - 1) {
+    if (!isInRepeatMode && hideMode !== "all" && currentLineIndex < targetLines.length - 1) {
       const currentResult = lineResults[currentLineIndex];
       if (currentResult && currentResult.completedCount >= currentResult.targetChars.length && currentResult.targetChars.length > 0) {
         // 현재 줄 입력 완료 → 다음 줄로 이동
@@ -2739,7 +3029,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
     
     return { lineResults, currentLineIndex, userLines, targetLines };
-  }, [userInput, targetText, renderTrigger, currentCursorLineIndex, repeatCheckedLines, repeatCurrentIdx]);
+  }, [userInput, targetText, renderTrigger, currentCursorLineIndex, repeatCheckedLines, repeatCurrentIdx, hideMode]);
   const activePracticeLineNumber = Math.max(1, completionInfo.currentLineIndex + 1);
 
   useEffect(() => {
@@ -2808,6 +3098,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               return next;
             });
           };
+        const isPracticeWrongLine = autoHideWrongLines.has(lineIdx);
         return (
           <div
             key={`line-${lineIdx}`}
@@ -2815,9 +3106,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             onClick={revealLine}
             onMouseDown={(e) => e.preventDefault()} // 포커스 이동 방지
           >
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted/60 rounded text-muted-foreground/50 text-sm hover:bg-muted hover:text-muted-foreground transition-colors">
+            <span
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-sm transition-colors ${
+                isPracticeWrongLine
+                  ? "border border-rose-300 bg-rose-100 text-rose-700"
+                  : isActiveLine
+                    ? "border border-primary/30 bg-primary/10 text-primary"
+                    : "bg-muted/60 text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground"
+              }`}
+            >
               <EyeOff className="h-3 w-3" />
-              {lineIdx + 1}번째 줄 (클릭하여 보기)
+              {isPracticeWrongLine
+                ? `${lineIdx + 1}번째 줄 (오답)`
+                : isActiveLine
+                  ? `${lineIdx + 1}번째 줄 (현재 연습 중)`
+                  : `${lineIdx + 1}번째 줄 (클릭하여 보기)`}
             </span>
           </div>
         );
@@ -2851,9 +3154,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const charState = lineResult.charStates[currentCharIdx] ?? 'pending';
 
         if (charState === 'complete') {
-          const fadeClass = isFadingOut ? (lineIdx === 0 ? "text-gray-600" : "text-gray-300") : "text-foreground";
           return (
-            <span key={`${lineIdx}-${charIndex}`} className={fadeClass + " relative font-semibold text-xl transition-colors duration-300"} style={{ opacity: 1 }}>
+            <span key={`${lineIdx}-${charIndex}`} className="text-foreground relative font-semibold text-xl" style={{ opacity: 1 }}>
               {char}
             </span>
           );
@@ -2884,9 +3186,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       
       // 줄 끝에 줄바꿈 추가 (마지막 줄 제외)
       // 첫 줄은 진한 회색 글씨, 나머지는 연한 회색 줄로 fade out
-      const lineClass = lineIdx === 0 
-        ? (isFadingOut ? "text-gray-600 transition-colors duration-300" : "text-foreground")
-        : (isFadingOut ? "text-gray-300 transition-colors duration-300" : "text-foreground");
+      const lineClass = "text-foreground";
       
       // 체크된 줄 상태
       const isChecked = repeatCheckedLines.has(actualLineIdx);
@@ -2922,7 +3222,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       };
 
       // 마지막 시험 오답 줄 여부
-      const isWrongLine = (confidenceData as any)?.lastTestWrongLines?.includes(lineIdx) ?? false;
+      const isWrongLine =
+        ((confidenceData as any)?.lastTestWrongLines?.includes(lineIdx) ?? false) ||
+        autoHideWrongLines.has(lineIdx);
 
       const lineStyle: React.CSSProperties = {
         display: 'block',
@@ -2982,7 +3284,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </span>
       );
     });
-  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines, repeatCheckedLines, currentRepeatTarget, isRepeatMode, toggleRepeatLine, confidenceData]);
+  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines, repeatCheckedLines, currentRepeatTarget, isRepeatMode, toggleRepeatLine, confidenceData, autoHideWrongLines]);
 
   if (isLoading) {
     return (
@@ -3172,7 +3474,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   size="sm"
                   variant="outline"
                   className="h-7 text-xs gap-1"
-                  onClick={() => setLocation(`/test/${question.id}?autostart=1`)}
+                  onClick={() => {
+                    const testPath = buildTestPath();
+                    if (testPath) setLocation(testPath);
+                  }}
                 >
                   <Zap className="h-3 w-3" />
                   시험 시작
@@ -3198,7 +3503,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       size="sm"
                       variant="outline"
                       className="h-7 text-xs gap-1 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
-                      onClick={() => setLocation(`/test/${question.id}?autostart=1`)}
+                      onClick={() => {
+                        const testPath = buildTestPath();
+                        if (testPath) setLocation(testPath);
+                      }}
                     >
                       <Zap className="h-3 w-3" />
                       시험 시작
@@ -3371,7 +3679,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         variant="ghost"
                         size="sm"
                         className="h-8 gap-1.5 text-xs"
-                        onClick={() => setLocation(`/test/${question.id}?autostart=1`)}
+                        onClick={() => {
+                          const testPath = buildTestPath();
+                          if (testPath) setLocation(testPath);
+                        }}
                       >
                         <Zap className="h-3.5 w-3.5" />
                         시험 시작
@@ -3537,6 +3848,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             <div>
               <TableView
                 tableData={tableData}
+                hideAnswer={hideMode === "all"}
                 activeCellKey={tableActiveCellKey}
                 completedCells={tableCompletedCells}
                 checkedCells={tableCheckedCells}
@@ -3590,9 +3902,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   가림막 전환: <kbd className="rounded border px-1 py-0.5 text-[10px]">Tab</kbd>
                 </span>
               </div>
-              <div className={`flex flex-col ${isDemo ? "" : "lg:flex-row"} gap-2`} style={{ alignItems: 'flex-start' }}>
+              {/* Image layout row */}
+              <div ref={imageLayoutRowRef} className="flex flex-col lg:flex-row gap-2" style={{ alignItems: 'flex-start' }}>
                 {/* Left: Image with labels */}
-                <div className="flex-shrink-0 relative" style={{ width: isDemo ? "100%" : `${imageScale}%`, minWidth: '200px' }}>
+                <div className="flex-shrink-0 relative" style={{ width: `${imageScale}%`, minWidth: '200px', maxWidth: '100%' }}>
                   {/* Size control - floating overlay on top-right of image */}
                   <div className="absolute top-1 right-1 z-10 flex items-center gap-1 bg-background/80 backdrop-blur-sm rounded px-1.5 py-0.5 border border-border/50">
                     <div className="flex items-center gap-0.5">
@@ -3609,35 +3922,32 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       >+</button>
                     </div>
                     <button
-                      onClick={() => {
-                        if (imageContainerRef.current) {
-                          const img = imageContainerRef.current.querySelector('img');
-                          if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
-                            const imgWidth = img.naturalWidth;
-                            const imgHeight = img.naturalHeight;
-                            const maxWidth = window.innerWidth * 0.4;
-                            const maxHeight = window.innerHeight * 0.7;
-                            const scaleByWidth = (maxWidth / imgWidth) * 100;
-                            const scaleByHeight = (maxHeight / imgHeight) * 100;
-                            const optimalScale = Math.min(scaleByWidth, scaleByHeight, 100);
-                            setImageScale(Math.max(30, Math.round(optimalScale)));
-                          }
-                        }
-                      }}
+                      onClick={applyImageFitScale}
                       className="px-1.5 py-0.5 text-[10px] rounded hover:bg-muted transition-colors"
                     >맞춤</button>
                   </div>
-                  <div className="relative w-full rounded-lg border-2 border-border overflow-hidden" ref={imageContainerRef}>
-                    {!imageLoaded && (
-                      <div className="flex items-center justify-center min-h-[300px] md:min-h-[400px] bg-muted/30 rounded-lg border-2 border-border">
-                        <p className="text-muted-foreground">이미지 로딩 중...</p>
+                    <div className="relative w-full rounded-lg border-2 border-border overflow-hidden" ref={imageContainerRef}>
+                      {!imageLoaded && (
+                        <div className="flex items-center justify-center min-h-[300px] md:min-h-[400px] bg-muted/30 rounded-lg border-2 border-border">
+                          <p className="text-muted-foreground">이미지 로딩 중...</p>
                       </div>
                     )}
                     <img
+                      ref={imageElementRef}
                       src={question.imageUrl || ""}
                       alt="Question image"
                       className={`w-full h-auto block ${!imageLoaded ? 'hidden' : ''}`}
-                      onLoad={() => setImageLoaded(true)}
+                      onLoad={(e) => {
+                        const target = e.currentTarget;
+                        imageNaturalSizeRef.current = {
+                          width: target.naturalWidth,
+                          height: target.naturalHeight,
+                        };
+                        setImageLoaded(true);
+                        window.requestAnimationFrame(() => {
+                          applyImageFitScale();
+                        });
+                      }}
                       loading="eager"
                       fetchPriority="high"
                     />
@@ -3711,7 +4021,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
                 {/* Right: Lined notebook-style practice note */}
                 {!isDemo && (
-                <div className="flex-1 flex flex-col" style={{ minWidth: '200px' }}>
+                <div className="flex-1 flex flex-col" style={{ minWidth: '200px' }} ref={imageAnswerPanelRef}>
                   <div
                     className="relative rounded-lg border-2 border-border bg-background overflow-hidden cursor-text"
                     style={{ height: `${imageContainerHeight}px` }}
@@ -3841,7 +4151,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
                         onKeyUp={handleKeyUp}
-                        className="w-full flex-1 rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-xl font-semibold leading-[1.85] tracking-tight px-5 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
+                        className="w-full flex-1 rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-xl font-semibold leading-relaxed tracking-tight px-5 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
                         style={{
                           minHeight: `${horizontalInputMinHeightPx}px`,
                           maxHeight: "74vh",
@@ -3966,7 +4276,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               />
               {/* 연습 횟수 + 초기화 */}
               <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">연습장 모드: 띄어쓰기·엔터·한/영 전환 없이 입력해도 돼요. 초성 입력도 인정됩니다.</span>
+                <span className="text-xs text-muted-foreground">연습장 모드: 띄어쓰기·한/영 전환 없이 입력해도 돼요. Enter로 현재 셀 확인, ↑/↓로 위아래 셀 이동, 셀 더블클릭/우클릭으로 집중 연습 설정이 가능해요.</span>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">연습 {practiceCount}회</span>
                   <Button
@@ -4023,7 +4333,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   onKeyUp={handleKeyUp}
-                  className="w-full rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-xl font-semibold leading-[1.85] tracking-tight px-5 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
+                  className="w-full rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-xl font-semibold leading-relaxed tracking-tight px-5 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
                   style={{
                     minHeight: `${inputPanelMinHeightPx}px`,
                     maxHeight: "320px",

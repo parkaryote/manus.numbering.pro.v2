@@ -105,8 +105,22 @@ function stateFromScore(score: number): string {
 }
 
 export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamProps) {
-  const [, setLocation] = useLocation();
-  const subjectQuestionsPath = isDemo ? `/demo/questions/${subjectId}` : `/questions/${subjectId}`;
+  const [location, setLocation] = useLocation();
+  const searchParams = useMemo(() => {
+    if (typeof window === "undefined") return new URLSearchParams();
+    return new URLSearchParams(window.location.search);
+  }, [location]);
+  const isDemoLinkedMode = !isDemo && searchParams.get("demo") === "1";
+  const demoLinkedSubjectIdRaw = Number.parseInt(searchParams.get("demoSubjectId") || "", 10);
+  const demoLinkedSubjectId =
+    Number.isFinite(demoLinkedSubjectIdRaw) && demoLinkedSubjectIdRaw > 0
+      ? demoLinkedSubjectIdRaw
+      : null;
+  const subjectQuestionsPath = isDemo
+    ? `/demo/questions/${subjectId}`
+    : isDemoLinkedMode && demoLinkedSubjectId
+      ? `/questions/${subjectId}?demo=1&demoSubjectId=${demoLinkedSubjectId}`
+      : `/questions/${subjectId}`;
 
   const [phase, setPhase] = useState<"intro" | "exam" | "result">("intro");
   const [textAnswers, setTextAnswers] = useState<Record<number, string>>({});
@@ -132,7 +146,27 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
     { subjectId },
     { enabled: isDemo }
   );
-  const questions = isDemo ? demoQuestionsQuery.data : userQuestionsQuery.data;
+  const demoLinkedPreviewQuery = trpc.demo.questions.useQuery(
+    { subjectId: demoLinkedSubjectId ?? 0 },
+    { enabled: isDemoLinkedMode && !!demoLinkedSubjectId, refetchOnWindowFocus: false }
+  );
+  const questions = useMemo(() => {
+    const baseQuestions = isDemo ? demoQuestionsQuery.data : userQuestionsQuery.data;
+    if (!baseQuestions) return baseQuestions;
+    if (!isDemoLinkedMode || !demoLinkedSubjectId) return baseQuestions;
+    if (!demoLinkedPreviewQuery.data) return undefined;
+    const allowedSourceQuestionIds = new Set(demoLinkedPreviewQuery.data.map((question) => question.id));
+    return baseQuestions.filter((question: any) =>
+      allowedSourceQuestionIds.has(question.demoSourceQuestionId ?? -1)
+    );
+  }, [
+    demoLinkedPreviewQuery.data,
+    demoLinkedSubjectId,
+    demoQuestionsQuery.data,
+    isDemo,
+    isDemoLinkedMode,
+    userQuestionsQuery.data,
+  ]);
   const utils = trpc.useUtils();
 
   const evaluateMutation = trpc.test.evaluate.useMutation({

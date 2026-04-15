@@ -181,6 +181,37 @@ export async function getSubjectsByUserId(userId: number) {
   return db.select().from(subjects).where(eq(subjects.userId, userId)).orderBy(subjects.displayOrder);
 }
 
+export async function getAnyUserId(): Promise<number | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ id: users.id }).from(users).orderBy(users.id).limit(1);
+  return rows[0]?.id ?? null;
+}
+
+export async function findLatestSubjectByName(
+  name: string,
+  options?: { isDemo?: number }
+) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const normalized = (name ?? "").trim().toLowerCase();
+  if (!normalized) return undefined;
+  const whereClause =
+    options?.isDemo === undefined
+      ? sql`LOWER(TRIM(${subjects.name})) = ${normalized}`
+      : and(
+          sql`LOWER(TRIM(${subjects.name})) = ${normalized}`,
+          eq(subjects.isDemo, options.isDemo === 1 ? 1 : 0)
+        );
+  const rows = await db
+    .select()
+    .from(subjects)
+    .where(whereClause)
+    .orderBy(desc(subjects.updatedAt), desc(subjects.id))
+    .limit(1);
+  return rows[0];
+}
+
 export async function getSubjectById(id: number) {
   const db = await getDb();
   if (!db) return undefined;

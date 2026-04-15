@@ -82,6 +82,19 @@ const CustomDot = (props: any) => {
       </g>
     );
   }
+  if (payload.eventType === "forgetting") {
+    return (
+      <g key={`dot-${cx}-${cy}`}>
+        <circle
+          cx={cx}
+          cy={cy}
+          r={eventLayerFocused ? 3.8 : 2.8}
+          fill="#94a3b8"
+          fillOpacity={eventLayerFocused ? 0.78 : 0.28}
+        />
+      </g>
+    );
+  }
   if (payload.eventType === "now") {
     return (
       <g key={`dot-${cx}-${cy}`}>
@@ -105,6 +118,9 @@ const CustomActiveDot = (props: any) => {
     const isSuccess = payload.score >= SUCCESS_THRESHOLD;
     const color = isSuccess ? "#22c55e" : SOFT_DANGER_COLOR;
     return <circle cx={cx} cy={cy} r={7} fill={color} stroke="white" strokeWidth={2} />;
+  }
+  if (payload.eventType === "forgetting") {
+    return <circle cx={cx} cy={cy} r={5.5} fill="#94a3b8" stroke="white" strokeWidth={1.5} />;
   }
   return <circle cx={cx} cy={cy} r={7} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />;
 };
@@ -149,6 +165,24 @@ const CustomTooltip = ({ active, payload }: any) => {
           </span>
         </div>
         <div className="text-xs text-muted-foreground">안정도 {displayScore}점</div>
+        {d.questionCount && (
+          <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
+        )}
+      </div>
+    );
+  }
+
+  if (d.eventType === "forgetting") {
+    return (
+      <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[150px]">
+        <div className="text-muted-foreground text-xs mb-1.5">
+          {format(date, "yyyy.MM.dd HH:mm", { locale: ko })}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block" />
+          <span className="text-muted-foreground text-xs">망각 구간</span>
+          <span className="font-semibold text-sm">{Math.round(Number(d.score ?? 0))}점</span>
+        </div>
         {d.questionCount && (
           <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
         )}
@@ -236,7 +270,7 @@ export function SubjectConfidenceHistoryModal({
     const hasEventLayerHover = activePayload.some((entry: any) => {
       const eventType = entry?.payload?.eventType;
       const dataKey = entry?.dataKey;
-      return dataKey === "score" && (eventType === "practice" || eventType === "test");
+      return dataKey === "score" && (eventType === "practice" || eventType === "test" || eventType === "forgetting");
     });
 
     const eventEntry = activePayload.find(
@@ -328,6 +362,10 @@ export function SubjectConfidenceHistoryModal({
                 <span className="inline-block w-3 h-3 rounded-full bg-gray-400" />
                 연습 (호버 시만)
               </span>
+              <span className="flex items-center gap-1.5 text-muted-foreground/50">
+                <span className="inline-block w-3 h-3 rounded-full bg-slate-400/70" />
+                망각 구간
+              </span>
               <span className="ml-auto text-xs text-muted-foreground">과목 내 문제 평균</span>
             </div>
 
@@ -392,7 +430,7 @@ export function SubjectConfidenceHistoryModal({
 
                   {/* 그래프 선: 단일 브랜드 컬러 */}
                   <Line
-                    type={isExamplePreview ? "linear" : "monotone"}
+                    type="monotone"
                     dataKey="score"
                     stroke={BRAND_COLOR}
                     strokeOpacity={0.9}

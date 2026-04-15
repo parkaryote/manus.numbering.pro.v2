@@ -15,7 +15,9 @@ const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   return next({ ctx });
 });
 
-function assertDemoPublishingEnabled() {
+function assertDemoPublishingEnabled(role?: "admin" | "user") {
+  // Admin workspace operations should remain available even when public demo publishing is locked.
+  if (role === "admin") return;
   if (!ENV.allowDemoPublishing) {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -24,6 +26,60 @@ function assertDemoPublishingEnabled() {
   }
 }
 
+const TOOTH_MORPHOLOGY_SUBJECT_NAME = "치아형태학";
+const TOOTH_SHOWCASE_KEYS_IN_ORDER = ["box1", "box9", "table_i3"] as const;
+type ToothShowcaseKey = (typeof TOOTH_SHOWCASE_KEYS_IN_ORDER)[number];
+
+const TOOTH_SHOWCASE_TITLE_CANDIDATES: Record<ToothShowcaseKey, string[]> = {
+  box1: ["Box-1 절치들의 근원심구별"],
+  box9: ["Box-9 하악 제1소구치와 제2소구치의 차이점"],
+  table_i3: ["표 I-3 상악 치아 크기", "표 I-3 하악 치아 크기"],
+};
+
+function normalizeSubjectNameValue(value: string | null | undefined): string {
+  return (value ?? "").toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+}
+
+function normalizeLookupValue(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ").replace(/[^0-9a-z가-힣]/g, "");
+}
+
+const TOOTH_MORPHOLOGY_SUBJECT_KEY = normalizeSubjectNameValue(TOOTH_MORPHOLOGY_SUBJECT_NAME);
+const TOOTH_SHOWCASE_TITLE_LOOKUP: Record<ToothShowcaseKey, string[]> = {
+  box1: TOOTH_SHOWCASE_TITLE_CANDIDATES.box1.map((title) => normalizeLookupValue(title)),
+  box9: TOOTH_SHOWCASE_TITLE_CANDIDATES.box9.map((title) => normalizeLookupValue(title)),
+  table_i3: TOOTH_SHOWCASE_TITLE_CANDIDATES.table_i3.map((title) => normalizeLookupValue(title)),
+};
+
+function isToothMorphologySubjectName(subjectName: string | null | undefined): boolean {
+  return normalizeSubjectNameValue(subjectName) === TOOTH_MORPHOLOGY_SUBJECT_KEY;
+}
+
+function resolveToothShowcaseKey(questionTitle: string | null | undefined): ToothShowcaseKey | null {
+  const normalizedTitle = normalizeLookupValue(questionTitle);
+  if (!normalizedTitle) return null;
+  for (const key of TOOTH_SHOWCASE_KEYS_IN_ORDER) {
+    const candidates = TOOTH_SHOWCASE_TITLE_LOOKUP[key];
+    if (candidates.some((candidate) => normalizedTitle.includes(candidate) || candidate.includes(normalizedTitle))) {
+      return key;
+    }
+  }
+  return null;
+}
+
+function pickToothShowcaseQuestions<T extends { question?: string | null; displayOrder?: number | null }>(rows: T[]): T[] {
+  const sorted = [...rows].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+  const picked = new Map<ToothShowcaseKey, T>();
+  for (const row of sorted) {
+    const key = resolveToothShowcaseKey(row.question);
+    if (!key || picked.has(key)) continue;
+    picked.set(key, row);
+  }
+  return TOOTH_SHOWCASE_KEYS_IN_ORDER.flatMap((key) => {
+    const row = picked.get(key);
+    return row ? [row] : [];
+  });
+}
 
 export const adminRouter = router({
   // 데모 과목 관리
@@ -42,7 +98,11 @@ export const adminRouter = router({
     questions: adminProcedure
       .input(z.object({ subjectId: z.number() }))
       .query(async ({ input }) => {
-        return db.getDemoQuestionsBySubjectId(input.subjectId);
+        const subject = await db.getSubjectById(input.subjectId);
+        if (!subject || subject.isDemo !== 1) return [];
+        const rows = await db.getDemoQuestionsBySubjectId(input.subjectId);
+        if (!isToothMorphologySubjectName(subject.name)) return rows;
+        return pickToothShowcaseQuestions(rows);
       }),
 
     // 데모 문제 수정
@@ -51,7 +111,7 @@ export const adminRouter = router({
         z.object({
           questionId: z.number(),
           question: z.string(),
-          answer: z.string(),
+          answer: z.string().default(""),
           imageUrl: z.string().optional(),
           imageLabels: z.string().optional(),
           tableData: z.string().optional(),
@@ -124,7 +184,7 @@ export const adminRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        assertDemoPublishingEnabled();
+        assertDemoPublishingEnabled(ctx.user.role);
         const created = await db.createDemoQuestion({
           subjectId: input.subjectId,
           userId: ctx.user.id,
@@ -156,7 +216,7 @@ export const adminRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        assertDemoPublishingEnabled();
+        assertDemoPublishingEnabled(ctx.user.role);
         const created = await db.createDemoSubject({
           userId: ctx.user.id,
           name: input.name,
@@ -212,9 +272,9 @@ export const adminRouter = router({
     // 과목 isDemo 토글 (0 ↔ 1)
     toggleSubjectDemo: adminProcedure
       .input(z.object({ subjectId: z.number(), isDemo: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         if (input.isDemo === 1) {
-          assertDemoPublishingEnabled();
+          assertDemoPublishingEnabled(ctx.user.role);
         }
         await db.updateSubjectIsDemo(input.subjectId, input.isDemo);
         return { success: true };
@@ -223,9 +283,9 @@ export const adminRouter = router({
     // 문제 isDemo 토글 (0 ↔ 1)
     toggleQuestionDemo: adminProcedure
       .input(z.object({ questionId: z.number(), isDemo: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         if (input.isDemo === 1) {
-          assertDemoPublishingEnabled();
+          assertDemoPublishingEnabled(ctx.user.role);
         }
         await db.updateQuestionIsDemo(input.questionId, input.isDemo);
         return { success: true };

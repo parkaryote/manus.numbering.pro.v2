@@ -266,7 +266,17 @@ function deleteWordBeforeCursor(
 }
 
 export default function Test({ questionId, isDemo = false }: TestProps) {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const queryParams = useMemo(() => {
+    if (typeof window === "undefined") return new URLSearchParams();
+    return new URLSearchParams(window.location.search);
+  }, [location]);
+  const isDemoLinkedMode = !isDemo && queryParams.get("demo") === "1";
+  const demoLinkedSubjectIdRaw = Number.parseInt(queryParams.get("demoSubjectId") || "", 10);
+  const demoLinkedSubjectId =
+    Number.isFinite(demoLinkedSubjectIdRaw) && demoLinkedSubjectIdRaw > 0
+      ? demoLinkedSubjectIdRaw
+      : null;
   const searchParams = new URLSearchParams(window.location.search);
   const shouldAutoStart = searchParams.get("autostart") === "1";
   const [userAnswer, setUserAnswer] = useState("");
@@ -496,12 +506,6 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
 
     // 표 문제인 경우
     if (isTableQuestion && tableData) {
-      const blankCells = getBlankCells(tableData);
-      const hasAllAnswers = blankCells.every((key) => tableAnswers[key]?.trim());
-      if (!hasAllAnswers) {
-        toast.error("모든 빈칸을 채우세요");
-        return;
-      }
       const { results, score, total } = gradeTable(tableData, tableAnswers);
       setTableResults(results);
       setTableScore({ score, total });
@@ -672,13 +676,36 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const canSubmitNow = () => {
     if (evaluateMutation.isPending) return false;
     if (isTableQuestion && tableData) {
-      return getBlankCells(tableData).every((key) => tableAnswers[key]?.trim());
+      return true;
     }
     if (isImageQuestion) {
       return imageLabels.every((_: any, index: number) => imageLabelAnswers[index]?.trim());
     }
     return userAnswer.trim().length > 0;
   };
+
+  const tableComparisonRows = useMemo(() => {
+    if (!tableData) return [];
+    return getBlankCells(tableData).map((key, idx) => {
+      const [rowRaw, colRaw] = key.split("-");
+      const row = Number(rowRaw);
+      const col = Number(colRaw);
+      const cell = tableData.cells[row]?.[col];
+      const correctAnswer = cell?.content ?? "";
+      const userAnswer = tableAnswers[key] ?? "";
+      const isCorrect = tableResults?.[key] === true;
+      return {
+        key,
+        index: idx + 1,
+        row: row + 1,
+        col: col + 1,
+        correctAnswer,
+        userAnswer,
+        isCorrect,
+        lineScore: isCorrect ? 100 : 0,
+      };
+    });
+  }, [tableAnswers, tableData, tableResults]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const keyLower = e.key.toLowerCase();
@@ -865,6 +892,10 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   }
 
   const isSubmitDisabled = !canSubmitNow();
+  const questionListPath =
+    isDemoLinkedMode && demoLinkedSubjectId && question?.subjectId
+      ? `/questions/${question.subjectId}?demo=1&demoSubjectId=${demoLinkedSubjectId}`
+      : `/questions/${question?.subjectId ?? 1}`;
 
   return (
     <div className="relative space-y-6">
@@ -875,7 +906,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
         onComplete={() => setShowConfidencePopup(false)}
       />
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => setLocation(`/questions/${question.subjectId}`)}>
+        <Button variant="ghost" size="icon" onClick={() => setLocation(questionListPath)}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
@@ -900,7 +931,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   readOnly={true}
                 />
                 <p className="text-sm text-muted-foreground mt-2">
-                  빈칸 {getBlankCells(tableData).length}개를 채워야 합니다. 시작 버튼을 누르면 빈칸이 가려집니다.
+                  빈칸 {getBlankCells(tableData).length}개가 출제됩니다. 모르는 칸은 비워둔 채로 제출할 수 있습니다.
                 </p>
               </div>
             )}
@@ -1188,6 +1219,59 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                         readOnly={true}
                       />
                     )}
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1">
+                        <span className="inline-block h-2.5 w-2.5 rounded-sm border border-emerald-300 bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/45" />
+                        일치한 부분
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <span className="inline-block h-2.5 w-2.5 rounded-sm border border-rose-300 bg-rose-100 dark:border-rose-700 dark:bg-rose-900/45" />
+                        내 답에서 다른 부분
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {tableComparisonRows.map((row) => {
+                        const { correctMatched, answerMatched } = getMatchedPositions(
+                          row.correctAnswer,
+                          row.userAnswer
+                        );
+                        return (
+                          <div
+                            key={row.key}
+                            className={`rounded-lg border p-3 ${
+                              row.isCorrect
+                                ? "border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30"
+                                : "border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-semibold">
+                                {row.index}번째 칸 (행 {row.row}, 열 {row.col})
+                              </span>
+                              <span className={`text-lg ${row.isCorrect ? "text-green-700 dark:text-green-300" : "text-rose-700 dark:text-rose-300"}`}>
+                                {row.isCorrect ? "✓" : "✗"}
+                              </span>
+                            </div>
+                            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                              <span>점수 {row.lineScore}점</span>
+                              <span>셀 단위 채점</span>
+                            </div>
+                            <div className="text-xs space-y-1">
+                              <div>
+                                <span className="font-semibold">정답:</span>{" "}
+                                {renderComparedText(row.correctAnswer, correctMatched, "correct")}
+                              </div>
+                              <div className={row.isCorrect ? "text-green-700 dark:text-green-300" : "text-rose-700 dark:text-rose-300"}>
+                                <span className="font-semibold">내 답:</span>{" "}
+                                {row.userAnswer
+                                  ? renderComparedText(row.userAnswer, answerMatched, "answer")
+                                  : "(입력 없음)"}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </>
               ) : (
@@ -1334,7 +1418,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   다시 풀기
                 </Button>
                 <Button
-                  onClick={() => setLocation(`/questions/${question.subjectId}`)}
+                  onClick={() => setLocation(questionListPath)}
                   variant="outline"
                 >
                   문제 목록으로

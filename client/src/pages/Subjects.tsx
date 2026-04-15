@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { Plus, BookOpen, Trash2, Edit, GripVertical, Star } from "lucide-react";
+import { AlertTriangle, Clock, Plus, BookOpen, Trash2, Edit, GripVertical, Star } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
@@ -70,6 +70,7 @@ function sanitizeColorInput(value: string): string {
   return hexOnly.slice(0, 7);
 }
 const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
+const PARTIAL_DENTURE_SUBJECT_NAME = "국소의치학";
 
 function toDateTimeLocalValue(value?: string | Date | null): string {
   if (!value) return "";
@@ -313,27 +314,30 @@ function DemoWorkspaceSubjectCard({
 }) {
   const [, setLocation] = useLocation();
   const { data: demoQuestions = [] } = trpc.admin.demo.questions.useQuery({ subjectId: subject.id });
+  const { data: demoShowcaseQuestions = [] } = trpc.demo.questions.useQuery({ subjectId: subject.id });
   const { data: confidencePreview } = trpc.demo.confidenceBySubject.useQuery({ subjectId: subject.id });
 
   const miniItems = useMemo<SubjectMiniGridItem[]>(() => {
-    const sorted = [...demoQuestions].sort((a, b) => {
+    const sorted = [...demoShowcaseQuestions].sort((a, b) => {
       const orderDiff = (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
       if (orderDiff !== 0) return orderDiff;
       return (a.id ?? 0) - (b.id ?? 0);
     });
+    const demoQuestionMap = new Map(demoQuestions.map((row) => [row.id, row] as const));
     const previewMap = new Map(
       (confidencePreview?.questions ?? []).map((row) => [row.questionId, row] as const)
     );
     return sorted.map((question, index) => {
       const order = index + 1;
       const previewRow = previewMap.get(question.id);
+      const sourceQuestion = demoQuestionMap.get(question.id);
       if (previewRow) {
         return {
           questionId: question.id,
           displayOrder: order,
           displayScore: clampScore(previewRow.displayScore),
           state: previewRow.state,
-          isStarred: question.isStarred ?? previewRow.isStarred ?? 0,
+          isStarred: sourceQuestion?.isStarred ?? question.isStarred ?? previewRow.isStarred ?? 0,
         };
       }
       const fallback = buildDemoWorkspaceFallbackScore(question, index);
@@ -342,10 +346,10 @@ function DemoWorkspaceSubjectCard({
         displayOrder: order,
         displayScore: fallback.displayScore,
         state: fallback.state,
-        isStarred: question.isStarred ?? 0,
+        isStarred: sourceQuestion?.isStarred ?? question.isStarred ?? 0,
       };
     });
-  }, [confidencePreview?.questions, demoQuestions]);
+  }, [confidencePreview?.questions, demoQuestions, demoShowcaseQuestions]);
 
   const questionCount = miniItems.length;
   const averageScore = questionCount > 0
@@ -452,6 +456,10 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
   const subjects = (isDemoWorkspace ? demoSubjectsQuery.data : userSubjectsQuery.data) ?? [];
   const isLoading = isDemoWorkspace ? demoSubjectsQuery.isLoading : userSubjectsQuery.isLoading;
   const utils = trpc.useUtils();
+  const urgentDemoSubject = useMemo(
+    () => subjects.find((subject: any) => String(subject?.name ?? "").includes(PARTIAL_DENTURE_SUBJECT_NAME)),
+    [subjects]
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -681,7 +689,7 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">
-            {isDemoWorkspace ? "데모 과목 작업 공간" : "과목 관리"}
+            {isDemoWorkspace ? "데모 대시보드" : "과목 관리"}
           </h1>
           <p className="text-muted-foreground mt-1">
             {isDemoWorkspace
@@ -799,6 +807,38 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
           </DialogContent>
         </Dialog>
       </div>
+
+      {isDemoWorkspace && (
+        <div className="grid gap-3 md:grid-cols-3">
+          <Card className="border-red-200/70 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-1.5">
+                <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                <p className="text-xs font-medium text-red-700 dark:text-red-300">시험 임박</p>
+              </div>
+              <p className="text-base font-semibold">{urgentDemoSubject?.name ?? PARTIAL_DENTURE_SUBJECT_NAME}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-amber-200/70 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-300">오늘 복습할 문제</p>
+              </div>
+              <p className="text-base font-semibold">8개</p>
+            </CardContent>
+          </Card>
+          <Card className="border-indigo-200/70 bg-indigo-50/50 dark:border-indigo-900/50 dark:bg-indigo-950/20">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Star className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <p className="text-xs font-medium text-indigo-700 dark:text-indigo-300">별표 문제</p>
+              </div>
+              <p className="text-base font-semibold">2개</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-center py-12">

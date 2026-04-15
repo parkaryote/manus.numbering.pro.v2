@@ -63,7 +63,7 @@ export default function Login() {
     }
     toast.success(successMessage);
     void utils.auth.me.invalidate();
-    window.location.replace(nextPath);
+    setLocation(nextPath);
   };
 
   const googleLogin = trpc.auth.googleLoginWithCode.useMutation({

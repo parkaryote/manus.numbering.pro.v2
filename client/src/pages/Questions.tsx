@@ -61,6 +61,17 @@ interface ConfidenceData {
   };
 }
 
+type AggregateConfidenceSummary = {
+  totalQuestions: number;
+  averageScore: number;
+  greenCount: number;
+  yellowCount: number;
+  redCount: number;
+  isColdStart: boolean;
+  state: "green" | "yellow" | "red";
+  label: string;
+};
+
 interface SortableQuestionCardProps {
   question: any;
   confidence?: ConfidenceData;
@@ -582,10 +593,18 @@ function SortableQuestionCard({
             <div className="flex flex-col items-center gap-1">
               <div
                 className={`w-[18px] h-[18px] rounded-full ${
-                  confidence.state === 'green' ? 'bg-emerald-500' :
-                  confidence.state === 'yellow' ? 'bg-amber-400' :
-                  'bg-red-400'
-                } ${confidence.isColdStart ? 'opacity-40' : ''}`}
+                  confidence.state === 'green'
+                    ? confidence.isColdStart
+                      ? 'bg-emerald-100/70 dark:bg-emerald-950/40'
+                      : 'bg-emerald-500'
+                    : confidence.state === 'yellow'
+                      ? confidence.isColdStart
+                        ? 'bg-amber-100/70 dark:bg-amber-950/40'
+                        : 'bg-amber-400'
+                      : confidence.isColdStart
+                        ? 'bg-red-100/70 dark:bg-red-950/40'
+                        : 'bg-red-400'
+                }`}
               />
               <span className={`inline-block w-12 text-center text-sm font-semibold font-mono tabular-nums leading-none ${
                 confidence.isColdStart ? 'text-muted-foreground/50' : 'text-muted-foreground'
@@ -657,7 +676,7 @@ function SortableQuestionCard({
 }
 
 export default function Questions({ subjectId, isDemo = false, demoWorkspace = false }: QuestionsProps) {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { user } = useAuth();
   const [confidenceHistoryId, setConfidenceHistoryId] = useState<number | null>(null);
   const [confidenceHistoryTitle, setConfidenceHistoryTitle] = useState("");
@@ -701,6 +720,31 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   const subjectIsDemo = subject?.isDemo === 1;
   const isDemoWorkspace = isAdmin && (demoWorkspace || subjectIsDemo);
   const isReadOnlyDemo = (isDemo || subjectIsDemo) && !isDemoWorkspace;
+  const queryParams = useMemo(() => {
+    if (typeof window === "undefined") return new URLSearchParams();
+    return new URLSearchParams(window.location.search);
+  }, [location]);
+  const isDemoLinkedMode =
+    !isReadOnlyDemo && !isDemoWorkspace && queryParams.get("demo") === "1";
+  const demoLinkedSubjectIdRaw = Number.parseInt(queryParams.get("demoSubjectId") || "", 10);
+  const demoLinkedSubjectId =
+    Number.isFinite(demoLinkedSubjectIdRaw) && demoLinkedSubjectIdRaw > 0
+      ? demoLinkedSubjectIdRaw
+      : null;
+  const demoLinkedPreviewQuery = trpc.demo.questions.useQuery(
+    { subjectId: demoLinkedSubjectId ?? 0 },
+    {
+      enabled: isDemoLinkedMode && !!demoLinkedSubjectId,
+      refetchOnWindowFocus: false,
+    }
+  );
+  const demoWorkspacePreviewQuery = trpc.demo.questions.useQuery(
+    { subjectId },
+    {
+      enabled: Number.isFinite(subjectId) && isDemoWorkspace,
+      refetchOnWindowFocus: false,
+    }
+  );
   const { data: shareInfo } = trpc.share.getMineBySubject.useQuery(
     { subjectId },
     { enabled: Number.isFinite(subjectId) && !isReadOnlyDemo && !isDemoWorkspace }
@@ -717,13 +761,39 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     { subjectId },
     { enabled: Number.isFinite(subjectId) && isDemoWorkspace }
   );
-  const rawQuestions = (
+  const sourceQuestions = (
     isDemoWorkspace
       ? demoWorkspaceQuestionsQuery.data
       : isReadOnlyDemo
         ? demoReadOnlyQuestionsQuery.data
         : userQuestionsQuery.data
   ) ?? [];
+  const rawQuestions = useMemo(() => {
+    if (isDemoWorkspace) {
+      if (!demoWorkspacePreviewQuery.data) return [];
+      const allowedDemoQuestionIds = new Set(
+        demoWorkspacePreviewQuery.data.map((question) => question.id)
+      );
+      return sourceQuestions.filter((question: any) =>
+        allowedDemoQuestionIds.has(question.id)
+      );
+    }
+    if (!isDemoLinkedMode || !demoLinkedSubjectId) return sourceQuestions;
+    if (!demoLinkedPreviewQuery.data) return [];
+    const allowedSourceQuestionIds = new Set(
+      demoLinkedPreviewQuery.data.map((question) => question.id)
+    );
+    return sourceQuestions.filter((question: any) =>
+      allowedSourceQuestionIds.has(question.demoSourceQuestionId ?? -1)
+    );
+  }, [
+    demoLinkedPreviewQuery.data,
+    demoLinkedSubjectId,
+    demoWorkspacePreviewQuery.data,
+    isDemoLinkedMode,
+    isDemoWorkspace,
+    sourceQuestions,
+  ]);
   const questions = useMemo(() => {
     const sorted = [...rawQuestions].sort((a, b) => {
       const orderDiff = (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
@@ -737,10 +807,25 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     }));
   }, [rawQuestions]);
   const isLoading = isDemoWorkspace
-    ? demoWorkspaceQuestionsQuery.isLoading
+    ? demoWorkspaceQuestionsQuery.isLoading || demoWorkspacePreviewQuery.isLoading
     : isReadOnlyDemo
       ? demoReadOnlyQuestionsQuery.isLoading
-      : userQuestionsQuery.isLoading;
+      : userQuestionsQuery.isLoading || (isDemoLinkedMode && !!demoLinkedSubjectId && demoLinkedPreviewQuery.isLoading);
+  const withDemoContext = useCallback(
+    (path: string, extras?: Record<string, string>) => {
+      if (!isDemoLinkedMode || !demoLinkedSubjectId) {
+        const params = new URLSearchParams(extras ?? {});
+        const query = params.toString();
+        return query ? `${path}?${query}` : path;
+      }
+      const params = new URLSearchParams(extras ?? {});
+      params.set("demo", "1");
+      params.set("demoSubjectId", String(demoLinkedSubjectId));
+      const query = params.toString();
+      return query ? `${path}?${query}` : path;
+    },
+    [demoLinkedSubjectId, isDemoLinkedMode]
+  );
   const updateSubjectMutation = trpc.subjects.update.useMutation({
     onSuccess: () => {
       utils.subjects.getById.invalidate({ id: subjectId });
@@ -824,20 +909,32 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
         displayScore,
         state,
         label: state === "green" ? "안정" : state === "yellow" ? "위험" : "취약",
-        isColdStart: false,
+        isColdStart: true,
       });
     });
     return fallback;
   }, [confidenceMap, isReadOnlyDemo, questions]);
 
-  const displayAggregate = useMemo(() => {
+  const displayAggregate = useMemo<AggregateConfidenceSummary | null>(() => {
     if (!isReadOnlyDemo && confidenceData?.aggregate && confidenceData.aggregate.totalQuestions === displayConfidenceMap.size) {
-      return confidenceData.aggregate;
+      return {
+        ...confidenceData.aggregate,
+        isColdStart: false,
+      };
     }
     if (isReadOnlyDemo && confidenceData?.aggregate && confidenceData.aggregate.totalQuestions > 0) {
-      return confidenceData.aggregate;
+      return {
+        ...confidenceData.aggregate,
+        isColdStart: true,
+      };
     }
-    if (displayConfidenceMap.size === 0) return confidenceData?.aggregate ?? null;
+    if (displayConfidenceMap.size === 0) {
+      if (!confidenceData?.aggregate) return null;
+      return {
+        ...confidenceData.aggregate,
+        isColdStart: false,
+      } as AggregateConfidenceSummary;
+    }
 
     const rows = Array.from(displayConfidenceMap.values());
     const totalQuestions = rows.length;
@@ -860,6 +957,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       greenCount,
       yellowCount,
       redCount,
+      isColdStart: true,
       state,
       label: state === "green" ? "안정" : state === "yellow" ? "위험" : "취약",
     };
@@ -1208,7 +1306,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
             await bulkCreateDemoMutation.mutateAsync({
               subjectId,
               question: item.question,
-              answer: item.answer,
+              answer: item.answer ?? "",
               autoNumbering: item.autoNumbering,
               tableData: item.tableData ? JSON.stringify(item.tableData) : undefined,
               isStarred: formData.isStarred ? 1 : 0,
@@ -1217,7 +1315,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
             await bulkCreateMutation.mutateAsync({
               subjectId,
               question: item.question,
-              answer: item.answer,
+              answer: item.answer ?? "",
               autoNumbering: item.autoNumbering,
               tableData: item.tableData ? JSON.stringify(item.tableData) : undefined,
               isDemo: requestedDemoValue,
@@ -1332,7 +1430,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       createDemoMutation.mutate({
         subjectId,
         question,
-        answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : answer,
+        answer: formData.imageUrl && formData.imageLabels.length > 0 ? "" : answer,
         imageUrl: formData.imageUrl || undefined,
         imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
         autoNumbering: formData.autoNumbering ? 1 : 0,
@@ -1344,7 +1442,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     createMutation.mutate({
       subjectId,
       question,
-      answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : answer,
+      answer: formData.imageUrl && formData.imageLabels.length > 0 ? "" : answer,
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
@@ -1454,7 +1552,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       updateDemoMutation.mutate({
         questionId: editingQuestion.id,
         question: formData.question,
-        answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : updatedAnswer,
+        answer: formData.imageUrl && formData.imageLabels.length > 0 ? "" : updatedAnswer,
         imageUrl: formData.imageUrl || undefined,
         imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
         tableData: undefined,
@@ -1467,7 +1565,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     updateMutation.mutate({
       id: editingQuestion.id,
       question: formData.question,
-      answer: formData.imageUrl && formData.imageLabels.length > 0 ? undefined : updatedAnswer,
+      answer: formData.imageUrl && formData.imageLabels.length > 0 ? "" : updatedAnswer,
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       tableData: undefined,
@@ -1753,7 +1851,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
           variant="ghost"
           size="icon"
           className="h-8 w-8"
-          onClick={() => setLocation(isReadOnlyDemo || isDemoWorkspace ? "/demo" : "/")}
+          onClick={() => setLocation(isReadOnlyDemo || isDemoWorkspace || isDemoLinkedMode ? "/demo" : "/")}
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -1773,16 +1871,24 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
               <button
                 onClick={() => setSubjectConfidenceOpen(true)}
                 className={`text-sm font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${
-                  displayAggregate.state === 'green' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                  displayAggregate.state === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
-                  'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                  displayAggregate.state === 'green'
+                    ? (displayAggregate.isColdStart
+                      ? 'bg-emerald-100/65 text-emerald-700/75 dark:bg-emerald-950/40 dark:text-emerald-200/85'
+                      : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400')
+                    : displayAggregate.state === 'yellow'
+                      ? (displayAggregate.isColdStart
+                        ? 'bg-amber-100/65 text-amber-700/75 dark:bg-amber-950/40 dark:text-amber-200/85'
+                        : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400')
+                      : (displayAggregate.isColdStart
+                        ? 'bg-red-100/65 text-red-700/75 dark:bg-red-950/40 dark:text-red-200/85'
+                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400')
                 }`}
                 title="클릭하여 과목 안정도 추이 보기"
               >
                 과목 안정도 {displayAggregate.averageScore}점
               </button>
             )}
-            {isReadOnlyDemo && (confidenceData as any)?.isExample && (
+            {displayAggregate?.isColdStart && (
               <span className="text-xs text-amber-600 dark:text-amber-400">예시 화면</span>
             )}
           </div>
@@ -1921,11 +2027,18 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                 size="sm"
                 className="gap-1.5 h-8"
                 onClick={() => {
-                  if (isReadOnlyDemo || isDemoWorkspace) {
+                  if (isReadOnlyDemo || isDemoWorkspace || isDemoLinkedMode) {
                     if (!questions || questions.length === 0) return;
                     const sorted = [...questions].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
                     const target = sorted[Math.floor(Math.random() * sorted.length)];
-                    if (target?.id) setLocation(`/demo/practice/${target.id}`);
+                    const seed = `${subjectId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+                    if (target?.id) {
+                      if (isReadOnlyDemo || isDemoWorkspace) {
+                        setLocation(`/demo/practice/${target.id}`);
+                      } else {
+                        setLocation(withDemoContext(`/practice/${target.id}`, { scrollNav: "1", random: "1", seed }));
+                      }
+                    }
                     return;
                   }
                   setLocation(`/subject-practice/${subjectId}?scrollNav=1&random=1`);
@@ -1938,7 +2051,13 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                 variant="outline"
                 size="sm"
                 className="gap-1.5 h-8"
-                onClick={() => setLocation(isReadOnlyDemo || isDemoWorkspace ? `/demo/subject-exam/${subjectId}` : `/subject-exam/${subjectId}`)}
+                onClick={() =>
+                  setLocation(
+                    isReadOnlyDemo || isDemoWorkspace
+                      ? `/demo/subject-exam/${subjectId}`
+                      : withDemoContext(`/subject-exam/${subjectId}`)
+                  )
+                }
               >
                 <ClipboardCheck className="h-3.5 w-3.5" />
                 모의고사
@@ -1962,7 +2081,13 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
             displayOrder: q.displayOrder,
             isStarred: q.isStarred || 0,
           }))}
-          onSelectQuestion={(id) => setLocation(isReadOnlyDemo || isDemoWorkspace ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
+          onSelectQuestion={(id) =>
+            setLocation(
+              isReadOnlyDemo || isDemoWorkspace
+                ? `/demo/practice/${id}`
+                : withDemoContext(`/practice/${id}`, { scrollNav: "1" })
+            )
+          }
           confidenceData={Object.fromEntries(
             Array.from(displayConfidenceMap.entries()).map(([qId, conf]) => [
               qId,
@@ -2024,8 +2149,20 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                       confidence={displayConfidenceMap.get(question.id)}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
-                      onPractice={(id) => setLocation(isReadOnlyDemo || isDemoWorkspace ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
-                      onTest={(id) => setLocation(isReadOnlyDemo || isDemoWorkspace ? `/demo/test/${id}` : `/test/${id}`)}
+                      onPractice={(id) =>
+                        setLocation(
+                          isReadOnlyDemo || isDemoWorkspace
+                            ? `/demo/practice/${id}`
+                            : withDemoContext(`/practice/${id}`, { scrollNav: "1" })
+                        )
+                      }
+                      onTest={(id) =>
+                        setLocation(
+                          isReadOnlyDemo || isDemoWorkspace
+                            ? `/demo/test/${id}`
+                            : withDemoContext(`/test/${id}`)
+                        )
+                      }
                       onCopy={handleCopy}
                       onMove={handleMove}
                       onToggleStar={(id) => {

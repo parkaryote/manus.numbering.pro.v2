@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Eye, EyeOff, Lock } from "lucide-react";
+import { ArrowLeft, Lock } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -42,13 +42,11 @@ export default function SharedSubject({ token }: { token: string }) {
     disclaimer: string;
   } | null>(null);
   const [index, setIndex] = useState(0);
-  const [showAnswer, setShowAnswer] = useState(false);
 
   const accessMutation = trpc.share.accessByToken.useMutation({
     onSuccess: (data) => {
       setOpened(data as any);
       setIndex(0);
-      setShowAnswer(false);
       toast.success("공유 세트를 열었습니다.");
     },
     onError: (error) => {
@@ -180,39 +178,25 @@ export default function SharedSubject({ token }: { token: string }) {
               <CardHeader>
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-lg">{index + 1}. {current.question}</CardTitle>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => setShowAnswer((prev) => !prev)}
-                  >
-                    {showAnswer ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    {showAnswer ? "정답 숨기기" : "정답 보기"}
-                  </Button>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 {current.imageUrl && (
                   <img src={current.imageUrl} alt="" className="max-h-72 w-full rounded-md border object-contain" />
                 )}
-                {showAnswer ? (
-                  <div className="rounded-md border bg-muted/20 p-3">
-                    {current.tableData ? (
-                      <p className="text-sm">{currentTableSummary}</p>
-                    ) : (
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed">{current.answer}</pre>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">정답 보기를 눌러 확인하세요.</p>
-                )}
+                <div className="rounded-md border bg-muted/20 p-3">
+                  {current.tableData ? (
+                    <p className="text-sm">{currentTableSummary}</p>
+                  ) : (
+                    <pre className="whitespace-pre-wrap text-sm leading-relaxed">{current.answer}</pre>
+                  )}
+                </div>
                 <div className="flex items-center justify-between">
                   <Button
                     variant="outline"
                     disabled={index <= 0}
                     onClick={() => {
                       setIndex((prev) => Math.max(0, prev - 1));
-                      setShowAnswer(false);
                     }}
                   >
                     이전
@@ -223,7 +207,6 @@ export default function SharedSubject({ token }: { token: string }) {
                     disabled={index >= questions.length - 1}
                     onClick={() => {
                       setIndex((prev) => Math.min(questions.length - 1, prev + 1));
-                      setShowAnswer(false);
                     }}
                   >
                     다음
@@ -246,7 +229,6 @@ export default function SharedSubject({ token }: { token: string }) {
                   }`}
                   onClick={() => {
                     setIndex(i);
-                    setShowAnswer(false);
                   }}
                 >
                   {i + 1}. {q.question}
