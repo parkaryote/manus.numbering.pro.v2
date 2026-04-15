@@ -662,7 +662,7 @@ export function ConfidenceHistoryModal({
 
                   {/* 실선: 실제 안정도 흐름 */}
                   <Line
-                    type={isExamplePreview ? "linear" : "monotone"}
+                    type="monotone"
                     dataKey="mainScore"
                     stroke={BRAND_COLOR}
                     strokeOpacity={0.9}
@@ -682,10 +682,10 @@ export function ConfidenceHistoryModal({
                       strokeWidth={2.2}
                       strokeDasharray="5 4"
                       dot={(props: any) =>
-                        props?.payload?.eventType === "exam_predict" ? <CustomDot {...props} /> : null
+                        props?.payload?.eventType === "exam_predict" ? <CustomDot {...props} /> : <g />
                       }
                       activeDot={(props: any) =>
-                        props?.payload?.eventType === "exam_predict" ? <CustomActiveDot {...props} /> : false
+                        props?.payload?.eventType === "exam_predict" ? <CustomActiveDot {...props} /> : <g />
                       }
                       isAnimationActive={false}
                       connectNulls={true}

@@ -53,6 +53,15 @@ export function QuestionGridView({
 
   const sorted = [...questions].sort((a, b) => a.displayOrder - b.displayOrder);
 
+  const getStatusLabel = (questionId: number) => {
+    const data = confidenceData[questionId];
+    if (!data || data.isColdStart) return "미학습";
+    if (data.state === "green") return "안정";
+    if (data.state === "yellow") return "위험";
+    if (data.state === "red") return "취약";
+    return data.label ?? "미학습";
+  };
+
   return (
     <div className="mb-4 p-4 bg-card rounded-xl border border-border shadow-sm">
       <div className="flex items-center justify-between mb-3">
@@ -73,6 +82,7 @@ export function QuestionGridView({
           const fillColor = getFillColor(q.id);
           const borderColor = getBorderColor(starred);
           const textColor = getTextColor(q.id);
+          const statusLabel = getStatusLabel(q.id);
 
           return (
             <button
@@ -80,7 +90,7 @@ export function QuestionGridView({
               onClick={() => onSelectQuestion(q.id)}
               className={`
                 flex flex-col items-center justify-center gap-0.5
-                w-16 h-16 rounded-lg
+                w-[70px] h-[76px] rounded-lg
                 transition-all duration-150
                 hover:shadow-md hover:-translate-y-0.5
                 focus:outline-none focus:ring-2 focus:ring-primary/30
@@ -89,8 +99,8 @@ export function QuestionGridView({
               `}
               title={
                 score !== undefined
-                  ? `문제 ${q.displayOrder} — 안정도 ${Math.round(score)}점${starred ? " (중요)" : ""}`
-                  : `문제 ${q.displayOrder}${starred ? " (중요)" : ""}`
+                  ? `문제 ${q.displayOrder} — ${statusLabel} · 안정도 ${Math.round(score)}점${starred ? " (중요)" : ""}`
+                  : `문제 ${q.displayOrder} — ${statusLabel}${starred ? " (중요)" : ""}`
               }
               >
               {/* 번호 */}
@@ -107,6 +117,9 @@ export function QuestionGridView({
                   —
                 </span>
               )}
+              <span className={`text-[11px] font-semibold leading-none ${textColor} opacity-90`}>
+                {statusLabel}
+              </span>
             </button>
           );
         })}

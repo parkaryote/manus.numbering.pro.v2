@@ -664,6 +664,11 @@ function resolveStateFromScore(score: number): "green" | "yellow" | "red" {
   return "red";
 }
 
+function getDemoTrafficLabel(state: "green" | "yellow" | "red"): string {
+  if (state === "yellow") return "위험";
+  return TRAFFIC_LIGHT_LABELS[state];
+}
+
 function applyDisplayScoreValue(
   base: ConfidenceResult,
   score: number,
@@ -957,26 +962,28 @@ function resolveDemoShowcaseKeyByQuestionTitle(questionTitle: string | null | un
   return null;
 }
 
-function isPublicDemoShowcaseSubject(subject: { name?: string | null } | null | undefined): boolean {
-  return (subject?.name ?? "").trim() === TOOTH_MORPHOLOGY_SUBJECT_NAME;
-}
-
 function isPublicDemoShowcaseQuestion(
   question: { question?: string | null } | null | undefined,
   subject: { name?: string | null } | null | undefined
 ): boolean {
-  if (!isPublicDemoShowcaseSubject(subject)) return false;
-  return resolveDemoShowcaseKeyByQuestionTitle(question?.question) !== null;
+  if (!subject) return false;
+  if ((subject.name ?? "").trim() === TOOTH_MORPHOLOGY_SUBJECT_NAME) {
+    return resolveDemoShowcaseKeyByQuestionTitle(question?.question) !== null;
+  }
+  return true;
 }
 
 function selectPublicDemoShowcaseQuestions<T extends { question?: string | null; displayOrder?: number | null }>(
   subject: { name?: string | null } | null | undefined,
   questions: T[]
 ): T[] {
-  if (!isPublicDemoShowcaseSubject(subject)) return [];
   if (!Array.isArray(questions) || questions.length === 0) return [];
 
   const sorted = [...questions].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+  if ((subject?.name ?? "").trim() !== TOOTH_MORPHOLOGY_SUBJECT_NAME) {
+    return sorted;
+  }
+
   const pickedByKey = new Map<DemoShowcaseKey, T>();
 
   for (const question of sorted) {
@@ -993,33 +1000,40 @@ function selectPublicDemoShowcaseQuestions<T extends { question?: string | null;
 
 const DEMO_SCENARIO_OVERRIDES_BY_SHOWCASE_KEY: Partial<Record<DemoShowcaseKey, DemoPreviewEvent[]>> = {
   box1: [
-    { minutesAgo: 42 * 60, eventType: "practice", score: 16, practiceSessionCount: 1, practiceDelta: 6 },
-    { minutesAgo: 34 * 60, eventType: "practice", score: 28, practiceSessionCount: 2, practiceDelta: 8 },
-    { minutesAgo: 27 * 60, eventType: "test", score: 21, accuracyRate: 48, isCorrect: false },
-    { minutesAgo: 19 * 60, eventType: "practice", score: 36, practiceSessionCount: 3, practiceDelta: 7 },
-    { minutesAgo: 11 * 60, eventType: "test", score: 32, accuracyRate: 64, isCorrect: false },
-    { minutesAgo: 4 * 60, eventType: "practice", score: 40, practiceSessionCount: 4, practiceDelta: 5 },
-    { minutesAgo: 0, eventType: "now", score: 34 },
+    { minutesAgo: 86 * 60, eventType: "practice", score: 31, practiceSessionCount: 1, practiceDelta: 8 },
+    { minutesAgo: 62 * 60, eventType: "test", score: 58, accuracyRate: 84, isCorrect: true },
+    { minutesAgo: 38 * 60, eventType: "practice", score: 76, practiceSessionCount: 2, practiceDelta: 11 },
+    { minutesAgo: 18 * 60, eventType: "test", score: 91, accuracyRate: 96, isCorrect: true },
+    { minutesAgo: 5 * 60, eventType: "practice", score: 94, practiceSessionCount: 3, practiceDelta: 3 },
+    { minutesAgo: 0, eventType: "now", score: 88 },
   ],
   box9: [
-    { minutesAgo: 44 * 60, eventType: "practice", score: 22, practiceSessionCount: 1, practiceDelta: 7 },
-    { minutesAgo: 36 * 60, eventType: "practice", score: 38, practiceSessionCount: 2, practiceDelta: 10 },
-    { minutesAgo: 28 * 60, eventType: "test", score: 53, accuracyRate: 82, isCorrect: true },
-    { minutesAgo: 20 * 60, eventType: "practice", score: 63, practiceSessionCount: 3, practiceDelta: 7 },
-    { minutesAgo: 10 * 60, eventType: "test", score: 69, accuracyRate: 88, isCorrect: true },
-    { minutesAgo: 3 * 60, eventType: "practice", score: 66, practiceSessionCount: 4, practiceDelta: 3 },
-    { minutesAgo: 0, eventType: "now", score: 57 },
+    { minutesAgo: 82 * 60, eventType: "practice", score: 24, practiceSessionCount: 1, practiceDelta: 7 },
+    { minutesAgo: 58 * 60, eventType: "practice", score: 49, practiceSessionCount: 2, practiceDelta: 12 },
+    { minutesAgo: 43 * 60, eventType: "test", score: 72, accuracyRate: 86, isCorrect: true },
+    { minutesAgo: 0, eventType: "now", score: 54 },
   ],
   table_i3: [
-    { minutesAgo: 46 * 60, eventType: "practice", score: 42, practiceSessionCount: 1, practiceDelta: 9 },
-    { minutesAgo: 38 * 60, eventType: "practice", score: 58, practiceSessionCount: 2, practiceDelta: 12 },
-    { minutesAgo: 27 * 60, eventType: "test", score: 75, accuracyRate: 91, isCorrect: true },
-    { minutesAgo: 18 * 60, eventType: "practice", score: 84, practiceSessionCount: 3, practiceDelta: 7 },
-    { minutesAgo: 8 * 60, eventType: "test", score: 93, accuracyRate: 97, isCorrect: true },
-    { minutesAgo: 2 * 60, eventType: "practice", score: 95, practiceSessionCount: 4, practiceDelta: 2 },
-    { minutesAgo: 0, eventType: "now", score: 86 },
+    { minutesAgo: 78 * 60, eventType: "practice", score: 18, practiceSessionCount: 1, practiceDelta: 6 },
+    { minutesAgo: 54 * 60, eventType: "test", score: 46, accuracyRate: 72, isCorrect: false },
+    { minutesAgo: 0, eventType: "now", score: 27 },
   ],
 };
+
+type DemoScenarioTone = "stable" | "risk" | "weak";
+
+function getFallbackDemoScenarioTone(question: {
+  difficulty?: "easy" | "medium" | "hard" | null;
+  displayOrder?: number | null;
+}): DemoScenarioTone {
+  if (question.difficulty === "easy") return "stable";
+  if (question.difficulty === "hard") return "weak";
+  const order = Math.max(1, Math.round(question.displayOrder ?? 1));
+  const cycle = (order - 1) % 3;
+  if (cycle === 0) return "stable";
+  if (cycle === 1) return "risk";
+  return "weak";
+}
 
 function buildFallbackDemoScenarioEvents(
   question: {
@@ -1029,27 +1043,46 @@ function buildFallbackDemoScenarioEvents(
   initialEstimate: { answerLength: number }
 ): DemoPreviewEvent[] {
   const difficulty = question.difficulty ?? "medium";
+  const tone = getFallbackDemoScenarioTone(question);
   const answerLength = Math.max(1, initialEstimate.answerLength);
-  const lengthBoost = Math.round(Math.log(answerLength + 4) * 4);
-  const difficultyBoost = difficulty === "easy" ? 7 : difficulty === "hard" ? -1 : 3;
+  const lengthBoost = Math.round(Math.log(answerLength + 4) * 3);
   const orderOffset = (((question.displayOrder ?? 1) % 5) - 2) * 2;
 
-  const s1 = clampNumber(14 + lengthBoost + difficultyBoost + orderOffset, 8, 58);
-  const s2 = clampNumber(s1 + 6 + Math.round(lengthBoost * 0.2), 12, 66);
-  const s3 = clampNumber(s2 + 7, 16, 74);
-  const t1 = clampNumber(s3 + (difficulty === "hard" ? 7 : 11), 24, 88);
-  const nowScore = clampNumber(t1 - (difficulty === "hard" ? 4 : 2), 20, 92);
-  const testAcc = clampNumber(
-    (difficulty === "hard" ? 76 : 83) + Math.round(lengthBoost * 0.8),
-    70,
-    95
-  );
+  if (tone === "stable") {
+    const s1 = clampNumber(26 + lengthBoost + orderOffset, 18, 48);
+    const t1 = clampNumber(s1 + 24, 44, 74);
+    const s2 = clampNumber(t1 + 17, 66, 90);
+    const t2 = clampNumber(s2 + 8, 80, 98);
+    const nowScore = clampNumber(t2 - (difficulty === "easy" ? 4 : 7), 80, 94);
+    return [
+      { minutesAgo: 84 * 60, eventType: "practice", score: s1, practiceSessionCount: 1, practiceDelta: 7 },
+      { minutesAgo: 60 * 60, eventType: "test", score: t1, accuracyRate: 83, isCorrect: true },
+      { minutesAgo: 36 * 60, eventType: "practice", score: s2, practiceSessionCount: 2, practiceDelta: 10 },
+      { minutesAgo: 14 * 60, eventType: "test", score: t2, accuracyRate: 94, isCorrect: true },
+      { minutesAgo: 0, eventType: "now", score: nowScore },
+    ];
+  }
+
+  if (tone === "risk") {
+    const s1 = clampNumber(18 + lengthBoost + orderOffset, 12, 42);
+    const s2 = clampNumber(s1 + 21, 34, 62);
+    const t1 = clampNumber(s2 + 18, 56, 78);
+    const nowScore = clampNumber(t1 - 18 - Math.round(answerLength / 80), 42, 66);
+    return [
+      { minutesAgo: 82 * 60, eventType: "practice", score: s1, practiceSessionCount: 1, practiceDelta: 6 },
+      { minutesAgo: 58 * 60, eventType: "practice", score: s2, practiceSessionCount: 2, practiceDelta: 9 },
+      { minutesAgo: 42 * 60, eventType: "test", score: t1, accuracyRate: 82, isCorrect: true },
+      { minutesAgo: 0, eventType: "now", score: nowScore },
+    ];
+  }
+
+  const s1 = clampNumber(12 + Math.round(lengthBoost * 0.6) + orderOffset, 8, 28);
+  const t1 = clampNumber(s1 + 22, 32, 58);
+  const nowScore = clampNumber(t1 - 22 - Math.round(answerLength / 70), 12, 36);
 
   return [
-    { minutesAgo: 26 * 60, eventType: "practice", score: s1, practiceSessionCount: 1, practiceDelta: 5 },
-    { minutesAgo: 18 * 60, eventType: "practice", score: s2, practiceSessionCount: 2, practiceDelta: 6 },
-    { minutesAgo: 11 * 60, eventType: "practice", score: s3, practiceSessionCount: 3, practiceDelta: 7 },
-    { minutesAgo: 5 * 60, eventType: "test", score: t1, accuracyRate: testAcc, isCorrect: testAcc >= 80 },
+    { minutesAgo: 78 * 60, eventType: "practice", score: s1, practiceSessionCount: 1, practiceDelta: 5 },
+    { minutesAgo: 54 * 60, eventType: "test", score: t1, accuracyRate: 68, isCorrect: false },
     { minutesAgo: 0, eventType: "now", score: nowScore },
   ];
 }
@@ -1148,22 +1181,22 @@ function buildDemoQuestionPreview(
     : false;
 
   const warnZoneLines =
-    showcaseKey === "box1"
+    showcaseKey === "table_i3"
       ? [
-          { lineIndex: 2, wrongCount: 2 },
-          { lineIndex: 4, wrongCount: 2 },
+          { lineIndex: 1, wrongCount: 2 },
+          { lineIndex: 3, wrongCount: 3 },
         ]
       : [];
-  const lastTestWrongLines = showcaseKey === "box1" ? [2, 4] : [];
+  const lastTestWrongLines = showcaseKey === "table_i3" ? [1, 3] : [];
 
   return {
     displayScore,
     state,
-    label: TRAFFIC_LIGHT_LABELS[state],
+    label: getDemoTrafficLabel(state),
     isColdStart: false,
     badges: {
       lastTestWrong,
-      frequentlyWrong: showcaseKey === "box1",
+      frequentlyWrong: showcaseKey === "table_i3",
       hasWarnZone: warnZoneLines.length > 0,
     },
     warnZoneLines,
@@ -1245,7 +1278,7 @@ function aggregateDemoPreviewByQuestions(
     yellowCount,
     redCount,
     state,
-    label: TRAFFIC_LIGHT_LABELS[state],
+    label: getDemoTrafficLabel(state),
   };
 }
 

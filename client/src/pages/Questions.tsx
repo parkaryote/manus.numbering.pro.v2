@@ -823,7 +823,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       fallback.set(q.id, {
         displayScore,
         state,
-        label: state === "green" ? "안정" : state === "yellow" ? "학습중" : "취약",
+        label: state === "green" ? "안정" : state === "yellow" ? "위험" : "취약",
         isColdStart: false,
       });
     });
@@ -861,7 +861,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       yellowCount,
       redCount,
       state,
-      label: state === "green" ? "안정" : state === "yellow" ? "학습중" : "취약",
+      label: state === "green" ? "안정" : state === "yellow" ? "위험" : "취약",
     };
   }, [confidenceData?.aggregate, displayConfidenceMap, isReadOnlyDemo]);
 
