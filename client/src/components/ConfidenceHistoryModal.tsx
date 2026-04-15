@@ -240,6 +240,10 @@ const CustomTooltip = ({ active, payload }: any) => {
     );
   }
 
+  if (d.eventType === "exam_predict_mid") {
+    return null;
+  }
+
   if (d.eventType === "exam_predict") {
     const stateColor = d.predictedState === "green" ? "#22c55e" : d.predictedState === "yellow" ? "#d4a72c" : SOFT_DANGER_COLOR;
     return (
@@ -392,14 +396,33 @@ export function ConfidenceHistoryModal({
   }
 
   const predictPoint = allPoints.find((p) => (p as any).eventType === "exam_predict");
-  const timeScale = buildSoftTimeScale(
-    allPoints.map((p) => ({ at: p.at, eventType: (p as any).eventType }))
+  const timeScaleInputPoints = allPoints.filter(
+    (p) => (p as any).eventType !== "exam_predict_mid"
   );
+  const timeScale = buildSoftTimeScale(
+    timeScaleInputPoints.map((p) => ({ at: p.at, eventType: (p as any).eventType }))
+  );
+  const timeScaleNodeByAt = new Map(
+    timeScaleInputPoints.map((point, index) => [point.at, timeScale.nodes[index]])
+  );
+  const projectionStartAtISO = solidData.length > 0 ? solidData[solidData.length - 1].at : null;
+  const projectionStartX =
+    projectionStartAtISO ? (timeScaleNodeByAt.get(projectionStartAtISO)?.x ?? null) : null;
+  const projectionExamX =
+    projectionExamAtISO ? (timeScaleNodeByAt.get(projectionExamAtISO)?.x ?? null) : null;
   const chartData = allPoints.map((p, i) => {
     const isPredict = (p as any).eventType === "exam_predict";
     const isPredictMid = (p as any).eventType === "exam_predict_mid";
     const isProjectionPoint = isPredict || isPredictMid;
-    const xPos = timeScale.nodes[i]?.x ?? i * 24;
+    let xPos = timeScaleNodeByAt.get(p.at)?.x ?? i * 24;
+    if (
+      isPredictMid &&
+      projectionStartX !== null &&
+      projectionExamX !== null &&
+      projectionExamX > projectionStartX
+    ) {
+      xPos = projectionStartX + (projectionExamX - projectionStartX) * 0.55;
+    }
     const solidLastIdx = solidData.length - 1;
     const isProjectionStart = !isProjectionPoint && i === solidLastIdx && Boolean(predictPoint);
     return {
@@ -497,6 +520,23 @@ export function ConfidenceHistoryModal({
     setIsTooltipNearPoint(false);
   };
 
+  const formatConfidenceXAxisTick = (value: number) => {
+    const x = Number(value);
+    if (
+      projectionStartX !== null &&
+      projectionExamX !== null &&
+      projectionExamX > projectionStartX &&
+      x > projectionStartX &&
+      x < projectionExamX
+    ) {
+      const span = projectionExamX - projectionStartX;
+      const distanceToExam = projectionExamX - x;
+      if (distanceToExam > Math.max(4, span * 0.22)) return "";
+      return "D-day";
+    }
+    return formatSoftRelativeTick(x, timeScale.nodes, timeScale.firstTs);
+  };
+
   // 두 데이터셋을 합쳐서 XAxis 공유
   // chartData를 LineChart에 직접 사용 (mergedData 별칭 제거)
 
@@ -587,9 +627,7 @@ export function ConfidenceHistoryModal({
                     tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(value) =>
-                      formatSoftRelativeTick(Number(value), timeScale.nodes, timeScale.firstTs)
-                    }
+                    tickFormatter={(value) => formatConfidenceXAxisTick(Number(value))}
                   />
                   <YAxis
                     domain={[0, 100]}
