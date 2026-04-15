@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   LineChart,
   Line,
@@ -16,7 +16,6 @@ import { format, differenceInDays, differenceInHours, differenceInMinutes } from
 import { ko } from "date-fns/locale";
 import {
   buildSoftTimeScale,
-  buildTrendScores,
   formatSoftRelativeTick,
 } from "@/lib/softTimeScale";
 
@@ -100,9 +99,8 @@ const SUCCESS_ACCURACY_THRESHOLD = 80;
 
 // 브랜드 컬러 (보라 계열) - 선에만 사용
 const BRAND_COLOR = "#8b5cf6";
-const EVENT_LINE_COLOR = "#64748b"; // 실제 이벤트 연결선(보조)
 const SOFT_DANGER_COLOR = "#d66b78";
-const PREDICT_COLOR = BRAND_COLOR; // 추세 기반 점선 예측
+const PREDICT_COLOR = BRAND_COLOR; // 시험일 예측 점선
 const TOOLTIP_POINT_HOVER_RADIUS_PX = 18;
 
 function clampScore(value: number): number {
@@ -195,7 +193,7 @@ const CustomTooltip = ({ active, payload }: any) => {
   const date = new Date(d.at);
 
   if (d.eventType === "practice") {
-    const displayScore = d.eventScore ?? d.score;
+    const displayScore = d.score;
     const practiceCount = d.practiceSessionCount ?? 1;
     const delta = typeof d.practiceDelta === "number" ? d.practiceDelta : null;
     return (
@@ -218,7 +216,7 @@ const CustomTooltip = ({ active, payload }: any) => {
   }
 
   if (d.eventType === "test") {
-    const displayScore = d.eventScore ?? d.score;
+    const displayScore = d.score;
     const isSuccess = d.accuracyRate !== undefined
       ? d.accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
       : d.isCorrect === true;
@@ -261,18 +259,14 @@ const CustomTooltip = ({ active, payload }: any) => {
   }
 
   // 현재
-  const eventScore = Math.round(Number(d.eventScore ?? d.score ?? 0));
-  const trendScore = typeof d.trendScore === "number" ? Math.round(d.trendScore) : eventScore;
+  const displayScore = Math.round(Number(d.score ?? 0));
   return (
     <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[130px]">
       <div className="text-muted-foreground text-xs mb-1">현재</div>
       <div className="flex items-center gap-2">
         <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: BRAND_COLOR }} />
-        <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>안정도 {trendScore}점</span>
+        <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>안정도 {displayScore}점</span>
       </div>
-      {eventScore !== trendScore && (
-        <div className="text-xs text-muted-foreground mt-1">실제 이벤트 {eventScore}점</div>
-      )}
     </div>
   );
 };
@@ -347,45 +341,18 @@ export function ConfidenceHistoryModal({
   const testPoints = pointsWithFallback.filter(p => p.eventType === "test");
   const latestTestAt = testPoints.length > 0 ? testPoints[testPoints.length - 1].at : null;
 
-  // 실제 이벤트(점수) 기준 추세선을 먼저 계산
+  // 실제 이벤트 점수만 공식 점수로 사용한다.
   const solidData: HistoryPoint[] = [...pointsWithFallback];
-  const solidTrendScores = isExamplePreview
-    ? solidData.map((p) => p.score)
-    : buildTrendScores(
-        solidData.map((p) => p.score),
-        solidData.map((p) => p.eventType)
-      );
-  const lastSolidPoint = solidData[solidData.length - 1];
-  const lastTrendScore =
-    solidTrendScores.length > 0
-      ? (solidTrendScores[solidTrendScores.length - 1] ?? lastSolidPoint?.score ?? null)
-      : null;
-
-  // 시험일 예측은 "이벤트 원점수"가 아니라 "보라 추세선" 기준으로 투영
-  const trendBasedExamDatePrediction = (() => {
-    if (!effectiveExamDatePrediction) return null;
-    if (!lastSolidPoint || lastTrendScore === null) return effectiveExamDatePrediction;
-
-    const backendDelta =
-      effectiveExamDatePrediction.predictedScore - effectiveExamDatePrediction.currentScore;
-    const projectedScore = clampScore(lastTrendScore + backendDelta);
-    const baseScoreForDelta = clampScore(lastTrendScore);
-    return {
-      ...effectiveExamDatePrediction,
-      predictedScore: projectedScore,
-      predictedState: stateFromScore(projectedScore),
-      scoreDelta: projectedScore - baseScoreForDelta,
-    };
-  })();
+  const projectionExamDatePrediction = effectiveExamDatePrediction;
 
   const allPoints: HistoryPoint[] = [...solidData];
-  if (trendBasedExamDatePrediction) {
-    let examDate = new Date(trendBasedExamDatePrediction.examAtISO);
+  if (projectionExamDatePrediction) {
+    let examDate = new Date(projectionExamDatePrediction.examAtISO);
     if (Number.isNaN(examDate.getTime())) {
       examDate = new Date(
         Date.now() +
-          (trendBasedExamDatePrediction.minutesUntilExam ??
-            trendBasedExamDatePrediction.daysUntilExam * 24 * 60) *
+          (projectionExamDatePrediction.minutesUntilExam ??
+            projectionExamDatePrediction.daysUntilExam * 24 * 60) *
             60_000
       );
     }
@@ -396,8 +363,8 @@ export function ConfidenceHistoryModal({
     }
     allPoints.push({
       at: examDate.toISOString(),
-      score: trendBasedExamDatePrediction.predictedScore,
-      state: trendBasedExamDatePrediction.predictedState,
+      score: projectionExamDatePrediction.predictedScore,
+      state: projectionExamDatePrediction.predictedState,
       eventType: "exam_predict",
     } as any);
   }
@@ -410,9 +377,7 @@ export function ConfidenceHistoryModal({
     const isPredict = (p as any).eventType === "exam_predict";
     const xPos = timeScale.nodes[i]?.x ?? i * 24;
     const solidLastIdx = solidData.length - 1;
-    const isTrendProjectionStart = !isPredict && i === solidLastIdx && Boolean(predictPoint);
-    const trendAtPoint = isPredict ? null : (solidTrendScores[i] ?? p.score);
-    const eventScore = isPredict ? null : p.score;
+    const isProjectionStart = !isPredict && i === solidLastIdx && Boolean(predictPoint);
     return {
       ...p,
       score: p.score,
@@ -420,51 +385,28 @@ export function ConfidenceHistoryModal({
       label: allPoints.length > 0 ? formatTimeLabel(p.at, allPoints) : "",
       xPos,
       isLatest: p.at === latestTestAt && (p as any).eventType === "test",
-      eventScore,
-      solidScore: eventScore,
-      trendScore: trendAtPoint,
       trendProjectionScore: isPredict
         ? p.score
-        : isTrendProjectionStart
-          ? (solidTrendScores[i] ?? p.score)
+        : isProjectionStart
+          ? p.score
           : null,
-      ...(isPredict && trendBasedExamDatePrediction
+      ...(isPredict && projectionExamDatePrediction
         ? {
-            predictedState: trendBasedExamDatePrediction.predictedState,
-            scoreDelta: trendBasedExamDatePrediction.scoreDelta,
-            daysUntilExam: trendBasedExamDatePrediction.daysUntilExam,
-            hoursUntilExam: trendBasedExamDatePrediction.hoursUntilExam,
-            minutesUntilExam: trendBasedExamDatePrediction.minutesUntilExam,
+            predictedState: projectionExamDatePrediction.predictedState,
+            scoreDelta: projectionExamDatePrediction.scoreDelta,
+            daysUntilExam: projectionExamDatePrediction.daysUntilExam,
+            hoursUntilExam: projectionExamDatePrediction.hoursUntilExam,
+            minutesUntilExam: projectionExamDatePrediction.minutesUntilExam,
           }
         : {}),
     };
   });
 
   const hasData = solidData.length > 0;
-  const latestSolidChartPoint = useMemo(
-    () => chartData.filter((p) => p.eventType !== "exam_predict").at(-1),
-    [chartData]
-  );
-  const currentTrendScore = hasData
-    ? Math.round(
-        Number(
-          latestSolidChartPoint?.trendScore ??
-            latestSolidChartPoint?.eventScore ??
-            latestSolidChartPoint?.score ??
-            solidData[solidData.length - 1].score
-        )
-      )
+  const latestSolidChartPoint = chartData.filter((p) => p.eventType !== "exam_predict").at(-1);
+  const currentScore = hasData
+    ? Math.round(Number(latestSolidChartPoint?.score ?? solidData[solidData.length - 1].score))
     : null;
-  const currentEventScore = hasData
-    ? Math.round(
-        Number(
-          latestSolidChartPoint?.eventScore ??
-            latestSolidChartPoint?.score ??
-            solidData[solidData.length - 1].score
-        )
-      )
-    : null;
-  const currentScore = currentTrendScore;
 
   // 현재 상태 색상 (점수 기반)
   const currentStateColor = currentScore === null
@@ -489,12 +431,12 @@ export function ConfidenceHistoryModal({
     const hasEventLayerHover = activePayload.some((entry: any) => {
       const eventType = entry?.payload?.eventType;
       const dataKey = entry?.dataKey;
-      return (dataKey === "solidScore" || dataKey === "score") && (eventType === "practice" || eventType === "test");
+      return dataKey === "score" && (eventType === "practice" || eventType === "test");
     });
 
     const eventEntry = activePayload.find(
       (entry: any) =>
-        (entry?.dataKey === "solidScore" || entry?.dataKey === "score") &&
+        entry?.dataKey === "score" &&
         typeof entry?.value === "number"
     );
 
@@ -540,18 +482,11 @@ export function ConfidenceHistoryModal({
               {questionTitle ?? "문제"} — 안정도 변화
             </span>
             {currentScore !== null && (
-              <span className="inline-flex items-baseline gap-2">
-                <span
-                  className="text-2xl font-bold tabular-nums"
-                  style={{ color: currentStateColor }}
-                >
-                  {currentScore}점
-                </span>
-                {currentEventScore !== null && currentEventScore !== currentScore && (
-                  <span className="text-xs text-muted-foreground">
-                    실제 {currentEventScore}점
-                  </span>
-                )}
+              <span
+                className="text-2xl font-bold tabular-nums"
+                style={{ color: currentStateColor }}
+              >
+                {currentScore}점
               </span>
             )}
           </DialogTitle>
@@ -577,11 +512,7 @@ export function ConfidenceHistoryModal({
             <div className="flex items-center gap-4 text-sm text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
-                추세선 (주요)
-              </span>
-              <span className="flex items-center gap-1.5 text-muted-foreground/80">
-                <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: EVENT_LINE_COLOR, opacity: 0.5 }} />
-                실제 이벤트 (배경 · 선은 연함)
+                안정도 변화
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
@@ -591,10 +522,10 @@ export function ConfidenceHistoryModal({
                 <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: SOFT_DANGER_COLOR }} />
                 시험 실패 (&lt;80%)
               </span>
-              {trendBasedExamDatePrediction && (
+              {projectionExamDatePrediction && (
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-5 h-0.5" style={{ background: `repeating-linear-gradient(90deg, ${PREDICT_COLOR} 0, ${PREDICT_COLOR} 4px, transparent 4px, transparent 7px)` }} />
-                  추세 기반 예측
+                  시험일 예측
                 </span>
               )}
               <span className="flex items-center gap-1.5 text-muted-foreground/50">
@@ -667,21 +598,10 @@ export function ConfidenceHistoryModal({
                   {/* 실선: 실제 안정도 흐름 */}
                   <Line
                     type={isExamplePreview ? "linear" : "monotone"}
-                    dataKey="trendScore"
+                    dataKey="score"
                     stroke={BRAND_COLOR}
                     strokeOpacity={0.9}
                     strokeWidth={3.4}
-                    dot={false}
-                    activeDot={false}
-                    isAnimationActive={false}
-                    connectNulls={false}
-                  />
-                  <Line
-                    type={isExamplePreview ? "linear" : "monotone"}
-                    dataKey="solidScore"
-                    stroke={EVENT_LINE_COLOR}
-                    strokeOpacity={0.16}
-                    strokeWidth={1.1}
                     dot={<CustomDot eventLayerFocused={isEventLayerFocused} />}
                     activeDot={<CustomActiveDot />}
                     isAnimationActive={false}
@@ -707,24 +627,24 @@ export function ConfidenceHistoryModal({
             </div>
 
             {/* 시험일 예측 요약 (있을 경우) */}
-            {trendBasedExamDatePrediction && (
+            {projectionExamDatePrediction && (
               <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm">
-                <span className="text-muted-foreground text-xs">{formatExamCountdown(trendBasedExamDatePrediction.minutesUntilExam)} 예측</span>
+                <span className="text-muted-foreground text-xs">{formatExamCountdown(projectionExamDatePrediction.minutesUntilExam)} 예측</span>
                 <span
                   className="font-bold text-base tabular-nums"
                   style={{
                     color:
-                      trendBasedExamDatePrediction.predictedState === "green"
+                      projectionExamDatePrediction.predictedState === "green"
                         ? "#22c55e"
-                        : trendBasedExamDatePrediction.predictedState === "yellow"
+                        : projectionExamDatePrediction.predictedState === "yellow"
                           ? "#d4a72c"
                           : SOFT_DANGER_COLOR,
                   }}
                 >
-                  {trendBasedExamDatePrediction.predictedScore}점
+                  {projectionExamDatePrediction.predictedScore}점
                 </span>
-                {trendBasedExamDatePrediction.scoreDelta < 0 && (
-                  <span className="text-rose-400 text-xs font-medium">{trendBasedExamDatePrediction.scoreDelta}점 예상 감소</span>
+                {projectionExamDatePrediction.scoreDelta < 0 && (
+                  <span className="text-rose-400 text-xs font-medium">{projectionExamDatePrediction.scoreDelta}점 예상 감소</span>
                 )}
               </div>
             )}

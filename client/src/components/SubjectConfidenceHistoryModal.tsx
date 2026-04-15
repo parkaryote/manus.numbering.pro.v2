@@ -16,7 +16,6 @@ import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import {
   buildSoftTimeScale,
-  buildTrendScores,
   formatSoftRelativeTick,
 } from "@/lib/softTimeScale";
 
@@ -31,7 +30,6 @@ interface Props {
 
 // 브랜드 컬러 (보라 계열) - 선에만 사용
 const BRAND_COLOR = "#8b5cf6";
-const EVENT_LINE_COLOR = "#64748b"; // 실제 이벤트 연결선(보조)
 const SOFT_DANGER_COLOR = "#d66b78";
 // 성공 기준
 const SUCCESS_THRESHOLD = 80;
@@ -62,7 +60,7 @@ const CustomDot = (props: any) => {
   if (!cx || !cy) return null;
 
   if (payload.eventType === "test") {
-    const isSuccess = (payload.eventScore ?? payload.score) >= SUCCESS_THRESHOLD;
+    const isSuccess = payload.score >= SUCCESS_THRESHOLD;
     const color = isSuccess ? "#22c55e" : SOFT_DANGER_COLOR;
     const isLatest = payload.isLatest;
     const baseOpacity = eventLayerFocused ? 0.94 : 0.36;
@@ -104,7 +102,7 @@ const CustomActiveDot = (props: any) => {
     return <circle cx={cx} cy={cy} r={4.5} fill="#9ca3af" stroke="white" strokeWidth={1.5} />;
   }
   if (payload.eventType === "test") {
-    const isSuccess = (payload.eventScore ?? payload.score) >= SUCCESS_THRESHOLD;
+    const isSuccess = payload.score >= SUCCESS_THRESHOLD;
     const color = isSuccess ? "#22c55e" : SOFT_DANGER_COLOR;
     return <circle cx={cx} cy={cy} r={7} fill={color} stroke="white" strokeWidth={2} />;
   }
@@ -117,7 +115,7 @@ const CustomTooltip = ({ active, payload }: any) => {
   const date = new Date(d.at);
 
   if (d.eventType === "practice") {
-    const displayScore = d.eventScore ?? d.score;
+    const displayScore = d.score;
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[150px]">
         <div className="text-muted-foreground text-xs mb-1">
@@ -136,7 +134,7 @@ const CustomTooltip = ({ active, payload }: any) => {
   }
 
   if (d.eventType === "test") {
-    const displayScore = d.eventScore ?? d.score;
+    const displayScore = d.score;
     const isSuccess = displayScore >= SUCCESS_THRESHOLD;
     const color = isSuccess ? "#22c55e" : SOFT_DANGER_COLOR;
     return (
@@ -164,14 +162,9 @@ const CustomTooltip = ({ active, payload }: any) => {
       <div className="flex items-center gap-2">
         <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: BRAND_COLOR }} />
         <span className="font-semibold text-sm" style={{ color: BRAND_COLOR }}>
-          안정도 {typeof d.trendScore === "number" ? Math.round(d.trendScore) : (d.eventScore ?? d.score)}점
+          안정도 {Math.round(Number(d.score ?? 0))}점
         </span>
       </div>
-      {typeof d.trendScore === "number" && Math.round(d.trendScore) !== Math.round(Number(d.eventScore ?? d.score ?? 0)) && (
-        <div className="text-xs text-muted-foreground mt-1">
-          실제 이벤트 {Math.round(Number(d.eventScore ?? d.score ?? 0))}점
-        </div>
-      )}
       {d.questionCount && (
         <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
       )}
@@ -213,34 +206,21 @@ export function SubjectConfidenceHistoryModal({
   const timeScale = buildSoftTimeScale(
     points.map((p) => ({ at: p.at, eventType: p.eventType }))
   );
-  const trendScores = isExamplePreview
-    ? points.map((p) => p.score)
-    : buildTrendScores(
-        points.map((p) => p.score),
-        points.map((p) => p.eventType)
-      );
 
   const chartData = points.map((p, i) => {
-    const trendAtPoint = trendScores[i];
     return {
       ...p,
       score: p.score,
-      eventScore: p.score,
       idx: i,
       xPos: timeScale.nodes[i]?.x ?? i * 24,
-      trendScore: trendAtPoint,
       isLatest: p.at === latestTestAt && p.eventType === "test",
     };
   });
 
   const hasData = chartData.length > 0;
-  const currentTrendScore = hasData
-    ? Math.round(Number(chartData[chartData.length - 1].trendScore ?? chartData[chartData.length - 1].eventScore ?? chartData[chartData.length - 1].score))
+  const currentScore = hasData
+    ? Math.round(Number(chartData[chartData.length - 1].score))
     : null;
-  const currentEventScore = hasData
-    ? Math.round(Number(chartData[chartData.length - 1].eventScore ?? chartData[chartData.length - 1].score))
-    : null;
-  const currentScore = currentTrendScore;
   const currentStateColor = currentScore !== null ? getStateColor(currentScore) : "#6b7280";
   const handleChartMouseMove = (state: any) => {
     const activePayload = state?.activePayload ?? [];
@@ -256,12 +236,12 @@ export function SubjectConfidenceHistoryModal({
     const hasEventLayerHover = activePayload.some((entry: any) => {
       const eventType = entry?.payload?.eventType;
       const dataKey = entry?.dataKey;
-      return (dataKey === "score" || dataKey === "eventScore") && (eventType === "practice" || eventType === "test");
+      return dataKey === "score" && (eventType === "practice" || eventType === "test");
     });
 
     const eventEntry = activePayload.find(
       (entry: any) =>
-        (entry?.dataKey === "score" || entry?.dataKey === "eventScore") &&
+        entry?.dataKey === "score" &&
         typeof entry?.value === "number"
     );
 
@@ -304,18 +284,11 @@ export function SubjectConfidenceHistoryModal({
               {subjectName ?? "과목"} — 과목 안정도 추이
             </span>
             {currentScore !== null && (
-              <span className="inline-flex items-baseline gap-2">
-                <span
-                  className="text-2xl font-bold tabular-nums"
-                  style={{ color: currentStateColor }}
-                >
-                  {currentScore}점
-                </span>
-                {currentEventScore !== null && currentEventScore !== currentScore && (
-                  <span className="text-xs text-muted-foreground">
-                    실제 {currentEventScore}점
-                  </span>
-                )}
+              <span
+                className="text-2xl font-bold tabular-nums"
+                style={{ color: currentStateColor }}
+              >
+                {currentScore}점
               </span>
             )}
           </DialogTitle>
@@ -341,11 +314,7 @@ export function SubjectConfidenceHistoryModal({
             <div className="flex items-center gap-4 text-sm text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
-                추세선 (주요)
-              </span>
-              <span className="flex items-center gap-1.5 text-muted-foreground/80">
-                <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: EVENT_LINE_COLOR, opacity: 0.5 }} />
-                실제 이벤트 (배경 · 선은 연함)
+                안정도 변화
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
@@ -424,21 +393,10 @@ export function SubjectConfidenceHistoryModal({
                   {/* 그래프 선: 단일 브랜드 컬러 */}
                   <Line
                     type={isExamplePreview ? "linear" : "monotone"}
-                    dataKey="trendScore"
+                    dataKey="score"
                     stroke={BRAND_COLOR}
                     strokeOpacity={0.9}
                     strokeWidth={3.4}
-                    dot={false}
-                    activeDot={false}
-                    isAnimationActive={true}
-                    animationDuration={500}
-                  />
-                  <Line
-                    type={isExamplePreview ? "linear" : "monotone"}
-                    dataKey="eventScore"
-                    stroke={EVENT_LINE_COLOR}
-                    strokeOpacity={0.16}
-                    strokeWidth={1.1}
                     dot={<CustomDot eventLayerFocused={isEventLayerFocused} />}
                     activeDot={<CustomActiveDot />}
                     isAnimationActive={true}
@@ -453,7 +411,7 @@ export function SubjectConfidenceHistoryModal({
               {[
                 { label: "연습 이벤트", value: `${chartData.filter(p => p.eventType === "practice").length}회` },
                 { label: "시험 이벤트", value: `${chartData.filter(p => p.eventType === "test").length}회` },
-                { label: "최고 안정도", value: `${Math.max(...chartData.map(p => Number(p.eventScore ?? p.score ?? 0)))}점` },
+                { label: "최고 안정도", value: `${Math.max(...chartData.map(p => Number(p.score ?? 0)))}점` },
               ].map(stat => (
                 <div key={stat.label} className="bg-muted/40 rounded-lg p-3 text-center">
                   <div className="text-xs text-muted-foreground mb-1">{stat.label}</div>
