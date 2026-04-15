@@ -185,19 +185,32 @@ function Router({
   onAuthSuccess?: () => void;
 }) {
   const isAdmin = user?.role === "admin";
+  const isGuest = !user || isGuestUser(user);
   const canAccessDemo = !user || isGuestUser(user) || isAdmin;
 
   return (
     <Switch>
       <Route path={"/"}>
-        <Layout>
-          <Home />
-        </Layout>
+        {isGuest ? (
+          <Layout>
+            <Demo />
+          </Layout>
+        ) : (
+          <Layout>
+            <Home />
+          </Layout>
+        )}
       </Route>
       <Route path={"/subjects"}>
-        <Layout>
-          <Subjects />
-        </Layout>
+        {isGuest ? (
+          <Layout>
+            <Demo />
+          </Layout>
+        ) : (
+          <Layout>
+            <Subjects />
+          </Layout>
+        )}
       </Route>
       <Route path={"/questions/:subjectId"}>
         {(params) => (
@@ -235,9 +248,13 @@ function Router({
         )}
       </Route>
       <Route path={"/statistics"}>
-        <Layout>
-          <Statistics />
-        </Layout>
+        {isGuest ? (
+          <RouteRedirect to="/demo" />
+        ) : (
+          <Layout>
+            <Statistics />
+          </Layout>
+        )}
       </Route>
       <Route path={"/demo"}>
         {canAccessDemo ? (
