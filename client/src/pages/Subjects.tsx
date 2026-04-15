@@ -91,6 +91,13 @@ function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+function getAggregateBadgeClass(state?: string) {
+  if (state === "green") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
+  if (state === "yellow") return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400";
+  if (state === "red") return "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400";
+  return "bg-muted text-muted-foreground";
+}
+
 function buildDemoWorkspaceFallbackScore(question: any, index: number): { displayScore: number; state: "green" | "yellow" | "red" } {
   const difficulty = question?.difficulty ?? "medium";
   const answerText = typeof question?.answer === "string" ? question.answer : "";
