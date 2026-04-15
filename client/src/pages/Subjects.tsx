@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { Plus, BookOpen, Trash2, Edit, GripVertical, Star } from "lucide-react";
 import { toast } from "sonner";
@@ -87,6 +87,32 @@ type SubjectMiniGridItem = {
   isStarred: number;
 };
 
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function buildDemoWorkspaceFallbackScore(question: any, index: number): { displayScore: number; state: "green" | "yellow" | "red" } {
+  const difficulty = question?.difficulty ?? "medium";
+  const answerText = typeof question?.answer === "string" ? question.answer : "";
+  const answerLength = answerText.replace(/\s+/g, "").length;
+  const lineCount = Math.max(
+    1,
+    answerText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0).length
+  );
+  const hasTable = Boolean(question?.tableData);
+  const difficultyBase = difficulty === "easy" ? 50 : difficulty === "hard" ? 24 : 37;
+  const lengthPenalty = Math.min(14, Math.round(Math.log1p(Math.max(1, answerLength)) * 2.1));
+  const linePenalty = Math.min(8, Math.max(0, lineCount - 1));
+  const tablePenalty = hasTable ? 6 : 0;
+  const orderOffset = ((index % 5) - 2) * 1.5;
+  const displayScore = clampScore(difficultyBase - lengthPenalty * 0.6 - linePenalty * 0.45 - tablePenalty + orderOffset);
+  const state: "green" | "yellow" | "red" = displayScore >= 80 ? "green" : displayScore >= 40 ? "yellow" : "red";
+  return { displayScore, state };
+}
+
 // 과목별 미니 그리드: 색상 점 + 별표만 표시
 function SubjectMiniGrid({ items }: { items?: SubjectMiniGridItem[] }) {
   if (!items || items.length === 0) return null;
@@ -121,23 +147,6 @@ function SubjectMiniGrid({ items }: { items?: SubjectMiniGridItem[] }) {
           />
         );
       })}
-    </div>
-  );
-}
-
-function DemoSubjectMiniGrid({ subjectId }: { subjectId: number }) {
-  const { data: questions } = trpc.demo.questions.useQuery({ subjectId });
-  if (!questions || questions.length === 0) return null;
-  const sorted = [...questions].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
-  return (
-    <div className="flex flex-wrap gap-1 mt-2">
-      {sorted.map((q) => (
-        <div
-          key={q.id}
-          className="rounded-md w-3 h-3 bg-neutral-200 dark:bg-neutral-700 border border-neutral-200 dark:border-neutral-700"
-          title={q.question}
-        />
-      ))}
     </div>
   );
 }
@@ -296,8 +305,50 @@ function DemoWorkspaceSubjectCard({
   onDelete: (id: number, name: string) => void;
 }) {
   const [, setLocation] = useLocation();
-  const { data: demoQuestions } = trpc.demo.questions.useQuery({ subjectId: subject.id });
-  const questionCount = demoQuestions?.length ?? 0;
+  const { data: demoQuestions = [] } = trpc.admin.demo.questions.useQuery({ subjectId: subject.id });
+  const { data: confidencePreview } = trpc.demo.confidenceBySubject.useQuery({ subjectId: subject.id });
+
+  const miniItems = useMemo<SubjectMiniGridItem[]>(() => {
+    const sorted = [...demoQuestions].sort((a, b) => {
+      const orderDiff = (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
+      if (orderDiff !== 0) return orderDiff;
+      return (a.id ?? 0) - (b.id ?? 0);
+    });
+    const previewMap = new Map(
+      (confidencePreview?.questions ?? []).map((row) => [row.questionId, row] as const)
+    );
+    return sorted.map((question, index) => {
+      const order = index + 1;
+      const previewRow = previewMap.get(question.id);
+      if (previewRow) {
+        return {
+          questionId: question.id,
+          displayOrder: order,
+          displayScore: clampScore(previewRow.displayScore),
+          state: previewRow.state,
+          isStarred: question.isStarred ?? previewRow.isStarred ?? 0,
+        };
+      }
+      const fallback = buildDemoWorkspaceFallbackScore(question, index);
+      return {
+        questionId: question.id,
+        displayOrder: order,
+        displayScore: fallback.displayScore,
+        state: fallback.state,
+        isStarred: question.isStarred ?? 0,
+      };
+    });
+  }, [confidencePreview?.questions, demoQuestions]);
+
+  const questionCount = miniItems.length;
+  const averageScore = questionCount > 0
+    ? Math.round(miniItems.reduce((sum, row) => sum + row.displayScore, 0) / questionCount)
+    : 0;
+  const greenCount = miniItems.filter((row) => row.state === "green").length;
+  const yellowCount = miniItems.filter((row) => row.state === "yellow").length;
+  const redCount = miniItems.filter((row) => row.state === "red").length;
+  const aggregateState = averageScore >= 80 ? "green" : averageScore >= 40 ? "yellow" : "red";
+  const aggregateClass = getAggregateBadgeClass(aggregateState);
 
   return (
     <Card className="shadow-elegant hover:shadow-lg transition-all cursor-pointer">
@@ -317,8 +368,33 @@ function DemoWorkspaceSubjectCard({
           {subject.description && (
             <CardDescription className="line-clamp-1 mb-1">{subject.description}</CardDescription>
           )}
-          <p className="text-xs text-muted-foreground mb-1">{questionCount}개 문제</p>
-          <DemoSubjectMiniGrid subjectId={subject.id} />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+            <p>{questionCount}개 문제</p>
+            {questionCount > 0 && (
+              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${aggregateClass}`}>
+                안정도 {averageScore}점
+              </span>
+            )}
+            {redCount > 0 && (
+              <span className="flex items-center gap-0.5" title="취약">
+                <span className="w-2.5 h-[3px] rounded-full bg-red-500 inline-block" />
+                {redCount}
+              </span>
+            )}
+            {yellowCount > 0 && (
+              <span className="flex items-center gap-0.5" title="학습중">
+                <span className="w-2.5 h-[3px] rounded-full bg-amber-400 inline-block" />
+                {yellowCount}
+              </span>
+            )}
+            {greenCount > 0 && (
+              <span className="flex items-center gap-0.5" title="안정">
+                <span className="w-2.5 h-[3px] rounded-full bg-emerald-500 inline-block" />
+                {greenCount}
+              </span>
+            )}
+          </div>
+          <SubjectMiniGrid items={miniItems} />
         </div>
         <div className="flex gap-1 flex-shrink-0">
           <Button

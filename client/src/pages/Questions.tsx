@@ -717,13 +717,25 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     { subjectId },
     { enabled: Number.isFinite(subjectId) && isDemoWorkspace }
   );
-  const questions = (
+  const rawQuestions = (
     isDemoWorkspace
       ? demoWorkspaceQuestionsQuery.data
       : isReadOnlyDemo
         ? demoReadOnlyQuestionsQuery.data
         : userQuestionsQuery.data
   ) ?? [];
+  const questions = useMemo(() => {
+    const sorted = [...rawQuestions].sort((a, b) => {
+      const orderDiff = (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
+      if (orderDiff !== 0) return orderDiff;
+      return (a.id ?? 0) - (b.id ?? 0);
+    });
+    // 화면에서는 항상 1..N 순번으로 보여 숫자 누락/중복을 방지한다.
+    return sorted.map((question, index) => ({
+      ...question,
+      displayOrder: index + 1,
+    }));
+  }, [rawQuestions]);
   const isLoading = isDemoWorkspace
     ? demoWorkspaceQuestionsQuery.isLoading
     : isReadOnlyDemo
@@ -746,9 +758,9 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   );
   const { data: demoConfidenceData } = trpc.demo.confidenceBySubject.useQuery(
     { subjectId },
-    { enabled: Number.isFinite(subjectId) && isReadOnlyDemo }
+    { enabled: Number.isFinite(subjectId) && (isReadOnlyDemo || isDemoWorkspace) }
   );
-  const confidenceData = isReadOnlyDemo ? demoConfidenceData : userConfidenceData;
+  const confidenceData = (isReadOnlyDemo || isDemoWorkspace) ? demoConfidenceData : userConfidenceData;
   const utils = trpc.useUtils();
   const shareUpsertMutation = trpc.share.upsertBySubject.useMutation({
     onSuccess: () => {
@@ -2011,7 +2023,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                       readOnly={isReadOnlyDemo}
                       hideDragHandle={isDemoWorkspace}
                       hideCopyMove={isDemoWorkspace}
-                      confidence={isDemoWorkspace ? undefined : displayConfidenceMap.get(question.id)}
+                      confidence={displayConfidenceMap.get(question.id)}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
                       onPractice={(id) => setLocation(isReadOnlyDemo || isDemoWorkspace ? `/demo/practice/${id}` : `/practice/${id}?scrollNav=1`)}
@@ -2201,7 +2213,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
         questionTitle={confidenceHistoryTitle}
         open={confidenceHistoryId !== null}
         onClose={() => setConfidenceHistoryId(null)}
-        isDemo={isReadOnlyDemo}
+        isDemo={isReadOnlyDemo || isDemoWorkspace}
         previewLabel={(confidenceData as any)?.previewLabel}
       />
 
@@ -2211,7 +2223,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
         subjectName={subject?.name}
         open={subjectConfidenceOpen}
         onClose={() => setSubjectConfidenceOpen(false)}
-        isDemo={isReadOnlyDemo}
+        isDemo={isReadOnlyDemo || isDemoWorkspace}
         previewLabel={(confidenceData as any)?.previewLabel}
       />
     </div>
