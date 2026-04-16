@@ -100,7 +100,6 @@ const SUCCESS_ACCURACY_THRESHOLD = 80;
 // 브랜드 컬러 (보라 계열) - 선에만 사용
 const BRAND_COLOR = "#8b5cf6";
 const SOFT_DANGER_COLOR = "#d66b78";
-const PREDICT_COLOR = BRAND_COLOR; // 시험일 예측 점선
 const TOOLTIP_POINT_HOVER_RADIUS_PX = 18;
 
 function clampScore(value: number): number {
@@ -113,10 +112,145 @@ function stateFromScore(score: number): "green" | "yellow" | "red" {
   return "red";
 }
 
+function isProjectionEventType(eventType?: string): boolean {
+  return eventType === "exam_predict" || eventType === "exam_predict_mid";
+}
+
+function shouldRenderForgettingSegment(
+  previousScore?: number | null,
+  currentScore?: number | null
+): boolean {
+  if (typeof previousScore !== "number" || typeof currentScore !== "number") return false;
+  return currentScore < previousScore;
+}
+
+function getSegmentLineScore(row: {
+  eventType?: string;
+  mainScore?: number | null;
+  score?: number | null;
+}): number | null {
+  if (typeof row.mainScore === "number") return row.mainScore;
+  if (isProjectionEventType(row.eventType)) return null;
+  return typeof row.score === "number" ? row.score : null;
+}
+
+function getCurveAnchorScore(row: {
+  score?: number | null;
+}): number | null {
+  return typeof row.score === "number" ? row.score : null;
+}
+
+function interpolateTimestamp(startAt: string, endAt: string, progress: number): string {
+  const start = new Date(startAt).getTime();
+  const end = new Date(endAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return startAt;
+  }
+  return new Date(start + (end - start) * progress).toISOString();
+}
+
+function forgettingCurveProgress(progress: number): number {
+  return 1 - Math.pow(1 - progress, 1.8);
+}
+
+function buildForgettingCurveRows<
+  T extends {
+    at: string;
+    xPos: number;
+    score?: number | null;
+    eventType?: string;
+    mainScore?: number | null;
+    retentionScore?: number | null;
+    forgettingScore?: number | null;
+    isLatest?: boolean;
+    label?: string;
+    projectionCurveScore?: number | null;
+  },
+>(rows: Array<T & { retentionScore: number | null; forgettingScore: number | null }>) {
+  if (rows.length <= 1) return rows;
+
+  const output: Array<T & { retentionScore: number | null; forgettingScore: number | null; synthetic?: boolean }> = [rows[0]];
+  const curveStops = [0.36, 0.72];
+
+  for (let index = 1; index < rows.length; index += 1) {
+    const previousOutputRow = output[output.length - 1];
+    const currentRow = rows[index];
+    const previousScore = getCurveAnchorScore(previousOutputRow);
+    const currentScore = getCurveAnchorScore(currentRow);
+    const isForgettingSegment = shouldRenderForgettingSegment(previousScore, currentScore);
+
+    if (previousScore !== null && currentScore !== null) {
+      if (isForgettingSegment) {
+        previousOutputRow.forgettingScore = previousScore;
+        for (const stop of curveStops) {
+          const syntheticScore = clampScore(
+            previousScore + (currentScore - previousScore) * forgettingCurveProgress(stop)
+          );
+          output.push({
+            ...currentRow,
+            at: interpolateTimestamp(previousOutputRow.at, currentRow.at, stop),
+            xPos: previousOutputRow.xPos + (currentRow.xPos - previousOutputRow.xPos) * stop,
+            score: syntheticScore,
+            mainScore: null,
+            retentionScore: null,
+            forgettingScore: syntheticScore,
+            projectionCurveScore: null,
+            isLatest: false,
+            label: "",
+            synthetic: true,
+            eventType: "forgetting_curve",
+          });
+        }
+        currentRow.forgettingScore = currentScore;
+      } else {
+        previousOutputRow.retentionScore = previousScore;
+        currentRow.retentionScore = currentScore;
+      }
+    }
+
+    output.push(currentRow);
+  }
+
+  return output;
+}
+
+function addSegmentLineScores<
+  T extends {
+    eventType?: string;
+    score?: number | null;
+    mainScore?: number | null;
+  },
+>(rows: T[]): Array<T & { retentionScore: number | null; forgettingScore: number | null }> {
+  const next = rows.map((row) => ({
+    ...row,
+    retentionScore: null as number | null,
+    forgettingScore: null as number | null,
+  }));
+
+  for (let index = 1; index < next.length; index += 1) {
+    const previous = next[index - 1];
+    const current = next[index];
+    const previousScore = getSegmentLineScore(previous);
+    const currentScore = getSegmentLineScore(current);
+
+    if (previousScore === null || currentScore === null) continue;
+
+    const targetKey = shouldRenderForgettingSegment(previousScore, currentScore)
+      ? "forgettingScore"
+      : "retentionScore";
+
+    previous[targetKey] = previousScore;
+    current[targetKey] = currentScore;
+  }
+
+  return next;
+}
+
 // 커스텀 점 렌더러
 const CustomDot = (props: any) => {
   const { cx, cy, payload, eventLayerFocused = false } = props;
   if (!cx || !cy) return null;
+  if (payload.synthetic) return null;
 
   if (payload.eventType === "test") {
     const isSuccess = payload.accuracyRate !== undefined
@@ -143,19 +277,7 @@ const CustomDot = (props: any) => {
       </g>
     );
   }
-  if (payload.eventType === "forgetting") {
-    return (
-      <g key={`dot-${cx}-${cy}`}>
-        <circle
-          cx={cx}
-          cy={cy}
-          r={eventLayerFocused ? 3.8 : 2.8}
-          fill="#94a3b8"
-          fillOpacity={eventLayerFocused ? 0.78 : 0.28}
-        />
-      </g>
-    );
-  }
+  if (payload.eventType === "forgetting") return null;
   if (payload.eventType === "now") {
     return (
       <g key={`dot-${cx}-${cy}`}>
@@ -181,6 +303,7 @@ const CustomDot = (props: any) => {
 const CustomActiveDot = (props: any) => {
   const { cx, cy, payload } = props;
   if (!cx || !cy) return null;
+  if (payload.synthetic) return null;
 
   if (payload.eventType === "practice") {
     return <circle cx={cx} cy={cy} r={4.5} fill="#9ca3af" stroke="white" strokeWidth={1.5} />;
@@ -192,9 +315,7 @@ const CustomActiveDot = (props: any) => {
     const color = isSuccess ? "#22c55e" : SOFT_DANGER_COLOR;
     return <circle cx={cx} cy={cy} r={7} fill={color} stroke="white" strokeWidth={2} />;
   }
-  if (payload.eventType === "forgetting") {
-    return <circle cx={cx} cy={cy} r={5.5} fill="#94a3b8" stroke="white" strokeWidth={1.5} />;
-  }
+  if (payload.eventType === "forgetting") return null;
   if (payload.eventType === "exam_predict") {
     const stateColor = payload.predictedState === "green" ? "#22c55e" : payload.predictedState === "yellow" ? "#d4a72c" : SOFT_DANGER_COLOR;
     return <circle cx={cx} cy={cy} r={7} fill={stateColor} stroke="white" strokeWidth={2} />;
@@ -206,6 +327,7 @@ const CustomActiveDot = (props: any) => {
 const CustomTooltip = ({ active, payload }: any) => {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
+  if (d?.synthetic) return null;
   const date = new Date(d.at);
 
   if (d.eventType === "practice") {
@@ -263,11 +385,7 @@ const CustomTooltip = ({ active, payload }: any) => {
         <div className="text-muted-foreground text-xs mb-1.5">
           {format(date, "yyyy.MM.dd HH:mm", { locale: ko })}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block" />
-          <span className="text-muted-foreground text-xs">망각 구간</span>
-          <span className="font-semibold text-sm">{displayScore}점</span>
-        </div>
+        <div className="font-semibold text-sm">{displayScore}점</div>
         <div className="text-xs text-muted-foreground mt-1">학습 공백으로 안정도가 자연 감소</div>
       </div>
     );
@@ -428,7 +546,6 @@ export function ConfidenceHistoryModal({
     } as any);
   }
 
-  const predictPoint = allPoints.find((p) => (p as any).eventType === "exam_predict");
   const timeScaleInputPoints = allPoints.filter(
     (p) => (p as any).eventType !== "exam_predict_mid"
   );
@@ -443,45 +560,43 @@ export function ConfidenceHistoryModal({
     projectionStartAtISO ? (timeScaleNodeByAt.get(projectionStartAtISO)?.x ?? null) : null;
   const projectionExamX =
     projectionExamAtISO ? (timeScaleNodeByAt.get(projectionExamAtISO)?.x ?? null) : null;
-  const chartData = allPoints.map((p, i) => {
-    const isPredict = (p as any).eventType === "exam_predict";
-    const isPredictMid = (p as any).eventType === "exam_predict_mid";
-    const isProjectionPoint = isPredict || isPredictMid;
-    let xPos = timeScaleNodeByAt.get(p.at)?.x ?? i * 24;
-    if (
-      isPredictMid &&
-      projectionStartX !== null &&
-      projectionExamX !== null &&
-      projectionExamX > projectionStartX
-    ) {
-      xPos = projectionStartX + (projectionExamX - projectionStartX) * 0.55;
-    }
-    const solidLastIdx = solidData.length - 1;
-    const isProjectionStart = !isProjectionPoint && i === solidLastIdx && Boolean(predictPoint);
-    return {
-      ...p,
-      score: p.score,
-      mainScore: isProjectionPoint ? null : p.score,
-      idx: i,
-      label: allPoints.length > 0 ? formatTimeLabel(p.at, allPoints) : "",
-      xPos,
-      isLatest: p.at === latestTestAt && (p as any).eventType === "test",
-      projectionCurveScore: isProjectionPoint
-        ? p.score
-        : isProjectionStart
-          ? p.score
-          : null,
-      ...(isPredict && projectionExamDatePrediction
-        ? {
-            predictedState: projectionExamDatePrediction.predictedState,
-            scoreDelta: projectionExamDatePrediction.scoreDelta,
-            daysUntilExam: projectionExamDatePrediction.daysUntilExam,
-            hoursUntilExam: projectionExamDatePrediction.hoursUntilExam,
-            minutesUntilExam: projectionExamDatePrediction.minutesUntilExam,
-          }
-        : {}),
-    };
-  });
+  const chartData = buildForgettingCurveRows(
+    addSegmentLineScores(
+      allPoints.map((p, i) => {
+      const isPredict = (p as any).eventType === "exam_predict";
+      const isPredictMid = (p as any).eventType === "exam_predict_mid";
+      const isProjectionPoint = isPredict || isPredictMid;
+      let xPos = timeScaleNodeByAt.get(p.at)?.x ?? i * 24;
+      if (
+        isPredictMid &&
+        projectionStartX !== null &&
+        projectionExamX !== null &&
+        projectionExamX > projectionStartX
+      ) {
+        xPos = projectionStartX + (projectionExamX - projectionStartX) * 0.55;
+      }
+      return {
+        ...p,
+        score: p.score,
+        mainScore: isProjectionPoint ? null : p.score,
+        idx: i,
+        label: allPoints.length > 0 ? formatTimeLabel(p.at, allPoints) : "",
+        xPos,
+        isLatest: p.at === latestTestAt && (p as any).eventType === "test",
+        projectionCurveScore: null,
+        ...(isPredict && projectionExamDatePrediction
+          ? {
+              predictedState: projectionExamDatePrediction.predictedState,
+              scoreDelta: projectionExamDatePrediction.scoreDelta,
+              daysUntilExam: projectionExamDatePrediction.daysUntilExam,
+              hoursUntilExam: projectionExamDatePrediction.hoursUntilExam,
+              minutesUntilExam: projectionExamDatePrediction.minutesUntilExam,
+            }
+          : {}),
+      };
+      })
+    )
+  );
 
   const hasData = solidData.length > 0;
   const latestSolidChartPoint = chartData
@@ -575,15 +690,15 @@ export function ConfidenceHistoryModal({
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="w-[calc(100vw-28px)] max-w-[1240px] sm:max-w-[1240px] max-h-[94vh] overflow-visible !p-4 sm:!p-5">
+      <DialogContent className="w-[calc(100vw-16px)] max-w-[1180px] sm:w-[calc(100vw-28px)] sm:max-w-[1180px] max-h-[92svh] overflow-hidden !p-2.5 sm:!p-4">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
-            <span className="text-base font-semibold truncate max-w-[320px]">
+          <DialogTitle className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <span className="text-sm sm:text-base font-semibold truncate max-w-[220px] sm:max-w-[320px]">
               {questionTitle ?? "문제"} — 안정도 변화
             </span>
             {currentScore !== null && (
               <span
-                className="text-2xl font-bold tabular-nums"
+                className="text-xl sm:text-2xl font-bold tabular-nums"
                 style={{ color: currentStateColor }}
               >
                 {currentScore}점
@@ -607,12 +722,12 @@ export function ConfidenceHistoryModal({
             <span className="text-sm">아직 연습 또는 시험 기록이 없습니다.</span>
           </div>
         ) : (
-          <>
+          <div className="flex min-h-0 flex-col gap-2">
             {/* 범례 */}
-            <div className="flex items-center gap-4 text-sm text-muted-foreground px-1 flex-wrap">
+            <div className="flex items-center gap-2.5 sm:gap-3 text-[11px] sm:text-xs text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
-                안정도 변화
+                회상/유지 구간
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
@@ -622,27 +737,17 @@ export function ConfidenceHistoryModal({
                 <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: SOFT_DANGER_COLOR }} />
                 시험 실패 (&lt;80%)
               </span>
-              {projectionExamDatePrediction && (
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-5 h-0.5" style={{ background: `repeating-linear-gradient(90deg, ${PREDICT_COLOR} 0, ${PREDICT_COLOR} 4px, transparent 4px, transparent 7px)` }} />
-                  시험일 예측
-                </span>
-              )}
               <span className="flex items-center gap-1.5 text-muted-foreground/50">
                 <span className="inline-block w-3 h-3 rounded-full bg-gray-400" />
                 연습 (호버 시만)
               </span>
-              <span className="flex items-center gap-1.5 text-muted-foreground/50">
-                <span className="inline-block w-3 h-3 rounded-full bg-slate-400/70" />
-                망각 구간
-              </span>
             </div>
 
-            <div className="h-[58vh] min-h-[460px] max-h-[760px] w-full mt-2 overflow-hidden">
+            <div className="h-[clamp(180px,35svh,400px)] sm:h-[clamp(210px,40svh,460px)] w-full overflow-hidden">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart
                   data={chartData}
-                  margin={{ top: 14, right: 76, left: 18, bottom: 12 }}
+                  margin={{ top: 10, right: 28, left: 6, bottom: 8 }}
                   onMouseMove={handleChartMouseMove}
                   onMouseLeave={handleChartMouseLeave}
                 >
@@ -697,47 +802,54 @@ export function ConfidenceHistoryModal({
                     allowEscapeViewBox={{ x: true, y: true }}
                   />
 
-                  {/* 실선: 실제 안정도 흐름 */}
+                  <Line
+                    type="monotone"
+                    dataKey="retentionScore"
+                    stroke={BRAND_COLOR}
+                    strokeOpacity={0.92}
+                    strokeWidth={3.4}
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={false}
+                    connectNulls={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="forgettingScore"
+                    stroke="#64748b"
+                    strokeOpacity={0.82}
+                    strokeWidth={3}
+                    strokeDasharray="4 5"
+                    dot={(props: any) =>
+                      props?.payload?.eventType === "exam_predict" ? <CustomDot {...props} /> : <g />
+                    }
+                    activeDot={(props: any) =>
+                      props?.payload?.eventType === "exam_predict" ? <CustomActiveDot {...props} /> : <g />
+                    }
+                    isAnimationActive={false}
+                    connectNulls={false}
+                  />
                   <Line
                     type="monotone"
                     dataKey="mainScore"
                     stroke={BRAND_COLOR}
-                    strokeOpacity={0.9}
-                    strokeWidth={3.4}
+                    strokeOpacity={0}
+                    strokeWidth={8}
                     dot={<CustomDot eventLayerFocused={isEventLayerFocused} />}
                     activeDot={<CustomActiveDot />}
                     isAnimationActive={false}
                     connectNulls={false}
                   />
-                  {/* 점선: 시험일 예측 */}
-                  {predictPoint && (
-                    <Line
-                      type="monotone"
-                      dataKey="projectionCurveScore"
-                      stroke={PREDICT_COLOR}
-                      strokeOpacity={0.76}
-                      strokeWidth={2.2}
-                      strokeDasharray="5 4"
-                      dot={(props: any) =>
-                        props?.payload?.eventType === "exam_predict" ? <CustomDot {...props} /> : <g />
-                      }
-                      activeDot={(props: any) =>
-                        props?.payload?.eventType === "exam_predict" ? <CustomActiveDot {...props} /> : <g />
-                      }
-                      isAnimationActive={false}
-                      connectNulls={true}
-                    />
-                  )}
                 </LineChart>
               </ResponsiveContainer>
             </div>
 
             {/* 시험일 예측 요약 (있을 경우) */}
             {projectionExamDatePrediction && (
-              <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm">
-                <span className="text-muted-foreground text-xs">{formatExamCountdown(projectionExamDatePrediction.minutesUntilExam)} 예측</span>
+              <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-muted/40 border border-border text-xs sm:text-sm">
+                <span className="text-muted-foreground text-[11px] sm:text-xs">{formatExamCountdown(projectionExamDatePrediction.minutesUntilExam)} 예측</span>
                 <span
-                  className="font-bold text-base tabular-nums"
+                  className="font-bold text-sm sm:text-base tabular-nums"
                   style={{
                     color:
                       projectionExamDatePrediction.predictedState === "green"
@@ -756,7 +868,7 @@ export function ConfidenceHistoryModal({
             )}
 
             {/* 요약 통계 */}
-            <div className="grid grid-cols-3 gap-3 mt-1">
+            <div className="grid grid-cols-3 gap-2">
               {[
                 {
                   label: "연습 세션",
@@ -776,13 +888,13 @@ export function ConfidenceHistoryModal({
                   return `${Math.round((success / tests.length) * 100)}%`;
                 })() },
               ].map(stat => (
-                <div key={stat.label} className="bg-muted/40 rounded-lg p-3 text-center">
-                  <div className="text-xs text-muted-foreground mb-1">{stat.label}</div>
-                  <div className="text-lg font-bold">{stat.value}</div>
+                <div key={stat.label} className="bg-muted/40 rounded-lg p-2 text-center">
+                  <div className="text-[11px] sm:text-xs text-muted-foreground mb-0.5">{stat.label}</div>
+                  <div className="text-base sm:text-lg font-bold leading-tight">{stat.value}</div>
                 </div>
               ))}
             </div>
-          </>
+          </div>
         )}
       </DialogContent>
     </Dialog>

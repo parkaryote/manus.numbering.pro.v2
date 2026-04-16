@@ -226,15 +226,21 @@ class SDKServer {
       const { payload } = await jwtVerify(cookieValue, secretKey, {
         algorithms: ["HS256"],
       });
-      const { openId, appId, name } = payload as Record<string, unknown>;
+      const raw = payload as Record<string, unknown>;
+      const openId = raw.openId;
+      const appId = isNonEmptyString(raw.appId) ? raw.appId : "";
+      const name = isNonEmptyString(raw.name) ? raw.name : "";
 
-      if (
-        !isNonEmptyString(openId) ||
-        !isNonEmptyString(appId) ||
-        !isNonEmptyString(name)
-      ) {
-        console.warn("[Auth] Session payload missing required fields");
+      // Backward-compatible session parsing:
+      // some legacy/runtime-mismatched sessions may miss appId/name.
+      // openId is the only field required to resolve the local user.
+      if (!isNonEmptyString(openId)) {
+        console.warn("[Auth] Session payload missing required openId");
         return null;
+      }
+
+      if (!isNonEmptyString(raw.appId) || !isNonEmptyString(raw.name)) {
+        console.warn("[Auth] Session payload missing optional fields (appId/name), accepting by openId");
       }
 
       return {

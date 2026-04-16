@@ -76,7 +76,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const resolveMenuPath = (path: string) => {
     if (path === "/subjects") {
       if (user?.role === "admin" && isDemoContext) return "/demo/subjects";
-      if (isGuest) return "/demo/subjects";
     }
     return path;
   };
@@ -120,7 +119,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
         {/* 모바일 상단 헤더 */}
-        <header className="flex h-12 items-center justify-between border-b px-4 sticky top-0 bg-background z-40">
+        <header className="sticky top-0 z-40 flex h-12 items-center justify-between border-b px-3 sm:px-4 bg-background">
           <button
             onClick={() => setMobileOpen(true)}
             className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-md transition-colors"
@@ -134,14 +133,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             aria-label="대시보드로 이동"
           >
             <div className="flex items-baseline gap-1.5">
-              <span className="text-[20px] font-black tracking-tight text-black dark:text-white">
+              <span className="text-[17px] sm:text-[20px] font-black tracking-tight text-black dark:text-white">
                 numbering.pro
               </span>
               <span className="text-[9px] font-semibold uppercase tracking-[0.09em] text-neutral-500 dark:text-neutral-400">
                 Beta
               </span>
             </div>
-            <span className="max-w-[210px] truncate text-[9px] font-medium text-neutral-500 dark:text-neutral-400">
+            <span className="max-w-[180px] sm:max-w-[210px] truncate text-[9px] font-medium text-neutral-500 dark:text-neutral-400">
               Number it. Remember it like a pro
             </span>
           </button>
@@ -156,7 +155,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         {/* 모바일 드로어 */}
         {mobileOpen && (
           <div className="fixed inset-0 z-50 flex">
-            <div className="w-56 bg-background border-r flex flex-col py-3 gap-1">
+            <div className="w-[min(85vw,18rem)] bg-background border-r flex flex-col py-3 gap-1">
               <div className="flex items-center justify-between px-3 mb-2">
                 <button
                   type="button"
@@ -168,14 +167,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   aria-label="대시보드로 이동"
                 >
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-[20px] font-black tracking-tight text-black dark:text-white">
+                    <span className="text-[18px] sm:text-[20px] font-black tracking-tight text-black dark:text-white">
                       numbering.pro
                     </span>
                     <span className="text-[9px] font-semibold uppercase tracking-[0.09em] text-neutral-500 dark:text-neutral-400">
                       Beta
                     </span>
                   </div>
-                  <span className="max-w-[190px] truncate text-[9px] font-medium text-neutral-500 dark:text-neutral-400">
+                  <span className="max-w-[160px] sm:max-w-[190px] truncate text-[9px] font-medium text-neutral-500 dark:text-neutral-400">
                     Number it. Remember it like a pro
                   </span>
                 </button>
@@ -284,7 +283,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         )}
 
         <main className="flex-1 overflow-y-auto overflow-x-hidden">
-          <div className="w-full max-w-[1400px] mx-auto px-3 md:px-4">{children}</div>
+          <div className="w-full max-w-[1400px] mx-auto px-2 sm:px-3 md:px-4">{children}</div>
         </main>
       </div>
     );
@@ -459,7 +458,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
       {/* 메인 콘텐츠 */}
       <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
-        <div className="w-full max-w-[1400px] mx-auto px-3 md:px-4">
+        <div className="w-full max-w-[1400px] mx-auto px-2 sm:px-3 md:px-4">
           <div className="hidden md:flex items-center justify-start pt-3 pb-2">
             <button
               type="button"

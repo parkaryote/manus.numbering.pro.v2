@@ -20,6 +20,18 @@ const GUEST_ID_KEY = "numbering_guest_id";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 const RECENT_AUTH_AT_KEY = "numbering_recent_auth_at";
 
+function isGuestUser(user: { loginMethod?: string | null } | null | undefined): boolean {
+  if (!user) return false;
+  return user.loginMethod === "guest";
+}
+
+function sanitizeNextPath(path: string | null | undefined): string {
+  if (!path) return "/";
+  if (!path.startsWith("/") || path.startsWith("//")) return "/";
+  if (path === "/login" || path.startsWith("/login?")) return "/";
+  return path;
+}
+
 function getOrCreateId(key: string): string {
   try {
     const existing = localStorage.getItem(key);
@@ -52,6 +64,10 @@ export default function Login() {
   const [hasProcessedGoogleCode, setHasProcessedGoogleCode] = useState(false);
   const [blockingMessage, setBlockingMessage] = useState<string | null>(null);
   const googleReturnToRef = useRef("/");
+  const meQuery = trpc.auth.me.useQuery(undefined, {
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
 
   const finishAuthAndRedirect = (nextPath: string, successMessage: string) => {
     setBlockingMessage("로그인 완료, 이동 중...");
@@ -63,7 +79,7 @@ export default function Login() {
     }
     toast.success(successMessage);
     void utils.auth.me.invalidate();
-    window.location.assign(nextPath || "/");
+    window.location.assign(sanitizeNextPath(nextPath));
   };
 
   const googleLogin = trpc.auth.googleLoginWithCode.useMutation({
@@ -104,8 +120,9 @@ export default function Login() {
 
   const guestLogin = trpc.auth.autoGuestLogin.useMutation({
     onSuccess: () => {
-      setBlockingMessage(null);
-      setLocation("/");
+      setBlockingMessage("게스트 세션 적용 중...");
+      void utils.auth.me.invalidate();
+      window.location.assign("/");
     },
     onError: () => {
       setBlockingMessage(null);
@@ -155,9 +172,15 @@ export default function Login() {
   const requestedReturnTo = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const returnTo = params.get("returnTo");
-    if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//")) return "/";
-    return returnTo;
+    return sanitizeNextPath(returnTo);
   }, []);
+
+  useEffect(() => {
+    if (!meQuery.data) return;
+    if (blockingMessage) return;
+    if (isGuestUser(meQuery.data)) return;
+    setLocation(requestedReturnTo);
+  }, [blockingMessage, meQuery.data, requestedReturnTo, setLocation]);
 
   const socialButtons = useMemo(
     () => {
@@ -259,6 +282,11 @@ export default function Login() {
                 className="w-full gap-2"
                 onClick={() => {
                   const guestId = getOrCreateId(GUEST_ID_KEY);
+                  try {
+                    localStorage.removeItem(RECENT_AUTH_AT_KEY);
+                  } catch {
+                    // ignore
+                  }
                   setBlockingMessage("게스트로 입장 중...");
                   guestLogin.mutate({ guestId });
                 }}

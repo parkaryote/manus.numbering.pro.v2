@@ -33,7 +33,7 @@ type ToothShowcaseKey = (typeof TOOTH_SHOWCASE_KEYS_IN_ORDER)[number];
 const TOOTH_SHOWCASE_TITLE_CANDIDATES: Record<ToothShowcaseKey, string[]> = {
   box1: ["Box-1 절치들의 근원심구별"],
   box9: ["Box-9 하악 제1소구치와 제2소구치의 차이점"],
-  table_i3: ["표 I-3 상악 치아 크기", "표 I-3 하악 치아 크기"],
+  table_i3: ["표 I-3 상악 치아 크기"],
 };
 
 function normalizeSubjectNameValue(value: string | null | undefined): string {

@@ -223,7 +223,7 @@ export default function DemoDashboardLayout({
 
   return (
     <div className="h-screen flex flex-col bg-background">
-      <div className="shrink-0 border-b bg-background/95 px-4 py-2">
+      <div className="shrink-0 border-b bg-background/95 px-3 sm:px-4 py-2">
         <div className="mx-auto w-full max-w-[1400px] flex items-center justify-between">
           <button
             type="button"
@@ -231,7 +231,7 @@ export default function DemoDashboardLayout({
             className="inline-flex flex-col items-start leading-tight hover:opacity-90 transition-opacity text-left"
             aria-label="대시보드로 이동"
           >
-            <span className="text-[30px] font-black tracking-tight text-black dark:text-white">
+            <span className="text-[22px] sm:text-[30px] font-black tracking-tight text-black dark:text-white">
               numbering.pro
             </span>
             <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
@@ -246,7 +246,7 @@ export default function DemoDashboardLayout({
 
       {/* 로그인 유도 배너 - 게스트 사용자에게만 표시 */}
       {isGuest && (
-        <div className="shrink-0 bg-primary/5 border-b border-primary/10 px-4 py-2 flex items-center justify-between gap-3">
+        <div className="shrink-0 bg-primary/5 border-b border-primary/10 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground leading-snug">
             <span className="font-medium text-foreground">나만의 학습 통계</span>를 쌓고 문제를 추가하려면 로그인하세요.
           </p>
@@ -272,7 +272,7 @@ export default function DemoDashboardLayout({
 
       {/* 메인 콘텐츠 */}
       <main className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-        <div className="w-full max-w-[1400px] mx-auto px-3 md:px-6 py-4">
+        <div className="w-full max-w-[1400px] mx-auto px-2 sm:px-3 md:px-6 py-4">
           {children}
         </div>
       </main>

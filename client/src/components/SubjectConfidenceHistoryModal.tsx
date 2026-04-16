@@ -55,9 +55,95 @@ function getStateColor(score: number): string {
   return SOFT_DANGER_COLOR;
 }
 
+function shouldRenderForgettingSegment(
+  previousScore?: number | null,
+  currentScore?: number | null
+): boolean {
+  if (typeof previousScore !== "number" || typeof currentScore !== "number") return false;
+  return currentScore < previousScore;
+}
+
+function interpolateTimestamp(startAt: string, endAt: string, progress: number): string {
+  const start = new Date(startAt).getTime();
+  const end = new Date(endAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return startAt;
+  }
+  return new Date(start + (end - start) * progress).toISOString();
+}
+
+function forgettingCurveProgress(progress: number): number {
+  return 1 - Math.pow(1 - progress, 1.8);
+}
+
+function addSegmentLineScores<
+  T extends {
+    at: string;
+    xPos: number;
+    eventType?: string;
+    score?: number | null;
+    retentionScore?: number | null;
+    forgettingScore?: number | null;
+    isLatest?: boolean;
+  },
+>(rows: T[]): Array<T & { retentionScore: number | null; forgettingScore: number | null; synthetic?: boolean }> {
+  const prepared = rows.map((row) => ({
+    ...row,
+    retentionScore: null as number | null,
+    forgettingScore: null as number | null,
+  }));
+
+  if (prepared.length <= 1) return prepared;
+
+  const output: Array<T & { retentionScore: number | null; forgettingScore: number | null; synthetic?: boolean }> = [prepared[0]];
+  const curveStops = [0.36, 0.72];
+
+  for (let index = 1; index < prepared.length; index += 1) {
+    const previous = output[output.length - 1];
+    const current = prepared[index];
+    const previousScore = typeof previous.score === "number" ? previous.score : null;
+    const currentScore = typeof current.score === "number" ? current.score : null;
+
+    if (previousScore !== null && currentScore !== null) {
+      if (shouldRenderForgettingSegment(previousScore, currentScore)) {
+        previous.forgettingScore = previousScore;
+        for (const stop of curveStops) {
+          const syntheticScore = Math.max(
+            0,
+            Math.min(
+              100,
+              Math.round(previousScore + (currentScore - previousScore) * forgettingCurveProgress(stop))
+            )
+          );
+          output.push({
+            ...current,
+            at: interpolateTimestamp(previous.at, current.at, stop),
+            xPos: previous.xPos + (current.xPos - previous.xPos) * stop,
+            score: syntheticScore,
+            retentionScore: null,
+            forgettingScore: syntheticScore,
+            isLatest: false,
+            synthetic: true,
+            eventType: "forgetting_curve",
+          });
+        }
+        current.forgettingScore = currentScore;
+      } else {
+        previous.retentionScore = previousScore;
+        current.retentionScore = currentScore;
+      }
+    }
+
+    output.push(current);
+  }
+
+  return output;
+}
+
 const CustomDot = (props: any) => {
   const { cx, cy, payload, eventLayerFocused = false } = props;
   if (!cx || !cy) return null;
+  if (payload.synthetic) return null;
 
   if (payload.eventType === "test") {
     const isSuccess = payload.score >= SUCCESS_THRESHOLD;
@@ -99,19 +185,7 @@ const CustomDot = (props: any) => {
       </g>
     );
   }
-  if (payload.eventType === "forgetting") {
-    return (
-      <g key={`dot-${cx}-${cy}`}>
-        <circle
-          cx={cx}
-          cy={cy}
-          r={eventLayerFocused ? 3.8 : 2.8}
-          fill="#94a3b8"
-          fillOpacity={eventLayerFocused ? 0.78 : 0.28}
-        />
-      </g>
-    );
-  }
+  if (payload.eventType === "forgetting") return null;
   if (payload.eventType === "now") {
     return (
       <g key={`dot-${cx}-${cy}`}>
@@ -127,6 +201,7 @@ const CustomDot = (props: any) => {
 const CustomActiveDot = (props: any) => {
   const { cx, cy, payload } = props;
   if (!cx || !cy) return null;
+  if (payload.synthetic) return null;
 
   if (payload.eventType === "practice") {
     return <circle cx={cx} cy={cy} r={4.5} fill="#9ca3af" stroke="white" strokeWidth={1.5} />;
@@ -151,15 +226,14 @@ const CustomActiveDot = (props: any) => {
     }
     return <circle cx={cx} cy={cy} r={7} fill={color} stroke="white" strokeWidth={2} />;
   }
-  if (payload.eventType === "forgetting") {
-    return <circle cx={cx} cy={cy} r={5.5} fill="#94a3b8" stroke="white" strokeWidth={1.5} />;
-  }
+  if (payload.eventType === "forgetting") return null;
   return <circle cx={cx} cy={cy} r={7} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />;
 };
 
 const CustomTooltip = ({ active, payload }: any) => {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
+  if (d?.synthetic) return null;
   const date = new Date(d.at);
 
   if (d.eventType === "practice") {
@@ -212,11 +286,7 @@ const CustomTooltip = ({ active, payload }: any) => {
         <div className="text-muted-foreground text-xs mb-1.5">
           {format(date, "yyyy.MM.dd HH:mm", { locale: ko })}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block" />
-          <span className="text-muted-foreground text-xs">망각 구간</span>
-          <span className="font-semibold text-sm">{Math.round(Number(d.score ?? 0))}점</span>
-        </div>
+        <div className="font-semibold text-sm">{Math.round(Number(d.score ?? 0))}점</div>
         {d.questionCount && (
           <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>
         )}
@@ -275,15 +345,17 @@ export function SubjectConfidenceHistoryModal({
     points.map((p) => ({ at: p.at, eventType: p.eventType }))
   );
 
-  const chartData = points.map((p, i) => {
-    return {
-      ...p,
-      score: p.score,
-      idx: i,
-      xPos: timeScale.nodes[i]?.x ?? i * 24,
-      isLatest: p.at === latestTestAt && p.eventType === "test",
-    };
-  });
+  const chartData = addSegmentLineScores(
+    points.map((p, i) => {
+      return {
+        ...p,
+        score: p.score,
+        idx: i,
+        xPos: timeScale.nodes[i]?.x ?? i * 24,
+        isLatest: p.at === latestTestAt && p.eventType === "test",
+      };
+    })
+  );
 
   const hasData = chartData.length > 0;
   const currentScore = hasData
@@ -345,15 +417,15 @@ export function SubjectConfidenceHistoryModal({
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="w-[calc(100vw-28px)] max-w-[1240px] sm:max-w-[1240px] max-h-[94vh] overflow-visible !p-4 sm:!p-5">
+      <DialogContent className="w-[calc(100vw-16px)] max-w-[1180px] sm:w-[calc(100vw-28px)] sm:max-w-[1180px] max-h-[92svh] overflow-hidden !p-2.5 sm:!p-4">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
-            <span className="text-base font-semibold truncate max-w-[320px]">
+          <DialogTitle className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <span className="text-sm sm:text-base font-semibold truncate max-w-[220px] sm:max-w-[320px]">
               {subjectName ?? "과목"} — 과목 안정도 추이
             </span>
             {currentScore !== null && (
               <span
-                className="text-2xl font-bold tabular-nums"
+                className="text-xl sm:text-2xl font-bold tabular-nums"
                 style={{ color: currentStateColor }}
               >
                 {currentScore}점
@@ -377,12 +449,12 @@ export function SubjectConfidenceHistoryModal({
             <span className="text-sm">아직 연습 또는 시험 기록이 없습니다.</span>
           </div>
         ) : (
-          <>
+          <div className="flex min-h-0 flex-col gap-2">
             {/* 범례 */}
-            <div className="flex items-center gap-4 text-sm text-muted-foreground px-1 flex-wrap">
+            <div className="flex items-center gap-2.5 sm:gap-3 text-[11px] sm:text-xs text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
-                안정도 변화
+                회상/유지 구간
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
@@ -396,18 +468,14 @@ export function SubjectConfidenceHistoryModal({
                 <span className="inline-block w-3 h-3 rounded-full bg-gray-400" />
                 연습 (호버 시만)
               </span>
-              <span className="flex items-center gap-1.5 text-muted-foreground/50">
-                <span className="inline-block w-3 h-3 rounded-full bg-slate-400/70" />
-                망각 구간
-              </span>
               <span className="ml-auto text-xs text-muted-foreground">과목 내 문제 평균</span>
             </div>
 
-            <div className="h-[58vh] min-h-[460px] max-h-[760px] w-full mt-2 overflow-hidden">
+            <div className="h-[clamp(180px,35svh,400px)] sm:h-[clamp(210px,40svh,460px)] w-full overflow-hidden">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart
                   data={chartData}
-                  margin={{ top: 14, right: 76, left: 18, bottom: 12 }}
+                  margin={{ top: 10, right: 28, left: 6, bottom: 8 }}
                   onMouseMove={handleChartMouseMove}
                   onMouseLeave={handleChartMouseLeave}
                 >
@@ -462,13 +530,37 @@ export function SubjectConfidenceHistoryModal({
                     allowEscapeViewBox={{ x: true, y: true }}
                   />
 
-                  {/* 그래프 선: 단일 브랜드 컬러 */}
+                  <Line
+                    type="monotone"
+                    dataKey="retentionScore"
+                    stroke={BRAND_COLOR}
+                    strokeOpacity={0.92}
+                    strokeWidth={3.4}
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={true}
+                    animationDuration={600}
+                    connectNulls={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="forgettingScore"
+                    stroke="#64748b"
+                    strokeOpacity={0.82}
+                    strokeWidth={3}
+                    strokeDasharray="4 5"
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={true}
+                    animationDuration={600}
+                    connectNulls={false}
+                  />
                   <Line
                     type="monotone"
                     dataKey="score"
                     stroke={BRAND_COLOR}
-                    strokeOpacity={0.9}
-                    strokeWidth={3.4}
+                    strokeOpacity={0}
+                    strokeWidth={8}
                     dot={<CustomDot eventLayerFocused={isEventLayerFocused} />}
                     activeDot={<CustomActiveDot />}
                     isAnimationActive={true}
@@ -479,19 +571,19 @@ export function SubjectConfidenceHistoryModal({
             </div>
 
             {/* 요약 통계 */}
-            <div className="grid grid-cols-3 gap-3 mt-1">
+            <div className="grid grid-cols-3 gap-2">
               {[
                 { label: "연습 이벤트", value: `${chartData.filter(p => p.eventType === "practice").length}회` },
                 { label: "시험 이벤트", value: `${chartData.filter(p => p.eventType === "test").length}회` },
                 { label: "최고 안정도", value: `${Math.max(...chartData.map(p => Number(p.score ?? 0)))}점` },
               ].map(stat => (
-                <div key={stat.label} className="bg-muted/40 rounded-lg p-3 text-center">
-                  <div className="text-xs text-muted-foreground mb-1">{stat.label}</div>
-                  <div className="text-lg font-bold">{stat.value}</div>
+                <div key={stat.label} className="bg-muted/40 rounded-lg p-2 text-center">
+                  <div className="text-[11px] sm:text-xs text-muted-foreground mb-0.5">{stat.label}</div>
+                  <div className="text-base sm:text-lg font-bold leading-tight">{stat.value}</div>
                 </div>
               ))}
             </div>
-          </>
+          </div>
         )}
       </DialogContent>
     </Dialog>

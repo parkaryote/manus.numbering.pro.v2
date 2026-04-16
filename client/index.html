@@ -1,12 +1,39 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
 
   <head>
     <meta charset="UTF-8" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <title>numbering.pro - 넘버링 달인, 그림빵 장인 되기</title>    
+    <title>numbering.pro | 서술형·표·그림 암기 학습 플랫폼</title>
+    <meta
+      name="description"
+      content="Number it. Remember it like a pro." />
+    <link rel="canonical" href="https://numbering.pro/" />
+    <meta name="robots" content="index,follow" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="numbering.pro" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta property="og:url" content="__OG_URL__" />
+    <meta property="og:updated_time" content="__OG_UPDATED_AT__" />
+    <meta property="og:title" content="numbering.pro | 서술형·표·그림 암기 학습 플랫폼" />
+    <meta
+      property="og:description"
+      content="Number it. Remember it like a pro." />
+    <meta property="og:image" content="https://numbering.pro/og-preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="numbering.pro 공유 미리보기 이미지" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="numbering.pro | 서술형·표·그림 암기 학습 플랫폼" />
+    <meta
+      name="twitter:description"
+      content="Number it. Remember it like a pro." />
+    <meta name="twitter:image" content="https://numbering.pro/og-preview.png" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
@@ -14,26 +41,6 @@
 
   <body>
     <div id="root"></div>
-    <script>
-      // Aggressively disable Vite HMR
-      window.__VITE_HMR__ = false;
-      window.__VITE_HMR_HOST__ = null;
-      window.__VITE_HMR_PROTOCOL__ = null;
-      window.__VITE_HMR_PORT__ = null;
-      window.__VITE_HMR_DIRECT__ = false;
-      
-      // Intercept WebSocket to prevent HMR connections
-      const OriginalWebSocket = window.WebSocket;
-      window.WebSocket = class extends OriginalWebSocket {
-        constructor(url, ...args) {
-          if (typeof url === 'string' && (url.includes('ws://') || url.includes('wss://'))) {
-            console.warn('[HMR Disabled] WebSocket connection blocked:', url);
-            throw new Error('WebSocket disabled for HMR');
-          }
-          super(url, ...args);
-        }
-      };
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 

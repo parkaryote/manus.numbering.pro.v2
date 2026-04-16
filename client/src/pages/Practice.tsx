@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { CONFIDENCE_THRESHOLDS, estimatePracticeConfidenceDelta } from "@shared/examConfidence";
 import { buildNextAutoNumberingValue, getForcedPrefixByTemplateProgress, getLinePrefixHint } from "@/lib/autoNumbering";
 import { getImageAttribution } from "@/lib/imageAttribution";
+import { useIsMobile } from "@/hooks/useMobile";
 
 interface PracticeProps {
   questionId: number;
@@ -229,6 +230,7 @@ function shuffleBySeed<T>(items: T[], seed: string): T[] {
 
 export default function Practice({ questionId, isDemo = false }: PracticeProps) {
   const [, setLocation] = useLocation();
+  const isMobile = useIsMobile();
   const SCORE_STATE_COLOR = {
     green: "#10b981",
     yellow: "#d4a72c",
@@ -258,6 +260,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     } catch {}
     return "vertical";
   });
+  const [viewportHeight, setViewportHeight] = useState<number>(() => {
+    if (typeof window === "undefined") return 900;
+    return window.innerHeight || 900;
+  });
+  const isShortViewport = viewportHeight < 860;
+
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportHeight(window.innerHeight || 900);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
   const [userInput, setUserInput] = useState("");
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -806,16 +823,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const estimatedAnswerLineHeight = 34;
     const verticalPadding = 24;
     const raw = targetVisualLineCount * estimatedAnswerLineHeight + verticalPadding;
-    const min = memoOpen ? 260 : 140;
-    const max = memoOpen ? 560 : 460;
+    const min = memoOpen ? (isMobile ? 180 : isShortViewport ? 200 : 260) : (isMobile ? 120 : 140);
+    const max = memoOpen
+      ? (isMobile ? 420 : isShortViewport ? 420 : 560)
+      : (isMobile ? 320 : isShortViewport ? 360 : 460);
     return Math.min(Math.max(raw, min), max);
-  }, [targetVisualLineCount, memoOpen]);
+  }, [targetVisualLineCount, memoOpen, isMobile, isShortViewport]);
   const inputPanelMinHeightPx = useMemo(() => {
     const estimatedInputLineHeight = 34;
     const verticalPadding = 24;
     const raw = targetVisualLineCount * estimatedInputLineHeight + verticalPadding;
-    return Math.min(Math.max(raw, 200), 420);
-  }, [targetVisualLineCount]);
+    return Math.min(
+      Math.max(raw, isMobile ? 140 : isShortViewport ? 160 : 200),
+      isMobile ? 300 : isShortViewport ? 300 : 420
+    );
+  }, [targetVisualLineCount, isMobile, isShortViewport]);
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
   const imageAnswerEntries = useMemo(() => {
@@ -1110,19 +1132,39 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     isImageQuestion &&
     imageLabels.length > 0 &&
     revealedLabels.size < imageLabels.length;
+  const mobileDockedContentBottomPaddingClass = isTableQuestion
+    ? "pb-[calc(15rem+env(safe-area-inset-bottom))]"
+    : "pb-[calc(13rem+env(safe-area-inset-bottom))]";
   const contentBottomPaddingClass = isImageQuestion
     ? "pb-6"
-    : useHorizontalInputLayout
-    ? "pb-28"
-    : "pb-72";
+  : useHorizontalInputLayout
+    ? isMobile
+      ? "pb-8"
+      : "pb-28"
+    : isMobile
+      ? mobileDockedContentBottomPaddingClass
+      : "pb-72";
   const answerPanelMaxHeight = memoOpen
-    ? "58vh"
+    ? isMobile
+      ? "50vh"
+      : isShortViewport
+        ? "52vh"
+      : "58vh"
     : useHorizontalInputLayout
-    ? "74vh"
-    : "62vh";
+    ? isMobile
+      ? "54vh"
+      : isShortViewport
+        ? "60vh"
+      : "74vh"
+    : isMobile
+      ? "50vh"
+      : isShortViewport
+        ? "54vh"
+      : "62vh";
   const horizontalInputMinHeightPx = useHorizontalInputLayout
-    ? Math.max(inputPanelMinHeightPx, 360)
+    ? Math.max(inputPanelMinHeightPx, isMobile ? 220 : 360)
     : inputPanelMinHeightPx;
+  const mobileDockedInputMinHeightPx = Math.min(inputPanelMinHeightPx, 132);
   const [tableAnswers, setTableAnswers] = useState<Record<string, string>>({});
   const [tableResults, setTableResults] = useState<Record<string, boolean> | null>(null);
   const [tablePracticeCount, setTablePracticeCount] = useState(0);
@@ -1754,9 +1796,64 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const tableNorm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
   const tableBlankCells = tableData ? getBlankCells(tableData) : [];
   const tableActiveCellKey = tableBlankCells[tableActiveCellIdx] ?? null;
-  const tableTargetCells = tableCheckedCells.size > 0
-    ? tableBlankCells.filter(k => tableCheckedCells.has(k))
+  const demoFixedTableCellIndexes = useMemo<number[]>(() => {
+    if (!question?.question) return [];
+    const normalizedQuestion = question.question
+      .replace(/\s+/g, "")
+      .replace(/[·•]/g, "")
+      .toLowerCase();
+    if (
+      normalizedQuestion.includes("box-9하악제1소구치와제2소구치의차이점") ||
+      normalizedQuestion.includes("box9하악제1소구치와제2소구치의차이점")
+    ) {
+      return [3, 4, 7, 8];
+    }
+    if (
+      normalizedQuestion.includes("표i-3상악치아크기") ||
+      normalizedQuestion.includes("표i3상악치아크기")
+    ) {
+      return [1, 17, 33, 49];
+    }
+    return [];
+  }, [question?.question]);
+  const isDemoGuestFixedCellContext = useMemo(() => {
+    const demoSourceQuestionId =
+      typeof (question as any)?.demoSourceQuestionId === "number"
+        ? (question as any).demoSourceQuestionId
+        : null;
+    return Boolean(
+      isDemo ||
+      isDemoLinkedMode ||
+      question?.isDemo === 1 ||
+      (demoSourceQuestionId !== null && demoSourceQuestionId > 0)
+    );
+  }, [isDemo, isDemoLinkedMode, question]);
+  const fixedDemoTableCellKeys = useMemo(() => {
+    if (!isDemoGuestFixedCellContext || demoFixedTableCellIndexes.length === 0) return [];
+    return demoFixedTableCellIndexes
+      .map((oneBasedIdx) => tableBlankCells[oneBasedIdx - 1] ?? null)
+      .filter((key): key is string => Boolean(key));
+  }, [demoFixedTableCellIndexes, isDemoGuestFixedCellContext, tableBlankCells]);
+  const isFixedDemoTableCellMode = fixedDemoTableCellKeys.length > 0;
+  const effectiveTableCheckedCells = useMemo(() => {
+    if (isFixedDemoTableCellMode) {
+      return new Set<string>(fixedDemoTableCellKeys);
+    }
+    return tableCheckedCells;
+  }, [fixedDemoTableCellKeys, isFixedDemoTableCellMode, tableCheckedCells]);
+  const tableTargetCells = effectiveTableCheckedCells.size > 0
+    ? tableBlankCells.filter(k => effectiveTableCheckedCells.has(k))
     : tableBlankCells;
+  useEffect(() => {
+    if (!isFixedDemoTableCellMode || tableTargetCells.length === 0) return;
+    const currentKey = tableBlankCells[tableActiveCellIdx] ?? null;
+    if (currentKey && tableTargetCells.includes(currentKey)) return;
+    const firstTargetKey = tableTargetCells[0];
+    const firstTargetIdx = tableBlankCells.indexOf(firstTargetKey);
+    if (firstTargetIdx >= 0) {
+      setTableActiveCellIdx(firstTargetIdx);
+    }
+  }, [isFixedDemoTableCellMode, tableActiveCellIdx, tableBlankCells, tableTargetCells]);
 
   const clearTableInput = (focus: boolean = true) => {
     tableInputResettingRef.current = true;
@@ -3294,7 +3391,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         if (!lineResult) {
           // 이 줄에 대한 입력이 없음
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
+            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-[15px] sm:text-base lg:text-lg" style={{ opacity: lineOpacity }}>
               {char}
             </span>
           );
@@ -3304,13 +3401,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
         if (charState === 'complete') {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-foreground relative font-semibold text-xl" style={{ opacity: 1 }}>
+            <span key={`${lineIdx}-${charIndex}`} className="text-foreground relative font-semibold text-[15px] sm:text-base lg:text-lg" style={{ opacity: 1 }}>
               {char}
             </span>
           );
         } else if (charState === 'partial') {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-gray-600 relative font-semibold text-xl" style={{ opacity: 1 }}>
+            <span key={`${lineIdx}-${charIndex}`} className="text-gray-600 relative font-semibold text-[15px] sm:text-base lg:text-lg" style={{ opacity: 1 }}>
               {char}
             </span>
           );
@@ -3318,7 +3415,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           return (
             <span
               key={`${lineIdx}-${charIndex}`}
-              className="relative font-semibold text-xl"
+              className="relative font-semibold text-[15px] sm:text-base lg:text-lg"
               style={{ opacity: 1, color: "var(--status-danger)" }}
             >
               {char}
@@ -3326,7 +3423,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           );
         } else {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-xl" style={{ opacity: lineOpacity }}>
+            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-[15px] sm:text-base lg:text-lg" style={{ opacity: lineOpacity }}>
               {char}
             </span>
           );
@@ -3468,10 +3565,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }
 
   return (
-    <div className={`relative flex flex-col flex-1 min-h-0 h-full w-full overflow-y-hidden overflow-x-visible overscroll-x-none transition-all duration-300 ease-out ${
+    <div className={`relative flex flex-col flex-1 min-h-0 h-full w-full overflow-y-hidden overflow-x-hidden sm:overflow-x-visible overscroll-x-none transition-all duration-300 ease-out ${
       isLeaving
         ? `opacity-0 ${scrollNavDirection === "next" ? "-translate-x-8 -rotate-[0.2deg]" : scrollNavDirection === "prev" ? "translate-x-8 rotate-[0.2deg]" : "translate-x-2"} scale-[0.988] blur-[1px] pointer-events-none`
-        : "opacity-100 translate-x-0 rotate-0 scale-100 blur-0"
+        : "opacity-100"
     }`}>
       <DamageNumber
         value={damageValue}
@@ -3479,27 +3576,27 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         onComplete={() => setShowDamageNumber(false)}
       />
       {/* 스크롤 가능한 콘텐츠 영역 */}
-      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto overflow-x-visible overscroll-x-none ${isImageQuestion ? 'space-y-2' : 'space-y-4'} ${contentBottomPaddingClass} px-2 py-4 sm:px-3 lg:px-4`}>
+      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto overflow-x-hidden sm:overflow-x-visible overscroll-x-none ${isImageQuestion ? 'space-y-2' : 'space-y-4'} ${contentBottomPaddingClass} px-2 py-4 sm:px-3 lg:px-4`}>
       <div className="relative mx-auto w-full max-w-[1360px]">
       <div className="relative z-20 mx-auto w-full max-w-[1360px]">
       {isImageQuestion ? (
-        <div className="flex items-center justify-between gap-2 min-w-0">
+        <div className="flex flex-wrap items-start justify-between gap-2 min-w-0">
           <Button variant="ghost" size="sm" onClick={handleGoBack} className="gap-1.5 h-8 px-2 shrink-0">
             <ArrowLeft className="h-4 w-4" />
             <span className="hidden sm:inline text-sm">돌아가기</span>
           </Button>
-          <div className="flex items-center gap-2 min-w-0 flex-nowrap">
-            <div className="flex items-center gap-1 shrink-0 text-xs">
+          <div className="flex flex-wrap items-center justify-end gap-1.5 min-w-0 max-w-full text-[11px] sm:text-xs">
+            <div className="flex items-center gap-1 text-[11px] sm:text-xs">
               <span className="font-bold tabular-nums text-sm">{practiceCountDisplay}</span>
               <span className="text-muted-foreground" title={currentPracticeTitle}>현재</span>
               <span className="text-muted-foreground/40">/</span>
               <span className="font-bold tabular-nums text-sm">{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)}</span>
               <span className="text-muted-foreground" title={cumulativePracticeTitle}>누적</span>
             </div>
-            {!isDemo && confidenceData && <div className="h-4 w-px bg-border shrink-0" />}
+            {!isDemo && confidenceData && <div className="h-4 w-px bg-border hidden sm:block" />}
             {!isDemo && confidenceData && (
               <button
-                className="flex items-center gap-1 hover:opacity-70 transition-opacity cursor-pointer shrink-0"
+                className="flex items-center gap-1 hover:opacity-70 transition-opacity cursor-pointer"
                 title="안정도 변화 그래프 보기"
                 onClick={() => setShowConfidenceHistory(true)}
               >
@@ -3539,16 +3636,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   : `D-Day · ${mins}분 후`;
               return (
                 <>
-                  <div className="h-4 w-px bg-border shrink-0" />
-                  <div className="flex items-center gap-1 shrink-0 text-xs">
-                    <span className="text-muted-foreground">{remainingLabel}</span>
+                  <div className="h-4 w-px bg-border hidden sm:block" />
+                  <div className="flex items-center gap-1 text-[11px] sm:text-xs">
+                    <span className="text-muted-foreground max-w-[140px] truncate sm:max-w-none">{remainingLabel}</span>
                     <span className="font-semibold" style={{ color: stateColor }}>{pred.predictedScore}점</span>
                   </div>
                 </>
               );
             })()}
-            <div className="h-4 w-px bg-border shrink-0" />
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="h-4 w-px bg-border hidden sm:block" />
+            <div className="flex items-center gap-1">
               <Circle
                 className={`h-2.5 w-2.5 ${
                   isActive
@@ -3564,7 +3661,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </div>
       ) : (
         /* 텍스트/표 문제: 상단 통계 바 */
-        <div className="flex items-center justify-between gap-2 min-w-0">
+        <div className="flex flex-wrap items-start justify-between gap-2 min-w-0">
           {/* 왼쪽: 돌아가기 */}
           <Button variant="ghost" size="sm" onClick={handleGoBack} className="gap-1.5 h-8 px-2 shrink-0">
             <ArrowLeft className="h-4 w-4" />
@@ -3572,9 +3669,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           </Button>
 
           {/* 오른쪽: 통계 + 측정 상태 */}
-          <div className="flex items-center gap-2 min-w-0 flex-nowrap">
+          <div className="flex flex-wrap items-center justify-end gap-1.5 min-w-0 max-w-full text-[11px] sm:text-xs">
             {/* 현재/누적 연습 */}
-            <div className="flex items-center gap-1 shrink-0 text-xs">
+            <div className="flex items-center gap-1 text-[11px] sm:text-xs">
               <span className="font-bold tabular-nums text-sm">{practiceCountDisplay}</span>
               <span className="text-muted-foreground" title={currentPracticeTitle}>현재</span>
               <span className="text-muted-foreground/40">/</span>
@@ -3583,12 +3680,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             </div>
 
             {/* 구분선 */}
-            {!isDemo && confidenceData && <div className="h-4 w-px bg-border shrink-0" />}
+            {!isDemo && confidenceData && <div className="h-4 w-px bg-border hidden sm:block" />}
 
             {/* 안정도 */}
             {!isDemo && confidenceData && (
               <button
-                className="flex items-center gap-1 hover:opacity-70 transition-opacity cursor-pointer shrink-0"
+                className="flex items-center gap-1 hover:opacity-70 transition-opacity cursor-pointer"
                 title="안정도 변화 그래프 보기"
                 onClick={() => setShowConfidenceHistory(true)}
               >
@@ -3630,9 +3727,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   : `D-Day · ${mins}분 후`;
               return (
                 <>
-                  <div className="h-4 w-px bg-border shrink-0" />
-                  <div className="flex items-center gap-1 shrink-0 text-xs">
-                    <span className="text-muted-foreground">{remainingLabel}</span>
+                  <div className="h-4 w-px bg-border hidden sm:block" />
+                  <div className="flex items-center gap-1 text-[11px] sm:text-xs">
+                    <span className="text-muted-foreground max-w-[140px] truncate sm:max-w-none">{remainingLabel}</span>
                     <span className="font-semibold" style={{ color: stateColor }}>{pred.predictedScore}점</span>
                     {pred.scoreDelta !== 0 && (
                       <span className={pred.scoreDelta < 0 ? "text-rose-400 font-medium" : "text-emerald-500 font-medium"}>
@@ -3645,10 +3742,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             })()}
 
             {/* 구분선 */}
-            <div className="h-4 w-px bg-border shrink-0" />
+            <div className="h-4 w-px bg-border hidden sm:block" />
 
             {/* 측정 상태 표시 */}
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-1">
               <div className="relative w-4 h-4 flex items-center justify-center flex-shrink-0">
                 <div className={`h-2 w-2 rounded-full z-10 relative ${isActive ? 'bg-green-500' : 'bg-rose-500 dark:bg-rose-400'}`} />
                 {isActive ? (
@@ -3726,6 +3823,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* 비활성 안내 배너 (오버레이 대신 인라인 표시) */}
+      {showInactiveAlert && (
+        <div className="rounded-lg border border-slate-300 bg-slate-100 px-4 py-2.5 text-sm text-slate-700">
+          입력이 없어 연습 시간 기록이 일시 정지되었습니다. 입력을 시작하면 자동으로 다시 기록됩니다.
         </div>
       )}
 
@@ -3845,7 +3949,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   </CardDescription>
                 )}
               </div>
-              <div className="flex max-w-full shrink-0 flex-wrap items-start justify-end gap-1.5">
+              <div className="flex w-full max-w-full shrink-0 items-center gap-1.5 overflow-x-auto pb-1 lg:w-auto lg:flex-wrap lg:items-start lg:justify-end lg:overflow-visible lg:pb-0">
                 {!isTableQuestion && (
                   <div className="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/40 p-0.5">
                     <button
@@ -3868,24 +3972,24 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     </button>
                   </div>
                 )}
-                <div className="flex flex-col items-center gap-0">
+                <div className="flex shrink-0 flex-col items-center gap-0">
                   <Button
                     variant="ghost"
                     size="sm"
-                    className={`h-8 gap-1.5 text-xs ${hideMode === 'all' || isImageMaskActive ? 'bg-amber-500/10 text-amber-600' : ''}`}
+                    className={`h-7 sm:h-8 gap-1.5 text-[11px] sm:text-xs ${hideMode === 'all' || isImageMaskActive ? 'bg-amber-500/10 text-amber-600' : ''}`}
                     onClick={toggleHideAll}
                   >
                     {hideMode === 'all' || isImageMaskActive ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                     {hideMode === 'all' || isImageMaskActive ? '답 보기' : '답 가리기'}
                   </Button>
-                  <span className="text-[10px] text-muted-foreground/70 leading-none">Tab</span>
+                  <span className="hidden sm:block text-[10px] text-muted-foreground/70 leading-none">Tab</span>
                 </div>
                 {question && (
-                  <div className="flex flex-col items-center gap-0">
+                  <div className="flex shrink-0 flex-col items-center gap-0">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 gap-1.5 text-xs"
+                      className="h-7 sm:h-8 gap-1.5 text-[11px] sm:text-xs"
                       onClick={() => {
                         const testPath = buildTestPath();
                         if (testPath) setLocation(testPath);
@@ -3894,15 +3998,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       <Zap className="h-3.5 w-3.5" />
                       시험 시작
                     </Button>
-                    <span className="text-[10px] text-muted-foreground/70 leading-none">Shift+Enter</span>
+                    <span className="hidden sm:block text-[10px] text-muted-foreground/70 leading-none">Shift+Enter</span>
                   </div>
                 )}
                 {!isDemo && question && (
-                  <div className="flex flex-col items-center gap-0">
+                  <div className="flex shrink-0 flex-col items-center gap-0">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className={`h-8 gap-1.5 text-xs ${memoOpen ? 'bg-blue-500/10 text-blue-600' : ''}`}
+                      className={`h-7 sm:h-8 gap-1.5 text-[11px] sm:text-xs ${memoOpen ? 'bg-blue-500/10 text-blue-600' : ''}`}
                       onClick={() => {
                         if (isTableQuestion) {
                           toast.info("표 문제 메모 기능은 개발 중입니다.");
@@ -3914,15 +4018,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       <StickyNote className="h-3.5 w-3.5" />
                       메모
                     </Button>
-                    <span className="text-[10px] text-muted-foreground/50 leading-none opacity-0">·</span>
+                    <span className="hidden sm:block text-[10px] text-muted-foreground/50 leading-none opacity-0">·</span>
                   </div>
                 )}
                 {!isDemo && question && (
-                  <div className="flex flex-col items-center gap-0">
+                  <div className="flex shrink-0 flex-col items-center gap-0">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className={`h-8 gap-1.5 text-xs ${editMode ? 'bg-orange-500/10 text-orange-600' : ''}`}
+                      className={`h-7 sm:h-8 gap-1.5 text-[11px] sm:text-xs ${editMode ? 'bg-orange-500/10 text-orange-600' : ''}`}
                       onClick={() => {
                         if (isImageQuestion) {
                           setLocation(`/questions/${question.subjectId}`);
@@ -3934,7 +4038,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       <Pencil className="h-3.5 w-3.5" />
                       수정
                     </Button>
-                    <span className="text-[10px] text-muted-foreground/50 leading-none opacity-0">·</span>
+                    <span className="hidden sm:block text-[10px] text-muted-foreground/50 leading-none opacity-0">·</span>
                   </div>
                 )}
               </div>
@@ -4062,11 +4166,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 hideAnswer={hideMode === "all"}
                 activeCellKey={tableActiveCellKey}
                 completedCells={tableCompletedCells}
-                checkedCells={tableCheckedCells}
+                checkedCells={effectiveTableCheckedCells}
                 partialInput={tableCellInput}
                 cellSubmittedResult={tableCellSubmittedResult}
                 wrongCells={tableWrongCells}
                 onCellCheck={(key) => {
+                  if (isFixedDemoTableCellMode) return;
                   setTableCheckedCells(prev => {
                     const next = new Set(prev);
                     if (next.has(key)) next.delete(key); else next.add(key);
@@ -4110,7 +4215,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 ref={imageLayoutRowRef}
                 className={
                   useHorizontalImageLayout
-                    ? "grid grid-cols-[minmax(0,1.2fr)_minmax(280px,1fr)] items-stretch gap-3"
+                    ? "grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,1fr)] items-stretch gap-3"
                     : "flex flex-col gap-3"
                 }
                 style={{ alignItems: useHorizontalImageLayout ? "stretch" : "flex-start" }}
@@ -4119,8 +4224,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 <div
                   className="relative min-w-0"
                   style={{
-                    width: useHorizontalImageLayout ? `${imageScale}%` : `${Math.min(100, imageScale + 10)}%`,
-                    minWidth: useHorizontalImageLayout ? "200px" : "240px",
+                    width: useHorizontalImageLayout && !isMobile ? `${imageScale}%` : `${Math.min(100, imageScale + 10)}%`,
+                    minWidth: useHorizontalImageLayout
+                      ? (isMobile ? "0px" : "200px")
+                      : (isMobile ? "0px" : "240px"),
                     maxWidth: "100%",
                   }}
                 >
@@ -4247,7 +4354,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
                 {/* Right: Lined notebook-style practice note */}
                 {!isDemo && (
-                <div className="flex-1 min-w-0 flex flex-col" style={{ minWidth: useHorizontalImageLayout ? '280px' : '200px' }} ref={imageAnswerPanelRef}>
+                <div
+                  className="flex-1 min-w-0 flex flex-col"
+                  style={{ minWidth: useHorizontalImageLayout ? (isMobile ? "0px" : "280px") : (isMobile ? "0px" : "200px") }}
+                  ref={imageAnswerPanelRef}
+                >
                   <div
                     className="relative rounded-lg border-2 border-border bg-background overflow-hidden cursor-text"
                     style={{
@@ -4373,21 +4484,23 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 className={
                   memoOpen || useHorizontalInputLayout
                     ? useHorizontalInputLayout
-                      ? "flex flex-row gap-4 items-stretch min-h-[66vh] overflow-x-auto"
-                      : "flex flex-col gap-4 items-stretch"
+                      ? isShortViewport
+                        ? "flex flex-col lg:flex-row gap-3 lg:gap-4 items-stretch min-h-[48vh] lg:min-h-[54vh]"
+                        : "flex flex-col lg:flex-row gap-3 lg:gap-4 items-stretch min-h-[56vh] lg:min-h-[66vh]"
+                      : "flex flex-col gap-3 lg:gap-4 items-stretch"
                     : ""
                 }
               >
                 <div className={memoOpen || useHorizontalInputLayout ? "flex-1 min-w-0" : ""}>
                   <div
                     ref={answerDisplayRef}
-                    className="px-5 py-5 bg-muted/25 rounded-xl border-2 border-border overflow-y-auto"
+                    className="px-3 py-4 sm:px-5 sm:py-5 bg-muted/25 rounded-xl border-2 border-border overflow-y-auto"
                     style={{
                       minHeight: `${answerPanelMinHeightPx}px`,
                       maxHeight: answerPanelMaxHeight,
                     }}
                   >
-                    <div className="leading-relaxed whitespace-pre-wrap">
+                    <div className="text-base lg:text-lg font-semibold leading-relaxed tracking-tight whitespace-pre-wrap">
                       {renderTextWithFeedback}
                     </div>
                   </div>
@@ -4400,14 +4513,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
                 {/* 가로 모드 입력 패널: 답안 우측 빈 공간 활용 */}
                 {useHorizontalInputLayout && (
-                  <div className="w-[42%] min-w-[300px] max-w-[560px] rounded-xl border-2 border-border bg-background py-3 flex flex-col gap-2">
-                    <div className="px-5 text-xs text-muted-foreground">연습장 입력</div>
-                    <div className="px-5 text-[11px] text-muted-foreground">
+                  <div className="w-full lg:w-[42%] lg:min-w-[300px] lg:max-w-[560px] rounded-xl border-2 border-border bg-background py-3 flex flex-col gap-2">
+                    <div className="px-3 sm:px-5 text-xs text-muted-foreground">연습장 입력</div>
+                    <div className="px-3 sm:px-5 text-[11px] text-muted-foreground">
                       띄어쓰기·엔터·한/영 전환 없이 써도 되고, 초성 입력도 인정돼요.
                     </div>
                     <div
                       key={`line-indicator-horizontal-${activePracticeLineNumber}`}
-                      className={`px-5 text-[11px] transition-all duration-700 ${
+                      className={`px-3 sm:px-5 text-[11px] transition-all duration-700 ${
                         lineIndicatorPulse
                           ? "opacity-100 text-primary"
                           : "opacity-65 text-muted-foreground"
@@ -4415,7 +4528,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     >
                       현재 {activePracticeLineNumber}번째 줄 연습 중
                     </div>
-                    <div className="px-5">
+                    <div>
                       <textarea
                         data-practice-input="main"
                         ref={textareaRef}
@@ -4425,10 +4538,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
                         onKeyUp={handleKeyUp}
-                        className="w-full flex-1 rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-xl font-semibold leading-relaxed tracking-tight px-5 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
+                        className="w-full flex-1 rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-base lg:text-lg font-semibold leading-relaxed tracking-tight px-1 sm:px-3 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
                         style={{
                           minHeight: `${horizontalInputMinHeightPx}px`,
-                          maxHeight: "74vh",
+                          maxHeight: isShortViewport ? "58vh" : "74vh",
                         }}
                         placeholder="연습장처럼 편하게 입력해보세요. 떠오르는 내용부터 적어도 괜찮아요."
                       />
@@ -4467,15 +4580,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         </Button>
                       </div>
                     </div>
-                    <textarea
-                      value={memo}
-                      onChange={(e) => setMemo(e.target.value)}
-                      placeholder="암기법, 연상 기억법, 설명 등을 적어두세요."
-                      className="flex-1 w-full p-3 rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-950/30 resize-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                      style={{ minHeight: '200px' }}
-                    />
-                  </div>
-                )}
+                  <textarea
+                    value={memo}
+                    onChange={(e) => setMemo(e.target.value)}
+                    placeholder="암기법, 연상 기억법, 설명 등을 적어두세요."
+                    className="flex-1 w-full p-3 rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-950/30 resize-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    style={{ minHeight: isMobile ? '140px' : '200px' }}
+                  />
+                </div>
+              )}
               </div>
 
             </>
@@ -4517,7 +4630,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       {isTableQuestion && tableData && (
         <div className="fixed inset-x-0 bottom-0 z-40">
           <div className="mx-auto w-full max-w-[1360px] px-2 sm:px-3 lg:px-4">
-            <div className="mt-2 shrink-0 rounded-t-2xl border-x border-t border-border bg-background/95 px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 shadow-[0_-10px_24px_rgba(0,0,0,0.08)] backdrop-blur supports-[backdrop-filter]:bg-background/85 space-y-2">
+            <div
+              className={`shrink-0 border border-border bg-background/95 shadow-[0_-10px_24px_rgba(0,0,0,0.08)] backdrop-blur supports-[backdrop-filter]:bg-background/85 space-y-2 ${
+                isMobile
+                  ? "rounded-t-2xl border-x border-t border-b-0 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+                  : "mt-2 rounded-t-2xl border-x border-t border-b-0 px-3 sm:px-4 md:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+              }`}
+            >
               {tableActiveCellKey && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span>셀 {tableTargetCells.indexOf(tableActiveCellKey) + 1}/{tableTargetCells.length}</span>
@@ -4540,18 +4659,22 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   }
                   handleTableInputChange((e.target as HTMLTextAreaElement).value);
                 }}
-                className="w-full rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm leading-6 px-5 py-3"
+                className="w-full rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-sm leading-6 px-3 sm:px-5 py-3"
                 style={{
-                  minHeight: `${inputPanelMinHeightPx}px`,
-                  maxHeight: "320px",
+                  minHeight: isMobile ? `${mobileDockedInputMinHeightPx}px` : `${inputPanelMinHeightPx}px`,
+                  maxHeight: isMobile ? "160px" : isShortViewport ? "250px" : "320px",
                 }}
                 placeholder="칸을 채우며 외워보세요. 떠오르는 답을 바로 입력해보세요."
                 autoFocus
               />
               {/* 연습 횟수 + 초기화 */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">연습장 모드: 띄어쓰기·한/영 전환 없이 입력해도 돼요. Enter로 현재 셀 확인, ↑/↓로 위아래 셀 이동, 셀 더블클릭/우클릭으로 집중 연습 설정이 가능해요.</span>
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span className="hidden sm:block text-xs text-muted-foreground min-w-0">
+                  {isShortViewport
+                    ? "연습장 모드: Enter 확인 · ↑/↓ 셀 이동 · 더블클릭/우클릭 집중 연습"
+                    : "연습장 모드: 띄어쓰기·한/영 전환 없이 입력해도 돼요. Enter로 현재 셀 확인, ↑/↓로 위아래 셀 이동, 셀 더블클릭/우클릭으로 집중 연습 설정이 가능해요."}
+                </span>
+                <div className="flex items-center gap-2 ml-auto">
                   <span className="text-xs text-muted-foreground">연습 {practiceCount}회</span>
                   <Button
                     variant="outline"
@@ -4574,13 +4697,19 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       )}
 
       {/* 하단 고정 입력 패널 - 텍스트 모드 전용 */}
-      {!isImageQuestion && !isTableQuestion && (
+      {!isImageQuestion && !isTableQuestion && !useHorizontalInputLayout && (
         <div className="fixed inset-x-0 bottom-0 z-40">
           <div className="mx-auto w-full max-w-[1360px] px-2 sm:px-3 lg:px-4">
-            <div className="mt-2 shrink-0 rounded-t-2xl border-x border-t border-border bg-background/95 px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 shadow-[0_-10px_24px_rgba(0,0,0,0.08)] backdrop-blur supports-[backdrop-filter]:bg-background/85 space-y-2">
+            <div
+              className={`shrink-0 border border-border bg-background/95 shadow-[0_-10px_24px_rgba(0,0,0,0.08)] backdrop-blur supports-[backdrop-filter]:bg-background/85 space-y-2 ${
+                isMobile
+                  ? "rounded-t-2xl border-x border-t border-b-0 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+                  : "mt-2 rounded-t-2xl border-x border-t border-b-0 px-3 sm:px-4 md:px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+              }`}
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-muted-foreground">연습장 모드: 띄어쓰기·엔터·한/영 전환 없이 입력해도 돼요. 초성 입력도 인정됩니다.</span>
+                  <span className="hidden sm:block text-xs text-muted-foreground">연습장 모드: 띄어쓰기·엔터·한/영 전환 없이 입력해도 돼요. 초성 입력도 인정됩니다.</span>
                   <span
                     key={`line-indicator-vertical-${activePracticeLineNumber}`}
                     className={`text-[11px] transition-all duration-700 ${
@@ -4607,10 +4736,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   onKeyUp={handleKeyUp}
-                  className="w-full rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-xl font-semibold leading-relaxed tracking-tight px-5 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
+                  className="w-full rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-base lg:text-lg font-semibold leading-relaxed tracking-tight px-3 sm:px-5 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
                   style={{
-                    minHeight: `${inputPanelMinHeightPx}px`,
-                    maxHeight: "320px",
+                    minHeight: isMobile ? `${mobileDockedInputMinHeightPx}px` : `${inputPanelMinHeightPx}px`,
+                    maxHeight: isMobile ? "160px" : isShortViewport ? "250px" : "320px",
                   }}
                   placeholder="연습장처럼 편하게 입력해보세요. 떠오르는 내용부터 적어도 괜찮아요."
                 />
@@ -4620,15 +4749,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </div>
       )}
 
-      {showInactiveAlert && (
-        <div className="fixed bottom-6 right-6 bg-slate-100 border border-slate-300 rounded-lg p-4 shadow-lg max-w-sm animate-in fade-in duration-300 z-50">
-          <p className="text-sm text-slate-700 leading-relaxed">
-            입력이 없어 연습 시간 기록이 일시 정지되었습니다.
-            <br />
-            입력을 시작하면 자동으로 다시 기록됩니다.
-          </p>
-        </div>
-      )}
+      
 
 
 

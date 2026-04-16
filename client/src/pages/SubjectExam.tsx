@@ -6,9 +6,11 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Clock, Trophy, RotateCcw, ChevronRight } from "lucide-react";
+import { ArrowLeft, Clock, Trophy, RotateCcw, ChevronRight, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
+import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
+import { SubjectConfidenceHistoryModal } from "@/components/SubjectConfidenceHistoryModal";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
 
 interface SubjectExamProps {
@@ -111,6 +113,12 @@ function stateFromScore(score: number): string {
   return "red";
 }
 
+function getConfidenceSignalDotClass(state?: string) {
+  if (state === "green") return "bg-emerald-500";
+  if (state === "yellow") return "bg-amber-400";
+  return "bg-rose-500";
+}
+
 export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamProps) {
   const [location, setLocation] = useLocation();
   const searchParams = useMemo(() => {
@@ -139,6 +147,9 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
   const [outcomes, setOutcomes] = useState<Record<number, QuestionOutcome>>({});
   const [subjectScoreBefore, setSubjectScoreBefore] = useState<number | null>(null);
   const [subjectScoreAfter, setSubjectScoreAfter] = useState<number | null>(null);
+  const [confidenceHistoryId, setConfidenceHistoryId] = useState<number | null>(null);
+  const [confidenceHistoryTitle, setConfidenceHistoryTitle] = useState("");
+  const [subjectHistoryOpen, setSubjectHistoryOpen] = useState(false);
 
   const [isRandom, setIsRandom] = useState(false);
   const [questionCount, setQuestionCount] = useState(0);
@@ -999,6 +1010,8 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
   const subjectScoreDelta = (subjectScoreBefore !== null && subjectScoreAfter !== null)
     ? subjectScoreAfter - subjectScoreBefore
     : null;
+  const subjectStateBefore = subjectScoreBefore === null ? null : stateFromScore(subjectScoreBefore);
+  const subjectStateAfter = subjectScoreAfter === null ? null : stateFromScore(subjectScoreAfter);
   const gradedOutcomes = examQuestions
     .map((q) => outcomes[q.id])
     .filter((o): o is QuestionOutcome => !!o);
@@ -1030,9 +1043,17 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
           </div>
           <div className="rounded-lg bg-background/60 border border-border p-2">
             <p className="text-muted-foreground">과목 안정도</p>
-            <p className="font-bold text-sm">
-              {subjectScoreBefore ?? 0} → {subjectScoreAfter ?? 0}
-            </p>
+            <div className="mt-0.5 flex items-center justify-center gap-1.5 text-sm font-bold">
+              {subjectStateBefore && (
+                <span className={`inline-block h-2.5 w-2.5 rounded-full ${getConfidenceSignalDotClass(subjectStateBefore)}`} />
+              )}
+              <span>{subjectScoreBefore ?? 0}</span>
+              <span>→</span>
+              {subjectStateAfter && (
+                <span className={`inline-block h-2.5 w-2.5 rounded-full ${getConfidenceSignalDotClass(subjectStateAfter)}`} />
+              )}
+              <span>{subjectScoreAfter ?? 0}</span>
+            </div>
           </div>
           <div className="rounded-lg bg-background/60 border border-border p-2">
             <p className="text-muted-foreground">과목 증감</p>
@@ -1040,6 +1061,18 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
               {subjectScoreDelta === null ? "-" : `${subjectScoreDelta > 0 ? "+" : ""}${subjectScoreDelta}점`}
             </p>
           </div>
+        </div>
+        <div className="mt-3 flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => setSubjectHistoryOpen(true)}
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+            과목 그래프 보기
+          </Button>
         </div>
       </div>
 
@@ -1068,6 +1101,12 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
               ? `${outcome.eval.correctLineCount ?? 0}/${outcome.eval.totalLines}`
               : `${Math.round(outcome.eval.accuracyRate)}%`)
             : "-";
+          const confidenceBeforeState = outcome
+            ? (outcome.stateBefore ?? stateFromScore(outcome.confidenceBefore))
+            : "red";
+          const confidenceAfterState = outcome
+            ? (outcome.stateAfter ?? stateFromScore(outcome.confidenceAfter))
+            : "red";
 
           return (
             <div key={q.id} className="rounded-lg border border-border p-4">
@@ -1114,9 +1153,27 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                         <p className={`text-2xl font-bold ${outcome.confidenceDelta > 0 ? "text-emerald-600" : outcome.confidenceDelta < 0 ? "text-red-500" : "text-muted-foreground"}`}>
                           {outcome.confidenceDelta > 0 ? "+" : ""}{outcome.confidenceDelta}점
                         </p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">
-                          안정도 {outcome.confidenceBefore} → {outcome.confidenceAfter}
-                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">안정도 증감</p>
+                        <div className="mt-1 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span className={`inline-block h-2.5 w-2.5 rounded-full ${getConfidenceSignalDotClass(confidenceBeforeState)}`} />
+                          <span>{outcome.confidenceBefore}</span>
+                          <span>→</span>
+                          <span className={`inline-block h-2.5 w-2.5 rounded-full ${getConfidenceSignalDotClass(confidenceAfterState)}`} />
+                          <span>{outcome.confidenceAfter}</span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 h-6 px-2 text-[10px] gap-1"
+                          onClick={() => {
+                            setConfidenceHistoryId(q.id);
+                            setConfidenceHistoryTitle(q.question);
+                          }}
+                        >
+                          <BarChart3 className="h-3 w-3" />
+                          그래프
+                        </Button>
                         {outcome.confidenceDeltaEstimated && (
                           <p className="text-[10px] text-muted-foreground mt-0.5">실측 0점으로 추정 반영</p>
                         )}
@@ -1200,6 +1257,22 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
           과목으로 돌아가기
         </Button>
       </div>
+
+      <ConfidenceHistoryModal
+        questionId={confidenceHistoryId}
+        questionTitle={confidenceHistoryTitle}
+        open={confidenceHistoryId !== null}
+        onClose={() => setConfidenceHistoryId(null)}
+        isDemo={isDemo}
+      />
+
+      <SubjectConfidenceHistoryModal
+        subjectId={subjectId}
+        subjectName={subject?.name}
+        open={subjectHistoryOpen}
+        onClose={() => setSubjectHistoryOpen(false)}
+        isDemo={isDemo}
+      />
     </div>
   );
 }

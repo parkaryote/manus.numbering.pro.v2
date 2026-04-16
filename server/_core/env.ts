@@ -17,7 +17,6 @@ export const ENV = {
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   ownerEmail: process.env.OWNER_EMAIL ?? "",
   partialDentureDemoPassword: process.env.PARTIAL_DENTURE_DEMO_PASSWORD ?? "",
-  partialDentureDemoLegacyPassword: process.env.PARTIAL_DENTURE_DEMO_LEGACY_PASSWORD ?? "",
   sessionCookieSameSite: (process.env.SESSION_COOKIE_SAMESITE ?? "lax").trim().toLowerCase(),
   siteGatePassword: process.env.SITE_GATE_PASSWORD ?? "",
   signupAccessPassword: process.env.SIGNUP_ACCESS_PASSWORD ?? "",

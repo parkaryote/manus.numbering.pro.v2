@@ -11,10 +11,14 @@ function resolveHeaderValue(value: string | string[] | undefined): string {
   return value ?? "";
 }
 
-function resolveRequestOrigin(req: express.Request): string {
-  const forwardedProto = resolveHeaderValue(req.headers["x-forwarded-proto"]).split(",")[0]?.trim();
-  const forwardedHost = resolveHeaderValue(req.headers["x-forwarded-host"]).split(",")[0]?.trim();
-  const host = forwardedHost || resolveHeaderValue(req.headers.host).split(",")[0]?.trim();
+function resolveRequestOrigin(req: {
+  headers?: Record<string, string | string[] | undefined>;
+  protocol?: string;
+}): string {
+  const headers = req.headers ?? {};
+  const forwardedProto = resolveHeaderValue(headers["x-forwarded-proto"]).split(",")[0]?.trim();
+  const forwardedHost = resolveHeaderValue(headers["x-forwarded-host"]).split(",")[0]?.trim();
+  const host = forwardedHost || resolveHeaderValue(headers.host).split(",")[0]?.trim();
   const proto = forwardedProto || req.protocol || "http";
   if (!host) return "";
   return `${proto}://${host}`;

@@ -106,3 +106,6 @@ temp/
 *.sqlite
 *.sqlite3
 .vercel
+*.traineddata
+backups/
+.env.bak.*

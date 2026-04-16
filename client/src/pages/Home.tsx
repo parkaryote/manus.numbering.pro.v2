@@ -134,7 +134,7 @@ function SubjectStudyCard({
     <Card className="shadow-sm hover:shadow-md transition-all">
       <CardContent className="p-4">
         {/* 헤더: 과목명 + 시험일 */}
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2 min-w-0">
             <div
               className="w-3 h-3 rounded-full flex-shrink-0"
@@ -148,7 +148,7 @@ function SubjectStudyCard({
           {daysLeft !== null && (
             <Badge
               variant="outline"
-              className={`text-xs flex-shrink-0 ${
+              className={`text-xs max-w-full flex-shrink-0 ${
                 isToothMorphology
                   ? "border-red-400 text-red-700 bg-red-100/90 dark:bg-red-950/40 dark:text-red-300 animate-pulse"
                   : daysLeft <= 3
@@ -300,7 +300,7 @@ export default function Home() {
   return (
     <div className="space-y-6">
       {/* 헤더 - 간결하게 */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">학습 현황</h1>
           <p className="text-sm text-muted-foreground mt-0.5">

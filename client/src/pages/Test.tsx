@@ -6,14 +6,16 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
-import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff, Table2 } from "lucide-react";
+import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff, Table2, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { trackTestSubmit } from "@/lib/ga4Events";
 import { ConfidencePopup } from "@/components/ConfidencePopup";
+import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
 import { getImageAttribution } from "@/lib/imageAttribution";
+import { useIsMobile } from "@/hooks/useMobile";
 
 interface TestProps {
   questionId: number;
@@ -181,6 +183,18 @@ function getMatchedPositions(
     : { ...getMatchedCharPositions(correctText, answerText), mode: "char" as const };
 }
 
+function getConfidenceSignalState(score: number): "green" | "yellow" | "red" {
+  if (score >= 80) return "green";
+  if (score >= 40) return "yellow";
+  return "red";
+}
+
+function getConfidenceSignalDotClass(state: "green" | "yellow" | "red") {
+  if (state === "green") return "bg-emerald-500";
+  if (state === "yellow") return "bg-amber-400";
+  return "bg-rose-500";
+}
+
 function renderComparedText(
   text: string,
   matchedPositions: Set<number>,
@@ -274,6 +288,11 @@ function deleteWordBeforeCursor(
 
 export default function Test({ questionId, isDemo = false }: TestProps) {
   const [location, setLocation] = useLocation();
+  const isMobile = useIsMobile();
+  const [viewportSize, setViewportSize] = useState(() => ({
+    width: typeof window !== "undefined" ? window.innerWidth : 0,
+    height: typeof window !== "undefined" ? window.innerHeight : 0,
+  }));
   const queryParams = useMemo(() => {
     if (typeof window === "undefined") return new URLSearchParams();
     return new URLSearchParams(window.location.search);
@@ -302,6 +321,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const audioChunksRef = useRef<Blob[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showConfidencePopup, setShowConfidencePopup] = useState(false);
+  const [showConfidenceHistory, setShowConfidenceHistory] = useState(false);
   const [confidenceBefore, setConfidenceBefore] = useState(0);
   const [confidenceAfter, setConfidenceAfter] = useState(0);
   const [confidenceImpact, setConfidenceImpact] = useState<ConfidenceImpact | null>(null);
@@ -315,6 +335,24 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [speedBonus, setSpeedBonus] = useState<{ bonus: number; label: string; ratio: number } | null>(null);
   const isMacPlatform = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
   const utils = trpc.useUtils();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const syncViewport = () => {
+      setViewportSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+    syncViewport();
+    window.addEventListener("resize", syncViewport);
+    return () => window.removeEventListener("resize", syncViewport);
+  }, []);
+
+  const useCompactExamLayout =
+    !isMobile &&
+    ((viewportSize.height > 0 && viewportSize.height <= 980) ||
+      (viewportSize.width > 0 && viewportSize.width <= 1480));
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const { data: confidenceData, refetch: refetchConfidence } = trpc.confidence.getByQuestion.useQuery(
@@ -553,18 +591,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       return;
     }
 
-    // 이미지 문제인 경우 라벨 답안 확인
+    // 이미지 문제인 경우
     if (isImageQuestion) {
-      const hasAllAnswers = imageLabels.every((_: any, index: number) => 
-        imageLabelAnswers[index]?.trim()
-      );
-      if (!hasAllAnswers) {
-        toast.error("모든 영역의 답안을 입력하세요");
-        return;
-      }
-      // 라벨 답안을 합쳐서 전송
+      // 라벨 답안을 합쳐서 전송 (빈칸 제출 허용)
       const combinedAnswer = imageLabels.map((_: any, index: number) => 
-        `${index + 1}. ${imageLabelAnswers[index]}`
+        `${index + 1}. ${(imageLabelAnswers[index] ?? "").trim()}`
       ).join("\n");
       if (isDemo) {
         await demoEvaluateMutation.mutateAsync({
@@ -691,12 +722,12 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     : null;
 
   const canSubmitNow = () => {
-    if (evaluateMutation.isPending) return false;
+    if (evaluateMutation.isPending || demoEvaluateMutation.isPending) return false;
     if (isTableQuestion && tableData) {
       return true;
     }
     if (isImageQuestion) {
-      return imageLabels.every((_: any, index: number) => imageLabelAnswers[index]?.trim());
+      return true;
     }
     return userAnswer.trim().length > 0;
   };
@@ -743,6 +774,64 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       delta: "text-rose-700 dark:text-rose-300",
     };
   }, [confidenceAfter, confidenceImpact]);
+
+  const renderConfidenceImpactCard = () => {
+    if (!confidenceImpact) return null;
+    const beforeState = getConfidenceSignalState(confidenceImpact.before);
+    const afterState = getConfidenceSignalState(confidenceImpact.after);
+
+    return (
+      <div className={`rounded-xl border p-4 ${confidenceStateClasses.panel}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">안정도 반영</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              {confidenceImpact.estimated
+                ? "채점 직후 추정 로직으로 반영한 점수입니다."
+                : "채점 직후 반영된 안정도 변화입니다."}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="shrink-0 text-[11px]">
+              {confidenceImpact.estimated ? "추정 반영" : "실측 반영"}
+            </Badge>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-[11px]"
+              onClick={() => setShowConfidenceHistory(true)}
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              그래프
+            </Button>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
+            <p className="text-[11px] text-muted-foreground">이전 안정도</p>
+            <div className="mt-1 inline-flex items-center gap-2">
+              <span className={`inline-block h-2.5 w-2.5 rounded-full ${getConfidenceSignalDotClass(beforeState)}`} />
+              <p className="text-2xl font-bold">{confidenceImpact.before}점</p>
+            </div>
+          </div>
+          <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
+            <p className="text-[11px] text-muted-foreground">이번 시험 반영</p>
+            <p className={`text-2xl font-bold mt-1 ${confidenceImpact.delta > 0 ? "text-emerald-600 dark:text-emerald-300" : confidenceImpact.delta < 0 ? "text-rose-600 dark:text-rose-300" : confidenceStateClasses.delta}`}>
+              {confidenceImpact.delta > 0 ? "+" : ""}{confidenceImpact.delta}점
+            </p>
+          </div>
+          <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
+            <p className="text-[11px] text-muted-foreground">반영 후 안정도</p>
+            <div className="mt-1 inline-flex items-center gap-2">
+              <span className={`inline-block h-2.5 w-2.5 rounded-full ${getConfidenceSignalDotClass(afterState)}`} />
+              <p className="text-2xl font-bold">{confidenceImpact.after}점</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const keyLower = e.key.toLowerCase();
@@ -935,19 +1024,27 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       : `/questions/${question?.subjectId ?? 1}`;
 
   return (
-    <div className="relative space-y-6">
+    <div className={`relative ${useCompactExamLayout ? "space-y-4" : "space-y-6"}`}>
       <ConfidencePopup
         show={showConfidencePopup}
         previousScore={confidenceBefore}
         currentScore={confidenceAfter}
         onComplete={() => setShowConfidencePopup(false)}
       />
-      <div className="flex items-center gap-4">
+      <ConfidenceHistoryModal
+        questionId={question.id}
+        questionTitle={question.question}
+        open={showConfidenceHistory}
+        onClose={() => setShowConfidenceHistory(false)}
+        isDemo={isDemo}
+        examDatePrediction={(confidenceData as any)?.examDatePrediction ?? null}
+      />
+      <div className={`flex items-center ${useCompactExamLayout ? "gap-3" : "gap-4"}`}>
         <Button variant="ghost" size="icon" onClick={() => setLocation(questionListPath)}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">시험 모드</h1>
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">시험 모드</h1>
           <p className="text-muted-foreground mt-1">문제를 보고 답안을 작성하세요</p>
         </div>
       </div>
@@ -973,9 +1070,13 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
               </div>
             )}
             {isImageQuestion && (
-              <div className="relative w-full">
+              <div
+                className={`relative mx-auto w-full max-w-[840px] ${
+                  useCompactExamLayout ? "max-h-[46svh] overflow-auto rounded-lg" : ""
+                }`}
+              >
                 {!imageLoaded && (
-                  <div className="w-full min-h-[300px] md:min-h-[400px] bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
+                  <div className="w-full min-h-[220px] md:min-h-[300px] bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
                     <p className="text-muted-foreground">이미지 로딩 중...</p>
                   </div>
                 )}
@@ -1057,9 +1158,13 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className={useCompactExamLayout ? "space-y-3" : "space-y-4"}>
               {/* 문제 텍스트 표시 */}
-              <div className="p-4 bg-muted/30 rounded-lg border">
+              <div
+                className={`bg-muted/30 rounded-lg border ${
+                  useCompactExamLayout ? "p-3 max-h-[22svh] overflow-y-auto" : "p-4"
+                }`}
+              >
                 <p className="text-sm font-semibold text-muted-foreground mb-2">문제</p>
                 <p className="text-base whitespace-pre-wrap">{question.question}</p>
               </div>
@@ -1075,47 +1180,68 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   />
                 </div>
               ) : isImageQuestion ? (
-                <div className="space-y-4">
-                  {/* 이미지 표시 (불투명 박스로 라벨 영역 표시) */}
-                  <div className="relative w-full">
-                    <img
-                      src={question.imageUrl || ""}
-                      alt="Question image"
-                      className="w-full h-auto rounded-lg border-2 border-border"
-                      loading="eager"
-                      fetchPriority="high"
-                    />
-                    {/* 불투명 박스로 라벨 영역 표시 */}
-                    {imageLabels.map((label: any, index: number) => (
-                      <div
-                        key={index}
-                        className="absolute bg-black border-2 border-primary flex items-center justify-center"
-                        style={{
-                          left: `${label.x}%`,
-                          top: `${label.y}%`,
-                          width: `${label.width}%`,
-                          height: `${label.height}%`,
-                        }}
-                      >
-                        <span className="text-white font-bold text-2xl">{index + 1}</span>
-                      </div>
-                    ))}
+                <div
+                  className={
+                    useCompactExamLayout
+                      ? "grid gap-3"
+                      : "grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(300px,0.9fr)] lg:items-start"
+                  }
+                >
+                  {/* 왼쪽: 이미지 */}
+                  <div className="rounded-lg border-2 border-border bg-muted/10 p-2">
+                    <div
+                      className={`relative mx-auto w-full max-w-[760px] ${
+                        useCompactExamLayout ? "max-h-[38svh] overflow-auto rounded-lg" : ""
+                      }`}
+                    >
+                      <img
+                        src={question.imageUrl || ""}
+                        alt="Question image"
+                        className="w-full h-auto rounded-lg border border-border/70"
+                        loading="eager"
+                        fetchPriority="high"
+                      />
+                      {/* 불투명 박스로 라벨 영역 표시 */}
+                      {imageLabels.map((label: any, index: number) => (
+                        <div
+                          key={index}
+                          className="absolute bg-black border-2 border-primary flex items-center justify-center"
+                          style={{
+                            left: `${label.x}%`,
+                            top: `${label.y}%`,
+                            width: `${label.width}%`,
+                            height: `${label.height}%`,
+                          }}
+                        >
+                          <span className="text-white font-bold text-2xl">{index + 1}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  {/* 라벨별 입력 필드 */}
-                  <div className="space-y-3">
-                    {imageLabels.map((label: any, index: number) => (
-                      <div key={index} className="flex items-center gap-3">
-                        <span className="text-sm font-semibold text-primary min-w-[24px]">{index + 1}.</span>
-                        <input
-                          type="text"
-                          value={imageLabelAnswers[index] || ""}
-                          onChange={(e) => setImageLabelAnswers({ ...imageLabelAnswers, [index]: e.target.value })}
-                          className="flex-1 px-3 py-2 rounded-lg border-2 border-border bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                          placeholder="정답 입력"
-                          autoFocus={index === 0}
-                        />
-                      </div>
-                    ))}
+
+                  {/* 오른쪽: 입력칸 (연습장 위치 스타일) */}
+                  <div className={`rounded-lg border-2 border-border bg-muted/20 ${useCompactExamLayout ? "p-2.5" : "p-3"}`}>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      번호별로 입력하세요. 빈칸으로 둔 항목이 있어도 제출할 수 있습니다.
+                    </p>
+                    <div
+                      className="space-y-2.5 overflow-y-auto pr-1"
+                      style={{ maxHeight: useCompactExamLayout ? "34svh" : "420px" }}
+                    >
+                      {imageLabels.map((label: any, index: number) => (
+                        <div key={index} className="flex items-center gap-3">
+                          <span className="text-sm font-semibold text-primary min-w-[24px]">{index + 1}.</span>
+                          <input
+                            type="text"
+                            value={imageLabelAnswers[index] || ""}
+                            onChange={(e) => setImageLabelAnswers({ ...imageLabelAnswers, [index]: e.target.value })}
+                            className="flex-1 px-3 py-2 rounded-lg border-2 border-border bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                            placeholder="정답 입력"
+                            autoFocus={index === 0}
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -1150,8 +1276,12 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                       handleKeyDown(e);
                     }}
                     placeholder="기억나는 답안을 큰 흐름부터 써보세요"
-                    rows={7}
-                    className="min-h-[180px] rounded-xl border-2 border-border bg-muted/10 px-5 py-4 text-xl font-semibold leading-[1.85] tracking-tight placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
+                    rows={useCompactExamLayout ? 5 : 7}
+                    className={`rounded-xl border-2 border-border bg-muted/10 font-semibold tracking-tight placeholder:text-sm placeholder:font-normal placeholder:tracking-normal ${
+                      useCompactExamLayout
+                        ? "min-h-[132px] px-4 py-3 text-base leading-[1.65]"
+                        : "min-h-[180px] px-5 py-4 text-xl leading-[1.85]"
+                    }`}
                   />
                   <p className="text-xs text-muted-foreground/85">제출: Shift+Enter</p>
                 </>
@@ -1201,7 +1331,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
 
               {isImageQuestion && <Separator />}
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   onClick={handleSubmit}
                   disabled={isSubmitDisabled}
@@ -1245,39 +1375,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                       {speedBonusText && <p className="text-xs font-bold text-blue-500 mt-1">{speedBonusText}</p>}
                     </div>
                   </div>
-                  {confidenceImpact && (
-                    <div className={`rounded-xl border p-4 ${confidenceStateClasses.panel}`}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="font-semibold">안정도 반영</h3>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {confidenceImpact.estimated
-                              ? "채점 직후 추정 로직으로 반영한 점수입니다."
-                              : "채점 직후 반영된 안정도 변화입니다."}
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="shrink-0 text-[11px]">
-                          {confidenceImpact.estimated ? "추정 반영" : "실측 반영"}
-                        </Badge>
-                      </div>
-                      <div className="grid grid-cols-3 gap-3 mt-4">
-                        <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
-                          <p className="text-[11px] text-muted-foreground">이전 안정도</p>
-                          <p className="text-2xl font-bold mt-1">{confidenceImpact.before}점</p>
-                        </div>
-                        <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
-                          <p className="text-[11px] text-muted-foreground">이번 시험 반영</p>
-                          <p className={`text-2xl font-bold mt-1 ${confidenceImpact.delta > 0 ? "text-emerald-600 dark:text-emerald-300" : confidenceImpact.delta < 0 ? "text-rose-600 dark:text-rose-300" : confidenceStateClasses.delta}`}>
-                            {confidenceImpact.delta > 0 ? "+" : ""}{confidenceImpact.delta}점
-                          </p>
-                        </div>
-                        <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
-                          <p className="text-[11px] text-muted-foreground">반영 후 안정도</p>
-                          <p className="text-2xl font-bold mt-1">{confidenceImpact.after}점</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  {renderConfidenceImpactCard()}
                   <div className="space-y-3">
                     <h3 className="font-semibold">정답 비교</h3>
                     {tableData && (
@@ -1368,39 +1466,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 </div>
               </div>
 
-              {confidenceImpact && (
-                <div className={`rounded-xl border p-4 ${confidenceStateClasses.panel}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-semibold">안정도 반영</h3>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {confidenceImpact.estimated
-                          ? "채점 직후 추정 로직으로 반영한 점수입니다."
-                          : "채점 직후 반영된 안정도 변화입니다."}
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="shrink-0 text-[11px]">
-                      {confidenceImpact.estimated ? "추정 반영" : "실측 반영"}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3 mt-4">
-                    <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
-                      <p className="text-[11px] text-muted-foreground">이전 안정도</p>
-                      <p className="text-2xl font-bold mt-1">{confidenceImpact.before}점</p>
-                    </div>
-                    <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
-                      <p className="text-[11px] text-muted-foreground">이번 시험 반영</p>
-                      <p className={`text-2xl font-bold mt-1 ${confidenceImpact.delta > 0 ? "text-emerald-600 dark:text-emerald-300" : confidenceImpact.delta < 0 ? "text-rose-600 dark:text-rose-300" : confidenceStateClasses.delta}`}>
-                        {confidenceImpact.delta > 0 ? "+" : ""}{confidenceImpact.delta}점
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
-                      <p className="text-[11px] text-muted-foreground">반영 후 안정도</p>
-                      <p className="text-2xl font-bold mt-1">{confidenceImpact.after}점</p>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {renderConfidenceImpactCard()}
 
               {result?.mistakeHighlights && (
                 <div className="space-y-2">

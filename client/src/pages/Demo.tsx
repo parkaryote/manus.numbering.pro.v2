@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -136,7 +137,7 @@ function DemoSubjectStudyCard({
   return (
     <Card className="shadow-sm hover:shadow-md transition-all">
       <CardContent className="p-4">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2 min-w-0">
             <div
               className="w-3 h-3 rounded-full flex-shrink-0"
@@ -150,7 +151,7 @@ function DemoSubjectStudyCard({
           {daysLeft !== null && (
             <Badge
               variant="outline"
-              className={`text-xs flex-shrink-0 ${
+              className={`text-xs max-w-full flex-shrink-0 ${
                 isToothMorphology
                   ? "border-red-400 text-red-700 bg-red-100/90 dark:bg-red-950/40 dark:text-red-300 animate-pulse"
                   : daysLeft <= 3
@@ -270,6 +271,8 @@ function DemoSubjectStudyCard({
 
 export default function Demo() {
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const showLoginCta = !user || user.loginMethod === "guest";
   const [nowMs, setNowMs] = useState(() => Date.now());
   const dashboardQuery = trpc.demo.dashboard.useQuery(undefined, {
     retry: 3,
@@ -301,7 +304,7 @@ export default function Demo() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">학습 현황</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -310,15 +313,17 @@ export default function Demo() {
               : "데모 과목을 불러오는 중입니다"}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1"
-          onClick={() => setLocation("/login")}
-        >
-          <LogIn className="w-4 h-4" />
-          로그인 / 가입
-        </Button>
+        {showLoginCta && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={() => setLocation("/login")}
+          >
+            <LogIn className="w-4 h-4" />
+            로그인 / 가입
+          </Button>
+        )}
       </div>
 
       {urgentSubjects.length > 0 && (
@@ -482,12 +487,14 @@ export default function Demo() {
           </CardHeader>
           <CardContent className="text-center space-y-4">
             <p className="text-sm text-muted-foreground">데모 과목을 구성하고 있습니다. 잠시 후 다시 확인해주세요.</p>
-            <div className="flex justify-center gap-3">
-              <Button variant="outline" onClick={() => setLocation("/login")} className="gap-2">
-                <LogIn className="w-4 h-4" />
-                로그인하기
-              </Button>
-            </div>
+            {showLoginCta && (
+              <div className="flex justify-center gap-3">
+                <Button variant="outline" onClick={() => setLocation("/login")} className="gap-2">
+                  <LogIn className="w-4 h-4" />
+                  로그인하기
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

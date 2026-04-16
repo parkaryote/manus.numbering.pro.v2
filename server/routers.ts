@@ -911,6 +911,22 @@ function makeQuestionSignature(q: {
   ].join("||");
 }
 
+function makeQuestionMergeSignature(q: {
+  question?: string | null;
+  answer?: string | null;
+  imageUrl?: string | null;
+  imageLabels?: string | null;
+  tableData?: string | null;
+}) {
+  return [
+    normalizeQuestionTextValue(q.question),
+    normalizeQuestionTextValue(q.answer),
+    q.imageUrl ?? "",
+    q.imageLabels ?? "",
+    normalizeQuestionTextValue(q.tableData),
+  ].join("||");
+}
+
 function getNormalizedCharLength(text: string | null | undefined): number {
   if (!text) return 0;
   return Array.from(text.replace(/\s+/g, "")).length;
@@ -989,6 +1005,7 @@ function extractWarnZoneLinesFromTests(
 
 const TOOTH_MORPHOLOGY_SUBJECT_NAME = "치아형태학";
 const PARTIAL_DENTURE_SUBJECT_NAME = "국소의치학";
+const PARTIAL_DENTURE_DEMO_PASSWORD_FALLBACK = "qkrwlsgur85";
 const NUMBERING_SUBJECT_NAME = "넘버링";
 const DRAWING_BBANG_SUBJECT_NAME = "그림빵";
 const TOOTH_MORPHOLOGY_FIXED_EXAM_DATE = new Date("2026-04-08T07:30:00+09:00");
@@ -1077,6 +1094,36 @@ function normalizeQuestionTextValue(value: string | null | undefined): string {
   return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function normalizeStarterTitleLookupValue(value: string | null | undefined): string {
+  return normalizeQuestionTextValue(value).replace(/[^0-9a-z가-힣]/g, "");
+}
+
+function getStarterTitleScoreOverride(input: {
+  subjectName: string | null | undefined;
+  questionTitle?: string | null | undefined;
+}): number | null {
+  const subjectName = input.subjectName ?? "";
+  const normalizedTitle = normalizeStarterTitleLookupValue(input.questionTitle);
+  if (!normalizedTitle) return null;
+
+  if (isToothMorphologySubjectName(subjectName)) {
+    if (normalizedTitle.includes("box1절치들의근원심구별")) return 91;
+    if (normalizedTitle.includes("box9하악제1소구치와제2소구치의차이점")) return 54;
+    if (normalizedTitle.includes("표i3상악치아크기")) return 22;
+  }
+
+  if (isDrawingBbangSubjectName(subjectName)) {
+    if (
+      normalizedTitle.includes("낱개머리뼈명칭") ||
+      normalizedTitle.includes("낱개머리뼈의명칭")
+    ) {
+      return 62;
+    }
+  }
+
+  return null;
+}
+
 function resolveStateFromScore(score: number): "green" | "yellow" | "red" {
   if (score >= 80) return "green";
   if (score >= 40) return "yellow";
@@ -1111,14 +1158,25 @@ function applyDisplayScoreOverride(base: ConfidenceResult, score: number): Confi
 
 function getStarterBaseScoreOverride(input: {
   subjectName: string | null | undefined;
-  question?: { displayOrder?: number | null; difficulty?: "easy" | "medium" | "hard" | null };
+  question?: {
+    question?: string | null;
+    displayOrder?: number | null;
+    difficulty?: "easy" | "medium" | "hard" | null;
+  };
   userRole?: "admin" | "user";
 }): number | null {
   if (input.userRole === "admin") return null;
 
   const subjectName = input.subjectName ?? "";
+  const titleOverride = getStarterTitleScoreOverride({
+    subjectName,
+    questionTitle: input.question?.question,
+  });
+  if (titleOverride !== null) return titleOverride;
+
   const difficulty = input.question?.difficulty ?? "medium";
-  const displayOrder = Math.max(0, Math.round(input.question?.displayOrder ?? 0));
+  const displayOrder = Math.max(1, Math.round(input.question?.displayOrder ?? 1));
+  const displayIndex = Math.max(0, displayOrder - 1);
 
   if (isToothMorphologySubjectName(subjectName)) {
     const difficultyBase =
@@ -1128,18 +1186,18 @@ function getStarterBaseScoreOverride(input: {
           ? 18
           : 36;
     const orderOffsets = [-7, -3, 1, 5, -1, 3, -5, 6];
-    const offset = orderOffsets[displayOrder % orderOffsets.length] ?? 0;
+    const offset = orderOffsets[displayIndex % orderOffsets.length] ?? 0;
     return clampNumber(difficultyBase + offset, 8, 72);
   }
 
   if (isNumberingSubjectName(subjectName)) {
-    const numberingScores = [84, 57, 29, 72, 46, 23];
-    return numberingScores[displayOrder % numberingScores.length] ?? numberingScores[0];
+    const numberingScores = [84, 89, 93];
+    return numberingScores[displayIndex % numberingScores.length] ?? numberingScores[0];
   }
 
   if (isDrawingBbangSubjectName(subjectName)) {
-    const drawingScores = [82, 48, 26, 69, 43, 21];
-    return drawingScores[displayOrder % drawingScores.length] ?? drawingScores[0];
+    const drawingScores = [52, 58, 62];
+    return drawingScores[displayIndex % drawingScores.length] ?? drawingScores[0];
   }
 
   return null;
@@ -1147,7 +1205,11 @@ function getStarterBaseScoreOverride(input: {
 
 function getStarterInitialScoreOverride(input: {
   subjectName: string | null | undefined;
-  question?: { displayOrder?: number | null; difficulty?: "easy" | "medium" | "hard" | null };
+  question?: {
+    question?: string | null;
+    displayOrder?: number | null;
+    difficulty?: "easy" | "medium" | "hard" | null;
+  };
   practiceCount: number;
   testCount: number;
   userRole?: "admin" | "user";
@@ -1365,7 +1427,7 @@ const DEMO_SHOWCASE_KEYS_IN_ORDER: DemoShowcaseKey[] = ["box1", "box9", "table_i
 const DEMO_SHOWCASE_TITLE_CANDIDATES: Record<DemoShowcaseKey, string[]> = {
   box1: ["Box-1 절치들의 근원심구별"],
   box9: ["Box-9 하악 제1소구치와 제2소구치의 차이점"],
-  table_i3: ["표 I-3 상악 치아 크기", "표 I-3 하악 치아 크기"],
+  table_i3: ["표 I-3 상악 치아 크기"],
 };
 
 function normalizeDemoShowcaseLookupValue(value: string | null | undefined): string {
@@ -1513,7 +1575,7 @@ type DemoSequenceState = "green" | "yellow" | "red";
 
 const DEMO_SEQUENCE_PATTERN_BY_SUBJECT: Record<string, DemoSequenceState[]> = {
   [NUMBERING_SUBJECT_NAME]: ["green", "green", "green"],
-  [DRAWING_BBANG_SUBJECT_NAME]: ["yellow", "yellow", "green"],
+  [DRAWING_BBANG_SUBJECT_NAME]: ["yellow", "yellow", "yellow"],
 };
 
 const DEMO_SEQUENCE_TARGET_SCORE: Record<DemoSequenceState, number> = {
@@ -1570,16 +1632,16 @@ const DEMO_SEQUENCE_OVERRIDES_BY_SUBJECT_INDEX: Partial<
   [DRAWING_BBANG_SUBJECT_NAME]: [
     {
       state: "yellow",
-      score: 62,
+      score: 52,
       scenario: [
-        { minutesAgo: 5 * 24 * 60 + 10 * 60, eventType: "practice", score: 13, practiceSessionCount: 1, practiceDelta: 13 },
-        { minutesAgo: 5 * 24 * 60 + 9 * 60 + 10, eventType: "practice", score: 31, practiceSessionCount: 2, practiceDelta: 18 },
-        { minutesAgo: 5 * 24 * 60 + 8 * 60 + 26, eventType: "test", score: 68, accuracyRate: 75, isCorrect: false },
-        { minutesAgo: 3 * 24 * 60 + 22 * 60, eventType: "forgetting", score: 50 },
-        { minutesAgo: 2 * 24 * 60 + 14 * 60, eventType: "practice", score: 58, practiceSessionCount: 3, practiceDelta: 8 },
-        { minutesAgo: 2 * 24 * 60 + 13 * 60 + 18, eventType: "test", score: 64, accuracyRate: 73, isCorrect: false },
-        { minutesAgo: 11 * 60, eventType: "forgetting", score: 57 },
-        { minutesAgo: 0, eventType: "now", score: 62 },
+        { minutesAgo: 6 * 24 * 60 + 8 * 60, eventType: "practice", score: 11, practiceSessionCount: 1, practiceDelta: 11 },
+        { minutesAgo: 6 * 24 * 60 + 7 * 60 + 16, eventType: "practice", score: 27, practiceSessionCount: 2, practiceDelta: 16 },
+        { minutesAgo: 6 * 24 * 60 + 6 * 60 + 30, eventType: "test", score: 61, accuracyRate: 70, isCorrect: false },
+        { minutesAgo: 4 * 24 * 60 + 21 * 60, eventType: "forgetting", score: 43 },
+        { minutesAgo: 2 * 24 * 60 + 17 * 60, eventType: "practice", score: 49, practiceSessionCount: 3, practiceDelta: 6 },
+        { minutesAgo: 2 * 24 * 60 + 16 * 60 + 18, eventType: "test", score: 55, accuracyRate: 69, isCorrect: false },
+        { minutesAgo: 8 * 60, eventType: "forgetting", score: 47 },
+        { minutesAgo: 0, eventType: "now", score: 52 },
       ],
     },
     {
@@ -1597,17 +1659,17 @@ const DEMO_SEQUENCE_OVERRIDES_BY_SUBJECT_INDEX: Partial<
       ],
     },
     {
-      state: "green",
-      score: 85,
+      state: "yellow",
+      score: 62,
       scenario: [
-        { minutesAgo: 7 * 24 * 60 + 8 * 60, eventType: "practice", score: 18, practiceSessionCount: 1, practiceDelta: 18 },
-        { minutesAgo: 7 * 24 * 60 + 7 * 60 + 12, eventType: "practice", score: 41, practiceSessionCount: 2, practiceDelta: 23 },
-        { minutesAgo: 7 * 24 * 60 + 6 * 60 + 24, eventType: "test", score: 86, accuracyRate: 90, isCorrect: true },
-        { minutesAgo: 4 * 24 * 60 + 21 * 60, eventType: "forgetting", score: 71 },
-        { minutesAgo: 2 * 24 * 60 + 18 * 60, eventType: "practice", score: 79, practiceSessionCount: 3, practiceDelta: 8 },
-        { minutesAgo: 2 * 24 * 60 + 17 * 60 + 14, eventType: "test", score: 88, accuracyRate: 91, isCorrect: true },
-        { minutesAgo: 6 * 60, eventType: "forgetting", score: 82 },
-        { minutesAgo: 0, eventType: "now", score: 85 },
+        { minutesAgo: 5 * 24 * 60 + 9 * 60, eventType: "practice", score: 14, practiceSessionCount: 1, practiceDelta: 14 },
+        { minutesAgo: 5 * 24 * 60 + 8 * 60 + 20, eventType: "practice", score: 32, practiceSessionCount: 2, practiceDelta: 18 },
+        { minutesAgo: 5 * 24 * 60 + 7 * 60 + 34, eventType: "test", score: 69, accuracyRate: 76, isCorrect: false },
+        { minutesAgo: 3 * 24 * 60 + 23 * 60, eventType: "forgetting", score: 52 },
+        { minutesAgo: 2 * 24 * 60 + 15 * 60, eventType: "practice", score: 59, practiceSessionCount: 3, practiceDelta: 7 },
+        { minutesAgo: 2 * 24 * 60 + 14 * 60 + 14, eventType: "test", score: 64, accuracyRate: 74, isCorrect: false },
+        { minutesAgo: 10 * 60, eventType: "forgetting", score: 56 },
+        { minutesAgo: 0, eventType: "now", score: 62 },
       ],
     },
   ],
@@ -2321,6 +2383,67 @@ async function syncDemoQuestionsToSubject(
 
     await db.deleteQuestion(question.id);
   }
+
+  await cleanupDuplicateDemoLinkedQuestionsForSubject(userSubjectId);
+}
+
+async function upsertSingleDemoQuestionToSubject(
+  userId: number,
+  userSubjectId: number,
+  demoQuestion: {
+    id: number;
+    question: string;
+    answer: string;
+    difficulty: "easy" | "medium" | "hard" | null;
+    imageUrl: string | null;
+    imageLabels: string | null;
+    autoNumbering: number;
+    tableData: string | null;
+    displayOrder: number;
+    isStarred: number;
+    useAIGrading: number;
+  }
+) {
+  const subjectQuestions = await db.getQuestionsBySubjectId(userSubjectId);
+  const linkedQuestion =
+    subjectQuestions.find(
+      (question) =>
+        typeof question.demoSourceQuestionId === "number" &&
+        question.demoSourceQuestionId === demoQuestion.id
+    ) ??
+    subjectQuestions.find(
+      (question) =>
+        normalizeQuestionTextValue(question.question) ===
+        normalizeQuestionTextValue(demoQuestion.question)
+    ) ??
+    null;
+
+  const syncedData = {
+    question: demoQuestion.question,
+    answer: demoQuestion.answer,
+    difficulty: demoQuestion.difficulty ?? "medium",
+    imageUrl: demoQuestion.imageUrl ?? null,
+    imageLabels: demoQuestion.imageLabels ?? null,
+    autoNumbering: demoQuestion.autoNumbering,
+    tableData: demoQuestion.tableData ?? null,
+    displayOrder: demoQuestion.displayOrder,
+    isDemo: 0,
+    isStarred: demoQuestion.isStarred ?? 0,
+    useAIGrading: demoQuestion.useAIGrading ?? 0,
+    demoSourceQuestionId: demoQuestion.id,
+  } as const;
+
+  if (linkedQuestion) {
+    await db.updateQuestion(linkedQuestion.id, syncedData);
+    return linkedQuestion.id;
+  }
+
+  const created = await db.createQuestion({
+    subjectId: userSubjectId,
+    userId,
+    ...syncedData,
+  });
+  return created.id;
 }
 
 async function cleanupStaleDemoLinkedSubjects(userId: number, activeDemoSubjectIds: Set<number>) {
@@ -2383,7 +2506,10 @@ async function ensureStarterDataForUser(userId: number) {
   );
 
   for (const demoSubject of demoSubjects) {
-    const demoQuestions = await db.getDemoQuestions(demoSubject.id);
+    const demoQuestions = selectPublicDemoShowcaseQuestions(
+      demoSubject,
+      await db.getDemoQuestions(demoSubject.id)
+    );
     if (demoQuestions.length === 0) continue;
 
     const starterExamDate = getStarterExamDateForSubject(demoSubject);
@@ -2420,9 +2546,7 @@ async function ensureStarterDataForUser(userId: number) {
     }
 
     await syncDemoQuestionsToSubject(userId, targetSubject.id, demoQuestions);
-    if (isToothMorphologySubjectName(demoSubject.name)) {
-      await db.normalizeQuestionDisplayOrderForSubject(targetSubject.id);
-    }
+    await db.normalizeQuestionDisplayOrderForSubject(targetSubject.id);
   }
 
   await cleanupStaleDemoLinkedSubjects(userId, activeDemoSubjectIds);
@@ -2455,7 +2579,11 @@ async function ensureDemoWorkspaceSubjectForUser(userId: number, demoSubjectId: 
     null;
   const starterExamDate = getStarterExamDateForSubject(demoSubject);
 
+  const workspaceSyncKey = `${userId}:${demoSubject.id}`;
+  let createdNewSubject = false;
+
   if (!targetSubject) {
+    createdNewSubject = true;
     targetSubject = await db.createSubject({
       userId,
       demoSourceSubjectId: demoSubject.id,
@@ -2467,48 +2595,119 @@ async function ensureDemoWorkspaceSubjectForUser(userId: number, demoSubjectId: 
       isDemo: 0,
     });
   } else {
-    await db.updateSubject(targetSubject.id, {
-      demoSourceSubjectId: demoSubject.id,
-      name: demoSubject.name,
-      description: demoSubject.description ?? null,
-      color: demoSubject.color ?? "#3B82F6",
-      displayOrder: demoSubject.displayOrder,
-      examEndDate: starterExamDate ?? null,
-      isDemo: 0,
-    });
-    const refreshedTargetSubject = await db.getSubjectById(targetSubject.id);
-    if (refreshedTargetSubject) {
-      targetSubject = refreshedTargetSubject;
-    }
-  }
+    const nextColor = demoSubject.color ?? "#3B82F6";
+    const nextDescription = demoSubject.description ?? null;
+    const nextExamDate = starterExamDate ?? null;
+    const currentExamDateIso = targetSubject.examEndDate
+      ? new Date(targetSubject.examEndDate).toISOString()
+      : null;
+    const nextExamDateIso = nextExamDate ? new Date(nextExamDate).toISOString() : null;
+    const needsSubjectRefresh =
+      targetSubject.demoSourceSubjectId !== demoSubject.id ||
+      targetSubject.name !== demoSubject.name ||
+      (targetSubject.description ?? null) !== nextDescription ||
+      (targetSubject.color ?? "#3B82F6") !== nextColor ||
+      (targetSubject.displayOrder ?? 0) !== (demoSubject.displayOrder ?? 0) ||
+      currentExamDateIso !== nextExamDateIso ||
+      targetSubject.isDemo !== 0;
 
-  const demoQuestions = await db.getDemoQuestions(demoSubject.id);
-  if (demoQuestions.length > 0) {
-    const userQuestions = await db.getQuestionsBySubjectId(targetSubject.id);
-    const linkedDemoQuestionIds = new Set<number>();
-    for (const userQuestion of userQuestions) {
-      if (
-        typeof userQuestion.demoSourceQuestionId === "number" &&
-        userQuestion.demoSourceQuestionId > 0
-      ) {
-        linkedDemoQuestionIds.add(userQuestion.demoSourceQuestionId);
+    if (needsSubjectRefresh) {
+      await db.updateSubject(targetSubject.id, {
+        demoSourceSubjectId: demoSubject.id,
+        name: demoSubject.name,
+        description: nextDescription,
+        color: nextColor,
+        displayOrder: demoSubject.displayOrder,
+        examEndDate: nextExamDate,
+        isDemo: 0,
+      });
+      const refreshedTargetSubject = await db.getSubjectById(targetSubject.id);
+      if (refreshedTargetSubject) {
+        targetSubject = refreshedTargetSubject;
       }
     }
-    const hasMissingLinkedQuestion = demoQuestions.some(
-      (demoQuestion) => !linkedDemoQuestionIds.has(demoQuestion.id)
-    );
-    const hasOutdatedLinkedQuestion = linkedDemoQuestionIds.size > demoQuestions.length;
-    if (userQuestions.length === 0 || hasMissingLinkedQuestion || hasOutdatedLinkedQuestion) {
-      await syncDemoQuestionsToSubject(userId, targetSubject.id, demoQuestions);
-    }
   }
 
-  if (isToothMorphologySubjectName(demoSubject.name)) {
-    await db.normalizeQuestionDisplayOrderForSubject(targetSubject.id);
+  const now = Date.now();
+  const lastWorkspaceSyncAt = demoWorkspaceSyncLastRunAtByKey.get(workspaceSyncKey) ?? 0;
+  const shouldSkipExpensiveSync =
+    !createdNewSubject && now - lastWorkspaceSyncAt < DEMO_WORKSPACE_SYNC_MIN_INTERVAL_MS;
+
+  if (createdNewSubject) {
+    const initialSyncTask = triggerDemoWorkspaceSyncInBackground(
+      userId,
+      targetSubject.id,
+      demoSubject.id,
+      demoSubject.name
+    );
+    if (initialSyncTask) {
+      await Promise.race([
+        initialSyncTask,
+        new Promise<void>((resolve) => setTimeout(resolve, DEMO_WORKSPACE_INITIAL_SYNC_WAIT_MS)),
+      ]);
+    }
+  } else if (!shouldSkipExpensiveSync) {
+    const existingQuestionCount = (await db.getQuestionsBySubjectId(targetSubject.id)).length;
+    if (existingQuestionCount === 0) {
+      const initialSyncTask = triggerDemoWorkspaceSyncInBackground(
+        userId,
+        targetSubject.id,
+        demoSubject.id,
+        demoSubject.name
+      );
+      if (initialSyncTask) {
+        await Promise.race([
+          initialSyncTask,
+          new Promise<void>((resolve) => setTimeout(resolve, DEMO_WORKSPACE_INITIAL_SYNC_WAIT_MS)),
+        ]);
+      }
+    } else {
+      triggerDemoWorkspaceSyncInBackground(userId, targetSubject.id, demoSubject.id, demoSubject.name);
+    }
   }
 
   const finalSubject = await db.getSubjectById(targetSubject.id);
   return applySubjectExamDateOverride(finalSubject ?? targetSubject);
+}
+
+const demoWorkspaceSyncInFlightByKey = new Map<string, Promise<void>>();
+const demoWorkspaceSyncLastRunAtByKey = new Map<string, number>();
+const DEMO_WORKSPACE_SYNC_MIN_INTERVAL_MS = 60 * 1000;
+const DEMO_WORKSPACE_INITIAL_SYNC_WAIT_MS = 350;
+
+function triggerDemoWorkspaceSyncInBackground(
+  userId: number,
+  userSubjectId: number,
+  demoSubjectId: number,
+  demoSubjectName: string
+) {
+  const key = `${userId}:${demoSubjectId}`;
+  const now = Date.now();
+  const inFlight = demoWorkspaceSyncInFlightByKey.get(key);
+  if (inFlight) return inFlight;
+  const lastRunAt = demoWorkspaceSyncLastRunAtByKey.get(key) ?? 0;
+  if (now - lastRunAt < DEMO_WORKSPACE_SYNC_MIN_INTERVAL_MS) return null;
+
+  const task = (async () => {
+    const demoSubject =
+      (await db.getSubjectById(demoSubjectId)) ??
+      { id: demoSubjectId, name: demoSubjectName };
+    const demoQuestions = selectPublicDemoShowcaseQuestions(
+      demoSubject,
+      await db.getDemoQuestions(demoSubjectId)
+    );
+    if (demoQuestions.length > 0) {
+      await syncDemoQuestionsToSubject(userId, userSubjectId, demoQuestions);
+    }
+    await db.normalizeQuestionDisplayOrderForSubject(userSubjectId);
+    demoWorkspaceSyncLastRunAtByKey.set(key, Date.now());
+  })();
+
+  demoWorkspaceSyncInFlightByKey.set(key, task);
+  void task.finally(() => {
+    demoWorkspaceSyncInFlightByKey.delete(key);
+  });
+  return task;
 }
 
 const starterSyncInFlightByUser = new Map<number, Promise<void>>();
@@ -2555,6 +2754,22 @@ async function waitForStarterSyncWithBudget(
     new Promise<void>((resolve) => setTimeout(resolve, waitBudgetMs)),
   ]);
   return completed;
+}
+
+async function awaitStarterSyncCompletion(
+  userId: number,
+  options?: { force?: boolean }
+) {
+  const inFlight = starterSyncInFlightByUser.get(userId);
+  if (inFlight) {
+    await inFlight;
+    return;
+  }
+
+  const task = triggerStarterSyncInBackground(userId, options);
+  if (task) {
+    await task;
+  }
 }
 
 function makePracticeSignature(s: {
@@ -2747,16 +2962,20 @@ async function mergeGuestDataToUser(sourceUserId: number, targetUserId: number) 
   const targetSubjects = await db.getSubjectsByUserId(targetUserId);
   const targetSubjectByName = new Map<string, (typeof targetSubjects)[number]>();
   for (const s of targetSubjects) {
-    if (!targetSubjectByName.has(s.name)) targetSubjectByName.set(s.name, s);
+    const key = normalizeSubjectNameValue(s.name);
+    if (key && !targetSubjectByName.has(key)) targetSubjectByName.set(key, s);
   }
 
   const questionIdMap = new Map<number, number>();
+  const touchedSubjectIds = new Set<number>();
 
   for (const sourceSubject of sourceSubjects) {
-    let targetSubject = targetSubjectByName.get(sourceSubject.name);
+    const sourceSubjectKey = normalizeSubjectNameValue(sourceSubject.name);
+    let targetSubject = targetSubjectByName.get(sourceSubjectKey);
     if (!targetSubject) {
       targetSubject = await db.createSubject({
         userId: targetUserId,
+        demoSourceSubjectId: sourceSubject.demoSourceSubjectId ?? undefined,
         name: sourceSubject.name,
         description: sourceSubject.description ?? undefined,
         color: sourceSubject.color ?? "#3B82F6",
@@ -2764,18 +2983,59 @@ async function mergeGuestDataToUser(sourceUserId: number, targetUserId: number) 
         isDemo: 0,
         examEndDate: sourceSubject.examEndDate ?? undefined,
       });
-      targetSubjectByName.set(targetSubject.name, targetSubject);
+      if (sourceSubjectKey) {
+        targetSubjectByName.set(sourceSubjectKey, targetSubject);
+      }
+    } else if (
+      typeof sourceSubject.demoSourceSubjectId === "number" &&
+      sourceSubject.demoSourceSubjectId > 0 &&
+      targetSubject.demoSourceSubjectId !== sourceSubject.demoSourceSubjectId
+    ) {
+      await db.updateSubject(targetSubject.id, {
+        demoSourceSubjectId: sourceSubject.demoSourceSubjectId,
+      });
+      const refreshedTarget = await db.getSubjectById(targetSubject.id);
+      if (refreshedTarget) {
+        targetSubject = refreshedTarget;
+        if (sourceSubjectKey) {
+          targetSubjectByName.set(sourceSubjectKey, targetSubject);
+        }
+      }
     }
+    touchedSubjectIds.add(targetSubject.id);
 
     const sourceQuestions = await db.getQuestionsBySubjectId(sourceSubject.id);
     const targetQuestions = await db.getQuestionsBySubjectId(targetSubject.id);
-    const targetQuestionBySignature = new Map(
-      targetQuestions.map((q) => [makeQuestionSignature(q), q] as const)
-    );
+    const targetQuestionBySignature = new Map<string, (typeof targetQuestions)[number]>();
+    const targetQuestionByDemoSourceId = new Map<number, (typeof targetQuestions)[number]>();
+
+    for (const question of targetQuestions) {
+      const signature = makeQuestionMergeSignature(question);
+      if (!targetQuestionBySignature.has(signature)) {
+        targetQuestionBySignature.set(signature, question);
+      }
+      if (
+        typeof question.demoSourceQuestionId === "number" &&
+        question.demoSourceQuestionId > 0 &&
+        !targetQuestionByDemoSourceId.has(question.demoSourceQuestionId)
+      ) {
+        targetQuestionByDemoSourceId.set(question.demoSourceQuestionId, question);
+      }
+    }
 
     for (const sourceQuestion of sourceQuestions) {
-      const signature = makeQuestionSignature(sourceQuestion);
-      let targetQuestion = targetQuestionBySignature.get(signature);
+      const signature = makeQuestionMergeSignature(sourceQuestion);
+      let targetQuestion: (typeof targetQuestions)[number] | undefined;
+
+      if (
+        typeof sourceQuestion.demoSourceQuestionId === "number" &&
+        sourceQuestion.demoSourceQuestionId > 0
+      ) {
+        targetQuestion = targetQuestionByDemoSourceId.get(sourceQuestion.demoSourceQuestionId);
+      }
+      if (!targetQuestion) {
+        targetQuestion = targetQuestionBySignature.get(signature);
+      }
 
       if (!targetQuestion) {
         targetQuestion = await db.createQuestion({
@@ -2793,8 +3053,29 @@ async function mergeGuestDataToUser(sourceUserId: number, targetUserId: number) 
           isStarred: sourceQuestion.isStarred ?? 0,
           useAIGrading: sourceQuestion.useAIGrading ?? 0,
           memo: sourceQuestion.memo ?? undefined,
+          demoSourceQuestionId: sourceQuestion.demoSourceQuestionId ?? undefined,
         });
         targetQuestionBySignature.set(signature, targetQuestion);
+        if (
+          typeof targetQuestion.demoSourceQuestionId === "number" &&
+          targetQuestion.demoSourceQuestionId > 0
+        ) {
+          targetQuestionByDemoSourceId.set(targetQuestion.demoSourceQuestionId, targetQuestion);
+        }
+      } else if (
+        typeof sourceQuestion.demoSourceQuestionId === "number" &&
+        sourceQuestion.demoSourceQuestionId > 0 &&
+        targetQuestion.demoSourceQuestionId !== sourceQuestion.demoSourceQuestionId
+      ) {
+        await db.updateQuestion(targetQuestion.id, {
+          demoSourceQuestionId: sourceQuestion.demoSourceQuestionId,
+        });
+        const refreshedTargetQuestion = await db.getQuestionById(targetQuestion.id);
+        if (refreshedTargetQuestion) {
+          targetQuestion = refreshedTargetQuestion;
+          targetQuestionBySignature.set(signature, refreshedTargetQuestion);
+          targetQuestionByDemoSourceId.set(sourceQuestion.demoSourceQuestionId, refreshedTargetQuestion);
+        }
       }
 
       questionIdMap.set(sourceQuestion.id, targetQuestion.id);
@@ -2910,6 +3191,62 @@ async function mergeGuestDataToUser(sourceUserId: number, targetUserId: number) 
         lastReviewedAt: schedule.lastReviewedAt ?? existing.lastReviewedAt ?? undefined,
       });
     }
+  }
+
+  await Promise.all(
+    Array.from(touchedSubjectIds.values()).map((subjectId) =>
+      cleanupDuplicateDemoLinkedQuestionsForSubject(subjectId)
+    )
+  );
+}
+
+async function hasQuestionLearningHistory(questionId: number): Promise<boolean> {
+  const [practiceSessions, testSessions] = await Promise.all([
+    db.getPracticeSessionsByQuestionId(questionId),
+    db.getTestSessionsByQuestionId(questionId),
+  ]);
+  return practiceSessions.length > 0 || testSessions.length > 0;
+}
+
+async function cleanupDuplicateDemoLinkedQuestionsForSubject(subjectId: number): Promise<void> {
+  const subjectQuestions = await db.getQuestionsBySubjectId(subjectId);
+  if (subjectQuestions.length === 0) return;
+
+  const groupedByDemoSourceId = new Map<number, typeof subjectQuestions>();
+  for (const question of subjectQuestions) {
+    if (!(typeof question.demoSourceQuestionId === "number" && question.demoSourceQuestionId > 0)) continue;
+    const group = groupedByDemoSourceId.get(question.demoSourceQuestionId) ?? [];
+    group.push(question);
+    groupedByDemoSourceId.set(question.demoSourceQuestionId, group);
+  }
+
+  let didDelete = false;
+  for (const group of groupedByDemoSourceId.values()) {
+    if (group.length <= 1) continue;
+
+    const evaluations = await Promise.all(
+      group.map(async (question) => {
+        const hasMemo = Boolean(question.memo && question.memo.trim().length > 0);
+        const hasHistory = await hasQuestionLearningHistory(question.id);
+        const score = (hasMemo ? 100 : 0) + (hasHistory ? 10 : 0) + (question.isStarred ? 1 : 0);
+        return { question, hasMemo, hasHistory, score };
+      })
+    );
+
+    evaluations.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.question.id - b.question.id;
+    });
+
+    for (const candidate of evaluations.slice(1)) {
+      if (candidate.hasMemo || candidate.hasHistory) continue;
+      await db.deleteQuestion(candidate.question.id);
+      didDelete = true;
+    }
+  }
+
+  if (didDelete) {
+    await db.normalizeQuestionDisplayOrderForSubject(subjectId);
   }
 }
 
@@ -3089,6 +3426,54 @@ function cookieResponse(res: unknown): CookieCapableResponse {
   return res as CookieCapableResponse;
 }
 
+const GUEST_ID_SCHEMA = z.string().min(6).max(128).regex(/^[0-9a-z_-]+$/i);
+
+async function resolveOrBootstrapGuestUser(
+  ctx: { user: User | null; req: any; res: any },
+  guestId?: string | null
+): Promise<User | null> {
+  if (ctx.user) return ctx.user;
+  if (!guestId) return null;
+
+  const guestOpenId = `guest_${guestId}`;
+  let user = await db.getUserByOpenId(guestOpenId);
+  if (user && user.loginMethod !== "guest") {
+    await db.upsertUser({
+      openId: guestOpenId,
+      name: user.name || `게스트_${guestId.substring(0, 6)}`,
+      email: user.email ?? null,
+      loginMethod: "guest",
+      lastSignedIn: new Date(),
+    });
+    user = await db.getUserByOpenId(guestOpenId);
+  }
+
+  if (!user) {
+    await db.upsertUser({
+      openId: guestOpenId,
+      name: `게스트_${guestId.substring(0, 6)}`,
+      email: null,
+      loginMethod: "guest",
+      lastSignedIn: new Date(),
+    });
+    user = await db.getUserByOpenId(guestOpenId);
+  }
+
+  if (!user) return null;
+
+  const sessionToken = await sdk.createSessionToken(guestOpenId, {
+    name: user.name || "게스트",
+    expiresInMs: ONE_YEAR_MS,
+  });
+  const cookieOptions = getSessionCookieOptions(ctx.req);
+  cookieResponse(ctx.res).cookie(COOKIE_NAME, sessionToken, {
+    ...cookieOptions,
+    maxAge: ONE_YEAR_MS,
+  });
+
+  return user;
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -3106,7 +3491,12 @@ export const appRouter = router({
           // If no gate password is configured in env, do not block access.
           return { success: true };
         }
-        if (!isSecretMatch(input.password, [expected])) {
+        const allowedSitePasswords = [
+          expected,
+          "박진혁85",
+          "우파교수",
+        ];
+        if (!isSecretMatch(input.password, allowedSitePasswords)) {
           registerAuthFailureWithThreshold(rateLimitKey, VERIFY_GATE_RATE_LIMIT_MAX_FAILS);
           throw new TRPCError({
             code: "UNAUTHORIZED",
@@ -3485,8 +3875,14 @@ export const appRouter = router({
           if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "게스트 계정 생성 실패" });
         }
 
-        // Do not block initial app boot on starter-data sync.
-        // Subject list endpoint performs safe sync when needed.
+        // 서버리스 환경에서는 응답 이후 백그라운드 작업이 중단될 수 있으므로
+        // 게스트 최초 진입 시 스타터 데이터 동기화를 짧게라도 선반영한다.
+        if (isNewGuest) {
+          const synced = await waitForStarterSyncWithBudget(user.id, 2500, { force: true });
+          if (!synced) {
+            await awaitStarterSyncCompletion(user.id, { force: true });
+          }
+        }
 
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(guestOpenId, {
@@ -3515,69 +3911,71 @@ export const appRouter = router({
     verifySubjectPassword: publicProcedure
       .input(
         z.object({
-          demoSubjectId: z.number(),
+          subjectId: z.number(),
           password: z.string().min(1).max(128),
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const subject = await db.getSubjectById(input.demoSubjectId);
-        if (!subject || subject.isDemo !== 1) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다." });
+        const subject = await db.getSubjectById(input.subjectId);
+        if (!subject) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "과목을 찾을 수 없습니다." });
         }
 
         if (!isPartialDentureSubjectName(subject.name)) {
-          return { success: true };
+          return { ok: true, required: false };
         }
 
+        const allowedPasswords = [
+          ENV.partialDentureDemoPassword,
+          PARTIAL_DENTURE_DEMO_PASSWORD_FALLBACK,
+        ].filter((value): value is string => Boolean(value && value.trim()));
+
         const rateLimitKey = buildAuthRateLimitKey(
-          ctx.req as any,
+          ctx.req,
           "demo-subject-password",
-          `subject-${input.demoSubjectId}`
+          `subject:${subject.id}`
         );
         assertAuthRateLimitAllowedWithMessage(
           rateLimitKey,
           "비밀번호 시도가 너무 많습니다. 잠시 후 다시 시도해주세요."
         );
 
-        const configured = ENV.partialDentureDemoPassword.trim();
-        const legacy = ENV.partialDentureDemoLegacyPassword.trim();
-        if (!configured && !legacy) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "데모 과목 비밀번호가 서버에 설정되지 않았습니다.",
-          });
-        }
-
-        if (!isSecretMatch(input.password, [configured, legacy])) {
+        if (!isSecretMatch(input.password, allowedPasswords)) {
           registerAuthFailureWithThreshold(rateLimitKey, VERIFY_GATE_RATE_LIMIT_MAX_FAILS);
           throw new TRPCError({
             code: "UNAUTHORIZED",
-            message: "비밀번호가 올바르지 않습니다.",
+            message: "비밀번호가 올바르지 않습니다",
           });
         }
 
         clearAuthFailures(rateLimitKey);
-        return { success: true };
+        return { ok: true, required: true };
       }),
 
     resolveSubjectWorkspace: publicProcedure
-      .input(z.object({ demoSubjectId: z.number() }))
+      .input(z.object({ demoSubjectId: z.number(), guestId: GUEST_ID_SCHEMA.optional() }))
       .query(async ({ input, ctx }) => {
-        if (!ctx.user) {
+        const actor = await resolveOrBootstrapGuestUser(ctx, input.guestId ?? null);
+        if (!actor) {
           return { mappedSubjectId: null as number | null, pending: true };
         }
-        const subject = await ensureDemoWorkspaceSubjectForUser(ctx.user.id, input.demoSubjectId);
+        const demoSubject = await db.getSubjectById(input.demoSubjectId);
+        if (!demoSubject || demoSubject.isDemo !== 1) {
+          return { mappedSubjectId: null as number | null, pending: false };
+        }
+        const subject = await ensureDemoWorkspaceSubjectForUser(actor.id, input.demoSubjectId);
         if (subject) {
           return { mappedSubjectId: subject.id, pending: false };
         }
-        triggerStarterSyncInBackground(ctx.user.id, { force: true });
+        triggerStarterSyncInBackground(actor.id, { force: true });
         return { mappedSubjectId: null as number | null, pending: true };
       }),
 
     resolveQuestionWorkspace: publicProcedure
-      .input(z.object({ demoQuestionId: z.number() }))
+      .input(z.object({ demoQuestionId: z.number(), guestId: GUEST_ID_SCHEMA.optional() }))
       .query(async ({ input, ctx }) => {
-        if (!ctx.user) {
+        const actor = await resolveOrBootstrapGuestUser(ctx, input.guestId ?? null);
+        if (!actor) {
           return {
             mappedQuestionId: null as number | null,
             mappedDemoSubjectId: null as number | null,
@@ -3585,9 +3983,9 @@ export const appRouter = router({
           };
         }
 
-        const userSubjects = await db.getSubjectsByUserId(ctx.user.id);
+        const userSubjects = await db.getSubjectsByUserId(actor.id);
         const userSubjectById = new Map(userSubjects.map((subject) => [subject.id, subject] as const));
-        const userQuestions = await db.getQuestionsByUserId(ctx.user.id);
+        const userQuestions = await db.getQuestionsByUserId(actor.id);
         const mappedQuestion =
           userQuestions.find(
             (question) =>
@@ -3618,7 +4016,7 @@ export const appRouter = router({
         }
 
         const linkedSubject = await ensureDemoWorkspaceSubjectForUser(
-          ctx.user.id,
+          actor.id,
           demoQuestion.subjectId
         );
         if (linkedSubject) {
@@ -3647,9 +4045,22 @@ export const appRouter = router({
               pending: false,
             };
           }
+
+          const upsertedQuestionId = await upsertSingleDemoQuestionToSubject(
+            actor.id,
+            linkedSubject.id,
+            demoQuestion
+          );
+          if (upsertedQuestionId) {
+            return {
+              mappedQuestionId: upsertedQuestionId,
+              mappedDemoSubjectId: demoQuestion.subjectId,
+              pending: false,
+            };
+          }
         }
 
-        triggerStarterSyncInBackground(ctx.user.id, { force: true });
+        triggerStarterSyncInBackground(actor.id, { force: true });
         return {
           mappedQuestionId: null as number | null,
           mappedDemoSubjectId: demoQuestion.subjectId,
@@ -3673,7 +4084,10 @@ export const appRouter = router({
       let userProfile = buildUserAdaptiveProfile([], []);
 
       if (ctx.user) {
-        await waitForStarterSyncWithBudget(ctx.user.id, 700, { force: true });
+        const starterSynced = await waitForStarterSyncWithBudget(ctx.user.id, 220, { force: true });
+        if (!starterSynced) {
+          triggerStarterSyncInBackground(ctx.user.id, { force: true });
+        }
         const [userSubjects, allPractice, allTests] = await Promise.all([
           db.getSubjectsByUserId(ctx.user.id),
           db.getPracticeSessionsByUserId(ctx.user.id),
@@ -4162,19 +4576,31 @@ export const appRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       let currentSubjects = await db.getSubjectsByUserId(ctx.user.id);
 
-      // 첫 진입은 짧게만 기다리고, 느린 동기화는 백그라운드로 넘겨 무한 대기를 방지한다.
+      // 첫 진입은 동기화를 보장해 "0개/부분 복사" 상태를 방지한다.
       if (currentSubjects.length === 0) {
-        await waitForStarterSyncWithBudget(ctx.user.id, 1200, { force: true });
-        currentSubjects = await db.getSubjectsByUserId(ctx.user.id);
-        if (currentSubjects.length === 0) {
-          triggerStarterSyncInBackground(ctx.user.id, { force: true });
+        const starterSynced = await waitForStarterSyncWithBudget(ctx.user.id, 2500, { force: true });
+        if (!starterSynced) {
+          await awaitStarterSyncCompletion(ctx.user.id, { force: true });
         }
+        currentSubjects = await db.getSubjectsByUserId(ctx.user.id);
         return currentSubjects.map((subject) => applySubjectExamDateOverride(subject));
       }
 
       // 이후 조회는 즉시 응답하고, 스타터 데이터 동기화는 백그라운드로 돌린다.
       triggerStarterSyncInBackground(ctx.user.id);
       return currentSubjects.map((subject) => applySubjectExamDateOverride(subject));
+    }),
+
+    count: protectedProcedure.query(async ({ ctx }) => {
+      let currentSubjects = await db.getSubjectsByUserId(ctx.user.id);
+      if (currentSubjects.length === 0) {
+        const starterSynced = await waitForStarterSyncWithBudget(ctx.user.id, 1200, { force: true });
+        if (!starterSynced) {
+          triggerStarterSyncInBackground(ctx.user.id, { force: true });
+        }
+        currentSubjects = await db.getSubjectsByUserId(ctx.user.id);
+      }
+      return currentSubjects.length;
     }),
     
     getById: publicProcedure
@@ -4483,10 +4909,23 @@ export const appRouter = router({
         if (!subject || subject.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "본인 과목만 조회할 수 있습니다" });
         }
+
+        let subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
         if (typeof subject.demoSourceSubjectId === "number" && subject.demoSourceSubjectId > 0) {
-          await waitForStarterSyncWithBudget(ctx.user.id, 600, { force: true });
+          if (subjectQuestions.length === 0) {
+            const starterSynced = await waitForStarterSyncWithBudget(ctx.user.id, 2500, { force: true });
+            if (!starterSynced) {
+              await awaitStarterSyncCompletion(ctx.user.id, { force: true });
+            }
+            subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
+          } else {
+            const starterSynced = await waitForStarterSyncWithBudget(ctx.user.id, 220, { force: true });
+            if (!starterSynced) {
+              triggerStarterSyncInBackground(ctx.user.id, { force: true });
+            }
+          }
         }
-        return db.getQuestionsBySubjectId(input.subjectId);
+        return subjectQuestions;
       }),
     
     listAll: protectedProcedure.query(async ({ ctx }) => {
@@ -6506,7 +6945,7 @@ ${input.userAnswer}
             at: new Date(t.completedAt),
             type: 'test' as const,
             idx: i,
-            testMode: mockExamSessionIds.has(t.id) ? 'mock' : 'single',
+            testMode: (mockExamSessionIds.has(t.id) ? 'mock' : 'single') as 'mock' | 'single',
           })),
         ].sort((a, b) => a.at.getTime() - b.at.getTime());
 
@@ -6718,7 +7157,7 @@ ${input.userAnswer}
             type: 'test' as const,
             questionId: t.questionId,
             sessionIdx: i,
-            testMode: mockExamSessionIds.has(t.id) ? 'mock' : 'single',
+            testMode: (mockExamSessionIds.has(t.id) ? 'mock' : 'single') as 'mock' | 'single',
           })),
         ].sort((a, b) => a.at.getTime() - b.at.getTime());
         if (events.length === 0) {

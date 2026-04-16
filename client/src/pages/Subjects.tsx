@@ -99,7 +99,25 @@ function getAggregateBadgeClass(state?: string) {
   return "bg-muted text-muted-foreground";
 }
 
-function buildDemoWorkspaceFallbackScore(question: any, index: number): { displayScore: number; state: "green" | "yellow" | "red" } {
+function normalizeSubjectNameForFallback(value: string | null | undefined): string {
+  return (value ?? "").toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+}
+
+function buildDemoWorkspaceFallbackScore(
+  question: any,
+  index: number,
+  subjectName?: string | null
+): { displayScore: number; state: "green" | "yellow" | "red" } {
+  const normalizedSubjectName = normalizeSubjectNameForFallback(subjectName);
+  if (normalizedSubjectName === normalizeSubjectNameForFallback("그림빵")) {
+    const displayOrder = Math.max(1, Number(question?.displayOrder ?? index + 1));
+    const drawingScores = [52, 58, 62];
+    return {
+      displayScore: drawingScores[(displayOrder - 1) % drawingScores.length] ?? drawingScores[0],
+      state: "yellow",
+    };
+  }
+
   const difficulty = question?.difficulty ?? "medium";
   const answerText = typeof question?.answer === "string" ? question.answer : "";
   const answerLength = answerText.replace(/\s+/g, "").length;
@@ -340,7 +358,7 @@ function DemoWorkspaceSubjectCard({
           isStarred: sourceQuestion?.isStarred ?? question.isStarred ?? previewRow.isStarred ?? 0,
         };
       }
-      const fallback = buildDemoWorkspaceFallbackScore(question, index);
+      const fallback = buildDemoWorkspaceFallbackScore(question, index, subject?.name);
       return {
         questionId: question.id,
         displayOrder: order,
@@ -434,10 +452,43 @@ function DemoWorkspaceSubjectCard({
   );
 }
 
+function GuestDemoSubjectCard({ subject }: { subject: any }) {
+  const [, setLocation] = useLocation();
+  const { data: demoQuestions = [] } = trpc.demo.questions.useQuery({ subjectId: subject.id });
+
+  return (
+    <Card
+      className="shadow-elegant hover:shadow-lg transition-all cursor-pointer"
+      onClick={() => setLocation(`/demo/questions/${subject.id}`)}
+    >
+      <CardHeader className="flex flex-row items-start gap-3 pb-3">
+        <div
+          className="w-4 h-4 rounded-full flex-shrink-0 mt-1"
+          style={{ backgroundColor: subject.color }}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <CardTitle className="text-lg">{subject.name}</CardTitle>
+            <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+              <Star className="w-2.5 h-2.5" />
+              데모
+            </Badge>
+          </div>
+          {subject.description && (
+            <CardDescription className="line-clamp-1 mb-1">{subject.description}</CardDescription>
+          )}
+          <p className="text-xs text-muted-foreground">{demoQuestions.length}개 문제</p>
+        </div>
+      </CardHeader>
+    </Card>
+  );
+}
+
 export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: boolean }) {
   const [, setLocation] = useLocation();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const isAdmin = user?.role === "admin";
+  const isGuest = !user || user.loginMethod === "guest";
   const isDemoWorkspace = demoWorkspace && isAdmin;
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -451,14 +502,31 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
     isDemo: false,
   });
 
-  const userSubjectsQuery = trpc.subjects.list.useQuery(undefined, { enabled: !isDemoWorkspace });
+  const userSubjectsQuery = trpc.subjects.list.useQuery(undefined, {
+    enabled: !isDemoWorkspace && !authLoading,
+  });
   const demoSubjectsQuery = trpc.admin.demo.subjects.useQuery(undefined, { enabled: isDemoWorkspace });
+  const guestDemoSubjectsQuery = trpc.demo.subjects.useQuery(undefined, {
+    enabled: !isDemoWorkspace && isGuest && !authLoading,
+    refetchOnWindowFocus: false,
+  });
   const subjects = (isDemoWorkspace ? demoSubjectsQuery.data : userSubjectsQuery.data) ?? [];
-  const isLoading = isDemoWorkspace ? demoSubjectsQuery.isLoading : userSubjectsQuery.isLoading;
+  const guestDemoSubjects = guestDemoSubjectsQuery.data ?? [];
+  const shouldUseGuestDemoFallback =
+    !isDemoWorkspace &&
+    isGuest &&
+    !userSubjectsQuery.isLoading &&
+    subjects.length === 0 &&
+    guestDemoSubjects.length > 0;
+  const renderedSubjects = shouldUseGuestDemoFallback ? guestDemoSubjects : subjects;
+  const isLoading = authLoading
+    || (isDemoWorkspace
+      ? demoSubjectsQuery.isLoading
+      : (userSubjectsQuery.isLoading || (isGuest && subjects.length === 0 && guestDemoSubjectsQuery.isLoading)));
   const utils = trpc.useUtils();
   const urgentDemoSubject = useMemo(
-    () => subjects.find((subject: any) => String(subject?.name ?? "").includes(PARTIAL_DENTURE_SUBJECT_NAME)),
-    [subjects]
+    () => renderedSubjects.find((subject: any) => String(subject?.name ?? "").includes(PARTIAL_DENTURE_SUBJECT_NAME)),
+    [renderedSubjects]
   );
 
   const sensors = useSensors(
@@ -844,7 +912,7 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
         <div className="text-center py-12">
           <p className="text-muted-foreground">로딩 중...</p>
         </div>
-      ) : subjects.length === 0 ? (
+      ) : renderedSubjects.length === 0 ? (
         <Card className="shadow-elegant">
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
@@ -859,13 +927,19 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
         </Card>
       ) : isDemoWorkspace ? (
         <div className="grid gap-4">
-          {subjects.map((subject) => (
+          {renderedSubjects.map((subject) => (
             <DemoWorkspaceSubjectCard
               key={subject.id}
               subject={subject}
               onEdit={handleEdit}
               onDelete={handleDelete}
             />
+          ))}
+        </div>
+      ) : shouldUseGuestDemoFallback ? (
+        <div className="grid gap-4">
+          {renderedSubjects.map((subject) => (
+            <GuestDemoSubjectCard key={subject.id} subject={subject} />
           ))}
         </div>
       ) : (
@@ -875,11 +949,11 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
           onDragEnd={handleDragEnd}
         >
           <SortableContext
-            items={subjects.map((s) => s.id)}
+            items={renderedSubjects.map((s) => s.id)}
             strategy={verticalListSortingStrategy}
           >
             <div className="grid gap-4">
-              {subjects.map((subject) => (
+              {renderedSubjects.map((subject) => (
                 <SortableSubjectCard
                   key={subject.id}
                   subject={subject}

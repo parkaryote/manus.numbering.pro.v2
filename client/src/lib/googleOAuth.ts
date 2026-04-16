@@ -3,17 +3,24 @@ const GOOGLE_SCOPE = "openid email profile";
 const GOOGLE_REDIRECT_PATH = "/login";
 const GOOGLE_REDIRECT_URI_ENV = (import.meta.env.VITE_GOOGLE_OAUTH_REDIRECT_URI ?? "").trim();
 const GOOGLE_STATE_STORAGE_KEY = "numbering_google_oauth_state";
+const GOOGLE_STATE_FALLBACK_STORAGE_KEY = "numbering_google_oauth_state_fallback";
 const GOOGLE_STATE_MAX_AGE_MS = 10 * 60 * 1000;
 
 function base64Encode(input: string): string {
   const utf8 = encodeURIComponent(input).replace(/%([0-9A-F]{2})/g, (_, hex) =>
     String.fromCharCode(parseInt(hex, 16))
   );
-  return btoa(utf8);
+  return btoa(utf8).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function normalizeStateValue(input: string): string {
+  return input.trim().replace(/ /g, "+");
 }
 
 function base64Decode(input: string): string {
-  const binary = atob(input);
+  const normalized = normalizeStateValue(input).replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  const binary = atob(padded);
   const escaped = Array.from(binary)
     .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`)
     .join("");
@@ -58,19 +65,29 @@ export function storeGoogleOAuthState(state: string) {
   } catch {
     // ignore
   }
+  try {
+    window.localStorage.setItem(GOOGLE_STATE_FALLBACK_STORAGE_KEY, state);
+  } catch {
+    // ignore
+  }
 }
 
 export function consumeGoogleOAuthState(state: string | null | undefined): boolean {
   if (!state || typeof window === "undefined") return false;
+  const normalizedState = normalizeStateValue(state);
+  let matched = false;
   try {
     const expected = window.sessionStorage.getItem(GOOGLE_STATE_STORAGE_KEY);
+    const fallback = window.localStorage.getItem(GOOGLE_STATE_FALLBACK_STORAGE_KEY);
     window.sessionStorage.removeItem(GOOGLE_STATE_STORAGE_KEY);
-    if (!expected || expected !== state) return false;
+    window.localStorage.removeItem(GOOGLE_STATE_FALLBACK_STORAGE_KEY);
+    matched = expected === normalizedState || fallback === normalizedState;
   } catch {
     return false;
   }
+  if (!matched) return false;
 
-  const decoded = parseGoogleStateUnsafe(state);
+  const decoded = parseGoogleStateUnsafe(normalizedState);
   if (!decoded || typeof decoded.issuedAt !== "number") return false;
   const age = Date.now() - decoded.issuedAt;
   if (age < -60_000 || age > GOOGLE_STATE_MAX_AGE_MS) return false;

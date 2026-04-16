@@ -1,5 +1,9 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -20,83 +24,20 @@ import Login from "./pages/Login";
 import SharedSubject from "./pages/SharedSubject";
 import { useBetaTelemetry } from "./hooks/useBetaTelemetry";
 import { useVercelAnalytics } from "./hooks/useVercelAnalytics";
+import { LockKeyhole } from "lucide-react";
+import { toast } from "sonner";
 
 const GUEST_ID_KEY = "numbering_guest_id";
 const RECENT_AUTH_AT_KEY = "numbering_recent_auth_at";
+const PARTIAL_DENTURE_SUBJECT_NAME = "국소의치학";
+const PARTIAL_DENTURE_DEMO_UNLOCK_KEY = "numbering_demo_unlock_partial_denture_v1";
 const INIT_MAX_WAIT_MS = 2_500;
 const AUTH_ME_FETCH_TIMEOUT_MS = 2_000;
 const GUEST_BOOTSTRAP_BLOCK_MAX_MS = 900;
 const RECENT_AUTH_GRACE_MS = 10 * 60 * 1000;
 const AUTH_RESOLVE_MAX_WAIT_MS = 8_000;
-const PARTIAL_DENTURE_SUBJECT_NAME = "국소의치학";
-const PARTIAL_DENTURE_DEMO_UNLOCK_KEY = "demo_unlock_partial_denture";
-const UNLOCK_KEY_TIMEOUT_MS = 14 * 24 * 60 * 60 * 1000;
 const DEMO_BRIDGE_RETRY_DELAY_MS = 450;
-let partialDentureUnlockedInMemory = false;
-
-type PartialDentureUnlockRecord = {
-  at: number;
-  version: number;
-};
-
-function normalizePartialDentureUnlock(value: string | null): PartialDentureUnlockRecord | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value);
-    if (typeof parsed === "object" && parsed && Number.isFinite(parsed.at)) {
-      return { at: parsed.at, version: Number(parsed.version) || 1 };
-    }
-  } catch {
-    // 호환성을 위해 과거 숫자 문자열 처리
-  }
-
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return null;
-  return { at: numeric, version: 1 };
-}
-
-function isPartialDentureUnlockedNow(): boolean {
-  if (partialDentureUnlockedInMemory) return true;
-  if (typeof window === "undefined") return false;
-  try {
-    const raw = localStorage.getItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY);
-    const parsed = normalizePartialDentureUnlock(raw);
-    if (!parsed) return false;
-    if (parsed.at <= 0) return false;
-    if (!Number.isFinite(parsed.at)) return false;
-    if (Date.now() - parsed.at > UNLOCK_KEY_TIMEOUT_MS) {
-      localStorage.removeItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY);
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function setPartialDentureUnlock() {
-  partialDentureUnlockedInMemory = true;
-  if (typeof window === "undefined") return;
-  const payload: PartialDentureUnlockRecord = {
-    at: Date.now(),
-    version: 1,
-  };
-  try {
-    localStorage.setItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY, JSON.stringify(payload));
-  } catch {
-    // 브라우저 저장소 제약(사파리/프라이빗 모드 등)에서도 현재 세션은 유지
-  }
-}
-
-function normalizePasswordInput(value: string): string {
-  return (value ?? "")
-    .normalize("NFKC")
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/^['"`]+|['"`]+$/g, "")
-    .toLowerCase();
-}
+const DEMO_BRIDGE_MAX_PENDING_RETRIES = 12;
 
 async function fetchAuthMeWithTimeout(timeoutMs: number) {
   const controller = new AbortController();
@@ -152,6 +93,36 @@ function clearRecentAuthAttempt() {
 function isGuestUser(user: { loginMethod?: string | null } | null | undefined): boolean {
   if (!user) return false;
   return user.loginMethod === "guest";
+}
+
+function normalizeClientSubjectName(value: string | null | undefined): string {
+  return (value ?? "").toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+}
+
+function isPartialDentureSubjectNameClient(value: string | null | undefined): boolean {
+  return normalizeClientSubjectName(value) === normalizeClientSubjectName(PARTIAL_DENTURE_SUBJECT_NAME);
+}
+
+function readPartialDentureDemoUnlockState(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writePartialDentureDemoUnlockState(next: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    if (next) {
+      window.localStorage.setItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY, "1");
+    } else {
+      window.localStorage.removeItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY);
+    }
+  } catch {
+    // ignore storage failures
+  }
 }
 
 /**
@@ -254,8 +225,10 @@ function DemoSubjectRouteBridge({
   target: "questions" | "subject-exam";
 }) {
   const [, setLocation] = useLocation();
+  const guestId = useMemo(() => getOrCreateGuestId(), []);
+  const [pendingRetryCount, setPendingRetryCount] = useState(0);
   const resolveQuery = trpc.demo.resolveSubjectWorkspace.useQuery(
-    { demoSubjectId },
+    { demoSubjectId, guestId },
     {
       refetchOnWindowFocus: false,
       retry: false,
@@ -265,14 +238,18 @@ function DemoSubjectRouteBridge({
   const isPending = resolveQuery.data?.pending === true;
 
   useEffect(() => {
-    if (mappedSubjectId) return;
+    if (mappedSubjectId || !isPending) {
+      if (pendingRetryCount !== 0) setPendingRetryCount(0);
+      return;
+    }
+    if (pendingRetryCount >= DEMO_BRIDGE_MAX_PENDING_RETRIES) return;
     if (resolveQuery.isLoading) return;
-    if (!isPending) return;
     const timer = window.setTimeout(() => {
+      setPendingRetryCount((count) => count + 1);
       void resolveQuery.refetch();
     }, DEMO_BRIDGE_RETRY_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [isPending, mappedSubjectId, resolveQuery]);
+  }, [isPending, mappedSubjectId, pendingRetryCount, resolveQuery]);
 
   useEffect(() => {
     if (!mappedSubjectId) return;
@@ -282,7 +259,11 @@ function DemoSubjectRouteBridge({
     setLocation(`/${target}/${mappedSubjectId}?${params.toString()}`);
   }, [demoSubjectId, mappedSubjectId, setLocation, target]);
 
-  const isLoading = resolveQuery.isLoading || (!mappedSubjectId && isPending);
+  const isLoading =
+    resolveQuery.isLoading ||
+    (!mappedSubjectId &&
+      isPending &&
+      pendingRetryCount < DEMO_BRIDGE_MAX_PENDING_RETRIES);
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -310,8 +291,10 @@ function DemoQuestionRouteBridge({
   target: "practice" | "test";
 }) {
   const [, setLocation] = useLocation();
+  const guestId = useMemo(() => getOrCreateGuestId(), []);
+  const [pendingRetryCount, setPendingRetryCount] = useState(0);
   const resolveQuery = trpc.demo.resolveQuestionWorkspace.useQuery(
-    { demoQuestionId },
+    { demoQuestionId, guestId },
     {
       refetchOnWindowFocus: false,
       retry: false,
@@ -322,14 +305,18 @@ function DemoQuestionRouteBridge({
   const isPending = resolveQuery.data?.pending === true;
 
   useEffect(() => {
-    if (mappedQuestionId) return;
+    if (mappedQuestionId || !isPending) {
+      if (pendingRetryCount !== 0) setPendingRetryCount(0);
+      return;
+    }
+    if (pendingRetryCount >= DEMO_BRIDGE_MAX_PENDING_RETRIES) return;
     if (resolveQuery.isLoading) return;
-    if (!isPending) return;
     const timer = window.setTimeout(() => {
+      setPendingRetryCount((count) => count + 1);
       void resolveQuery.refetch();
     }, DEMO_BRIDGE_RETRY_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [isPending, mappedQuestionId, resolveQuery]);
+  }, [isPending, mappedQuestionId, pendingRetryCount, resolveQuery]);
 
   useEffect(() => {
     if (!mappedQuestionId) return;
@@ -345,7 +332,11 @@ function DemoQuestionRouteBridge({
     setLocation(`/${target}/${mappedQuestionId}${query ? `?${query}` : ""}`);
   }, [mappedDemoSubjectId, mappedQuestionId, setLocation, target]);
 
-  const isLoading = resolveQuery.isLoading || (!mappedQuestionId && isPending);
+  const isLoading =
+    resolveQuery.isLoading ||
+    (!mappedQuestionId &&
+      isPending &&
+      pendingRetryCount < DEMO_BRIDGE_MAX_PENDING_RETRIES);
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -401,101 +392,145 @@ function DemoSubjectPasswordGate({
   subjectId,
   children,
 }: {
-  subjectId: number;
+  subjectId?: number;
   children: React.ReactNode;
 }) {
-  const { data: demoSubjects, isLoading } = trpc.demo.subjects.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-  });
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [unlocked, setUnlocked] = useState(() => {
-    return isPartialDentureUnlockedNow();
-  });
+  const [storageReady, setStorageReady] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const hasValidSubjectId = Number.isFinite(subjectId) && Number(subjectId) > 0;
+  const subjectQuery = trpc.subjects.getById.useQuery(
+    { id: Number(subjectId) },
+    {
+      enabled: hasValidSubjectId,
+      refetchOnWindowFocus: false,
+      retry: false,
+    }
+  );
   const verifyPassword = trpc.demo.verifySubjectPassword.useMutation({
     onSuccess: () => {
-      setPartialDentureUnlock();
-      setUnlocked(true);
+      writePartialDentureDemoUnlockState(true);
+      setIsUnlocked(true);
       setPassword("");
-      setError("");
+      toast.success("국소의치학 접근이 열렸습니다.");
     },
-    onError: (e) => {
-      setError(e.message || "비밀번호가 올바르지 않습니다.");
+    onError: (error) => {
+      toast.error(error.message || "비밀번호를 다시 확인해주세요.");
     },
   });
 
-  const subjectName = useMemo(() => {
-    const row = demoSubjects?.find((subject) => subject.id === subjectId);
-    return (row?.name ?? "").trim();
-  }, [demoSubjects, subjectId]);
-  const normalize = (value: string) => value.replace(/\s+/g, "").toLowerCase();
-  const requiresPassword = normalize(subjectName) === normalize(PARTIAL_DENTURE_SUBJECT_NAME);
-
-  const handleUnlock = () => {
-    const entered = normalizePasswordInput(password);
-    if (!entered) {
-      setError("비밀번호를 입력해주세요.");
-      return;
-    }
-    setError("");
-    verifyPassword.mutate({
-      demoSubjectId: subjectId,
-      password: entered,
-    });
-  };
-
   useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== PARTIAL_DENTURE_DEMO_UNLOCK_KEY) return;
-      setUnlocked(isPartialDentureUnlockedNow());
-    };
-
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener("storage", onStorage);
-    };
+    setIsUnlocked(readPartialDentureDemoUnlockState());
+    setStorageReady(true);
   }, []);
 
-  if (isLoading) {
+  const requiresPassword = isPartialDentureSubjectNameClient(subjectQuery.data?.name);
+
+  useEffect(() => {
+    if (!requiresPassword) {
+      setIsUnlocked(true);
+    }
+  }, [requiresPassword]);
+
+  if (!hasValidSubjectId) return <>{children}</>;
+
+  if (!storageReady || subjectQuery.isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-muted-foreground text-sm">데모 접근 확인 중...</div>
+      <div className="flex items-center justify-center min-h-[56vh] px-4">
+        <div className="text-muted-foreground text-sm">과목 접근 권한을 확인하는 중...</div>
       </div>
     );
   }
 
-  if (!requiresPassword || unlocked) {
+  if (subjectQuery.isError || !subjectQuery.data) {
+    return (
+      <div className="flex items-center justify-center min-h-[56vh] px-4">
+        <Card className="w-full max-w-md shadow-lg">
+          <CardHeader className="space-y-2">
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+              <LockKeyhole className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <CardTitle className="text-xl">과목 정보를 확인할 수 없습니다</CardTitle>
+            <CardDescription>새로고침 후 다시 시도해주세요.</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!requiresPassword || isUnlocked) {
     return <>{children}</>;
   }
 
+  const handleSubmit = () => {
+    if (!password.trim()) {
+      toast.error("비밀번호를 입력해주세요.");
+      return;
+    }
+    verifyPassword.mutate({ subjectId: Number(subjectId), password });
+  };
+
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-      <h2 className="text-sm font-semibold">{PARTIAL_DENTURE_SUBJECT_NAME} 접근 비밀번호</h2>
-      <p className="text-xs text-muted-foreground">데모 과목을 열려면 비밀번호가 필요합니다.</p>
-      <p className="text-[11px] text-muted-foreground/80">한 번 입력하면 데모 전 구간에서 기억됩니다.</p>
-      <div className="space-y-2">
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleUnlock();
-          }}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          placeholder="비밀번호 입력"
-        />
-        {error ? <p className="text-xs text-red-500">{error}</p> : null}
-        <button
-          type="button"
-          onClick={handleUnlock}
-          disabled={verifyPassword.isPending}
-          className="w-full rounded-md bg-primary text-primary-foreground px-3 py-2 text-sm font-medium hover:opacity-95 transition-opacity"
-        >
-          {verifyPassword.isPending ? "확인 중..." : "입장"}
-        </button>
-      </div>
+    <div className="flex items-center justify-center min-h-[56vh] px-4 py-10">
+      <Card className="w-full max-w-md shadow-xl border-border/70">
+        <CardHeader className="space-y-3">
+          <div className="w-11 h-11 rounded-full bg-muted flex items-center justify-center">
+            <LockKeyhole className="h-5 w-5 text-foreground" />
+          </div>
+          <div className="space-y-1">
+            <CardTitle className="text-xl">국소의치학 데모 접근</CardTitle>
+            <CardDescription>
+              이 과목은 비밀번호 확인 후 열람할 수 있습니다.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="partial-denture-demo-password">비밀번호</Label>
+            <Input
+              id="partial-denture-demo-password"
+              type="password"
+              value={password}
+              placeholder="비밀번호 입력"
+              autoFocus
+              onChange={(event) => setPassword(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleSubmit();
+                }
+              }}
+            />
+          </div>
+          <Button
+            className="w-full"
+            disabled={verifyPassword.isPending}
+            onClick={handleSubmit}
+          >
+            {verifyPassword.isPending ? "확인 중..." : "들어가기"}
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
+}
+
+function DemoMappedRoutePasswordGate({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [location] = useLocation();
+  const demoSubjectId = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("demo") !== "1") return null;
+    const raw = Number(params.get("demoSubjectId"));
+    return Number.isFinite(raw) && raw > 0 ? raw : null;
+  }, [location]);
+
+  if (!demoSubjectId) return <>{children}</>;
+  return <DemoSubjectPasswordGate subjectId={demoSubjectId}>{children}</DemoSubjectPasswordGate>;
 }
 
 function Router({
@@ -526,27 +561,10 @@ function Router({
 
   return (
     <Switch>
-      <Route path={"/"}>
-        {subjectCountDecisionPending ? (
-          <Layout>
-            <div className="py-12 text-center text-sm text-muted-foreground">학습 현황을 불러오는 중...</div>
-          </Layout>
-        ) : shouldShowDemoHome ? (
-          <Layout>
-            <Demo />
-          </Layout>
-        ) : (
-          <Layout>
-            <Home />
-          </Layout>
-        )}
-      </Route>
       <Route path={"/subjects"}>
         <Layout>
           {subjectCountDecisionPending ? (
             <div className="py-12 text-center text-sm text-muted-foreground">과목 목록을 불러오는 중...</div>
-          ) : shouldShowDemoHome ? (
-            <Demo />
           ) : (
             <Subjects />
           )}
@@ -555,35 +573,45 @@ function Router({
       <Route path={"/questions/:subjectId"}>
         {(params) => (
           <Layout>
-            <Questions subjectId={parseInt(params.subjectId)} />
+            <DemoMappedRoutePasswordGate>
+              <Questions subjectId={parseInt(params.subjectId)} />
+            </DemoMappedRoutePasswordGate>
           </Layout>
         )}
       </Route>
       <Route path={"/subject-practice/:subjectId"}>
         {(params) => (
           <Layout>
-            <SubjectPracticeRedirect subjectId={parseInt(params.subjectId)} />
+            <DemoMappedRoutePasswordGate>
+              <SubjectPracticeRedirect subjectId={parseInt(params.subjectId)} />
+            </DemoMappedRoutePasswordGate>
           </Layout>
         )}
       </Route>
       <Route path={"/subject-exam/:subjectId"}>
         {(params) => (
           <Layout>
-            <SubjectExam subjectId={parseInt(params.subjectId)} />
+            <DemoMappedRoutePasswordGate>
+              <SubjectExam subjectId={parseInt(params.subjectId)} />
+            </DemoMappedRoutePasswordGate>
           </Layout>
         )}
       </Route>
       <Route path={"/practice/:questionId"}>
         {(params) => (
           <Layout>
-            <Practice questionId={parseInt(params.questionId)} />
+            <DemoMappedRoutePasswordGate>
+              <Practice questionId={parseInt(params.questionId)} />
+            </DemoMappedRoutePasswordGate>
           </Layout>
         )}
       </Route>
       <Route path={"/test/:questionId"}>
         {(params) => (
           <Layout>
-            <Test questionId={parseInt(params.questionId)} />
+            <DemoMappedRoutePasswordGate>
+              <Test questionId={parseInt(params.questionId)} />
+            </DemoMappedRoutePasswordGate>
           </Layout>
         )}
       </Route>
@@ -604,7 +632,7 @@ function Router({
       <Route path={"/demo/subjects"}>
         {canAccessDemo ? (
           <Layout>
-            {isAdmin ? <Subjects demoWorkspace /> : <Demo />}
+            <Subjects demoWorkspace={isAdmin} />
           </Layout>
         ) : (
           <RouteRedirect to="/subjects" />
@@ -691,6 +719,21 @@ function Router({
       </Route>
       <Route path={"/admin/demo-management"}>
         <RouteRedirect to="/demo/subjects" />
+      </Route>
+      <Route path={"/"}>
+        {subjectCountDecisionPending ? (
+          <Layout>
+            <div className="py-12 text-center text-sm text-muted-foreground">학습 현황을 불러오는 중...</div>
+          </Layout>
+        ) : shouldShowDemoHome ? (
+          <Layout>
+            <Demo />
+          </Layout>
+        ) : (
+          <Layout>
+            <Home />
+          </Layout>
+        )}
       </Route>
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
@@ -785,16 +828,16 @@ function AppContent() {
       return;
     }
 
-    // auth.me가 null이어도 세션 쿠키가 살아있다면(일시 지연/타임아웃 가능성),
-    // 기존 사용자 상태를 즉시 지우지 않는다.
-    const hasSessionCookie =
-      typeof document !== "undefined" &&
-      document.cookie.includes("app_session_id=");
-
-    if (!hasSessionCookie) {
+    if (location === "/login") {
       setCurrentUser(null);
+      return;
     }
-  }, [initDone, meQuery.data, meQuery.isLoading]);
+
+    // 방금 로그인 직후에는 auth.me 응답 지연이 있을 수 있으므로
+    // recent auth grace 동안은 사용자 상태를 성급히 지우지 않는다.
+    if (hasRecentAuthAttempt()) return;
+    setCurrentUser(null);
+  }, [initDone, location, meQuery.data, meQuery.isLoading]);
 
   useEffect(() => {
     const currentUserId = Number.isFinite(currentUser?.id) ? Number(currentUser.id) : null;
@@ -804,16 +847,6 @@ function AppContent() {
       void utils.invalidate();
     }
   }, [currentUser?.id, utils]);
-
-  useEffect(() => {
-    if (!initDone) return;
-    if (location === "/login") return;
-    if (currentUser) return;
-    if (!hasRecentAuthAttempt()) return;
-    if (meQuery.isLoading) return;
-    const returnTo = `${window.location.pathname}${window.location.search}`;
-    setLocation(`/login?returnTo=${encodeURIComponent(returnTo)}`);
-  }, [currentUser, initDone, location, meQuery.isLoading, setLocation]);
 
   useEffect(() => {
     if (!initDone) return;
@@ -877,6 +910,8 @@ function AppContent() {
     autoGuestLogin.isPending,
     currentUser,
     guestBootstrapFailed,
+    guestBootstrapAttempted,
+    guestBootstrapGateOpened,
     initDone,
     location,
     meQuery,

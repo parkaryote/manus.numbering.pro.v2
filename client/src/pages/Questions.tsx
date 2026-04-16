@@ -122,7 +122,28 @@ function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function buildUnlearnedConfidenceFallback(question: any, index: number): ConfidenceData {
+function normalizeSubjectNameForFallback(value: string | null | undefined): string {
+  return (value ?? "").toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+}
+
+function buildUnlearnedConfidenceFallback(
+  question: any,
+  index: number,
+  subjectName?: string | null
+): ConfidenceData {
+  const normalizedSubjectName = normalizeSubjectNameForFallback(subjectName);
+  if (normalizedSubjectName === normalizeSubjectNameForFallback("그림빵")) {
+    const displayOrder = Math.max(1, Number(question?.displayOrder ?? index + 1));
+    const drawingScores = [52, 58, 62];
+    const displayScore = drawingScores[(displayOrder - 1) % drawingScores.length] ?? drawingScores[0];
+    return {
+      displayScore,
+      state: "yellow",
+      label: "미학습",
+      isColdStart: true,
+    };
+  }
+
   const difficulty = question?.difficulty ?? "medium";
   const answerText = typeof question?.answer === "string" ? question.answer : "";
   const answerLength = answerText.replace(/\s+/g, "").length;
@@ -170,6 +191,35 @@ type BulkParseResult = {
   items: ParsedBulkQuestion[];
   errors: string[];
 };
+
+function countInlineBlankPlaceholders(question: string): number {
+  const matches = question.match(/\[\]/g);
+  return matches ? matches.length : 0;
+}
+
+function normalizeBlankAnswerLines(raw: string): string[] {
+  return raw
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function isLikelyBlankQuestion(question: string, answer: string): boolean {
+  const blankCount = countInlineBlankPlaceholders(question);
+  if (blankCount <= 0) return false;
+  const answerLines = normalizeBlankAnswerLines(answer);
+  return answerLines.length > 0;
+}
+
+function buildQuestionAnswerBlock(question: string, answer: string): string {
+  const q = normalizeTextInput(question).replace(/\r\n/g, "\n").trim();
+  const a = normalizeTextInput(answer).replace(/\r\n/g, "\n").trim();
+  if (!q && !a) return "";
+  if (!q) return a;
+  if (!a) return q;
+  return `${q}\n${a}`;
+}
 
 function stripNumberingPrefix(line: string): string {
   return line.replace(NUMBERING_PREFIX_REGEX, "").trim();
@@ -320,9 +370,10 @@ function parseBulkTableData(body: string): TableData | null {
 
 function parseBulkImportInput(
   raw: string,
-  options?: { autoNumberingEnabled?: boolean }
+  options?: { autoNumberingEnabled?: boolean; preferredMode?: "text" | "blank" }
 ): BulkParseResult {
   const autoNumberingEnabled = options?.autoNumberingEnabled !== false;
+  const preferredMode = options?.preferredMode ?? "text";
   const blocks = splitBulkBlocks(raw);
   const items: ParsedBulkQuestion[] = [];
   const errors: string[] = [];
@@ -343,6 +394,29 @@ function parseBulkImportInput(
     }
     if (!answerBody) {
       errors.push(`${blockOrder}번 블록 (${question}): 답안/표 내용이 없습니다.`);
+      continue;
+    }
+
+    const blankCount = countInlineBlankPlaceholders(question);
+    const blankAnswerLines = normalizeBlankAnswerLines(answerBody);
+    const shouldParseAsBlank = preferredMode === "blank" || blankCount > 0;
+
+    if (shouldParseAsBlank) {
+      if (blankCount <= 0) {
+        errors.push(`${blockOrder}번 블록 (${question}): 빈칸 문제는 질문에 []를 포함해야 합니다.`);
+        continue;
+      }
+      if (blankAnswerLines.length !== blankCount) {
+        errors.push(
+          `${blockOrder}번 블록 (${question}): [] 빈칸 ${blankCount}개와 답안 ${blankAnswerLines.length}줄이 일치해야 합니다.`
+        );
+        continue;
+      }
+      items.push({
+        question,
+        answer: blankAnswerLines.join("\n"),
+        autoNumbering: 0,
+      });
       continue;
     }
 
@@ -370,15 +444,6 @@ function parseBulkImportInput(
   }
 
   return { items, errors };
-}
-
-function buildBulkRawFromForm(question: string, answer: string): string {
-  const normalizedQuestion = question.replace(/\r\n/g, "\n").trim();
-  const normalizedAnswer = answer.replace(/\r\n/g, "\n").trim();
-  if (!normalizedQuestion && !normalizedAnswer) return "";
-  if (!normalizedQuestion) return normalizedAnswer;
-  if (!normalizedAnswer) return normalizedQuestion;
-  return `${normalizedQuestion}\n${normalizedAnswer}`;
 }
 
 function SortableQuestionCard({
@@ -696,7 +761,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   const [selectedQuestion, setSelectedQuestion] = useState<any>(null);
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"text" | "image" | "table" | "ocr">("text");
+  const [activeTab, setActiveTab] = useState<"text" | "blank" | "image" | "table" | "ocr">("text");
   const [isBulkCreating, setIsBulkCreating] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -975,15 +1040,18 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       const sorted = [...(questions ?? [])].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
       sorted.forEach((q, index) => {
         if (merged.has(q.id)) return;
-        merged.set(q.id, buildUnlearnedConfidenceFallback(q, index));
+        merged.set(q.id, buildUnlearnedConfidenceFallback(q, index, subject?.name));
       });
       return merged;
     }
     if (confidenceMap.size > 0) return confidenceMap;
     if (!questions || questions.length === 0) return confidenceMap;
 
-    const fallbackStates: Array<"green" | "yellow" | "red"> = ["green", "yellow", "red"];
-    const fallbackScores = [86, 56, 34];
+    const isDrawingBbangDemo = normalizeSubjectNameForFallback(subject?.name) === normalizeSubjectNameForFallback("그림빵");
+    const fallbackStates: Array<"green" | "yellow" | "red"> = isDrawingBbangDemo
+      ? ["yellow", "yellow", "yellow"]
+      : ["green", "yellow", "red"];
+    const fallbackScores = isDrawingBbangDemo ? [52, 58, 62] : [86, 56, 34];
     const fallback = new Map<number, ConfidenceData>();
     const sorted = [...questions].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
     sorted.forEach((q, index) => {
@@ -997,7 +1065,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       });
     });
     return fallback;
-  }, [confidenceMap, isReadOnlyDemo, questions]);
+  }, [confidenceMap, isReadOnlyDemo, questions, subject?.name]);
 
   const displayAggregate = useMemo<AggregateConfidenceSummary | null>(() => {
     if (!isReadOnlyDemo && !isDemoLinkedMode && confidenceData?.aggregate && confidenceData.aggregate.totalQuestions === displayConfidenceMap.size) {
@@ -1241,22 +1309,25 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     }, 0);
   };
 
-  const bulkInputValue = useMemo(() => {
-    if (hasBulkDelimiter(formData.question)) return formData.question;
-    if (hasBulkDelimiter(formData.answer)) return formData.answer;
-    return "";
-  }, [formData.answer, formData.question]);
-  const hasInlineBulkDelimiter = bulkInputValue.trim().length > 0;
   const inlineBulkRaw = useMemo(
-    () => (hasInlineBulkDelimiter ? bulkInputValue : buildBulkRawFromForm(formData.question, formData.answer)),
-    [bulkInputValue, formData.answer, formData.question, hasInlineBulkDelimiter]
+    () => {
+      if (activeTab === "blank") {
+        return buildQuestionAnswerBlock(formData.question, formData.answer);
+      }
+      return normalizeTextInput(formData.question).replace(/\r\n/g, "\n").trim();
+    },
+    [activeTab, formData.answer, formData.question]
+  );
+  const hasInlineBulkDelimiter = useMemo(
+    () => hasBulkDelimiter(inlineBulkRaw),
+    [inlineBulkRaw]
   );
   const inlineBulkParseResult = useMemo(
-    () =>
-      hasInlineBulkDelimiter
-        ? parseBulkImportInput(inlineBulkRaw, { autoNumberingEnabled: formData.autoNumbering })
-        : { items: [], errors: [] },
-    [formData.autoNumbering, hasInlineBulkDelimiter, inlineBulkRaw]
+    () => parseBulkImportInput(inlineBulkRaw, {
+      autoNumberingEnabled: activeTab === "text" ? formData.autoNumbering : false,
+      preferredMode: activeTab === "blank" ? "blank" : "text",
+    }),
+    [activeTab, formData.autoNumbering, inlineBulkRaw]
   );
   const inlineBulkSummary = useMemo(() => {
     const tableCount = inlineBulkParseResult.items.filter((item) => item.tableData).length;
@@ -1267,6 +1338,41 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       table: tableCount,
     };
   }, [inlineBulkParseResult.items]);
+
+  const blankPlaceholderCount = useMemo(
+    () => countInlineBlankPlaceholders(formData.question),
+    [formData.question]
+  );
+  const blankAnswerLines = useMemo(
+    () => normalizeTextInput(formData.answer).replace(/\r\n/g, "\n").split("\n"),
+    [formData.answer]
+  );
+  const handleBlankAnswerLineChange = useCallback((index: number, value: string) => {
+    setFormData((prev) => {
+      const targetCount = Math.max(1, countInlineBlankPlaceholders(prev.question));
+      const nextLines = normalizeTextInput(prev.answer).replace(/\r\n/g, "\n").split("\n");
+      while (nextLines.length < targetCount) nextLines.push("");
+      nextLines[index] = value;
+      return {
+        ...prev,
+        answer: nextLines.join("\n"),
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== "blank") return;
+    setFormData((prev) => {
+      const blankCount = countInlineBlankPlaceholders(prev.question);
+      if (blankCount <= 0) return prev;
+      const nextLines = normalizeTextInput(prev.answer).replace(/\r\n/g, "\n").split("\n");
+      while (nextLines.length < blankCount) nextLines.push("");
+      if (nextLines.length > blankCount) nextLines.length = blankCount;
+      const nextAnswer = nextLines.join("\n");
+      if (nextAnswer === prev.answer) return prev;
+      return { ...prev, answer: nextAnswer };
+    });
+  }, [activeTab, formData.question]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1448,7 +1554,11 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     const requestedDemoValue =
       isAdmin && DEMO_PUBLISHING_ENABLED ? (formData.isDemo ? 1 : 0) : undefined;
 
-    if (activeTab === "text" && hasInlineBulkDelimiter) {
+    if (activeTab === "text" || activeTab === "blank") {
+      if (!inlineBulkRaw.trim()) {
+        toast.error(activeTab === "blank" ? "빈칸 문제 블록을 입력하세요" : "문제 블록을 입력하세요");
+        return;
+      }
       if (inlineBulkParseResult.errors.length > 0) {
         toast.error(inlineBulkParseResult.errors[0]);
         return;
@@ -1457,7 +1567,32 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
         toast.error("생성 가능한 문제가 없습니다");
         return;
       }
-      await runBulkCreateFromBlocks(inlineBulkParseResult.items);
+      if (inlineBulkParseResult.items.length > 1 || hasInlineBulkDelimiter) {
+        await runBulkCreateFromBlocks(inlineBulkParseResult.items);
+        return;
+      }
+
+      const singleItem = inlineBulkParseResult.items[0];
+      if (isDemoWorkspace) {
+        createDemoMutation.mutate({
+          subjectId,
+          question: singleItem.question,
+          answer: singleItem.answer ?? "",
+          autoNumbering: singleItem.autoNumbering,
+          tableData: singleItem.tableData ? JSON.stringify(singleItem.tableData) : undefined,
+          isStarred: formData.isStarred ? 1 : 0,
+        } as any);
+        return;
+      }
+      createMutation.mutate({
+        subjectId,
+        question: singleItem.question,
+        answer: singleItem.answer ?? "",
+        autoNumbering: singleItem.autoNumbering,
+        tableData: singleItem.tableData ? JSON.stringify(singleItem.tableData) : undefined,
+        isDemo: requestedDemoValue,
+        isStarred: formData.isStarred ? 1 : 0,
+      } as any);
       return;
     }
 
@@ -1541,6 +1676,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     createMutation,
     formData,
     hasInlineBulkDelimiter,
+    inlineBulkRaw,
     inlineBulkParseResult.errors,
     inlineBulkParseResult.items,
     isAdmin,
@@ -1552,9 +1688,11 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   const handleEdit = (question: any) => {
     setEditingQuestion(question);
     const parsedTableData = question.tableData ? JSON.parse(question.tableData) : null;
+    const detectedBlankQuestion = isLikelyBlankQuestion(question.question || "", question.answer || "");
+    const textBlockValue = buildQuestionAnswerBlock(question.question || "", question.answer || "");
     setFormData({
-      question: question.question,
-      answer: question.answer || "",
+      question: parsedTableData || question.imageUrl || detectedBlankQuestion ? (question.question || "") : textBlockValue,
+      answer: detectedBlankQuestion ? (question.answer || "") : (parsedTableData || question.imageUrl ? (question.answer || "") : ""),
       imageUrl: question.imageUrl || "",
       imageLabels: question.imageLabels ? JSON.parse(question.imageLabels) : [],
       autoNumbering: question.autoNumbering !== 0,
@@ -1567,6 +1705,8 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       setActiveTab("table");
     } else if (question.imageUrl) {
       setActiveTab("image");
+    } else if (detectedBlankQuestion) {
+      setActiveTab("blank");
     } else {
       setActiveTab("text");
     }
@@ -1574,12 +1714,55 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   };
 
   const handleUpdate = () => {
+    const requestedDemoValue =
+      isAdmin && DEMO_PUBLISHING_ENABLED ? (formData.isDemo ? 1 : 0) : undefined;
+
+    if (activeTab === "text" || activeTab === "blank") {
+      if (!inlineBulkRaw.trim()) {
+        toast.error(activeTab === "blank" ? "빈칸 문제 블록을 입력하세요" : "문제 블록을 입력하세요");
+        return;
+      }
+      if (inlineBulkParseResult.errors.length > 0) {
+        toast.error(inlineBulkParseResult.errors[0]);
+        return;
+      }
+      if (inlineBulkParseResult.items.length !== 1) {
+        toast.error("수정은 1개 블록만 입력할 수 있습니다.");
+        return;
+      }
+
+      const singleItem = inlineBulkParseResult.items[0];
+      if (isDemoWorkspace) {
+        updateDemoMutation.mutate({
+          questionId: editingQuestion.id,
+          question: singleItem.question,
+          answer: singleItem.answer ?? "",
+          tableData: singleItem.tableData ? JSON.stringify(singleItem.tableData) : undefined,
+          imageUrl: undefined,
+          imageLabels: undefined,
+          autoNumbering: singleItem.autoNumbering,
+          isStarred: formData.isStarred ? 1 : 0,
+        } as any);
+        return;
+      }
+      updateMutation.mutate({
+        id: editingQuestion.id,
+        question: singleItem.question,
+        answer: singleItem.answer ?? "",
+        tableData: singleItem.tableData ? JSON.stringify(singleItem.tableData) : undefined,
+        imageUrl: undefined,
+        imageLabels: undefined,
+        autoNumbering: singleItem.autoNumbering,
+        isDemo: requestedDemoValue,
+        isStarred: formData.isStarred ? 1 : 0,
+      } as any);
+      return;
+    }
+
     if (!formData.question.trim()) {
       toast.error("질문을 입력하세요");
       return;
     }
-    const requestedDemoValue =
-      isAdmin && DEMO_PUBLISHING_ENABLED ? (formData.isDemo ? 1 : 0) : undefined;
 
     // Table question
     if (activeTab === "table") {
@@ -1706,9 +1889,10 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
 
   // QuestionForm을 useMemo로 감싸서 불필요한 리렌더링 방지
   const questionFormContent = (
-    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "image" | "table" | "ocr")} className="w-full">
-      <TabsList className="grid w-full grid-cols-4">
+    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "blank" | "image" | "table" | "ocr")} className="w-full">
+      <TabsList className="grid w-full grid-cols-5">
         <TabsTrigger value="text">텍스트 문제</TabsTrigger>
+        <TabsTrigger value="blank">빈칸 문제</TabsTrigger>
         <TabsTrigger value="image">이미지 문제</TabsTrigger>
         <TabsTrigger value="table" className="gap-1">
           <Table2 className="h-3.5 w-3.5" />표 문제
@@ -1721,75 +1905,82 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       <TabsContent value="text" className="space-y-4 mt-4">
         <div className="rounded-md border bg-muted/20 px-3 py-2 space-y-1">
           <p className="text-xs font-medium text-muted-foreground">
-            블록 일괄 입력: 입력칸 1개로 처리하며 `---` 로 블록만 구분합니다.
+            블록 일괄 입력만 사용합니다. 각 블록은 `첫 줄=질문`, `아래=답안` 형태이며 블록 사이는 `---` 로 구분합니다.
           </p>
-          {hasInlineBulkDelimiter ? (
-            <p className="text-xs text-muted-foreground">
-              감지 결과: 총 {inlineBulkSummary.total}개 (텍스트 {inlineBulkSummary.text} / 표 {inlineBulkSummary.table})
-              {" "}· 생성 버튼을 누르면 일괄 생성됩니다.
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              단일 문제는 기존처럼 질문/답안을 입력하고 생성하면 됩니다.
-            </p>
-          )}
-          {hasInlineBulkDelimiter && inlineBulkParseResult.errors.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            감지 결과: 총 {inlineBulkSummary.total}개 (텍스트 {inlineBulkSummary.text} / 표 {inlineBulkSummary.table})
+            {hasInlineBulkDelimiter ? " · 구분자 감지됨" : " · 단일 블록"}
+          </p>
+          {inlineBulkParseResult.errors.length > 0 && (
             <p className="text-xs text-red-600 dark:text-red-400">
               {inlineBulkParseResult.errors[0]}
             </p>
           )}
         </div>
 
-        {hasInlineBulkDelimiter ? (
+        <div className="space-y-2">
+          <Label htmlFor="bulk-input">블록 일괄 입력 *</Label>
+          <Textarea
+            id="bulk-input"
+            ref={questionTextareaRef}
+            value={formData.question}
+            onChange={(e) => handleBulkInputChange(e.target.value)}
+            placeholder={"문제제목\n답안/본문\n---\n다음문제제목\n답안/본문"}
+            rows={12}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="autoNumbering"
+            checked={formData.autoNumbering}
+            onChange={(e) => handleAutoNumberingToggle(e.target.checked)}
+            className="w-4 h-4 rounded border-gray-300 cursor-pointer"
+          />
+          <Label htmlFor="autoNumbering" className="cursor-pointer text-sm font-normal">
+            엔터 기준으로 답안 번호 자동 생성 (텍스트 블록)
+          </Label>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="blank" className="space-y-4 mt-4">
+        <div className="rounded-md border bg-muted/20 px-3 py-2 space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">
+            질문에 `[]` 빈칸을 넣으면, 아래 답안 칸이 빈칸 개수만큼 자동 대응됩니다.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            저장 시에는 `첫 줄=질문`, `아래 줄들=각 빈칸 답` 블록 1개로 처리됩니다.
+          </p>
+          {inlineBulkParseResult.errors.length > 0 && (
+            <p className="text-xs text-red-600 dark:text-red-400">
+              {inlineBulkParseResult.errors[0]}
+            </p>
+          )}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="blank-question">질문(빈칸 포함) *</Label>
+          <Textarea
+            id="blank-question"
+            value={formData.question}
+            onChange={(e) => handleQuestionChange(e.target.value)}
+            placeholder="예: 상악 중절치의 절단연은 []이고, 치근단은 []이다."
+            rows={3}
+          />
+          <p className="text-xs text-muted-foreground">감지된 빈칸: {blankPlaceholderCount}개</p>
+        </div>
+        <div className="space-y-2">
+          <Label>빈칸 답안 *</Label>
           <div className="space-y-2">
-            <Label htmlFor="bulk-input">블록 일괄 입력 *</Label>
-            <Textarea
-              id="bulk-input"
-              value={bulkInputValue}
-              onChange={(e) => handleBulkInputChange(e.target.value)}
-              placeholder={"문제제목\n답안/본문\n---\n다음문제제목\n답안/본문"}
-              rows={12}
-            />
+            {Array.from({ length: Math.max(1, blankPlaceholderCount) }).map((_, index) => (
+              <Input
+                key={index}
+                value={blankAnswerLines[index] ?? ""}
+                onChange={(e) => handleBlankAnswerLineChange(index, e.target.value)}
+                placeholder={`${index + 1}번 빈칸 답안`}
+              />
+            ))}
           </div>
-        ) : (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="question">질문 *</Label>
-              <Textarea
-                id="question"
-                ref={questionTextareaRef}
-                value={formData.question}
-                onChange={(e) => handleQuestionChange(e.target.value)}
-                placeholder="예: 조선시대의 주요 사건을 시대순으로 나열하시오"
-                rows={3}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="answer">답안 *</Label>
-              <Textarea
-                id="answer"
-                ref={answerTextareaRef}
-                value={formData.answer}
-                onChange={(e) => handleAnswerChange(e.target.value)}
-                onKeyDown={handleAnswerKeyDown}
-                placeholder="모범 답안을 입력하세요"
-                rows={6}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="autoNumbering"
-                checked={formData.autoNumbering}
-                onChange={(e) => handleAutoNumberingToggle(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 cursor-pointer"
-              />
-              <Label htmlFor="autoNumbering" className="cursor-pointer text-sm font-normal">
-                엔터 기준으로 답안 번호 자동 생성
-              </Label>
-            </div>
-          </>
-        )}
+        </div>
       </TabsContent>
 
       <TabsContent value="image" className="space-y-4 mt-4">
@@ -1933,54 +2124,56 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setLocation(isReadOnlyDemo || isDemoWorkspace || isDemoLinkedMode ? "/demo" : "/")}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            {subject && (
-              <div
-                className="w-3 h-3 rounded-full flex-shrink-0"
-                style={{ backgroundColor: subject.color || "#3B82F6" }}
-              />
-            )}
-            <h1 className="text-2xl font-semibold tracking-tight truncate">{subject?.name || "문제 관리"}</h1>
-            <span className="text-base text-muted-foreground flex-shrink-0">
-              {questions?.length || 0}문제
-            </span>
-            {displayAggregate && displayAggregate.totalQuestions > 0 && (
-              <button
-                onClick={() => setSubjectConfidenceOpen(true)}
-                className={`text-sm font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${
-                  displayAggregate.state === 'green'
-                    ? (displayAggregate.isColdStart
-                      ? 'bg-emerald-100/65 text-emerald-700/75 dark:bg-emerald-950/40 dark:text-emerald-200/85'
-                      : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400')
-                    : displayAggregate.state === 'yellow'
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
+        <div className="flex min-w-0 items-center gap-3 sm:flex-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 flex-shrink-0"
+            onClick={() => setLocation(isReadOnlyDemo || isDemoWorkspace || isDemoLinkedMode ? "/demo" : "/")}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              {subject && (
+                <div
+                  className="w-3 h-3 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: subject.color || "#3B82F6" }}
+                />
+              )}
+              <h1 className="text-xl sm:text-2xl font-semibold tracking-tight truncate">{subject?.name || "문제 관리"}</h1>
+              <span className="text-sm sm:text-base text-muted-foreground whitespace-nowrap flex-shrink-0">
+                {questions?.length || 0}문제
+              </span>
+              {displayAggregate && displayAggregate.totalQuestions > 0 && (
+                <button
+                  onClick={() => setSubjectConfidenceOpen(true)}
+                  className={`text-xs sm:text-sm font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity whitespace-nowrap ${
+                    displayAggregate.state === 'green'
                       ? (displayAggregate.isColdStart
-                        ? 'bg-amber-100/65 text-amber-700/75 dark:bg-amber-950/40 dark:text-amber-200/85'
-                        : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400')
-                      : (displayAggregate.isColdStart
-                        ? 'bg-red-100/65 text-red-700/75 dark:bg-red-950/40 dark:text-red-200/85'
-                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400')
-                }`}
-                title="클릭하여 과목 안정도 추이 보기"
-              >
-                과목 안정도 {displayAggregate.averageScore}점
-              </button>
-            )}
-            {displayAggregate?.isColdStart && (
-              <span className="text-xs text-amber-600 dark:text-amber-400">예시 화면</span>
-            )}
+                        ? 'bg-emerald-100/65 text-emerald-700/75 dark:bg-emerald-950/40 dark:text-emerald-200/85'
+                        : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400')
+                      : displayAggregate.state === 'yellow'
+                        ? (displayAggregate.isColdStart
+                          ? 'bg-amber-100/65 text-amber-700/75 dark:bg-amber-950/40 dark:text-amber-200/85'
+                          : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400')
+                        : (displayAggregate.isColdStart
+                          ? 'bg-red-100/65 text-red-700/75 dark:bg-red-950/40 dark:text-red-200/85'
+                          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400')
+                  }`}
+                  title="클릭하여 과목 안정도 추이 보기"
+                >
+                  과목 안정도 {displayAggregate.averageScore}점
+                </button>
+              )}
+              {displayAggregate?.isColdStart && (
+                <span className="text-xs text-amber-600 dark:text-amber-400 whitespace-nowrap">예시 화면</span>
+              )}
+            </div>
           </div>
         </div>
-        <div className="flex gap-1.5 flex-shrink-0 items-center">
+        <div className="flex w-full flex-wrap gap-1.5 items-center sm:w-auto sm:flex-shrink-0 sm:justify-end">
           {/* 과목 설정 버튼 (시험일 설정) */}
           {!isReadOnlyDemo && !isDemoWorkspace && (
             <Popover open={isSubjectSettingOpen} onOpenChange={(open) => {
@@ -2273,10 +2466,10 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
           <div className="min-h-full flex flex-col">
-            <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 flex items-center justify-between shadow-sm">
+            <div className="sticky top-0 z-10 bg-background border-b px-3 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-2 shadow-sm">
               <div>
                 <h2 className="text-xl font-bold">새 문제 추가</h2>
-                <p className="text-sm text-muted-foreground">텍스트, 이미지 또는 표 문제를 생성하세요</p>
+                <p className="text-sm text-muted-foreground">텍스트, 빈칸, 이미지 또는 표 문제를 생성하세요</p>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm(); }}>취소</Button>
@@ -2290,7 +2483,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                 </Button>
               </div>
             </div>
-            <div className="flex-1 px-6 py-6 max-w-4xl mx-auto w-full">
+            <div className="flex-1 px-3 sm:px-6 py-4 sm:py-6 max-w-4xl mx-auto w-full">
               {questionFormContent}
               <div className="mt-4 space-y-2">
                 <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-3">
@@ -2333,7 +2526,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       {isEditOpen && (
         <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
           <div className="min-h-full flex flex-col">
-            <div className="sticky top-0 z-10 bg-background border-b px-6 py-4 flex items-center justify-between shadow-sm">
+            <div className="sticky top-0 z-10 bg-background border-b px-3 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-2 shadow-sm">
               <div>
                 <h2 className="text-xl font-bold">문제 수정</h2>
                 <p className="text-sm text-muted-foreground">문제 내용을 수정하세요</p>
@@ -2347,7 +2540,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                 </Button>
               </div>
             </div>
-            <div className="flex-1 px-6 py-6 max-w-4xl mx-auto w-full">
+            <div className="flex-1 px-3 sm:px-6 py-4 sm:py-6 max-w-4xl mx-auto w-full">
               {questionFormContent}
               <div className="mt-4 space-y-2">
                 <div className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-3">

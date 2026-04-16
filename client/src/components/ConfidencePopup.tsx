@@ -120,7 +120,7 @@ export function ConfidencePopup({
 
       {/* 팝업 카드 */}
       <div
-        className="relative rounded-2xl border-2 px-10 py-8 shadow-2xl min-w-[220px] text-center"
+        className="relative rounded-2xl border-2 px-5 sm:px-10 py-6 sm:py-8 shadow-2xl min-w-[220px] w-[min(92vw,420px)] text-center"
         style={{
           ...containerStyle,
           borderColor,
@@ -153,12 +153,12 @@ export function ConfidencePopup({
 
         {/* 점수 */}
         <div className="mb-3">
-          <div className="text-6xl font-black text-white tracking-tight">
+          <div className="text-4xl sm:text-6xl font-black text-white tracking-tight">
             {displayScore}
-            <span className="text-3xl font-bold text-slate-300">점</span>
+            <span className="text-2xl sm:text-3xl font-bold text-slate-300">점</span>
           </div>
           <div
-            className="text-2xl font-bold mt-1"
+            className="text-xl sm:text-2xl font-bold mt-1"
             style={{ color: isIncrease ? "#34d399" : "#f87171" }}
           >
             {isIncrease ? "▲" : "▼"}&nbsp;{absScoreDiff}점

@@ -6,7 +6,40 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import viteConfig from "../../vite.config";
 
+function resolveHeaderValue(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return value ?? "";
+}
+
+function resolveRequestOrigin(req: {
+  headers?: Record<string, string | string[] | undefined>;
+  protocol?: string;
+}): string {
+  const headers = req.headers ?? {};
+  const forwardedProto = resolveHeaderValue(headers["x-forwarded-proto"]).split(",")[0]?.trim();
+  const forwardedHost = resolveHeaderValue(headers["x-forwarded-host"]).split(",")[0]?.trim();
+  const host = forwardedHost || resolveHeaderValue(headers.host).split(",")[0]?.trim();
+  const proto = forwardedProto || req.protocol || "http";
+  if (!host) return "";
+  return `${proto}://${host}`;
+}
+
+function injectOgRuntimeMeta(template: string, req: {
+  headers?: Record<string, string | string[] | undefined>;
+  protocol?: string;
+  originalUrl?: string;
+  url?: string;
+}, updatedAtISO: string): string {
+  const origin = resolveRequestOrigin(req);
+  const pathWithQuery = req.originalUrl || req.url || "/";
+  const ogUrl = origin ? `${origin}${pathWithQuery}` : "https://numbering.pro/";
+  return template
+    .replaceAll("__OG_URL__", ogUrl)
+    .replaceAll("__OG_UPDATED_AT__", updatedAtISO);
+}
+
 export async function setupVite(app: Express, server: Server) {
+  const ogUpdatedAtISO = new Date().toISOString();
   const serverOptions = {
     middlewareMode: true,
     hmr: false,
@@ -56,8 +89,17 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`
       );
+      template = injectOgRuntimeMeta(template, req, ogUpdatedAtISO);
       const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      res
+        .status(200)
+        .set({
+          "Content-Type": "text/html",
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        })
+        .end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);
@@ -66,6 +108,7 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
+  const ogUpdatedAtISO = new Date().toISOString();
   const distPath =
     process.env.NODE_ENV === "development"
       ? path.resolve(import.meta.dirname, "../..", "dist", "public")
@@ -76,10 +119,36 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  app.use(
+    express.static(distPath, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+          res.setHeader("Pragma", "no-cache");
+          res.setHeader("Expires", "0");
+        }
+      },
+    })
+  );
 
   // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+  app.use("*", async (req, res, next) => {
+    try {
+      const indexPath = path.resolve(distPath, "index.html");
+      const template = await fs.promises.readFile(indexPath, "utf-8");
+      const html = injectOgRuntimeMeta(template, req, ogUpdatedAtISO);
+      res
+        .status(200)
+        .set({
+          "Content-Type": "text/html; charset=UTF-8",
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        })
+        .end(html);
+    } catch (error) {
+      next(error);
+    }
   });
 }

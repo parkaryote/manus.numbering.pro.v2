@@ -79,7 +79,7 @@ export function QuestionGridView({
 
   return (
     <div className="mb-4 p-4 bg-card rounded-xl border border-border shadow-sm">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h3 className="text-base font-semibold text-foreground">문제 순서별 안정도</h3>
         <div className="flex flex-wrap justify-end gap-2 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1.5" title="80점 이상">
@@ -115,7 +115,7 @@ export function QuestionGridView({
               onClick={() => onSelectQuestion(q.id)}
               className={`
                 flex flex-col items-center justify-center gap-0.5
-                w-[70px] h-[76px] rounded-lg
+                w-[62px] h-[68px] sm:w-[70px] sm:h-[76px] rounded-lg
                 transition-all duration-150
                 hover:shadow-md hover:-translate-y-0.5
                 focus:outline-none focus:ring-2 focus:ring-primary/30
@@ -129,16 +129,16 @@ export function QuestionGridView({
               }
               >
               {/* 번호 */}
-              <span className={`text-base font-bold leading-none ${textColor}`}>
+              <span className={`text-sm sm:text-base font-bold leading-none ${textColor}`}>
                 {q.displayOrder}
               </span>
               {/* 안정도 점수 */}
               {score !== undefined ? (
-                <span className={`inline-block w-[50px] text-center text-sm font-semibold font-mono tabular-nums tracking-tight leading-none ${textColor}`}>
+                <span className={`inline-block w-[44px] sm:w-[50px] text-center text-xs sm:text-sm font-semibold font-mono tabular-nums tracking-tight leading-none ${textColor}`}>
                   {Math.round(score)}점
                 </span>
               ) : (
-                <span className={`inline-block w-[50px] text-center text-sm leading-none ${textColor}/50`}>
+                <span className={`inline-block w-[44px] sm:w-[50px] text-center text-xs sm:text-sm leading-none ${textColor}/50`}>
                   —
                 </span>
               )}
