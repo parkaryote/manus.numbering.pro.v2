@@ -449,7 +449,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const totalQuestions = orderedSubjectQuestions?.length ?? 0;
   const showToothMorphologySource = (subject?.name ?? "").includes("치아형태학");
   const isAdminDemoQuestion = isAdmin && question?.isDemo === 1;
-  const canEditQuestion = Boolean(question && (!isDemo || isAdminDemoQuestion));
+  const canEditQuestion = Boolean(question && (!isDemo || isDemoLinkedMode || isAdminDemoQuestion));
   const { data: practiceCountData } = trpc.practice.countByQuestion.useQuery(
     { questionId },
     { enabled: !!questionId && !isDemo }
@@ -467,6 +467,28 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     [question?.id, question?.imageUrl]
   );
   const utils = trpc.useUtils();
+  const invalidateQuestionWorkspaceCaches = useCallback(async () => {
+    if (!question) return;
+    await Promise.all([
+      utils.questions.getById.invalidate({ id: question.id }),
+      utils.questions.listBySubject.invalidate({ subjectId: question.subjectId }),
+      utils.confidence.getByQuestion.invalidate({ questionId: question.id }),
+      utils.confidence.getHistory.invalidate({ questionId: question.id }),
+      utils.practice.countByQuestion.invalidate({ questionId: question.id }),
+      utils.confidence.getBySubject.invalidate({ subjectId: question.subjectId }),
+      utils.confidence.getHistoryBySubject.invalidate({ subjectId: question.subjectId }),
+      utils.subjects.list.invalidate(),
+      utils.subjects.getById.invalidate({ id: question.subjectId }),
+      ...(isDemoLinkedMode && demoLinkedSubjectId
+        ? [
+            utils.demo.dashboard.invalidate(),
+            utils.demo.questions.invalidate({ subjectId: demoLinkedSubjectId }),
+            utils.demo.confidenceBySubject.invalidate({ subjectId: demoLinkedSubjectId }),
+            utils.demo.confidenceHistoryBySubject.invalidate({ subjectId: demoLinkedSubjectId }),
+          ]
+        : []),
+    ]);
+  }, [demoLinkedSubjectId, isDemoLinkedMode, question, utils]);
   const createSession = trpc.practice.create.useMutation({
     onError: (error) => {
       // Silently ignore errors in demo mode
@@ -480,7 +502,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       setMemoSaved(true);
       setMemoSaving(false);
       setTimeout(() => setMemoSaved(false), 2000);
-      utils.questions.getById.invalidate({ id: questionId });
+      void invalidateQuestionWorkspaceCaches();
     },
     onError: (error) => {
       setMemoSaving(false);
@@ -491,7 +513,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     onSuccess: () => {
       toast.success('문제가 수정되었습니다');
       setEditMode(false);
-      utils.questions.getById.invalidate({ id: questionId });
+      void invalidateQuestionWorkspaceCaches();
     },
     onError: (error) => {
       toast.error('수정 실패: ' + error.message);
@@ -501,10 +523,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     onSuccess: () => {
       toast.success('데모 문제가 수정되었습니다');
       setEditMode(false);
-      utils.questions.getById.invalidate({ id: questionId });
+      void invalidateQuestionWorkspaceCaches();
       if (question?.subjectId) {
-        utils.demo.questions.invalidate({ subjectId: question.subjectId });
-        utils.admin.demo.questions.invalidate({ subjectId: question.subjectId });
+        void utils.demo.questions.invalidate({ subjectId: question.subjectId });
+        void utils.admin.demo.questions.invalidate({ subjectId: question.subjectId });
       }
     },
     onError: (error) => {
@@ -1685,11 +1707,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             accuracy: wasBlind ? 100 : 84,
             errorCount: wasBlind ? 0 : 1,
           });
-          await Promise.all([
-            utils.confidence.getByQuestion.invalidate({ questionId: question.id }),
-            utils.confidence.getHistory.invalidate({ questionId: question.id }),
-            utils.practice.countByQuestion.invalidate({ questionId: question.id }),
-          ]);
+          await invalidateQuestionWorkspaceCaches();
           const [latestConfidence] = await Promise.all([
             utils.confidence.getByQuestion.fetch({ questionId: question.id }),
             utils.confidence.getHistory.fetch({ questionId: question.id }),
@@ -2208,11 +2226,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       });
       hasBeenSaved.current = true;
       tablePartialSavedRatioRef.current = ratio;
-      await Promise.all([
-        utils.confidence.getByQuestion.invalidate({ questionId: question.id }),
-        utils.confidence.getHistory.invalidate({ questionId: question.id }),
-        utils.practice.countByQuestion.invalidate({ questionId: question.id }),
-      ]);
+      await invalidateQuestionWorkspaceCaches();
     } catch (error) {
       console.error("표 부분 연습 기록 저장 실패:", error);
     }
@@ -3188,11 +3202,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             accuracy: 100,
             errorCount: 0,
           });
-          await Promise.all([
-            utils.confidence.getByQuestion.invalidate({ questionId: question.id }),
-            utils.confidence.getHistory.invalidate({ questionId: question.id }),
-            utils.practice.countByQuestion.invalidate({ questionId: question.id }),
-          ]);
+          await invalidateQuestionWorkspaceCaches();
 
           // 실제 반영값을 직접 fetch해서 최신 점수/그래프 동기화
           const [latestConfidence] = await Promise.all([

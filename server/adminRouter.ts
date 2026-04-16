@@ -27,11 +27,19 @@ function assertDemoPublishingEnabled(role?: "admin" | "user") {
 }
 
 const TOOTH_MORPHOLOGY_SUBJECT_NAME = "치아형태학";
-const TOOTH_SHOWCASE_KEYS_IN_ORDER = ["box1", "box9", "table_i3"] as const;
+const HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT =
+  'Box-7 소구치의 견치, 대구치의 중간 단계로서의 특징 중 "대구치의 특징"';
+const HARD_CODED_TOOTH_BOX7_DEMO_ANSWER = [
+  "1. 설측교두 존재",
+  "2. 교합면이 있어 가는 기능 보조",
+  "3. 상악 제1 소구치는 2개의 치근",
+].join("\n");
+const TOOTH_SHOWCASE_KEYS_IN_ORDER = ["box1", "box7", "box9", "table_i3"] as const;
 type ToothShowcaseKey = (typeof TOOTH_SHOWCASE_KEYS_IN_ORDER)[number];
 
 const TOOTH_SHOWCASE_TITLE_CANDIDATES: Record<ToothShowcaseKey, string[]> = {
   box1: ["Box-1 절치들의 근원심구별"],
+  box7: [HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT],
   box9: ["Box-9 하악 제1소구치와 제2소구치의 차이점"],
   table_i3: ["표 I-3 상악 치아 크기"],
 };
@@ -47,6 +55,7 @@ function normalizeLookupValue(value: string | null | undefined): string {
 const TOOTH_MORPHOLOGY_SUBJECT_KEY = normalizeSubjectNameValue(TOOTH_MORPHOLOGY_SUBJECT_NAME);
 const TOOTH_SHOWCASE_TITLE_LOOKUP: Record<ToothShowcaseKey, string[]> = {
   box1: TOOTH_SHOWCASE_TITLE_CANDIDATES.box1.map((title) => normalizeLookupValue(title)),
+  box7: TOOTH_SHOWCASE_TITLE_CANDIDATES.box7.map((title) => normalizeLookupValue(title)),
   box9: TOOTH_SHOWCASE_TITLE_CANDIDATES.box9.map((title) => normalizeLookupValue(title)),
   table_i3: TOOTH_SHOWCASE_TITLE_CANDIDATES.table_i3.map((title) => normalizeLookupValue(title)),
 };
@@ -81,16 +90,55 @@ function pickToothShowcaseQuestions<T extends { question?: string | null; displa
   });
 }
 
+async function ensureHardcodedToothBox7DemoQuestionExists() {
+  const demoSubjects = await db.getAllDemoSubjects();
+  const toothDemoSubject = demoSubjects.find((subject) => isToothMorphologySubjectName(subject.name));
+  if (!toothDemoSubject) return;
+
+  const demoQuestions = await db.getDemoQuestionsBySubjectId(toothDemoSubject.id);
+  const targetNormalized = normalizeLookupValue(HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT);
+  const matchedQuestion = demoQuestions.find(
+    (question) => normalizeLookupValue(question.question) === targetNormalized
+  );
+
+  const payload = {
+    question: HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT,
+    answer: HARD_CODED_TOOTH_BOX7_DEMO_ANSWER,
+    autoNumbering: 1,
+    difficulty: "easy" as const,
+    tableData: undefined,
+    imageUrl: undefined,
+    imageLabels: undefined,
+    useAIGrading: 0,
+    isStarred: matchedQuestion?.isStarred ?? 0,
+    displayOrder: 7,
+  };
+
+  if (matchedQuestion) {
+    await db.updateDemoQuestion(matchedQuestion.id, payload);
+    return;
+  }
+
+  await db.createDemoQuestion({
+    subjectId: toothDemoSubject.id,
+    userId: toothDemoSubject.userId,
+    isDemo: 1,
+    ...payload,
+  });
+}
+
 export const adminRouter = router({
   // 데모 과목 관리
   demo: router({
     // 모든 데모 과목 조회
     subjects: adminProcedure.query(async () => {
+      await ensureHardcodedToothBox7DemoQuestionExists();
       return db.getAllDemoSubjects();
     }),
 
     // 모든 데모 문제 조회 (과목 선택 여부와 관계없이)
     allQuestions: adminProcedure.query(async () => {
+      await ensureHardcodedToothBox7DemoQuestionExists();
       return await db.getAllDemoQuestions();
     }),
 
@@ -98,6 +146,7 @@ export const adminRouter = router({
     questions: adminProcedure
       .input(z.object({ subjectId: z.number() }))
       .query(async ({ input }) => {
+        await ensureHardcodedToothBox7DemoQuestionExists();
         const subject = await db.getSubjectById(input.subjectId);
         if (!subject || subject.isDemo !== 1) return [];
         const rows = await db.getDemoQuestionsBySubjectId(input.subjectId);

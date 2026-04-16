@@ -1013,6 +1013,13 @@ const PARTIAL_DENTURE_FIXED_EXAM_DATE = new Date("2026-04-24T13:00:00+09:00");
 const NUMBERING_FIXED_EXAM_DATE = new Date("2026-05-16T13:00:00+09:00");
 const DRAWING_BBANG_FIXED_EXAM_DATE = new Date("2026-05-07T13:00:00+09:00");
 const CRITICAL_TOOTH_DEMO_QUESTION_TEXT = "표 I-3 하악 치아 크기";
+const HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT =
+  'Box-7 소구치의 견치, 대구치의 중간 단계로서의 특징 중 "대구치의 특징"';
+const HARD_CODED_TOOTH_BOX7_DEMO_ANSWER = [
+  "1. 설측교두 존재",
+  "2. 교합면이 있어 가는 기능 보조",
+  "3. 상악 제1 소구치는 2개의 치근",
+].join("\n");
 const PARTIAL_DENTURE_DEMO_TARGET_QUESTION_COUNT = 9;
 
 function normalizeSubjectNameValue(value: string | null | undefined): string {
@@ -1108,6 +1115,7 @@ function getStarterTitleScoreOverride(input: {
 
   if (isToothMorphologySubjectName(subjectName)) {
     if (normalizedTitle.includes("box1절치들의근원심구별")) return 91;
+    if (normalizedTitle.includes("box7소구치의견치대구치의중간단계로서의특징중대구치의특징")) return 88;
     if (normalizedTitle.includes("box9하악제1소구치와제2소구치의차이점")) return 54;
     if (normalizedTitle.includes("표i3상악치아크기")) return 22;
   }
@@ -1421,11 +1429,12 @@ type DemoQuestionPreview = {
   isExample: true;
 };
 
-type DemoShowcaseKey = "box1" | "box9" | "table_i3";
+type DemoShowcaseKey = "box1" | "box7" | "box9" | "table_i3";
 
-const DEMO_SHOWCASE_KEYS_IN_ORDER: DemoShowcaseKey[] = ["box1", "box9", "table_i3"];
+const DEMO_SHOWCASE_KEYS_IN_ORDER: DemoShowcaseKey[] = ["box1", "box7", "box9", "table_i3"];
 const DEMO_SHOWCASE_TITLE_CANDIDATES: Record<DemoShowcaseKey, string[]> = {
   box1: ["Box-1 절치들의 근원심구별"],
+  box7: [HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT],
   box9: ["Box-9 하악 제1소구치와 제2소구치의 차이점"],
   table_i3: ["표 I-3 상악 치아 크기"],
 };
@@ -1436,6 +1445,7 @@ function normalizeDemoShowcaseLookupValue(value: string | null | undefined): str
 
 const DEMO_SHOWCASE_TITLE_LOOKUP: Record<DemoShowcaseKey, string[]> = {
   box1: DEMO_SHOWCASE_TITLE_CANDIDATES.box1.map((title) => normalizeDemoShowcaseLookupValue(title)),
+  box7: DEMO_SHOWCASE_TITLE_CANDIDATES.box7.map((title) => normalizeDemoShowcaseLookupValue(title)),
   box9: DEMO_SHOWCASE_TITLE_CANDIDATES.box9.map((title) => normalizeDemoShowcaseLookupValue(title)),
   table_i3: DEMO_SHOWCASE_TITLE_CANDIDATES.table_i3.map((title) => normalizeDemoShowcaseLookupValue(title)),
 };
@@ -1538,6 +1548,17 @@ const DEMO_SCENARIO_OVERRIDES_BY_SHOWCASE_KEY: Partial<Record<DemoShowcaseKey, D
     { minutesAgo: 1 * 24 * 60 + 11 * 60, eventType: "forgetting", score: 92 },
     { minutesAgo: 5 * 60, eventType: "practice", score: 95, practiceSessionCount: 9, practiceDelta: 3 },
     { minutesAgo: 0, eventType: "now", score: 91 },
+  ],
+  box7: [
+    { minutesAgo: 7 * 24 * 60 + 8 * 60, eventType: "practice", score: 14, practiceSessionCount: 1, practiceDelta: 14 },
+    { minutesAgo: 7 * 24 * 60 + 7 * 60 + 22, eventType: "practice", score: 34, practiceSessionCount: 2, practiceDelta: 20 },
+    { minutesAgo: 7 * 24 * 60 + 6 * 60 + 34, eventType: "practice", score: 57, practiceSessionCount: 3, practiceDelta: 23 },
+    { minutesAgo: 7 * 24 * 60 + 5 * 60 + 42, eventType: "test", score: 89, accuracyRate: 95, isCorrect: true },
+    { minutesAgo: 5 * 24 * 60 + 18 * 60, eventType: "forgetting", score: 73 },
+    { minutesAgo: 3 * 24 * 60 + 11 * 60, eventType: "practice", score: 81, practiceSessionCount: 4, practiceDelta: 8 },
+    { minutesAgo: 3 * 24 * 60 + 10 * 60 + 14, eventType: "test", score: 92, accuracyRate: 97, isCorrect: true },
+    { minutesAgo: 18 * 60, eventType: "forgetting", score: 85 },
+    { minutesAgo: 0, eventType: "now", score: 88 },
   ],
   box9: [
     { minutesAgo: 9 * 24 * 60 + 7 * 60, eventType: "practice", score: 11, practiceSessionCount: 1, practiceDelta: 11 },
@@ -2189,6 +2210,48 @@ async function ensureCriticalToothDemoQuestionExists() {
   );
 }
 
+async function ensureHardcodedToothBox7DemoQuestionExists() {
+  const demoSubjects = await db.getDemoSubjects();
+  const toothDemoSubject = demoSubjects.find((subject) => isToothMorphologySubjectName(subject.name));
+  if (!toothDemoSubject) return;
+
+  const existingDemoQuestions = await db.getDemoQuestions(toothDemoSubject.id);
+  const targetNormalized = normalizeQuestionTextValue(HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT);
+  const matchedQuestion = existingDemoQuestions.find(
+    (question) => normalizeQuestionTextValue(question.question) === targetNormalized
+  );
+
+  const payload = {
+    question: HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT,
+    answer: HARD_CODED_TOOTH_BOX7_DEMO_ANSWER,
+    difficulty: "easy" as const,
+    imageUrl: null,
+    imageLabels: null,
+    autoNumbering: 1,
+    tableData: null,
+    displayOrder: 7,
+    isStarred: matchedQuestion?.isStarred ?? 0,
+    useAIGrading: 0,
+    memo: matchedQuestion?.memo ?? undefined,
+  };
+
+  if (matchedQuestion) {
+    await db.updateDemoQuestion(matchedQuestion.id, payload);
+    return;
+  }
+
+  await db.createDemoQuestion({
+    subjectId: toothDemoSubject.id,
+    userId: toothDemoSubject.userId,
+    isDemo: 1,
+    ...payload,
+  });
+
+  console.log(
+    `[StarterData] Hardcoded demo question "${HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT}" into "${TOOTH_MORPHOLOGY_SUBJECT_NAME}".`
+  );
+}
+
 async function ensurePartialDentureDemoSubjectExists() {
   const demoSubjects = await db.getDemoSubjects();
   let partialDemoSubject = demoSubjects.find((subject) => isPartialDentureSubjectName(subject.name));
@@ -2316,6 +2379,40 @@ async function syncDemoQuestionsToSubject(
     return practiceSessions.length > 0 || testSessions.length > 0;
   };
 
+  const hasLocalDemoLinkedOverride = (
+    currentQuestion: {
+      question: string;
+      answer: string;
+      difficulty: "easy" | "medium" | "hard" | null;
+      imageUrl: string | null;
+      imageLabels: string | null;
+      autoNumbering: number;
+      tableData: string | null;
+      isStarred: number;
+      useAIGrading: number;
+    },
+    demoQuestion: {
+      question: string;
+      answer: string;
+      difficulty: "easy" | "medium" | "hard" | null;
+      imageUrl: string | null;
+      imageLabels: string | null;
+      autoNumbering: number;
+      tableData: string | null;
+      isStarred: number;
+      useAIGrading: number;
+    }
+  ) =>
+    (currentQuestion.question ?? "") !== demoQuestion.question ||
+    (currentQuestion.answer ?? "") !== demoQuestion.answer ||
+    (currentQuestion.difficulty ?? "medium") !== (demoQuestion.difficulty ?? "medium") ||
+    (currentQuestion.imageUrl ?? null) !== (demoQuestion.imageUrl ?? null) ||
+    (currentQuestion.imageLabels ?? null) !== (demoQuestion.imageLabels ?? null) ||
+    (currentQuestion.autoNumbering ?? 0) !== demoQuestion.autoNumbering ||
+    (currentQuestion.tableData ?? null) !== (demoQuestion.tableData ?? null) ||
+    (currentQuestion.isStarred ?? 0) !== (demoQuestion.isStarred ?? 0) ||
+    (currentQuestion.useAIGrading ?? 0) !== (demoQuestion.useAIGrading ?? 0);
+
   for (const dq of demoQuestions) {
     let targetQuestion = linkedQuestionsBySourceId.get(dq.id);
 
@@ -2362,6 +2459,14 @@ async function syncDemoQuestionsToSubject(
         subjectId: userSubjectId,
         userId,
         ...syncedData,
+      });
+      continue;
+    }
+
+    if (hasLocalDemoLinkedOverride(targetQuestion, dq)) {
+      await db.updateQuestion(targetQuestion.id, {
+        demoSourceQuestionId: dq.id,
+        isDemo: 0,
       });
       continue;
     }
@@ -2434,6 +2539,25 @@ async function upsertSingleDemoQuestionToSubject(
   } as const;
 
   if (linkedQuestion) {
+    const hasLocalOverride =
+      (linkedQuestion.question ?? "") !== demoQuestion.question ||
+      (linkedQuestion.answer ?? "") !== demoQuestion.answer ||
+      (linkedQuestion.difficulty ?? "medium") !== (demoQuestion.difficulty ?? "medium") ||
+      (linkedQuestion.imageUrl ?? null) !== (demoQuestion.imageUrl ?? null) ||
+      (linkedQuestion.imageLabels ?? null) !== (demoQuestion.imageLabels ?? null) ||
+      (linkedQuestion.autoNumbering ?? 0) !== demoQuestion.autoNumbering ||
+      (linkedQuestion.tableData ?? null) !== (demoQuestion.tableData ?? null) ||
+      (linkedQuestion.isStarred ?? 0) !== (demoQuestion.isStarred ?? 0) ||
+      (linkedQuestion.useAIGrading ?? 0) !== (demoQuestion.useAIGrading ?? 0);
+
+    if (hasLocalOverride) {
+      await db.updateQuestion(linkedQuestion.id, {
+        demoSourceQuestionId: demoQuestion.id,
+        isDemo: 0,
+      });
+      return linkedQuestion.id;
+    }
+
     await db.updateQuestion(linkedQuestion.id, syncedData);
     return linkedQuestion.id;
   }
@@ -2484,6 +2608,7 @@ async function cleanupStaleDemoLinkedSubjects(userId: number, activeDemoSubjectI
 
 async function ensureStarterDataForUser(userId: number) {
   await ensureCriticalToothDemoQuestionExists();
+  await ensureHardcodedToothBox7DemoQuestionExists();
   await ensurePartialDentureDemoSubjectExists();
   const demoSubjects = await db.getDemoSubjects();
   const toothDemoSubject = demoSubjects.find((subject) => isToothMorphologySubjectName(subject.name));
@@ -2561,6 +2686,7 @@ async function syncStarterDataSafely(userId: number) {
 }
 
 async function ensureDemoWorkspaceSubjectForUser(userId: number, demoSubjectId: number) {
+  await ensureHardcodedToothBox7DemoQuestionExists();
   await ensurePartialDentureDemoSubjectExists();
   const demoSubject = await db.getSubjectById(demoSubjectId);
   if (!demoSubject || demoSubject.isDemo !== 1) return null;
@@ -3903,6 +4029,7 @@ export const appRouter = router({
   // Demo mode - public access
   demo: router({
     subjects: publicProcedure.query(async () => {
+      await ensureHardcodedToothBox7DemoQuestionExists();
       await ensurePartialDentureDemoSubjectExists();
       const demoSubjects = await db.getDemoSubjects();
       return demoSubjects.map((subject) => applySubjectExamDateOverride(subject));
@@ -3955,6 +4082,7 @@ export const appRouter = router({
     resolveSubjectWorkspace: publicProcedure
       .input(z.object({ demoSubjectId: z.number(), guestId: GUEST_ID_SCHEMA.optional() }))
       .query(async ({ input, ctx }) => {
+        await ensureHardcodedToothBox7DemoQuestionExists();
         const actor = await resolveOrBootstrapGuestUser(ctx, input.guestId ?? null);
         if (!actor) {
           return { mappedSubjectId: null as number | null, pending: true };
@@ -4069,6 +4197,7 @@ export const appRouter = router({
       }),
 
     dashboard: publicProcedure.query(async ({ ctx }) => {
+      await ensureHardcodedToothBox7DemoQuestionExists();
       await ensurePartialDentureDemoSubjectExists();
       const now = new Date();
       const demoSubjects = (await db.getDemoSubjects()).map((subject) =>
@@ -4383,6 +4512,7 @@ export const appRouter = router({
     questions: publicProcedure
       .input(z.object({ subjectId: z.number() }))
       .query(async ({ input }) => {
+        await ensureHardcodedToothBox7DemoQuestionExists();
         const subject = await db.getSubjectById(input.subjectId);
         if (!subject || subject.isDemo !== 1) {
           return [];
@@ -4394,6 +4524,7 @@ export const appRouter = router({
     confidenceByQuestion: publicProcedure
       .input(z.object({ questionId: z.number() }))
       .query(async ({ input }) => {
+        await ensureHardcodedToothBox7DemoQuestionExists();
         const question = await db.getQuestionById(input.questionId);
         if (!question || question.isDemo !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 문제를 찾을 수 없습니다" });
@@ -4413,6 +4544,7 @@ export const appRouter = router({
     confidenceHistory: publicProcedure
       .input(z.object({ questionId: z.number() }))
       .query(async ({ input }) => {
+        await ensureHardcodedToothBox7DemoQuestionExists();
         const question = await db.getQuestionById(input.questionId);
         if (!question || question.isDemo !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 문제를 찾을 수 없습니다" });
@@ -4433,6 +4565,7 @@ export const appRouter = router({
     confidenceBySubject: publicProcedure
       .input(z.object({ subjectId: z.number() }))
       .query(async ({ input }) => {
+        await ensureHardcodedToothBox7DemoQuestionExists();
         const subject = await db.getSubjectById(input.subjectId);
         if (!subject || subject.isDemo !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다" });

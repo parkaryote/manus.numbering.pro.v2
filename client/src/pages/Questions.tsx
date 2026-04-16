@@ -941,14 +941,25 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     onError: (error) => toast.error(error.message || "공유 링크 비활성화 실패"),
   });
   const invalidateDemoQuestionCaches = () => {
-    utils.admin.demo.questions.invalidate({ subjectId });
-    utils.admin.demo.allQuestions.invalidate();
-    utils.demo.questions.invalidate({ subjectId });
+    void utils.admin.demo.questions.invalidate({ subjectId });
+    void utils.admin.demo.allQuestions.invalidate();
+    void utils.demo.questions.invalidate({ subjectId });
+    void utils.demo.dashboard.invalidate();
+  };
+  const invalidateDemoLinkedWorkspaceCaches = (targetSubjectId: number) => {
+    void utils.subjects.list.invalidate();
+    void utils.subjects.getById.invalidate({ id: targetSubjectId });
+    if (!isDemoLinkedMode || !demoLinkedSubjectId) return;
+    void utils.demo.dashboard.invalidate();
+    void utils.demo.questions.invalidate({ subjectId: demoLinkedSubjectId });
+    void utils.demo.confidenceBySubject.invalidate({ subjectId: demoLinkedSubjectId });
+    void utils.demo.confidenceHistoryBySubject.invalidate({ subjectId: demoLinkedSubjectId });
   };
   const invalidateUserQuestionAndConfidenceCaches = (targetSubjectId: number) => {
-    utils.questions.listBySubject.invalidate({ subjectId: targetSubjectId });
-    utils.confidence.getBySubject.invalidate({ subjectId: targetSubjectId });
-    utils.confidence.getHistoryBySubject.invalidate({ subjectId: targetSubjectId });
+    void utils.questions.listBySubject.invalidate({ subjectId: targetSubjectId });
+    void utils.confidence.getBySubject.invalidate({ subjectId: targetSubjectId });
+    void utils.confidence.getHistoryBySubject.invalidate({ subjectId: targetSubjectId });
+    invalidateDemoLinkedWorkspaceCaches(targetSubjectId);
   };
 
   // Build confidence lookup map
@@ -1525,12 +1536,9 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
         await utils.admin.demo.questions.invalidate({ subjectId });
         await utils.admin.demo.allQuestions.invalidate();
         await utils.demo.questions.invalidate({ subjectId });
+        await utils.demo.dashboard.invalidate();
       } else {
-        await Promise.all([
-          utils.questions.listBySubject.invalidate({ subjectId }),
-          utils.confidence.getBySubject.invalidate({ subjectId }),
-          utils.confidence.getHistoryBySubject.invalidate({ subjectId }),
-        ]);
+        invalidateUserQuestionAndConfidenceCaches(subjectId);
       }
     } finally {
       setIsBulkCreating(false);
@@ -2449,7 +2457,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                       onCopy={handleCopy}
                       onMove={handleMove}
                       onToggleStar={(id) => {
-                        if (isAdmin && q.isDemo === 1) {
+                        if (isAdmin && question.isDemo === 1) {
                           toggleDemoStarMutation.mutate({ questionId: id });
                           return;
                         }
