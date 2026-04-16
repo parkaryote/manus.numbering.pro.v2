@@ -262,8 +262,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
   const [imageLoaded, setImageLoaded] = useState(false);
   const [revealedLabels, setRevealedLabels] = useState<Set<number>>(new Set()); // 클릭하여 공개된 라벨
+  const [imageMatchedLabelIndices, setImageMatchedLabelIndices] = useState<Set<number>>(new Set());
   const lastLabelActionRef = useRef<'reveal' | 'hide' | null>(null);
   const revealedLabelsRef = useRef<Set<number>>(new Set()); // 마지막 라벨 클릭 행동
+  const imageMatchedLabelRef = useRef<Set<number>>(new Set());
   const setRevealedLabelsRef = useRef<React.Dispatch<React.SetStateAction<Set<number>>> | null>(null);
   const imageLabelsLengthRef = useRef<number>(0);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -345,6 +347,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [scrollNavDirection, setScrollNavDirection] = useState<"prev" | "next" | null>(null);
   const [isLeaving, setIsLeaving] = useState(false);
   const [jumpInput, setJumpInput] = useState("");
+  const imageLayoutSeededQuestionRef = useRef<number | null>(null);
   const isRestoringDraftRef = useRef(false);
   const autoSeededQuestionRef = useRef<number | null>(null);
   // 문제 수정 모드
@@ -815,6 +818,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }, [targetVisualLineCount]);
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+  const imageAnswerEntries = useMemo(() => {
+    if (!isImageQuestion) return [] as Array<{ index: number; answer: string }>;
+    return imageLabels
+      .map((label: any, index: number) => ({
+        index,
+        answer: String(label?.answer ?? "").trim(),
+      }))
+      .filter((row) => row.answer.length > 0);
+  }, [imageLabels, isImageQuestion]);
+  const useHorizontalImageLayout = isImageQuestion && inputLayoutPreference === "horizontal";
+  const useVerticalImageLayout = isImageQuestion && inputLayoutPreference === "vertical";
+
+  useEffect(() => {
+    imageMatchedLabelRef.current = imageMatchedLabelIndices;
+  }, [imageMatchedLabelIndices]);
 
   const applyImageFitScale = useCallback(() => {
     if (!isImageQuestion) return;
@@ -829,15 +847,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
     const rowRect = rowEl.getBoundingClientRect();
     const answerRect = answerEl?.getBoundingClientRect();
-    const gapPx = 8;
-    const reserved = Math.max(0, answerRect?.width ?? 0);
+    const gapPx = 10;
+    const reserved = useHorizontalImageLayout ? Math.max(0, answerRect?.width ?? rowRect.width * 0.42) : 0;
     const availableWidth = Math.max(240, rowRect.width - reserved - gapPx);
-    const panelHeight = window.innerHeight * (isDemo ? 0.78 : 0.7);
+    const panelHeight = window.innerHeight * (isDemo ? 0.72 : 0.64);
     const targetScaleByWidth = Math.min(100, (availableWidth / naturalWidth) * 100);
     const targetScaleByHeight = Math.min(100, (panelHeight / naturalHeight) * 100);
     const candidate = Math.floor(Math.max(30, Math.min(targetScaleByWidth, targetScaleByHeight)));
     setImageScale(Math.max(30, Math.min(100, candidate)));
-  }, [isDemo, isImageQuestion]);
+  }, [isDemo, isImageQuestion, useHorizontalImageLayout]);
 
   useEffect(() => {
     if (!isImageQuestion) return;
@@ -857,8 +875,23 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (isImageQuestion && questionId) {
       imageNaturalSizeRef.current = { width: 0, height: 0 };
       setImageLoaded(false);
+      setImageMatchedLabelIndices(new Set());
     }
   }, [questionId, isImageQuestion]);
+
+  useEffect(() => {
+    if (!isImageQuestion || !question?.id) return;
+    if (imageLayoutSeededQuestionRef.current === question.id) return;
+    imageLayoutSeededQuestionRef.current = question.id;
+    setInputLayoutPreference("horizontal");
+  }, [isImageQuestion, question?.id]);
+
+  useEffect(() => {
+    if (!isImageQuestion || !imageLoaded) return;
+    window.requestAnimationFrame(() => {
+      applyImageFitScale();
+    });
+  }, [applyImageFitScale, imageLoaded, isImageQuestion, useHorizontalImageLayout, useVerticalImageLayout, memoOpen]);
 
   useEffect(() => {
     try {
@@ -2443,6 +2476,115 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return null;
   }, [sessionCompleteCount, totalPracticeCount, confidenceData?.displayScore]);
 
+  const getCurrentNotepadLineRange = useCallback((value: string, cursor: number) => {
+    const safeCursor = Math.max(0, Math.min(cursor, value.length));
+    const lineStart = value.lastIndexOf("\n", Math.max(0, safeCursor - 1)) + 1;
+    const nextNewline = value.indexOf("\n", safeCursor);
+    const lineEnd = nextNewline === -1 ? value.length : nextNewline;
+    return { lineStart, lineEnd };
+  }, []);
+
+  const findMatchingImageLabelIndex = useCallback((lineText: string) => {
+    const sanitizedLine = lineText
+      .replace(/^\s*\d{1,3}\s*[.)]\s*/, "")
+      .replace(/^\s*(?:[-*•·●○◦▪▫▸▹►▶‣⁃※])\s*/, "");
+    const normalizedLine = normalizeLineForComparison(sanitizedLine);
+    if (!normalizedLine) return null;
+    const used = imageMatchedLabelRef.current;
+    for (const entry of imageAnswerEntries) {
+      if (used.has(entry.index)) continue;
+      if (
+        isLinePairTypingEquivalentComplete(sanitizedLine, entry.answer) ||
+        isLinePairTypingEquivalentComplete(lineText, entry.answer)
+      ) {
+        return entry.index;
+      }
+    }
+    return null;
+  }, [imageAnswerEntries, isLinePairTypingEquivalentComplete, normalizeLineForComparison]);
+
+  const handleImagePracticeKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!isImageQuestion) return;
+
+    if ((e.key === "Tab" || e.code === "Tab") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleHideAll();
+      return;
+    }
+
+    if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      if (question) {
+        const testPath = buildTestPath();
+        if (testPath) setLocation(testPath);
+      }
+      return;
+    }
+
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) {
+      return;
+    }
+    if ((e.nativeEvent as any).isComposing || isComposing) return;
+
+    const textarea = e.currentTarget;
+    const value = textarea.value;
+    const cursor = textarea.selectionStart ?? value.length;
+    const { lineStart, lineEnd } = getCurrentNotepadLineRange(value, cursor);
+    const currentLineRaw = value.slice(lineStart, lineEnd);
+    const matchedLabelIndex = findMatchingImageLabelIndex(currentLineRaw);
+    if (matchedLabelIndex === null) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const nextValue = `${value.slice(0, cursor)}\n${value.slice(cursor)}`;
+    handleImagePracticeNoteChange(nextValue);
+    setTimeout(() => {
+      if (!notepadRef.current) return;
+      const nextCursor = cursor + 1;
+      notepadRef.current.focus();
+      notepadRef.current.setSelectionRange(nextCursor, nextCursor);
+    }, 0);
+
+    const nextMatched = new Set(imageMatchedLabelRef.current);
+    nextMatched.add(matchedLabelIndex);
+    imageMatchedLabelRef.current = nextMatched;
+    setImageMatchedLabelIndices(nextMatched);
+
+    const nextRevealed = new Set(revealedLabelsRef.current);
+    const wasBlind = !nextRevealed.has(matchedLabelIndex);
+    nextRevealed.add(matchedLabelIndex);
+    revealedLabelsRef.current = nextRevealed;
+    setRevealedLabels(nextRevealed);
+
+    const totalMeaningfulAnswers = Math.max(1, imageAnswerEntries.length);
+    applySentencePracticeReward({
+      typedLength: normalizeLineForComparison(currentLineRaw).length,
+      completionRatio: 1 / totalMeaningfulAnswers,
+      wasBlind,
+    });
+
+    if (nextMatched.size >= totalMeaningfulAnswers) {
+      // 한 사이클 완주 시 다음 회독을 위해 라벨 단위 누적만 초기화
+      imageMatchedLabelRef.current = new Set();
+      setImageMatchedLabelIndices(new Set());
+    }
+  }, [
+    applySentencePracticeReward,
+    buildTestPath,
+    findMatchingImageLabelIndex,
+    getCurrentNotepadLineRange,
+    handleImagePracticeNoteChange,
+    imageAnswerEntries.length,
+    isComposing,
+    isImageQuestion,
+    normalizeLineForComparison,
+    question,
+    setLocation,
+    toggleHideAll,
+  ]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const keyLower = e.key.toLowerCase();
     const hasPrimaryModifier = e.ctrlKey || e.metaKey;
@@ -3077,9 +3219,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const lineOpacity = calculateLineOpacity[lineIdx] || 1;
       const isActiveLine = lineIdx === activeLineIdx;
       
+      // 이미 올바르게 완주한 문장은 Tab 전체 가리기/해제와 무관하게 계속 보이도록 유지
+      const isLineCompleted =
+        !!lineResult &&
+        lineResult.targetChars.length > 0 &&
+        lineResult.completedCount >= lineResult.targetChars.length;
       // 답 가리기 체크: 전체 가리기 모드이면서 개별 보이기(hiddenLines에 없음)가 아닌 경우
       // 또는 개별 가리기(hiddenLines에 있음)인 경우
-      const isLineHidden = (hideMode === 'all' && !hiddenLines.has(lineIdx)) || (hideMode === 'none' && hiddenLines.has(lineIdx));
+      const isLineHidden =
+        !isLineCompleted &&
+        ((hideMode === 'all' && !hiddenLines.has(lineIdx)) || (hideMode === 'none' && hiddenLines.has(lineIdx)));
       
       if (isLineHidden) {
         // 가려진 줄: 클릭하면 해당 줄만 보이기
@@ -3334,22 +3483,83 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       <div className="relative mx-auto w-full max-w-[1360px]">
       <div className="relative z-20 mx-auto w-full max-w-[1360px]">
       {isImageQuestion ? (
-        /* 이미지 문제: 최소 상단 - 돌아가기 + 연습횟수를 한 줄에 작게 */
-        <div className="flex items-center justify-between">
-          <Button variant="ghost" size="sm" onClick={handleGoBack} className="gap-1 h-7 px-2 text-xs">
-            <ArrowLeft className="h-3 w-3" />
-            돌아가기
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <Button variant="ghost" size="sm" onClick={handleGoBack} className="gap-1.5 h-8 px-2 shrink-0">
+            <ArrowLeft className="h-4 w-4" />
+            <span className="hidden sm:inline text-sm">돌아가기</span>
           </Button>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span title={currentPracticeTitle}>{practiceCountDisplay} 현재</span>
-            <span title={cumulativePracticeTitle}>{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)} 누적</span>
-            <Circle
-              className={`h-2 w-2 ${
-                isActive
-                  ? "fill-green-500 text-green-500"
-                  : "fill-rose-500 text-rose-500 dark:fill-rose-400 dark:text-rose-400"
-              }`}
-            />
+          <div className="flex items-center gap-2 min-w-0 flex-nowrap">
+            <div className="flex items-center gap-1 shrink-0 text-xs">
+              <span className="font-bold tabular-nums text-sm">{practiceCountDisplay}</span>
+              <span className="text-muted-foreground" title={currentPracticeTitle}>현재</span>
+              <span className="text-muted-foreground/40">/</span>
+              <span className="font-bold tabular-nums text-sm">{isDemo && question ? parseInt(localStorage.getItem(`demo_practice_count_${question.id}`) || "0", 10) : (practiceCountData?.count || 0)}</span>
+              <span className="text-muted-foreground" title={cumulativePracticeTitle}>누적</span>
+            </div>
+            {!isDemo && confidenceData && <div className="h-4 w-px bg-border shrink-0" />}
+            {!isDemo && confidenceData && (
+              <button
+                className="flex items-center gap-1 hover:opacity-70 transition-opacity cursor-pointer shrink-0"
+                title="안정도 변화 그래프 보기"
+                onClick={() => setShowConfidenceHistory(true)}
+              >
+                <span
+                  className="font-bold tabular-nums text-sm"
+                  style={{
+                    color:
+                      displayedConfidenceState === "green"
+                        ? SCORE_STATE_COLOR.green
+                        : displayedConfidenceState === "yellow"
+                          ? SCORE_STATE_COLOR.yellow
+                          : SCORE_STATE_COLOR.red,
+                  }}
+                >
+                  {displayedConfidenceScore}점
+                </span>
+                <span className="text-xs text-muted-foreground">안정도</span>
+              </button>
+            )}
+            {!isDemo && (confidenceData as any)?.examDatePrediction && (() => {
+              const pred = (confidenceData as any).examDatePrediction;
+              const stateColor = pred.predictedState === 'green'
+                ? SCORE_STATE_COLOR.green
+                : pred.predictedState === 'yellow'
+                  ? SCORE_STATE_COLOR.yellow
+                  : SCORE_STATE_COLOR.red;
+              const minutesToExam = typeof pred.minutesUntilExam === "number"
+                ? pred.minutesUntilExam
+                : (typeof pred.daysUntilExam === "number" ? pred.daysUntilExam * 24 * 60 : 0);
+              const days = Math.floor(minutesToExam / (60 * 24));
+              const hours = Math.floor((minutesToExam % (60 * 24)) / 60);
+              const mins = Math.max(0, minutesToExam % 60);
+              const remainingLabel = days > 0
+                ? `D-${days} · ${hours}시간 후`
+                : hours > 0
+                  ? `D-Day · ${hours}시간 ${mins}분 후`
+                  : `D-Day · ${mins}분 후`;
+              return (
+                <>
+                  <div className="h-4 w-px bg-border shrink-0" />
+                  <div className="flex items-center gap-1 shrink-0 text-xs">
+                    <span className="text-muted-foreground">{remainingLabel}</span>
+                    <span className="font-semibold" style={{ color: stateColor }}>{pred.predictedScore}점</span>
+                  </div>
+                </>
+              );
+            })()}
+            <div className="h-4 w-px bg-border shrink-0" />
+            <div className="flex items-center gap-1 shrink-0">
+              <Circle
+                className={`h-2.5 w-2.5 ${
+                  isActive
+                    ? "fill-green-500 text-green-500"
+                    : "fill-rose-500 text-rose-500 dark:fill-rose-400 dark:text-rose-400"
+                }`}
+              />
+              <span className={`text-[10px] font-medium whitespace-nowrap ${isActive ? 'text-green-600 dark:text-green-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                {isActive ? '측정중' : '중단됨'}
+              </span>
+            </div>
           </div>
         </div>
       ) : (
@@ -3580,8 +3790,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         }`}
       >
       <Card className={isImageQuestion ? 'shadow-none border-0' : 'shadow-elegant'}>
-        {!isImageQuestion && (
-          <CardHeader>
+        <CardHeader>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0 flex-1">
                 <div className="flex items-start gap-2 flex-wrap">
@@ -3636,99 +3845,101 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   </CardDescription>
                 )}
               </div>
-              {!isImageQuestion && (
-                <div className="flex max-w-full shrink-0 flex-wrap items-start justify-end gap-1.5">
-                  {!isTableQuestion && (
-                    <div className="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/40 p-0.5">
-                      <button
-                        type="button"
-                        className={`h-6 min-w-[2.7rem] shrink-0 whitespace-nowrap rounded px-2 text-[11px] leading-none font-medium transition-colors ${
-                          inputLayoutPreference === "horizontal" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                        }`}
-                        onClick={() => setInputLayoutPreference("horizontal")}
-                      >
-                        가로
-                      </button>
-                      <button
-                        type="button"
-                        className={`h-6 min-w-[2.7rem] shrink-0 whitespace-nowrap rounded px-2 text-[11px] leading-none font-medium transition-colors ${
-                          inputLayoutPreference === "vertical" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                        }`}
-                        onClick={() => setInputLayoutPreference("vertical")}
-                      >
-                        세로
-                      </button>
-                    </div>
-                  )}
-                  {/* 답 가리기 전체 토글 */}
+              <div className="flex max-w-full shrink-0 flex-wrap items-start justify-end gap-1.5">
+                {!isTableQuestion && (
+                  <div className="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/40 p-0.5">
+                    <button
+                      type="button"
+                      className={`h-6 min-w-[2.7rem] shrink-0 whitespace-nowrap rounded px-2 text-[11px] leading-none font-medium transition-colors ${
+                        inputLayoutPreference === "horizontal" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      onClick={() => setInputLayoutPreference("horizontal")}
+                    >
+                      가로
+                    </button>
+                    <button
+                      type="button"
+                      className={`h-6 min-w-[2.7rem] shrink-0 whitespace-nowrap rounded px-2 text-[11px] leading-none font-medium transition-colors ${
+                        inputLayoutPreference === "vertical" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      onClick={() => setInputLayoutPreference("vertical")}
+                    >
+                      세로
+                    </button>
+                  </div>
+                )}
+                <div className="flex flex-col items-center gap-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`h-8 gap-1.5 text-xs ${hideMode === 'all' || isImageMaskActive ? 'bg-amber-500/10 text-amber-600' : ''}`}
+                    onClick={toggleHideAll}
+                  >
+                    {hideMode === 'all' || isImageMaskActive ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                    {hideMode === 'all' || isImageMaskActive ? '답 보기' : '답 가리기'}
+                  </Button>
+                  <span className="text-[10px] text-muted-foreground/70 leading-none">Tab</span>
+                </div>
+                {question && (
                   <div className="flex flex-col items-center gap-0">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className={`h-8 gap-1.5 text-xs ${hideMode === 'all' ? 'bg-amber-500/10 text-amber-600' : ''}`}
-                      onClick={toggleHideAll}
+                      className="h-8 gap-1.5 text-xs"
+                      onClick={() => {
+                        const testPath = buildTestPath();
+                        if (testPath) setLocation(testPath);
+                      }}
                     >
-                      {hideMode === 'all' ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                      {hideMode === 'all' ? '답 보기' : '답 가리기'}
+                      <Zap className="h-3.5 w-3.5" />
+                      시험 시작
                     </Button>
-                    <span className="text-[10px] text-muted-foreground/70 leading-none">Tab</span>
+                    <span className="text-[10px] text-muted-foreground/70 leading-none">Shift+Enter</span>
                   </div>
-                  {question && (
-                    <div className="flex flex-col items-center gap-0">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 gap-1.5 text-xs"
-                        onClick={() => {
-                          const testPath = buildTestPath();
-                          if (testPath) setLocation(testPath);
-                        }}
-                      >
-                        <Zap className="h-3.5 w-3.5" />
-                        시험 시작
-                      </Button>
-                      <span className="text-[10px] text-muted-foreground/70 leading-none">Shift+Enter</span>
-                    </div>
-                  )}
-                  {!isDemo && question && (
-                    <div className="flex flex-col items-center gap-0">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={`h-8 gap-1.5 text-xs ${memoOpen ? 'bg-blue-500/10 text-blue-600' : ''}`}
-                        onClick={() => {
-                          if (isTableQuestion) {
-                            toast.info("표 문제 메모 기능은 개발 중입니다.");
-                            return;
-                          }
-                          setMemoOpen(!memoOpen);
-                        }}
-                      >
-                        <StickyNote className="h-3.5 w-3.5" />
-                        메모
-                      </Button>
-                      <span className="text-[10px] text-muted-foreground/50 leading-none opacity-0">·</span>
-                    </div>
-                  )}
-                  {!isDemo && question && (
-                    <div className="flex flex-col items-center gap-0">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={`h-8 gap-1.5 text-xs ${editMode ? 'bg-orange-500/10 text-orange-600' : ''}`}
-                        onClick={() => editMode ? setEditMode(false) : startEditMode()}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        수정
-                      </Button>
-                      <span className="text-[10px] text-muted-foreground/50 leading-none opacity-0">·</span>
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
+                {!isDemo && question && (
+                  <div className="flex flex-col items-center gap-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`h-8 gap-1.5 text-xs ${memoOpen ? 'bg-blue-500/10 text-blue-600' : ''}`}
+                      onClick={() => {
+                        if (isTableQuestion) {
+                          toast.info("표 문제 메모 기능은 개발 중입니다.");
+                          return;
+                        }
+                        setMemoOpen(!memoOpen);
+                      }}
+                    >
+                      <StickyNote className="h-3.5 w-3.5" />
+                      메모
+                    </Button>
+                    <span className="text-[10px] text-muted-foreground/50 leading-none opacity-0">·</span>
+                  </div>
+                )}
+                {!isDemo && question && (
+                  <div className="flex flex-col items-center gap-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`h-8 gap-1.5 text-xs ${editMode ? 'bg-orange-500/10 text-orange-600' : ''}`}
+                      onClick={() => {
+                        if (isImageQuestion) {
+                          setLocation(`/questions/${question.subjectId}`);
+                          return;
+                        }
+                        editMode ? setEditMode(false) : startEditMode();
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      수정
+                    </Button>
+                    <span className="text-[10px] text-muted-foreground/50 leading-none opacity-0">·</span>
+                  </div>
+                )}
+              </div>
             </div>
           </CardHeader>
-        )}
         <CardContent className={isImageQuestion ? 'p-0 space-y-2' : isTableQuestion ? 'space-y-4' : 'space-y-6'}>
           {/* 메모 패널 - 정답 표시 영역과 2단 레이아웃으로 표시됨 (memoOpen 시) */}
 
@@ -3888,24 +4099,31 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           ) : isImageQuestion ? (
             /* Image question with label boxes - resizable 2 column layout */
             <div className="space-y-2">
-              <div className="flex items-center justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={`h-8 gap-1.5 text-xs ${isImageMaskActive ? 'bg-amber-500/10 text-amber-600' : ''}`}
-                  onClick={toggleHideAll}
-                >
-                  {isImageMaskActive ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                  {isImageMaskActive ? '가림막 해제' : '가림막'}
-                </Button>
-                <span className="text-[11px] text-muted-foreground">
-                  가림막 전환: <kbd className="rounded border px-1 py-0.5 text-[10px]">Tab</kbd>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                <span>
+                  라벨 연습 진행 {Math.min(imageMatchedLabelIndices.size, imageAnswerEntries.length)} / {imageAnswerEntries.length || imageLabels.length}
                 </span>
+                <span>Enter: 한 줄 채점 · Tab: 답 가리기 · Shift+Enter: 시험 시작</span>
               </div>
               {/* Image layout row */}
-              <div ref={imageLayoutRowRef} className="flex flex-col lg:flex-row gap-2" style={{ alignItems: 'flex-start' }}>
+              <div
+                ref={imageLayoutRowRef}
+                className={
+                  useHorizontalImageLayout
+                    ? "grid grid-cols-[minmax(0,1.2fr)_minmax(280px,1fr)] items-stretch gap-3"
+                    : "flex flex-col gap-3"
+                }
+                style={{ alignItems: useHorizontalImageLayout ? "stretch" : "flex-start" }}
+              >
                 {/* Left: Image with labels */}
-                <div className="flex-shrink-0 relative" style={{ width: `${imageScale}%`, minWidth: '200px', maxWidth: '100%' }}>
+                <div
+                  className="relative min-w-0"
+                  style={{
+                    width: useHorizontalImageLayout ? `${imageScale}%` : `${Math.min(100, imageScale + 10)}%`,
+                    minWidth: useHorizontalImageLayout ? "200px" : "240px",
+                    maxWidth: "100%",
+                  }}
+                >
                   {/* Size control - floating overlay on top-right of image */}
                   <div className="absolute top-1 right-1 z-10 flex items-center gap-1 bg-background/80 backdrop-blur-sm rounded px-1.5 py-0.5 border border-border/50">
                     <div className="flex items-center gap-0.5">
@@ -3953,13 +4171,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     />
                     {imageLabels.map((label: any, index: number) => {
                       const isRevealed = revealedLabels.has(index);
+                      const isMatched = imageMatchedLabelIndices.has(index);
                       return (
                         <div
                           key={index}
                           className={`absolute border-2 transition-all cursor-pointer ${
-                            isRevealed
-                              ? "border-dashed border-primary bg-transparent"
-                              : "border-primary bg-black hover:bg-black/90"
+                            isMatched
+                              ? "border-emerald-500 bg-emerald-500/10"
+                              : isRevealed
+                                ? "border-dashed border-primary bg-transparent"
+                                : "border-primary bg-black hover:bg-black/90"
                           }`}
                           style={{
                             left: `${label.x}%`,
@@ -3988,9 +4209,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                             }
                           }}
                         >
-                          {!isRevealed && (
+                          {!isRevealed && !isMatched && (
                             <div className="w-full h-full flex items-center justify-center">
                               <span className="text-white font-bold text-2xl">{index + 1}</span>
+                            </div>
+                          )}
+                          {isMatched && (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <span className="text-emerald-700 dark:text-emerald-300 font-bold text-xs">완료</span>
                             </div>
                           )}
                         </div>
@@ -4021,10 +4247,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
                 {/* Right: Lined notebook-style practice note */}
                 {!isDemo && (
-                <div className="flex-1 flex flex-col" style={{ minWidth: '200px' }} ref={imageAnswerPanelRef}>
+                <div className="flex-1 min-w-0 flex flex-col" style={{ minWidth: useHorizontalImageLayout ? '280px' : '200px' }} ref={imageAnswerPanelRef}>
                   <div
                     className="relative rounded-lg border-2 border-border bg-background overflow-hidden cursor-text"
-                    style={{ height: `${imageContainerHeight}px` }}
+                    style={{
+                      height: useHorizontalImageLayout
+                        ? `${imageContainerHeight}px`
+                        : `${Math.max(280, Math.min(520, Math.round(imageContainerHeight * 0.62)))}px`,
+                    }}
                     onMouseDown={(e) => {
                       // textarea 자체 클릭은 기본 동작으로 처리
                       if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
@@ -4060,6 +4290,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       ref={notepadRef}
                       value={practiceNote}
                       onChange={(e) => handleImagePracticeNoteChange(e.target.value)}
+                      onKeyDown={handleImagePracticeKeyDown}
+                      onCompositionStart={() => setIsComposing(true)}
+                      onCompositionEnd={() => setIsComposing(false)}
                       className="absolute inset-0 bg-transparent resize-none focus:outline-none font-mono text-sm text-foreground"
                       style={{
                         lineHeight: '28px',
@@ -4069,7 +4302,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         zIndex: 1,
                         overflow: 'hidden',
                       }}
-                      placeholder="연습장처럼 자유롭게 적어보세요."
+                      placeholder="연습장처럼 적어보세요. 한 줄 입력 후 Enter로 바로 채점됩니다."
                       spellCheck={false}
                     />
                   </div>
@@ -4083,10 +4316,51 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     ref={notepadRef}
                     value={practiceNote}
                     onChange={(e) => handleImagePracticeNoteChange(e.target.value)}
+                    onKeyDown={handleImagePracticeKeyDown}
+                    onCompositionStart={() => setIsComposing(true)}
+                    onCompositionEnd={() => setIsComposing(false)}
                     className="w-full rounded-lg border border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring text-sm leading-6 px-3 py-2"
                     style={{ minHeight: "160px", maxHeight: "40vh" }}
-                    placeholder="정답을 가리고 떠오르는 라벨명을 자유롭게 적어보세요."
+                    placeholder="정답을 가리고 떠오르는 라벨명을 적고 Enter로 채점해보세요."
                     spellCheck={false}
+                  />
+                </div>
+              )}
+              {memoOpen && !isDemo && (
+                <div className="rounded-lg border-2 border-blue-300 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-700 p-4 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <StickyNote className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">암기법 / 설명 메모</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {memoSaved && <span className="text-xs text-emerald-600">✓ 저장됨</span>}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs gap-1 border-blue-300 text-blue-700 hover:bg-blue-100"
+                        onClick={handleSaveMemo}
+                        disabled={memoSaving}
+                      >
+                        <Save className="h-3 w-3" />
+                        {memoSaving ? '저장 중...' : '저장'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                        onClick={() => setMemoOpen(false)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  <textarea
+                    value={memo}
+                    onChange={(e) => setMemo(e.target.value)}
+                    placeholder="이미지 문제 암기법, 설명 포인트를 적어두세요."
+                    className="w-full p-3 rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-950/30 resize-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    style={{ minHeight: '180px' }}
                   />
                 </div>
               )}

@@ -42,14 +42,16 @@ export function getSessionCookieOptions(
     hostname === "numbering.pro" || hostname === "www.numbering.pro";
 
   const secure = isSecureRequest(req);
+  const requestedSameSiteNone =
+    (process.env.SESSION_COOKIE_SAMESITE ?? "lax").trim().toLowerCase() === "none";
+  const sameSite: "lax" | "none" = secure && requestedSameSiteNone ? "none" : "lax";
 
   return {
     domain: shouldSetSharedDomain ? ".numbering.pro" : undefined,
     httpOnly: true,
     path: "/",
-    // SameSite=None requires Secure=true. On local http dev, use Lax so
-    // browsers accept and persist the session cookie.
-    sameSite: secure ? "none" : "lax",
+    // CSRF-safe default is Lax. Only use None when explicitly requested via env.
+    sameSite,
     secure,
   };
 }

@@ -232,7 +232,7 @@ function DemoSubjectStudyCard({
               onClick={() => onOpenSubject(subject.id, subject.name)}
             >
               <Zap className="w-3 h-3" />
-              보강 {yellowCount}개
+              보충문제 {yellowCount}개
             </Button>
           ) : totalQ > 0 ? (
             <Button
@@ -271,17 +271,23 @@ function DemoSubjectStudyCard({
 export default function Demo() {
   const [, setLocation] = useLocation();
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const { data: dashboard, isLoading } = trpc.demo.dashboard.useQuery();
+  const dashboardQuery = trpc.demo.dashboard.useQuery(undefined, {
+    retry: 3,
+    refetchOnWindowFocus: true,
+  });
+  const dashboard = dashboardQuery.data;
+  const subjects = (dashboard?.subjects ?? []) as DemoDashboardSubject[];
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  const subjects = (dashboard?.subjects ?? []) as DemoDashboardSubject[];
   const urgentSubjects = dashboard?.urgentSubjects ?? [];
   const dueReviews = (dashboard?.todayReviewQuestions ?? []) as DemoDashboardQuestion[];
   const starredQuestions = (dashboard?.starredQuestions ?? []) as DemoDashboardQuestion[];
+  const isLoading = dashboardQuery.isLoading;
+  const isFailed = !isLoading && subjects.length === 0 && dashboardQuery.isError;
 
   const hasContent = subjects.length > 0;
 
@@ -448,6 +454,27 @@ export default function Demo() {
             ))}
           </div>
         </div>
+      ) : isFailed ? (
+        <Card className="shadow-sm">
+          <CardHeader className="text-center pb-2">
+            <CardTitle className="text-lg">데모 로딩 실패</CardTitle>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <p className="text-sm text-muted-foreground">
+              네트워크 상태를 확인하고 다시 시도해주세요.
+            </p>
+            <div className="flex justify-center gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  void dashboardQuery.refetch();
+                }}
+              >
+                다시 시도
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <Card className="shadow-sm">
           <CardHeader className="text-center pb-2">

@@ -1,5 +1,6 @@
 import { eq, and, or, inArray, desc, sql, lte, gte, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import mysql, { type Pool } from "mysql2";
 import {
   InsertUser,
   users,
@@ -29,14 +30,33 @@ import {
 import { ENV } from "./_core/env.js";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _pool: Pool | null = null;
+
+function createMysqlPool(databaseUrl: string): Pool {
+  const parsedLimit = Number(process.env.DB_CONNECTION_LIMIT ?? "10");
+  const connectionLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
+    ? Math.min(30, Math.floor(parsedLimit))
+    : 10;
+
+  return mysql.createPool({
+    uri: databaseUrl,
+    waitForConnections: true,
+    connectionLimit,
+    queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
+  });
+}
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _pool = createMysqlPool(process.env.DATABASE_URL);
+      _db = drizzle(_pool);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
+      _pool = null;
       _db = null;
     }
   }
@@ -142,12 +162,18 @@ export async function getUserByLoginIdentifier(identifier: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function updateUserEmailAndRole(userId: number, email: string | null, role?: "user" | "admin") {
+export async function updateUserEmailAndRole(
+  userId: number,
+  email: string | null,
+  role?: "user" | "admin",
+  loginMethod?: string | null
+) {
   const db = await getDb();
   if (!db) return;
   const updateSet: Record<string, unknown> = { lastSignedIn: new Date() };
   updateSet.email = email;
   if (role) updateSet.role = role;
+  if (loginMethod !== undefined) updateSet.loginMethod = loginMethod;
   await db.update(users).set(updateSet).where(eq(users.id, userId));
 }
 
@@ -565,6 +591,17 @@ export async function getReviewScheduleByQuestionId(questionId: number, userId: 
     .select()
     .from(reviewSchedules)
     .where(and(eq(reviewSchedules.questionId, questionId), eq(reviewSchedules.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function getReviewScheduleById(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(reviewSchedules)
+    .where(and(eq(reviewSchedules.id, id), eq(reviewSchedules.userId, userId)))
     .limit(1);
   return result[0];
 }

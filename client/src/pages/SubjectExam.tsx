@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -68,6 +68,13 @@ type QuestionConfidencePoint = {
   state: string;
 };
 
+function normalizeQuestionSignature(value: string | null | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[^0-9a-z가-힣]/g, "");
+}
+
 function toBool(v: unknown): boolean {
   return v === true || v === 1 || v === "1";
 }
@@ -135,6 +142,10 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
 
   const [isRandom, setIsRandom] = useState(false);
   const [questionCount, setQuestionCount] = useState(0);
+  const [questionCountInput, setQuestionCountInput] = useState("");
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState<number | null>(null);
+  const [timeLimitInput, setTimeLimitInput] = useState("");
+  const timeoutSubmitTriggeredRef = useRef(false);
   const [examQuestions, setExamQuestions] = useState<ExamQuestion[]>([]);
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
@@ -156,9 +167,29 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
     if (!isDemoLinkedMode || !demoLinkedSubjectId) return baseQuestions;
     if (!demoLinkedPreviewQuery.data) return undefined;
     const allowedSourceQuestionIds = new Set(demoLinkedPreviewQuery.data.map((question) => question.id));
-    return baseQuestions.filter((question: any) =>
-      allowedSourceQuestionIds.has(question.demoSourceQuestionId ?? -1)
+    const allowedPreviewSignatures = new Set(
+      demoLinkedPreviewQuery.data.map((question) => normalizeQuestionSignature(question.question))
     );
+    const filtered = baseQuestions.filter((question: any) => {
+      const sourceId = Number(question.demoSourceQuestionId ?? 0);
+      if (Number.isFinite(sourceId) && sourceId > 0 && allowedSourceQuestionIds.has(sourceId)) {
+        return true;
+      }
+      const signature = normalizeQuestionSignature(question.question);
+      return !!signature && allowedPreviewSignatures.has(signature);
+    });
+
+    if (filtered.length > 0) return filtered;
+
+    const hasExplicitSourceMapping = baseQuestions.some((question: any) => {
+      const sourceId = Number(question.demoSourceQuestionId ?? 0);
+      return Number.isFinite(sourceId) && sourceId > 0;
+    });
+    // 데모-연결 문제가 source id 없이 저장된 경우(과거 데이터/수정본) 시험 문항 0개로 고정되는 현상을 방지한다.
+    if (!hasExplicitSourceMapping && baseQuestions.length > 0) {
+      return baseQuestions;
+    }
+    return filtered;
   }, [
     demoLinkedPreviewQuery.data,
     demoLinkedSubjectId,
@@ -180,12 +211,19 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
 
   useEffect(() => {
     if (!questions) return;
-    if (questionCount <= 0) {
-      setQuestionCount(questions.length);
-    } else if (questionCount > questions.length) {
-      setQuestionCount(questions.length);
-    }
-  }, [questions, questionCount]);
+    setQuestionCount((prev) => {
+      if (prev <= 0) return questions.length;
+      if (prev > questions.length) return questions.length;
+      return prev;
+    });
+  }, [questions]);
+
+  useEffect(() => {
+    if (!questions || questions.length === 0) return;
+    if (questionCount <= 0) return;
+    if (questionCountInput.trim().length > 0) return;
+    setQuestionCountInput(String(questionCount));
+  }, [questionCount, questionCountInput, questions]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -204,6 +242,44 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
   };
 
   const totalAvailable = questions?.length || 0;
+  const timeLimitSeconds = timeLimitMinutes !== null ? timeLimitMinutes * 60 : null;
+  const remainingSeconds = timeLimitSeconds !== null ? Math.max(0, timeLimitSeconds - elapsedTime) : null;
+
+  const parseIntInput = useCallback((value: string): number | null => {
+    const cleaned = value.replace(/[^0-9]/g, "");
+    if (!cleaned) return null;
+    const parsed = Number(cleaned);
+    if (!Number.isFinite(parsed)) return null;
+    return parsed;
+  }, []);
+
+  const commitQuestionCountInput = useCallback((): number => {
+    if (totalAvailable <= 0) {
+      setQuestionCount(0);
+      setQuestionCountInput("");
+      return 0;
+    }
+    const parsed = parseIntInput(questionCountInput);
+    const fallback = questionCount > 0 ? questionCount : totalAvailable;
+    const raw = parsed ?? fallback;
+    const clamped = Math.max(1, Math.min(totalAvailable, Math.floor(raw)));
+    setQuestionCount(clamped);
+    setQuestionCountInput(String(clamped));
+    return clamped;
+  }, [parseIntInput, questionCount, questionCountInput, totalAvailable]);
+
+  const commitTimeLimitInput = useCallback((): number | null => {
+    const parsed = parseIntInput(timeLimitInput);
+    if (parsed === null) {
+      setTimeLimitMinutes(null);
+      setTimeLimitInput("");
+      return null;
+    }
+    const clamped = Math.max(1, Math.min(600, Math.floor(parsed)));
+    setTimeLimitMinutes(clamped);
+    setTimeLimitInput(String(clamped));
+    return clamped;
+  }, [parseIntInput, timeLimitInput]);
 
   const hasAnswer = useCallback(
     (q: ExamQuestion) => {
@@ -232,7 +308,9 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
       return;
     }
 
-    const count = Math.min(questions.length, Math.max(1, Math.floor(questionCount || questions.length)));
+    const resolvedCount = commitQuestionCountInput();
+    commitTimeLimitInput();
+    const count = Math.min(questions.length, Math.max(1, Math.floor(resolvedCount || questions.length)));
     const ordered = isRandom ? [...questions].sort(() => Math.random() - 0.5) : [...questions];
     const selected = ordered.slice(0, count) as ExamQuestion[];
 
@@ -248,11 +326,12 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
     const now = Date.now();
     setStartTime(now);
     setElapsedTime(0);
-  }, [questions, questionCount, isRandom]);
+    timeoutSubmitTriggeredRef.current = false;
+  }, [questions, commitQuestionCountInput, commitTimeLimitInput, isRandom]);
 
-  const handleFinishExam = useCallback(async () => {
+  const handleFinishExam = useCallback(async (options?: { skipConfirm?: boolean; timeout?: boolean }) => {
     if (isSubmitting) return;
-    if (!confirm("시험을 종료하고 제출할까요?")) return;
+    if (!options?.skipConfirm && !confirm("시험을 종료하고 제출할까요?")) return;
 
     setIsSubmitting(true);
     try {
@@ -521,6 +600,9 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
           : afterSnapshot.aggregateScore
       );
       setPhase("result");
+      if (options?.timeout) {
+        toast.info("시간이 종료되어 자동 제출되었습니다.");
+      }
     } catch (error: any) {
       toast.error("채점 실패: " + (error?.message || "알 수 없는 오류"));
     } finally {
@@ -546,6 +628,19 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
     subject,
     isDemo,
   ]);
+
+  useEffect(() => {
+    if (phase !== "exam") {
+      timeoutSubmitTriggeredRef.current = false;
+      return;
+    }
+    if (timeLimitSeconds === null || isSubmitting) return;
+    if (remainingSeconds === null) return;
+    if (remainingSeconds > 0) return;
+    if (timeoutSubmitTriggeredRef.current) return;
+    timeoutSubmitTriggeredRef.current = true;
+    void handleFinishExam({ skipConfirm: true, timeout: true });
+  }, [handleFinishExam, isSubmitting, phase, remainingSeconds, timeLimitSeconds]);
 
   if (!questions) {
     return (
@@ -585,8 +680,12 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
               <div className="text-xs text-muted-foreground mt-1">출제 문제</div>
             </div>
             <div className="bg-muted/40 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold">∞</div>
-              <div className="text-xs text-muted-foreground mt-1">시간 제한 없음</div>
+              <div className="text-2xl font-bold">
+                {timeLimitMinutes === null ? "∞" : `${timeLimitMinutes}분`}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {timeLimitMinutes === null ? "시간 제한 없음" : "시간 제한"}
+              </div>
             </div>
           </div>
 
@@ -595,7 +694,10 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
               <p className="text-sm font-medium mb-2">문항 수 설정</p>
               <div className="flex gap-2 mb-2 flex-wrap">
                 <button
-                  onClick={() => setQuestionCount(totalAvailable)}
+                  onClick={() => {
+                    setQuestionCount(totalAvailable);
+                    setQuestionCountInput(String(totalAvailable));
+                  }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                     questionCount === totalAvailable ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
                   }`}
@@ -605,7 +707,10 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                 {presetCounts.map((n) => (
                   <button
                     key={n}
-                    onClick={() => setQuestionCount(n)}
+                    onClick={() => {
+                      setQuestionCount(n);
+                      setQuestionCountInput(String(n));
+                    }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                       questionCount === n ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
                     }`}
@@ -618,11 +723,81 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                 type="number"
                 min={1}
                 max={totalAvailable}
-                value={questionCount || totalAvailable}
+                inputMode="numeric"
+                value={questionCountInput}
                 onChange={(e) => {
-                  const num = Number(e.target.value);
-                  if (Number.isNaN(num)) return;
-                  setQuestionCount(Math.max(1, Math.min(totalAvailable, Math.floor(num))));
+                  const cleaned = e.target.value.replace(/[^0-9]/g, "");
+                  setQuestionCountInput(cleaned);
+                }}
+                onBlur={() => {
+                  commitQuestionCountInput();
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.select();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitQuestionCountInput();
+                    (e.currentTarget as HTMLInputElement).blur();
+                  }
+                }}
+                className="h-8 text-sm"
+              />
+            </div>
+
+            <div className="text-left">
+              <p className="text-sm font-medium mb-2">시간 제한 (분)</p>
+              <div className="flex gap-2 mb-2 flex-wrap">
+                <button
+                  onClick={() => {
+                    setTimeLimitMinutes(null);
+                    setTimeLimitInput("");
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    timeLimitMinutes === null ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  무제한
+                </button>
+                {[20, 30, 45, 60].map((minutes) => (
+                  <button
+                    key={minutes}
+                    onClick={() => {
+                      setTimeLimitMinutes(minutes);
+                      setTimeLimitInput(String(minutes));
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      timeLimitMinutes === minutes ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                  >
+                    {minutes}분
+                  </button>
+                ))}
+              </div>
+              <Input
+                type="number"
+                min={1}
+                max={600}
+                inputMode="numeric"
+                value={timeLimitInput}
+                placeholder="비워두면 무제한"
+                onChange={(e) => {
+                  const cleaned = e.target.value.replace(/[^0-9]/g, "");
+                  setTimeLimitInput(cleaned);
+                }}
+                onBlur={() => {
+                  commitTimeLimitInput();
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.select();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitTimeLimitInput();
+                    (e.currentTarget as HTMLInputElement).blur();
+                  }
                 }}
                 className="h-8 text-sm"
               />
@@ -706,7 +881,9 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                 </span>
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   <Clock className="h-3.5 w-3.5" />
-                  {formatTime(elapsedTime)}
+                  {timeLimitSeconds === null
+                    ? formatTime(elapsedTime)
+                    : `${formatTime(remainingSeconds ?? 0)} 남음`}
                 </div>
               </div>
               <Progress value={(answeredCount / Math.max(1, examQuestions.length)) * 100} className="h-1.5" />

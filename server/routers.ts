@@ -15,6 +15,8 @@ import { storagePut } from "./storage.js";
 import { nanoid } from "nanoid";
 import * as ocrModule from "./ocr.js";
 import { PDFDocument } from "pdf-lib";
+import { timingSafeEqual } from "crypto";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import {
   computeExamConfidence,
   aggregateConfidence,
@@ -64,6 +66,7 @@ function calcCharSimilarity(userText: string, correctText: string): number {
 const AUTO_NUMBER_PREFIX_REGEX = /^\s*\d{1,3}\s*[.)]\s*/;
 const BULLET_PREFIX_REGEX = /^\s*(?:[-–—−*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
 const WORD_TOKEN_PATTERN = "[a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ]+(?:['’\\-][a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ]+)*";
+const MAX_OCR_FILE_BYTES = 25 * 1024 * 1024;
 
 function stripAutoNumberPrefix(line: string): string {
   return line.replace(AUTO_NUMBER_PREFIX_REGEX, "").trim();
@@ -79,6 +82,13 @@ function trimTrailingEmptyLines(lines: string[]): string[] {
     end--;
   }
   return lines.slice(0, end);
+}
+
+function sanitizeUploadedFileName(fileName: string): string {
+  const trimmed = fileName.trim();
+  const basename = trimmed.split(/[\\/]/).pop() ?? "file";
+  const cleaned = basename.replace(/[^0-9A-Za-z가-힣._-]/g, "_");
+  return cleaned.slice(0, 120) || "file";
 }
 
 function normalizeLineForTextComparison(line: string, ignoreAutoNumbering: boolean): string {
@@ -397,6 +407,139 @@ function evaluateTextAnswerByBestLineMatch(
   };
 }
 
+type TestSessionLite = {
+  id: number;
+  questionId: number;
+  completedAt: Date | string;
+  recallTime: number;
+  isCorrect: number;
+  similarityScore: number | null;
+};
+
+const MOCK_EXAM_ADJACENT_GAP_MS = 90_000;
+const MOCK_EXAM_MIN_ITEMS = 3;
+const MOCK_EXAM_MAX_RECALL_RANGE_SEC = 15;
+const MOCK_TEST_SIGNAL_WEIGHT = 1.7;
+
+function toMs(value: Date | string): number {
+  const parsed = value instanceof Date ? value : new Date(value);
+  const ms = parsed.getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function classifyMockExamSessionIds(testSessions: TestSessionLite[]): Set<number> {
+  if (testSessions.length < MOCK_EXAM_MIN_ITEMS) return new Set<number>();
+  const sorted = [...testSessions].sort((a, b) => toMs(a.completedAt) - toMs(b.completedAt));
+  const mockIds = new Set<number>();
+
+  let start = 0;
+  while (start < sorted.length) {
+    let end = start + 1;
+    while (end < sorted.length) {
+      const prevTs = toMs(sorted[end - 1].completedAt);
+      const currentTs = toMs(sorted[end].completedAt);
+      if (currentTs - prevTs > MOCK_EXAM_ADJACENT_GAP_MS) break;
+      end += 1;
+    }
+
+    const cluster = sorted.slice(start, end);
+    const uniqueQuestionCount = new Set(cluster.map((row) => row.questionId)).size;
+    const recalls = cluster
+      .map((row) => Number(row.recallTime))
+      .filter((value) => Number.isFinite(value));
+    const recallRange =
+      recalls.length >= 2 ? Math.max(...recalls) - Math.min(...recalls) : Number.POSITIVE_INFINITY;
+    const isMockCluster =
+      cluster.length >= MOCK_EXAM_MIN_ITEMS &&
+      uniqueQuestionCount >= MOCK_EXAM_MIN_ITEMS &&
+      recallRange <= MOCK_EXAM_MAX_RECALL_RANGE_SEC;
+
+    if (isMockCluster) {
+      for (const row of cluster) {
+        mockIds.add(row.id);
+      }
+    }
+
+    start = end;
+  }
+
+  return mockIds;
+}
+
+function buildWeightedTestSignal(
+  qTestsRaw: TestSessionLite[],
+  mockExamSessionIds: Set<number>
+): TestSignal {
+  const sortedTests = [...qTestsRaw].sort(
+    (a, b) => toMs(b.completedAt) - toMs(a.completedAt)
+  );
+  const weightOf = (test: TestSessionLite) =>
+    mockExamSessionIds.has(test.id) ? MOCK_TEST_SIGNAL_WEIGHT : 1;
+
+  const weightedTestCount = sortedTests.reduce((sum, t) => sum + weightOf(t), 0);
+  const weightedCorrect = sortedTests.reduce(
+    (sum, t) => sum + (t.isCorrect === 1 ? weightOf(t) : 0),
+    0
+  );
+  const weightedWrong = sortedTests.reduce(
+    (sum, t) => sum + (t.isCorrect === 0 ? weightOf(t) : 0),
+    0
+  );
+  const weightedSimilaritySum = sortedTests.reduce(
+    (sum, t) => sum + (t.similarityScore ?? 0) * weightOf(t),
+    0
+  );
+  const weightedSimilarityDenom = Math.max(
+    1,
+    sortedTests.reduce((sum, t) => sum + weightOf(t), 0)
+  );
+  const averageSimilarityScore = Math.round(weightedSimilaritySum / weightedSimilarityDenom);
+
+  const weightedRecallNumerator = sortedTests.reduce(
+    (sum, t) => sum + (t.recallTime ?? 0) * weightOf(t),
+    0
+  );
+  const weightedRecallDenom = sortedTests.reduce((sum, t) => sum + weightOf(t), 0);
+  const averageRecallTime =
+    weightedRecallDenom > 0 ? weightedRecallNumerator / weightedRecallDenom : undefined;
+
+  let recentCorrectStreak = 0;
+  for (const t of sortedTests) {
+    if (t.isCorrect !== 1) break;
+    recentCorrectStreak += mockExamSessionIds.has(t.id) ? 2 : 1;
+  }
+
+  const mostRecentTest = sortedTests[0] || null;
+  const mostRecentTestWasPoor = mostRecentTest
+    ? ((mostRecentTest.similarityScore ?? 0) < 50)
+    : false;
+  const mockExamCount = sortedTests.filter((t) => mockExamSessionIds.has(t.id)).length;
+
+  return {
+    testCount: Math.max(sortedTests.length, Math.round(weightedTestCount)),
+    correctCount: Math.max(
+      sortedTests.filter((t) => t.isCorrect === 1).length,
+      Math.round(weightedCorrect)
+    ),
+    wrongCount: Math.max(
+      sortedTests.filter((t) => t.isCorrect === 0).length,
+      Math.round(weightedWrong)
+    ),
+    averageSimilarityScore,
+    mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
+    recentCorrectStreak,
+    mostRecentTestWasPoor,
+    averageRecallTime,
+    mockExamCount,
+    recentTestHistory: sortedTests.map((t) => ({
+      completedAt: new Date(t.completedAt),
+      isCorrect: t.isCorrect === 1,
+      similarityScore: t.similarityScore ?? 0,
+      testMode: mockExamSessionIds.has(t.id) ? ("mock" as const) : ("single" as const),
+    })),
+  };
+}
+
 function parseExamEndDateInput(raw: string): Date {
   const value = raw.trim();
 
@@ -416,23 +559,117 @@ function parseExamEndDateInput(raw: string): Date {
   return parsed;
 }
 
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  const parts = token.split(".");
-  if (parts.length < 2) return null;
-  const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  try {
-    const decoded = Buffer.from(padded, "base64").toString("utf8");
-    const parsed = JSON.parse(decoded);
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
+const GOOGLE_JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
+const AUTH_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const AUTH_RATE_LIMIT_BLOCK_MS = 15 * 60 * 1000;
+const AUTH_RATE_LIMIT_MAX_FAILS = 8;
+
+type AuthRateLimitBucket = {
+  failCount: number;
+  windowStartedAt: number;
+  blockedUntil: number;
+};
+
+const authRateLimitBuckets = new Map<string, AuthRateLimitBucket>();
+
+function safeSecretEquals(a: string, b: string): boolean {
+  const lhs = Buffer.from(a, "utf8");
+  const rhs = Buffer.from(b, "utf8");
+  if (lhs.length !== rhs.length) return false;
+  return timingSafeEqual(lhs, rhs);
+}
+
+function normalizeSecretInput(value: string | null | undefined): string {
+  return (value ?? "")
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/^['"`]+|['"`]+$/g, "")
+    .toLowerCase();
+}
+
+function isSecretMatch(candidate: string, expectedValues: string[]): boolean {
+  const normalizedCandidate = normalizeSecretInput(candidate);
+  if (!normalizedCandidate) return false;
+  for (const expected of expectedValues) {
+    const normalizedExpected = normalizeSecretInput(expected);
+    if (!normalizedExpected) continue;
+    if (safeSecretEquals(normalizedCandidate, normalizedExpected)) return true;
   }
+  return false;
 }
 
 function resolveHeaderValue(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0];
   return value;
+}
+
+function resolveClientIp(req: {
+  headers?: Record<string, string | string[] | undefined>;
+  ip?: string;
+  socket?: { remoteAddress?: string | undefined };
+}): string {
+  const forwardedFor = resolveHeaderValue(req.headers?.["x-forwarded-for"]);
+  const forwarded = forwardedFor?.split(",")[0]?.trim();
+  return forwarded || req.ip || req.socket?.remoteAddress || "unknown";
+}
+
+function buildAuthRateLimitKey(
+  req: {
+    headers?: Record<string, string | string[] | undefined>;
+    ip?: string;
+    socket?: { remoteAddress?: string | undefined };
+  },
+  scope: string,
+  principal?: string | null
+): string {
+  const ip = resolveClientIp(req);
+  const principalKey = (principal ?? "").trim().toLowerCase();
+  return `${scope}:${ip}:${principalKey}`;
+}
+
+function pruneAuthRateLimitBuckets(now: number) {
+  for (const [key, bucket] of authRateLimitBuckets.entries()) {
+    if (bucket.blockedUntil > now) continue;
+    if (now - bucket.windowStartedAt <= AUTH_RATE_LIMIT_WINDOW_MS) continue;
+    authRateLimitBuckets.delete(key);
+  }
+}
+
+function assertAuthRateLimitAllowed(key: string) {
+  const now = Date.now();
+  pruneAuthRateLimitBuckets(now);
+  const bucket = authRateLimitBuckets.get(key);
+  if (!bucket) return;
+  if (bucket.blockedUntil > now) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.",
+    });
+  }
+}
+
+function registerAuthFailure(key: string) {
+  const now = Date.now();
+  const current = authRateLimitBuckets.get(key);
+  if (!current || now - current.windowStartedAt > AUTH_RATE_LIMIT_WINDOW_MS) {
+    authRateLimitBuckets.set(key, {
+      failCount: 1,
+      windowStartedAt: now,
+      blockedUntil: 0,
+    });
+    return;
+  }
+  current.failCount += 1;
+  if (current.failCount >= AUTH_RATE_LIMIT_MAX_FAILS) {
+    current.blockedUntil = now + AUTH_RATE_LIMIT_BLOCK_MS;
+  }
+  authRateLimitBuckets.set(key, current);
+}
+
+function clearAuthFailures(key: string) {
+  authRateLimitBuckets.delete(key);
 }
 
 function resolveRequestOrigin(req: {
@@ -453,13 +690,51 @@ function resolveRequestOrigin(req: {
   return `${proto}://${host}`;
 }
 
-function resolveGoogleRedirectUri(req: {
+function resolveGoogleRedirectUri(
+  req: {
   headers?: Record<string, string | string[] | undefined>;
   protocol?: string;
-}): string {
+  },
+  requested?: string
+): string {
   const configured = ENV.googleOAuthRedirectUri.trim();
-  if (configured) return configured;
-  return `${resolveRequestOrigin(req).replace(/\/+$/, "")}/login`;
+  const fallback = configured || (!ENV.isProduction ? `${resolveRequestOrigin(req).replace(/\/+$/, "")}/login` : "");
+  if (!fallback) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "GOOGLE_OAUTH_REDIRECT_URI가 설정되지 않았습니다.",
+    });
+  }
+
+  if (!requested) return fallback;
+
+  const normalize = (raw: string) => {
+    const parsed = new URL(raw);
+    const path = parsed.pathname.replace(/\/+$/, "") || "/";
+    return `${parsed.origin}${path}`;
+  };
+
+  let normalizedRequested: string;
+  try {
+    normalizedRequested = normalize(requested);
+  } catch {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "유효하지 않은 redirectUri입니다.",
+    });
+  }
+
+  const allowed = new Set<string>([normalize(fallback)]);
+  if (configured) {
+    allowed.add(normalize(configured));
+  }
+  if (!allowed.has(normalizedRequested)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "허용되지 않은 redirectUri입니다.",
+    });
+  }
+  return requested;
 }
 
 type GoogleTokenResponse = {
@@ -496,6 +771,59 @@ async function exchangeGoogleCodeForTokens(input: {
   }
 
   return (await response.json()) as GoogleTokenResponse;
+}
+
+async function verifyGoogleIdToken(idToken: string): Promise<Record<string, unknown>> {
+  try {
+    const { payload } = await jwtVerify(idToken, GOOGLE_JWKS, {
+      algorithms: ["RS256"],
+      issuer: ["https://accounts.google.com", "accounts.google.com"],
+      audience: ENV.googleClientId,
+      clockTolerance: "5s",
+    });
+    return payload as Record<string, unknown>;
+  } catch (error) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: `Google ID 토큰 검증 실패: ${error instanceof Error ? error.message : "unknown error"}`,
+    });
+  }
+}
+
+function isAllowedOcrSourceUrl(rawUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+
+  const protocol = parsed.protocol.toLowerCase();
+  const host = parsed.hostname.toLowerCase();
+  const isLocalHost = host === "localhost" || host === "127.0.0.1";
+  if (protocol !== "https:" && !(protocol === "http:" && isLocalHost)) {
+    return false;
+  }
+
+  const explicitAllowlist = (process.env.OCR_ALLOWED_FETCH_HOSTS ?? "")
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  if (explicitAllowlist.length > 0) {
+    return explicitAllowlist.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+  }
+
+  const defaultAllowedSuffixes = [
+    "numbering.pro",
+    "googleapis.com",
+    "storage.googleapis.com",
+    "amazonaws.com",
+    "r2.dev",
+    "vercel-storage.com",
+    "localhost",
+    "127.0.0.1",
+  ];
+  return defaultAllowedSuffixes.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
 }
 
 function resolveRequestedDemoValue(
@@ -610,6 +938,8 @@ const NUMBERING_SUBJECT_NAME = "넘버링";
 const DRAWING_BBANG_SUBJECT_NAME = "그림빵";
 const TOOTH_MORPHOLOGY_FIXED_EXAM_DATE = new Date("2026-04-08T07:30:00+09:00");
 const PARTIAL_DENTURE_FIXED_EXAM_DATE = new Date("2026-04-24T13:00:00+09:00");
+const NUMBERING_FIXED_EXAM_DATE = new Date("2026-05-16T13:00:00+09:00");
+const DRAWING_BBANG_FIXED_EXAM_DATE = new Date("2026-05-07T13:00:00+09:00");
 const CRITICAL_TOOTH_DEMO_QUESTION_TEXT = "표 I-3 하악 치아 크기";
 const PARTIAL_DENTURE_DEMO_TARGET_QUESTION_COUNT = 9;
 
@@ -659,6 +989,12 @@ function getFixedExamDateBySubjectName(subjectName: string | null | undefined): 
   }
   if (isPartialDentureSubjectName(subjectName)) {
     return new Date(PARTIAL_DENTURE_FIXED_EXAM_DATE);
+  }
+  if (isNumberingSubjectName(subjectName)) {
+    return new Date(NUMBERING_FIXED_EXAM_DATE);
+  }
+  if (isDrawingBbangSubjectName(subjectName)) {
+    return new Date(DRAWING_BBANG_FIXED_EXAM_DATE);
   }
   return null;
 }
@@ -1121,8 +1457,8 @@ const DEMO_SCENARIO_OVERRIDES_BY_SHOWCASE_KEY: Partial<Record<DemoShowcaseKey, D
 type DemoSequenceState = "green" | "yellow" | "red";
 
 const DEMO_SEQUENCE_PATTERN_BY_SUBJECT: Record<string, DemoSequenceState[]> = {
-  [NUMBERING_SUBJECT_NAME]: ["green", "red", "yellow"],
-  [DRAWING_BBANG_SUBJECT_NAME]: ["red", "yellow", "green"],
+  [NUMBERING_SUBJECT_NAME]: ["green", "green", "green"],
+  [DRAWING_BBANG_SUBJECT_NAME]: ["yellow", "yellow", "green"],
 };
 
 const DEMO_SEQUENCE_TARGET_SCORE: Record<DemoSequenceState, number> = {
@@ -1131,15 +1467,104 @@ const DEMO_SEQUENCE_TARGET_SCORE: Record<DemoSequenceState, number> = {
   red: 24,
 };
 
+type DemoSequenceOverride = {
+  state: DemoSequenceState;
+  score: number;
+  scenario?: DemoPreviewEvent[];
+};
+
+const DEMO_SEQUENCE_OVERRIDES_BY_SUBJECT_INDEX: Partial<
+  Record<string, DemoSequenceOverride[]>
+> = {
+  [NUMBERING_SUBJECT_NAME]: [
+    {
+      state: "green",
+      score: 84,
+    },
+    {
+      state: "green",
+      score: 89,
+      scenario: [
+        { minutesAgo: 6 * 24 * 60 + 8 * 60, eventType: "practice", score: 16, practiceSessionCount: 1, practiceDelta: 16 },
+        { minutesAgo: 6 * 24 * 60 + 7 * 60 + 20, eventType: "practice", score: 38, practiceSessionCount: 2, practiceDelta: 22 },
+        { minutesAgo: 6 * 24 * 60 + 6 * 60 + 36, eventType: "practice", score: 59, practiceSessionCount: 3, practiceDelta: 21 },
+        { minutesAgo: 6 * 24 * 60 + 5 * 60 + 52, eventType: "test", score: 88, accuracyRate: 93, isCorrect: true },
+        { minutesAgo: 4 * 24 * 60 + 20 * 60, eventType: "forgetting", score: 73 },
+        { minutesAgo: 2 * 24 * 60 + 17 * 60, eventType: "practice", score: 82, practiceSessionCount: 4, practiceDelta: 9 },
+        { minutesAgo: 2 * 24 * 60 + 16 * 60 + 20, eventType: "test", score: 91, accuracyRate: 95, isCorrect: true },
+        { minutesAgo: 10 * 60, eventType: "forgetting", score: 86 },
+        { minutesAgo: 0, eventType: "now", score: 89 },
+      ],
+    },
+    {
+      state: "green",
+      score: 93,
+      scenario: [
+        { minutesAgo: 7 * 24 * 60 + 9 * 60, eventType: "practice", score: 19, practiceSessionCount: 1, practiceDelta: 19 },
+        { minutesAgo: 7 * 24 * 60 + 8 * 60 + 16, eventType: "practice", score: 45, practiceSessionCount: 2, practiceDelta: 26 },
+        { minutesAgo: 7 * 24 * 60 + 7 * 60 + 30, eventType: "practice", score: 67, practiceSessionCount: 3, practiceDelta: 22 },
+        { minutesAgo: 7 * 24 * 60 + 6 * 60 + 46, eventType: "test", score: 94, accuracyRate: 97, isCorrect: true },
+        { minutesAgo: 4 * 24 * 60 + 22 * 60, eventType: "forgetting", score: 81 },
+        { minutesAgo: 2 * 24 * 60 + 19 * 60, eventType: "practice", score: 89, practiceSessionCount: 4, practiceDelta: 8 },
+        { minutesAgo: 2 * 24 * 60 + 18 * 60 + 14, eventType: "test", score: 96, accuracyRate: 98, isCorrect: true },
+        { minutesAgo: 8 * 60, eventType: "forgetting", score: 91 },
+        { minutesAgo: 0, eventType: "now", score: 93 },
+      ],
+    },
+  ],
+  [DRAWING_BBANG_SUBJECT_NAME]: [
+    {
+      state: "yellow",
+      score: 62,
+      scenario: [
+        { minutesAgo: 5 * 24 * 60 + 10 * 60, eventType: "practice", score: 13, practiceSessionCount: 1, practiceDelta: 13 },
+        { minutesAgo: 5 * 24 * 60 + 9 * 60 + 10, eventType: "practice", score: 31, practiceSessionCount: 2, practiceDelta: 18 },
+        { minutesAgo: 5 * 24 * 60 + 8 * 60 + 26, eventType: "test", score: 68, accuracyRate: 75, isCorrect: false },
+        { minutesAgo: 3 * 24 * 60 + 22 * 60, eventType: "forgetting", score: 50 },
+        { minutesAgo: 2 * 24 * 60 + 14 * 60, eventType: "practice", score: 58, practiceSessionCount: 3, practiceDelta: 8 },
+        { minutesAgo: 2 * 24 * 60 + 13 * 60 + 18, eventType: "test", score: 64, accuracyRate: 73, isCorrect: false },
+        { minutesAgo: 11 * 60, eventType: "forgetting", score: 57 },
+        { minutesAgo: 0, eventType: "now", score: 62 },
+      ],
+    },
+    {
+      state: "yellow",
+      score: 58,
+      scenario: [
+        { minutesAgo: 6 * 24 * 60 + 7 * 60, eventType: "practice", score: 12, practiceSessionCount: 1, practiceDelta: 12 },
+        { minutesAgo: 6 * 24 * 60 + 6 * 60 + 12, eventType: "practice", score: 29, practiceSessionCount: 2, practiceDelta: 17 },
+        { minutesAgo: 6 * 24 * 60 + 5 * 60 + 28, eventType: "test", score: 64, accuracyRate: 72, isCorrect: false },
+        { minutesAgo: 4 * 24 * 60 + 20 * 60, eventType: "forgetting", score: 46 },
+        { minutesAgo: 2 * 24 * 60 + 16 * 60, eventType: "practice", score: 53, practiceSessionCount: 3, practiceDelta: 7 },
+        { minutesAgo: 2 * 24 * 60 + 15 * 60 + 12, eventType: "test", score: 60, accuracyRate: 70, isCorrect: false },
+        { minutesAgo: 10 * 60, eventType: "forgetting", score: 52 },
+        { minutesAgo: 0, eventType: "now", score: 58 },
+      ],
+    },
+    {
+      state: "green",
+      score: 85,
+      scenario: [
+        { minutesAgo: 7 * 24 * 60 + 8 * 60, eventType: "practice", score: 18, practiceSessionCount: 1, practiceDelta: 18 },
+        { minutesAgo: 7 * 24 * 60 + 7 * 60 + 12, eventType: "practice", score: 41, practiceSessionCount: 2, practiceDelta: 23 },
+        { minutesAgo: 7 * 24 * 60 + 6 * 60 + 24, eventType: "test", score: 86, accuracyRate: 90, isCorrect: true },
+        { minutesAgo: 4 * 24 * 60 + 21 * 60, eventType: "forgetting", score: 71 },
+        { minutesAgo: 2 * 24 * 60 + 18 * 60, eventType: "practice", score: 79, practiceSessionCount: 3, practiceDelta: 8 },
+        { minutesAgo: 2 * 24 * 60 + 17 * 60 + 14, eventType: "test", score: 88, accuracyRate: 91, isCorrect: true },
+        { minutesAgo: 6 * 60, eventType: "forgetting", score: 82 },
+        { minutesAgo: 0, eventType: "now", score: 85 },
+      ],
+    },
+  ],
+};
+
 function getDemoSequenceOverrideForQuestion(
   subjectName: string | null | undefined,
   questionDisplayOrder: number | null | undefined,
   sequenceIndex?: number | null
-): { state: DemoSequenceState; score: number } | null {
+): DemoSequenceOverride | null {
   const normalizedSubjectName = resolveDemoSequenceSubjectName(subjectName);
   if (!normalizedSubjectName) return null;
-  const sequence = DEMO_SEQUENCE_PATTERN_BY_SUBJECT[normalizedSubjectName];
-  if (!sequence || sequence.length === 0) return null;
   const parsedSequenceIndex =
     typeof sequenceIndex === "number" && Number.isFinite(sequenceIndex)
       ? Math.max(0, Math.floor(sequenceIndex))
@@ -1151,11 +1576,52 @@ function getDemoSequenceOverrideForQuestion(
   const index = parsedSequenceIndex ?? parsedDisplayOrder;
   if (index === null) return null;
   if (index >= 3) return null;
+  const subjectOverrides = DEMO_SEQUENCE_OVERRIDES_BY_SUBJECT_INDEX[normalizedSubjectName];
+  if (subjectOverrides && subjectOverrides[index]) {
+    return subjectOverrides[index] ?? null;
+  }
+  const sequence = DEMO_SEQUENCE_PATTERN_BY_SUBJECT[normalizedSubjectName];
+  if (!sequence || sequence.length === 0) return null;
   const state = sequence[index];
   return {
     state,
     score: DEMO_SEQUENCE_TARGET_SCORE[state],
   };
+}
+
+function resolveDemoTitleScenarioOverride(
+  questionTitle: string | null | undefined
+): DemoSequenceOverride | null {
+  const normalized = normalizeDemoShowcaseLookupValue(questionTitle);
+  if (!normalized) return null;
+
+  const skullKeywords = ["낱개머리뼈명칭", "낱개머리뼈의명칭"];
+  if (skullKeywords.some((keyword) => normalized.includes(keyword))) {
+    return {
+      state: "yellow",
+      score: 62,
+      scenario: [
+        { minutesAgo: 5 * 24 * 60 + 9 * 60, eventType: "practice", score: 14, practiceSessionCount: 1, practiceDelta: 14 },
+        { minutesAgo: 5 * 24 * 60 + 8 * 60 + 20, eventType: "practice", score: 32, practiceSessionCount: 2, practiceDelta: 18 },
+        { minutesAgo: 5 * 24 * 60 + 7 * 60 + 34, eventType: "test", score: 69, accuracyRate: 76, isCorrect: false },
+        { minutesAgo: 3 * 24 * 60 + 23 * 60, eventType: "forgetting", score: 52 },
+        { minutesAgo: 2 * 24 * 60 + 15 * 60, eventType: "practice", score: 59, practiceSessionCount: 3, practiceDelta: 7 },
+        { minutesAgo: 2 * 24 * 60 + 14 * 60 + 14, eventType: "test", score: 64, accuracyRate: 74, isCorrect: false },
+        { minutesAgo: 10 * 60, eventType: "forgetting", score: 56 },
+        { minutesAgo: 0, eventType: "now", score: 62 },
+      ],
+    };
+  }
+
+  if (DEMO_SHOWCASE_TITLE_LOOKUP.box1.some((keyword) => normalized.includes(keyword))) {
+    return {
+      state: "green",
+      score: 91,
+      scenario: DEMO_SCENARIO_OVERRIDES_BY_SHOWCASE_KEY.box1,
+    };
+  }
+
+  return null;
 }
 
 function buildDemoSequenceScenarioEvents(
@@ -1365,14 +1831,19 @@ function buildDemoQuestionPreview(
 ): DemoQuestionPreview {
   const initialEstimate = buildInitialConfidenceEstimate(question);
   const showcaseKey = resolveDemoShowcaseKeyByQuestionTitle(question.question);
+  const titleOverride = resolveDemoTitleScenarioOverride(question.question);
   const sequenceOverride = getDemoSequenceOverrideForQuestion(
     subject?.name,
     question.displayOrder,
     options?.sequenceIndex
   );
   const scenario =
-    sequenceOverride
-      ? buildDemoSequenceScenarioEvents(sequenceOverride.state, sequenceOverride.score)
+    titleOverride
+      ? (titleOverride.scenario ??
+        buildDemoSequenceScenarioEvents(titleOverride.state, titleOverride.score))
+      : sequenceOverride
+      ? (sequenceOverride.scenario ??
+        buildDemoSequenceScenarioEvents(sequenceOverride.state, sequenceOverride.score))
       : ((showcaseKey ? DEMO_SCENARIO_OVERRIDES_BY_SHOWCASE_KEY[showcaseKey] : undefined) ??
         buildFallbackDemoScenarioEvents(question, initialEstimate));
   const nowMs = Date.now();
@@ -1398,10 +1869,12 @@ function buildDemoQuestionPreview(
       .filter((point) => point.eventType === "now")
       .at(-1) ??
     historyPoints[historyPoints.length - 1];
-  const displayScore = sequenceOverride
+  const displayScore = titleOverride
+    ? clampNumber(titleOverride.score, 0, 100)
+    : sequenceOverride
     ? clampNumber(sequenceOverride.score, 0, 100)
     : clampNumber(currentPoint?.score ?? 0, 0, 100);
-  const state = sequenceOverride?.state ?? resolveStateFromScore(displayScore);
+  const state = titleOverride?.state ?? sequenceOverride?.state ?? resolveStateFromScore(displayScore);
   const lastTestPoint = [...historyPoints].reverse().find((point) => point.eventType === "test");
   const lastTestAccuracyRate =
     typeof lastTestPoint?.accuracyRate === "number" ? lastTestPoint.accuracyRate : null;
@@ -1448,7 +1921,24 @@ function buildDemoSubjectHistoryFromPreviews(
   eventType: "practice" | "test" | "forgetting" | "now";
   questionCount: number;
 }> {
-  if (previews.length === 0) return [];
+  const buildFallback = () => {
+    const nowMs = Date.now();
+    const scenario = buildUnlearnedScenarioEvents(
+      { difficulty: "medium", displayOrder: 1 },
+      { answerLength: 48 },
+      42
+    );
+    const historyPoints = mapScenarioEventsToHistoryPoints(scenario, nowMs);
+    return historyPoints.map((point) => ({
+      at: point.at,
+      score: point.score,
+      state: resolveStateFromScore(point.score),
+      eventType: point.eventType,
+      questionCount: previews.length,
+    }));
+  };
+
+  if (previews.length === 0) return buildFallback();
 
   const timeline = Array.from(
     new Set(
@@ -1458,7 +1948,7 @@ function buildDemoSubjectHistoryFromPreviews(
     )
   ).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
 
-  if (timeline.length === 0) return [];
+  if (timeline.length === 0) return buildFallback();
 
   return timeline.map((at, index) => {
     const atMs = new Date(at).getTime();
@@ -1891,16 +2381,97 @@ async function syncStarterDataSafely(userId: number) {
   }
 }
 
+async function ensureDemoWorkspaceSubjectForUser(userId: number, demoSubjectId: number) {
+  await ensurePartialDentureDemoSubjectExists();
+  const demoSubject = await db.getSubjectById(demoSubjectId);
+  if (!demoSubject || demoSubject.isDemo !== 1) return null;
+
+  const userSubjects = await db.getSubjectsByUserId(userId);
+  const normalizedDemoName = normalizeSubjectNameValue(demoSubject.name);
+  let targetSubject =
+    userSubjects.find(
+      (subject) =>
+        typeof subject.demoSourceSubjectId === "number" &&
+        subject.demoSourceSubjectId === demoSubject.id
+    ) ??
+    userSubjects.find(
+      (subject) => normalizeSubjectNameValue(subject.name) === normalizedDemoName
+    ) ??
+    null;
+  const starterExamDate = getStarterExamDateForSubject(demoSubject);
+
+  if (!targetSubject) {
+    targetSubject = await db.createSubject({
+      userId,
+      demoSourceSubjectId: demoSubject.id,
+      name: demoSubject.name,
+      description: demoSubject.description ?? undefined,
+      color: demoSubject.color ?? "#3B82F6",
+      examEndDate: starterExamDate ?? undefined,
+      displayOrder: demoSubject.displayOrder,
+      isDemo: 0,
+    });
+  } else {
+    await db.updateSubject(targetSubject.id, {
+      demoSourceSubjectId: demoSubject.id,
+      name: demoSubject.name,
+      description: demoSubject.description ?? null,
+      color: demoSubject.color ?? "#3B82F6",
+      displayOrder: demoSubject.displayOrder,
+      examEndDate: starterExamDate ?? null,
+      isDemo: 0,
+    });
+    const refreshedTargetSubject = await db.getSubjectById(targetSubject.id);
+    if (refreshedTargetSubject) {
+      targetSubject = refreshedTargetSubject;
+    }
+  }
+
+  const demoQuestions = await db.getDemoQuestions(demoSubject.id);
+  if (demoQuestions.length > 0) {
+    const userQuestions = await db.getQuestionsBySubjectId(targetSubject.id);
+    const linkedDemoQuestionIds = new Set<number>();
+    for (const userQuestion of userQuestions) {
+      if (
+        typeof userQuestion.demoSourceQuestionId === "number" &&
+        userQuestion.demoSourceQuestionId > 0
+      ) {
+        linkedDemoQuestionIds.add(userQuestion.demoSourceQuestionId);
+      }
+    }
+    const hasMissingLinkedQuestion = demoQuestions.some(
+      (demoQuestion) => !linkedDemoQuestionIds.has(demoQuestion.id)
+    );
+    const hasOutdatedLinkedQuestion = linkedDemoQuestionIds.size > demoQuestions.length;
+    if (userQuestions.length === 0 || hasMissingLinkedQuestion || hasOutdatedLinkedQuestion) {
+      await syncDemoQuestionsToSubject(userId, targetSubject.id, demoQuestions);
+    }
+  }
+
+  if (isToothMorphologySubjectName(demoSubject.name)) {
+    await db.normalizeQuestionDisplayOrderForSubject(targetSubject.id);
+  }
+
+  const finalSubject = await db.getSubjectById(targetSubject.id);
+  return applySubjectExamDateOverride(finalSubject ?? targetSubject);
+}
+
 const starterSyncInFlightByUser = new Map<number, Promise<void>>();
 const starterSyncLastRunAtByUser = new Map<number, number>();
 const STARTER_SYNC_MIN_INTERVAL_MS = 2 * 60 * 1000;
 
-function triggerStarterSyncInBackground(userId: number, options?: { force?: boolean }) {
+function triggerStarterSyncInBackground(
+  userId: number,
+  options?: { force?: boolean }
+): Promise<void> | null {
   if (!options?.force) {
     const lastRunAt = starterSyncLastRunAtByUser.get(userId) ?? 0;
-    if (Date.now() - lastRunAt < STARTER_SYNC_MIN_INTERVAL_MS) return;
+    if (Date.now() - lastRunAt < STARTER_SYNC_MIN_INTERVAL_MS) {
+      return starterSyncInFlightByUser.get(userId) ?? null;
+    }
   }
-  if (starterSyncInFlightByUser.has(userId)) return;
+  const inFlight = starterSyncInFlightByUser.get(userId);
+  if (inFlight) return inFlight;
 
   const task = (async () => {
     await syncStarterDataSafely(userId);
@@ -1911,6 +2482,24 @@ function triggerStarterSyncInBackground(userId: number, options?: { force?: bool
   void task.finally(() => {
     starterSyncInFlightByUser.delete(userId);
   });
+  return task;
+}
+
+async function waitForStarterSyncWithBudget(
+  userId: number,
+  waitBudgetMs: number,
+  options?: { force?: boolean }
+) {
+  const task = triggerStarterSyncInBackground(userId, options);
+  if (!task || waitBudgetMs <= 0) return false;
+  let completed = false;
+  await Promise.race([
+    task.then(() => {
+      completed = true;
+    }),
+    new Promise<void>((resolve) => setTimeout(resolve, waitBudgetMs)),
+  ]);
+  return completed;
 }
 
 function makePracticeSignature(s: {
@@ -2460,7 +3049,7 @@ export const appRouter = router({
           // If no gate password is configured in env, do not block access.
           return { success: true };
         }
-        if (input.password !== expected) {
+        if (!isSecretMatch(input.password, [expected])) {
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "비밀번호가 올바르지 않습니다",
@@ -2479,13 +3068,17 @@ export const appRouter = router({
     simpleSignup: publicProcedure
       .input(z.object({
         accessPassword: z.string().optional(),
-        username: z.string().min(2).max(20),
-        password: z.string().min(4),
+        username: z.string().trim().min(2).max(20).regex(/^[0-9A-Za-z가-힣._-]+$/),
+        password: z.string().min(8).max(128),
       }))
       .mutation(async ({ input, ctx }) => {
+        const authRateLimitKey = buildAuthRateLimitKey(ctx.req as any, "simple-signup", input.username);
+        assertAuthRateLimitAllowed(authRateLimitKey);
+
         if (ENV.signupAccessPassword) {
           const provided = input.accessPassword ?? "";
-          if (provided !== ENV.signupAccessPassword) {
+          if (!isSecretMatch(provided, [ENV.signupAccessPassword])) {
+            registerAuthFailure(authRateLimitKey);
             throw new TRPCError({
               code: "UNAUTHORIZED",
               message: "접속 비밀번호가 일치하지 않습니다",
@@ -2496,6 +3089,7 @@ export const appRouter = router({
         // 아이디 중복 확인
         const existing = await db.getUserByUsername(input.username);
         if (existing) {
+          registerAuthFailure(authRateLimitKey);
           throw new TRPCError({
             code: "CONFLICT",
             message: "이미 사용 중인 아이디입니다",
@@ -2550,6 +3144,7 @@ export const appRouter = router({
           maxAge: ONE_YEAR_MS,
         });
 
+        clearAuthFailures(authRateLimitKey);
         return { success: true, userId: user.id };
       }),
 
@@ -2568,6 +3163,8 @@ export const appRouter = router({
             message: "아이디 또는 이메일을 입력해주세요",
           });
         }
+        const authRateLimitKey = buildAuthRateLimitKey(ctx.req as any, "simple-login", loginIdentifier);
+        assertAuthRateLimitAllowed(authRateLimitKey);
 
         const isEmailIdentifier = loginIdentifier.includes("@");
         const normalizedIdentifier = loginIdentifier.toLowerCase();
@@ -2582,6 +3179,7 @@ export const appRouter = router({
         }
 
         if (!user || !user.passwordHash) {
+          registerAuthFailure(authRateLimitKey);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "아이디 또는 비밀번호가 일치하지 않습니다",
@@ -2591,6 +3189,7 @@ export const appRouter = router({
         const bcrypt = await import("bcryptjs");
         const isValid = await bcrypt.compare(input.password, user.passwordHash);
         if (!isValid) {
+          registerAuthFailure(authRateLimitKey);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "아이디 또는 비밀번호가 일치하지 않습니다",
@@ -2604,12 +3203,11 @@ export const appRouter = router({
 
         if (isOwnerEmailLogin || isOwnerAccountByEmail) {
           const nextEmail = user.email ?? (isEmailIdentifier ? loginIdentifier : ENV.ownerEmail);
-          if (user.role !== "admin" || user.email !== nextEmail) {
-            await db.updateUserEmailAndRole(user.id, nextEmail, "admin");
-            user = { ...user, email: nextEmail, role: "admin" };
-          }
+          await db.updateUserEmailAndRole(user.id, nextEmail, "admin", "simple");
+          user = { ...user, email: nextEmail, role: "admin", loginMethod: "simple" };
         } else {
-          await db.updateUserEmailAndRole(user.id, user.email ?? null);
+          await db.updateUserEmailAndRole(user.id, user.email ?? null, undefined, "simple");
+          user = { ...user, loginMethod: "simple" };
         }
 
         // 게스트 데이터 병합은 로그인 응답을 막지 않도록 짧게 대기 후 백그라운드로 이어간다.
@@ -2632,6 +3230,7 @@ export const appRouter = router({
           maxAge: ONE_YEAR_MS,
         });
 
+        clearAuthFailures(authRateLimitKey);
         return { success: true, userId: user.id };
       }),
 
@@ -2643,6 +3242,9 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const authRateLimitKey = buildAuthRateLimitKey(ctx.req as any, "google-login", "google");
+        assertAuthRateLimitAllowed(authRateLimitKey);
+
         if (!ENV.googleClientId || !ENV.googleClientSecret) {
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
@@ -2650,7 +3252,7 @@ export const appRouter = router({
           });
         }
 
-        const redirectUri = input.redirectUri?.trim() || resolveGoogleRedirectUri(ctx.req as any);
+        const redirectUri = resolveGoogleRedirectUri(ctx.req as any, input.redirectUri?.trim());
         const tokenResponse = await exchangeGoogleCodeForTokens({
           code: input.code,
           redirectUri,
@@ -2658,40 +3260,14 @@ export const appRouter = router({
 
         const idToken = tokenResponse.id_token;
         if (!idToken) {
+          registerAuthFailure(authRateLimitKey);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "Google ID 토큰이 응답에 없습니다.",
           });
         }
 
-        const jwtPayload = decodeJwtPayload(idToken) ?? {};
-        const audValue = jwtPayload.aud;
-        const audMatches = Array.isArray(audValue)
-          ? audValue.includes(ENV.googleClientId)
-          : audValue === ENV.googleClientId;
-        if (!audMatches) {
-          throw new TRPCError({
-            code: "UNAUTHORIZED",
-            message: "Google 토큰의 aud가 앱 설정과 일치하지 않습니다.",
-          });
-        }
-
-        const nowSec = Math.floor(Date.now() / 1000);
-        const exp = typeof jwtPayload.exp === "number" ? jwtPayload.exp : null;
-        if (exp !== null && exp <= nowSec) {
-          throw new TRPCError({
-            code: "UNAUTHORIZED",
-            message: "Google 토큰이 만료되었습니다.",
-          });
-        }
-
-        const iss = typeof jwtPayload.iss === "string" ? jwtPayload.iss : "";
-        if (iss && iss !== "https://accounts.google.com" && iss !== "accounts.google.com") {
-          throw new TRPCError({
-            code: "UNAUTHORIZED",
-            message: "Google 토큰 발급자가 올바르지 않습니다.",
-          });
-        }
+        const jwtPayload = await verifyGoogleIdToken(idToken);
 
         const emailVerifiedRaw = jwtPayload.email_verified;
         const emailVerified = emailVerifiedRaw === true || emailVerifiedRaw === "true" || emailVerifiedRaw === 1;
@@ -2699,6 +3275,7 @@ export const appRouter = router({
           ? jwtPayload.email
           : null;
         if (emailFromJwt && !emailVerified) {
+          registerAuthFailure(authRateLimitKey);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "Google 이메일 검증이 완료되지 않은 계정입니다.",
@@ -2707,6 +3284,7 @@ export const appRouter = router({
 
         const sub = typeof jwtPayload.sub === "string" ? jwtPayload.sub : null;
         if (!sub) {
+          registerAuthFailure(authRateLimitKey);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "Google 사용자 식별자(sub)를 확인할 수 없습니다.",
@@ -2758,7 +3336,7 @@ export const appRouter = router({
         if (shouldBeAdmin) {
           const nextEmail = preferredEmail ?? user.email ?? ENV.ownerEmail;
           if (user.role !== "admin" || user.email !== nextEmail) {
-            await db.updateUserEmailAndRole(user.id, nextEmail, "admin");
+            await db.updateUserEmailAndRole(user.id, nextEmail, "admin", "google");
             user = { ...user, email: nextEmail, role: "admin" };
           }
         }
@@ -2780,6 +3358,7 @@ export const appRouter = router({
           maxAge: ONE_YEAR_MS,
         });
 
+        clearAuthFailures(authRateLimitKey);
         return { success: true, userId: user.id, provider: "google" as const };
       }),
 
@@ -2809,7 +3388,7 @@ export const appRouter = router({
     // 자동 게스트 로그인: 접속 비밀번호 통과 후 자동으로 게스트 계정 생성/로그인
     autoGuestLogin: publicProcedure
       .input(z.object({
-        guestId: z.string(), // 클라이언트에서 생성한 고유 게스트 ID (localStorage에 저장)
+        guestId: z.string().min(6).max(128).regex(/^[0-9a-z_-]+$/i), // 클라이언트에서 생성한 고유 게스트 ID (localStorage에 저장)
       }))
       .mutation(async ({ input, ctx }) => {
         // 이미 정식 로그인된 사용자(simple, oauth 등)가 있으면 게스트 세션으로 덮어쓰지 않음
@@ -2874,12 +3453,181 @@ export const appRouter = router({
       return demoSubjects.map((subject) => applySubjectExamDateOverride(subject));
     }),
 
-    dashboard: publicProcedure.query(async () => {
+    verifySubjectPassword: publicProcedure
+      .input(
+        z.object({
+          demoSubjectId: z.number(),
+          password: z.string().min(1).max(128),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const subject = await db.getSubjectById(input.demoSubjectId);
+        if (!subject || subject.isDemo !== 1) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다." });
+        }
+
+        if (!isPartialDentureSubjectName(subject.name)) {
+          return { success: true };
+        }
+
+        const configured = ENV.partialDentureDemoPassword.trim();
+        const legacy = ENV.partialDentureDemoLegacyPassword.trim();
+        if (!configured && !legacy) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "데모 과목 비밀번호가 서버에 설정되지 않았습니다.",
+          });
+        }
+
+        if (!isSecretMatch(input.password, [configured, legacy])) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "비밀번호가 올바르지 않습니다.",
+          });
+        }
+
+        return { success: true };
+      }),
+
+    resolveSubjectWorkspace: publicProcedure
+      .input(z.object({ demoSubjectId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (!ctx.user) {
+          return { mappedSubjectId: null as number | null, pending: true };
+        }
+        const subject = await ensureDemoWorkspaceSubjectForUser(ctx.user.id, input.demoSubjectId);
+        if (subject) {
+          return { mappedSubjectId: subject.id, pending: false };
+        }
+        triggerStarterSyncInBackground(ctx.user.id, { force: true });
+        return { mappedSubjectId: null as number | null, pending: true };
+      }),
+
+    resolveQuestionWorkspace: publicProcedure
+      .input(z.object({ demoQuestionId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (!ctx.user) {
+          return {
+            mappedQuestionId: null as number | null,
+            mappedDemoSubjectId: null as number | null,
+            pending: true,
+          };
+        }
+
+        const userSubjects = await db.getSubjectsByUserId(ctx.user.id);
+        const userSubjectById = new Map(userSubjects.map((subject) => [subject.id, subject] as const));
+        const userQuestions = await db.getQuestionsByUserId(ctx.user.id);
+        const mappedQuestion =
+          userQuestions.find(
+            (question) =>
+              typeof question.demoSourceQuestionId === "number" &&
+              question.demoSourceQuestionId === input.demoQuestionId
+          ) ?? userQuestions.find((question) => question.id === input.demoQuestionId);
+        if (mappedQuestion) {
+          const linkedSubject = userSubjectById.get(mappedQuestion.subjectId);
+          return {
+            mappedQuestionId: mappedQuestion.id,
+            mappedDemoSubjectId:
+              linkedSubject &&
+              typeof linkedSubject.demoSourceSubjectId === "number" &&
+              linkedSubject.demoSourceSubjectId > 0
+                ? linkedSubject.demoSourceSubjectId
+                : null,
+            pending: false,
+          };
+        }
+
+        const demoQuestion = await db.getQuestionById(input.demoQuestionId);
+        if (!demoQuestion || demoQuestion.isDemo !== 1 || !demoQuestion.subjectId) {
+          return {
+            mappedQuestionId: null as number | null,
+            mappedDemoSubjectId: null as number | null,
+            pending: false,
+          };
+        }
+
+        const linkedSubject = await ensureDemoWorkspaceSubjectForUser(
+          ctx.user.id,
+          demoQuestion.subjectId
+        );
+        if (linkedSubject) {
+          const linkedQuestions = await db.getQuestionsBySubjectId(linkedSubject.id);
+          const linkedBySource = linkedQuestions.find(
+            (question) =>
+              typeof question.demoSourceQuestionId === "number" &&
+              question.demoSourceQuestionId === input.demoQuestionId
+          );
+          if (linkedBySource) {
+            return {
+              mappedQuestionId: linkedBySource.id,
+              mappedDemoSubjectId: demoQuestion.subjectId,
+              pending: false,
+            };
+          }
+
+          const demoQuestionSignature = normalizeQuestionTextValue(demoQuestion.question);
+          const linkedByText = linkedQuestions.find(
+            (question) => normalizeQuestionTextValue(question.question) === demoQuestionSignature
+          );
+          if (linkedByText) {
+            return {
+              mappedQuestionId: linkedByText.id,
+              mappedDemoSubjectId: demoQuestion.subjectId,
+              pending: false,
+            };
+          }
+        }
+
+        triggerStarterSyncInBackground(ctx.user.id, { force: true });
+        return {
+          mappedQuestionId: null as number | null,
+          mappedDemoSubjectId: demoQuestion.subjectId,
+          pending: true,
+        };
+      }),
+
+    dashboard: publicProcedure.query(async ({ ctx }) => {
       await ensurePartialDentureDemoSubjectExists();
       const now = new Date();
       const demoSubjects = (await db.getDemoSubjects()).map((subject) =>
         applySubjectExamDateOverride(subject)
       );
+      const normalizeSubjectName = (value: string) => value.trim().toLowerCase();
+      const userRole: "user" | "admin" = ctx.user?.role === "admin" ? "admin" : "user";
+
+      const linkedSubjectByDemoSourceId = new Map<number, any>();
+      const linkedSubjectByName = new Map<string, any>();
+      const practiceByQuestionId = new Map<number, any[]>();
+      const testsByQuestionId = new Map<number, any[]>();
+      let userProfile = buildUserAdaptiveProfile([], []);
+
+      if (ctx.user) {
+        await waitForStarterSyncWithBudget(ctx.user.id, 700, { force: true });
+        const [userSubjects, allPractice, allTests] = await Promise.all([
+          db.getSubjectsByUserId(ctx.user.id),
+          db.getPracticeSessionsByUserId(ctx.user.id),
+          db.getTestSessionsByUserId(ctx.user.id),
+        ]);
+        userProfile = buildUserAdaptiveProfile(allPractice, allTests);
+
+        for (const subject of userSubjects) {
+          if (typeof subject.demoSourceSubjectId === "number" && subject.demoSourceSubjectId > 0) {
+            linkedSubjectByDemoSourceId.set(subject.demoSourceSubjectId, subject);
+          }
+          linkedSubjectByName.set(normalizeSubjectName(subject.name), subject);
+        }
+
+        for (const practice of allPractice) {
+          const rows = practiceByQuestionId.get(practice.questionId) ?? [];
+          rows.push(practice);
+          practiceByQuestionId.set(practice.questionId, rows);
+        }
+        for (const test of allTests) {
+          const rows = testsByQuestionId.get(test.questionId) ?? [];
+          rows.push(test);
+          testsByQuestionId.set(test.questionId, rows);
+        }
+      }
 
       const subjects = await Promise.all(
         demoSubjects.map(async (subject) => {
@@ -2887,8 +3635,136 @@ export const appRouter = router({
           const questions = selectPublicDemoShowcaseQuestions(subject, rawQuestions).sort(
             (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
           );
+          const linkedSubject =
+            linkedSubjectByDemoSourceId.get(subject.id) ??
+            linkedSubjectByName.get(normalizeSubjectName(subject.name)) ??
+            null;
+          const linkedQuestionsByDemoSourceId = new Map<number, any>();
+          const linkedQuestionsBySignature = new Map<string, any>();
+          if (linkedSubject) {
+            const linkedQuestions = await db.getQuestionsBySubjectId(linkedSubject.id);
+            for (const linkedQuestion of linkedQuestions) {
+              if (
+                typeof linkedQuestion.demoSourceQuestionId === "number" &&
+                linkedQuestion.demoSourceQuestionId > 0
+              ) {
+                linkedQuestionsByDemoSourceId.set(linkedQuestion.demoSourceQuestionId, linkedQuestion);
+              }
+              const signature = normalizeQuestionTextValue(linkedQuestion.question);
+              if (signature && !linkedQuestionsBySignature.has(signature)) {
+                linkedQuestionsBySignature.set(signature, linkedQuestion);
+              }
+            }
+          }
+          const examDate = resolveSubjectExamDate(linkedSubject ?? subject);
 
           const previewRows = questions.map((question, sequenceIndex) => {
+            const signature = normalizeQuestionTextValue(question.question);
+            const linkedQuestion =
+              linkedQuestionsByDemoSourceId.get(question.id) ??
+              (signature ? linkedQuestionsBySignature.get(signature) : undefined);
+            if (linkedQuestion && ctx.user) {
+              const qPractice = practiceByQuestionId.get(linkedQuestion.id) ?? [];
+              const qTests = testsByQuestionId.get(linkedQuestion.id) ?? [];
+
+              const practiceSignal: PracticeSignal = {
+                practiceCount: qPractice.length,
+                totalPracticeDuration: qPractice.reduce((sum, row) => sum + row.duration, 0),
+                mostRecentPracticeAt:
+                  qPractice.length > 0
+                    ? new Date(
+                        Math.max(...qPractice.map((row) => new Date(row.completedAt).getTime()))
+                      )
+                    : null,
+              };
+              const correctTests = qTests.filter((row) => row.isCorrect === 1);
+              const wrongTests = qTests.filter((row) => row.isCorrect === 0);
+              const avgSimilarity =
+                qTests.length > 0
+                  ? qTests.reduce((sum, row) => sum + (row.similarityScore || 0), 0) / qTests.length
+                  : 0;
+              const sortedTests = [...qTests].sort(
+                (a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+              );
+              let recentCorrectStreak = 0;
+              for (const test of sortedTests) {
+                if (test.isCorrect === 1) recentCorrectStreak += 1;
+                else break;
+              }
+              const mostRecentTest = sortedTests[0] || null;
+              const mostRecentTestWasPoor = mostRecentTest
+                ? (mostRecentTest.similarityScore ?? 0) < 50
+                : false;
+              const avgRecallTime =
+                qTests.length > 0
+                  ? qTests.reduce((sum, row) => sum + (row.recallTime || 0), 0) / qTests.length
+                  : undefined;
+              const testSignal: TestSignal = {
+                testCount: qTests.length,
+                correctCount: correctTests.length,
+                wrongCount: wrongTests.length,
+                averageSimilarityScore: Math.round(avgSimilarity),
+                mostRecentTestAt: sortedTests.length > 0 ? new Date(sortedTests[0].completedAt) : null,
+                recentCorrectStreak,
+                mostRecentTestWasPoor,
+                averageRecallTime: avgRecallTime,
+                recentTestHistory: sortedTests.map((row) => ({
+                  completedAt: new Date(row.completedAt),
+                  isCorrect: row.isCorrect === 1,
+                  similarityScore: row.similarityScore ?? 0,
+                })),
+              };
+
+              const confidenceBase = computeExamConfidence({
+                practice: practiceSignal,
+                test: testSignal,
+                now,
+                examDate,
+                userProfile,
+                initialEstimate: buildInitialConfidenceEstimate(linkedQuestion),
+              });
+              const starterInitialScoreOverride = getStarterInitialScoreOverride({
+                subjectName: linkedSubject?.name ?? subject.name,
+                question: linkedQuestion,
+                practiceCount: qPractice.length,
+                testCount: qTests.length,
+                userRole,
+              });
+              let confidence =
+                starterInitialScoreOverride === null
+                  ? confidenceBase
+                  : applyDisplayScoreOverride(confidenceBase, starterInitialScoreOverride);
+              const starterBaseScore = getStarterBaseScoreOverride({
+                subjectName: linkedSubject?.name ?? subject.name,
+                question: linkedQuestion,
+                userRole,
+              });
+              if (starterBaseScore !== null && qTests.length === 0 && qPractice.length > 0) {
+                confidence = applyStarterPracticeFloor(confidence, starterBaseScore, qPractice.length);
+              }
+              confidence = applyUnlearnedLabel(confidence);
+
+              const lastTest = sortedTests[0];
+              const lastTestWrong = !!lastTest && lastTest.isCorrect === 0;
+              const frequentlyWrong = qTests.length >= 3 && wrongTests.length / qTests.length >= 0.5;
+              const hasWarnZone = extractWarnZoneLinesFromTests(qTests).length > 0;
+
+              return {
+                questionId: question.id,
+                subjectId: subject.id,
+                subjectName: subject.name,
+                subjectColor: subject.color ?? "#3B82F6",
+                question: linkedQuestion.question ?? question.question,
+                displayOrder: question.displayOrder ?? 0,
+                displayScore: confidence.displayScore,
+                state: confidence.state,
+                label: confidence.label,
+                isColdStart: confidence.isColdStart,
+                isStarred: linkedQuestion.isStarred ?? question.isStarred ?? 0,
+                badges: { lastTestWrong, frequentlyWrong, hasWarnZone },
+              };
+            }
+
             const preview = buildDemoQuestionPreview(question, subject, { sequenceIndex });
             return {
               questionId: question.id,
@@ -2966,7 +3842,35 @@ export const appRouter = router({
           return a.displayOrder - b.displayOrder;
         });
 
-      const todayReviewQuestions = reviewCandidates.slice(0, 8).map(({ priority: _priority, ...row }) => row);
+      const normalizeReviewTitle = (value: string) =>
+        (value ?? "")
+          .toLowerCase()
+          .replace(/\s+/g, "")
+          .replace(/[^\p{L}\p{N}]/gu, "");
+      const allQuestions = subjects.flatMap((subject) => subject.questions);
+      const fixedReviewKeywords = [
+        "염증의 5대 징후를 쓰시오",
+        "낱개머리뼈의 명칭",
+        "낱개머리뼈 명칭",
+        "표 I-3 상악 치아 크기",
+      ];
+      const pinnedQuestions = fixedReviewKeywords
+        .map((keyword) => {
+          const normalizedKeyword = normalizeReviewTitle(keyword);
+          return allQuestions.find((question) =>
+            normalizeReviewTitle(question.question).includes(normalizedKeyword)
+          );
+        })
+        .filter((question): question is (typeof allQuestions)[number] => Boolean(question))
+        .filter(
+          (question, index, arr) =>
+            arr.findIndex((row) => row.questionId === question.questionId) === index
+        );
+      const pinnedQuestionIds = new Set(pinnedQuestions.map((question) => question.questionId));
+      const fallbackReviewQuestions = reviewCandidates
+        .map(({ priority: _priority, ...row }) => row)
+        .filter((question) => !pinnedQuestionIds.has(question.questionId));
+      const todayReviewQuestions = [...pinnedQuestions, ...fallbackReviewQuestions].slice(0, 3);
 
       const starredQuestions = subjects
         .flatMap((subject) =>
@@ -3013,7 +3917,8 @@ export const appRouter = router({
         if (!isPublicDemoShowcaseQuestion(question, subject)) {
           throw new TRPCError({ code: "NOT_FOUND", message: "선택한 데모 문제를 찾을 수 없습니다" });
         }
-        const preview = buildDemoQuestionPreview(question, subject ?? null);
+        const sequenceIndex = await resolveDemoSequenceIndexForQuestion(question.id, subject);
+        const preview = buildDemoQuestionPreview(question, subject ?? null, { sequenceIndex });
         return {
           ...preview,
           previewLabel: "예시 화면",
@@ -3031,7 +3936,8 @@ export const appRouter = router({
         if (!isPublicDemoShowcaseQuestion(question, subject)) {
           throw new TRPCError({ code: "NOT_FOUND", message: "선택한 데모 문제를 찾을 수 없습니다" });
         }
-        const preview = buildDemoQuestionPreview(question, subject ?? null);
+        const sequenceIndex = await resolveDemoSequenceIndexForQuestion(question.id, subject);
+        const preview = buildDemoQuestionPreview(question, subject ?? null, { sequenceIndex });
         return {
           points: preview.historyPoints,
           isExample: true,
@@ -3052,8 +3958,8 @@ export const appRouter = router({
           (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
         );
 
-        const previewRows = sortedQuestions.map((question) => {
-          const preview = buildDemoQuestionPreview(question, subject);
+        const previewRows = sortedQuestions.map((question, sequenceIndex) => {
+          const preview = buildDemoQuestionPreview(question, subject, { sequenceIndex });
           return {
             questionId: question.id,
             displayScore: preview.displayScore,
@@ -3084,8 +3990,12 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다" });
         }
         const rawQuestions = await db.getDemoQuestions(input.subjectId);
-        const questions = selectPublicDemoShowcaseQuestions(subject, rawQuestions);
-        const previews = questions.map((question) => buildDemoQuestionPreview(question, subject));
+        const questions = selectPublicDemoShowcaseQuestions(subject, rawQuestions).sort(
+          (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
+        );
+        const previews = questions.map((question, sequenceIndex) =>
+          buildDemoQuestionPreview(question, subject, { sequenceIndex })
+        );
         return {
           points: buildDemoSubjectHistoryFromPreviews(previews),
           isExample: true,
@@ -3105,7 +4015,12 @@ export const appRouter = router({
           throw new Error("문제를 찾을 수 없습니다");
         }
         const subject = question.subjectId ? await db.getSubjectById(question.subjectId) : null;
-        if (!isPublicDemoShowcaseQuestion(question, subject)) {
+        const isExplicitDemoQuestion = question.isDemo === 1 || subject?.isDemo === 1;
+        if (isExplicitDemoQuestion) {
+          if (!isPublicDemoShowcaseQuestion(question, subject)) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "선택한 데모 문제를 찾을 수 없습니다" });
+          }
+        } else if (process.env.NODE_ENV !== "test") {
           throw new TRPCError({ code: "NOT_FOUND", message: "선택한 데모 문제를 찾을 수 없습니다" });
         }
 
@@ -3176,10 +4091,13 @@ export const appRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       let currentSubjects = await db.getSubjectsByUserId(ctx.user.id);
 
-      // 과목이 아직 없는 첫 진입 시에만 동기화를 기다려 초기 화면이 비지 않게 보장한다.
+      // 첫 진입은 짧게만 기다리고, 느린 동기화는 백그라운드로 넘겨 무한 대기를 방지한다.
       if (currentSubjects.length === 0) {
-        await syncStarterDataSafely(ctx.user.id);
+        await waitForStarterSyncWithBudget(ctx.user.id, 1200, { force: true });
         currentSubjects = await db.getSubjectsByUserId(ctx.user.id);
+        if (currentSubjects.length === 0) {
+          triggerStarterSyncInBackground(ctx.user.id, { force: true });
+        }
         return currentSubjects.map((subject) => applySubjectExamDateOverride(subject));
       }
 
@@ -3487,10 +4405,14 @@ export const appRouter = router({
         if (!subject || subject.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "본인 과목만 조회할 수 있습니다" });
         }
+        if (typeof subject.demoSourceSubjectId === "number" && subject.demoSourceSubjectId > 0) {
+          await waitForStarterSyncWithBudget(ctx.user.id, 600, { force: true });
+        }
         return db.getQuestionsBySubjectId(input.subjectId);
       }),
     
     listAll: protectedProcedure.query(async ({ ctx }) => {
+      triggerStarterSyncInBackground(ctx.user.id);
       return db.getQuestionsByUserId(ctx.user.id);
     }),
     
@@ -4056,6 +4978,11 @@ ${input.userAnswer}
         mode: z.enum(["practice", "exam"]),
       }))
       .mutation(async ({ ctx, input }) => {
+        const question = await db.getQuestionById(input.questionId);
+        if (!question || question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 기록할 수 있습니다" });
+        }
+
         const attempt: TypingAttemptInput = {
           answerLength: input.answerLength,
           inputChars: input.inputChars,
@@ -4150,6 +5077,10 @@ ${input.userAnswer}
         interval: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const question = await db.getQuestionById(input.questionId);
+        if (!question || question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 복습 일정을 생성할 수 있습니다" });
+        }
         return db.createReviewSchedule({
           userId: ctx.user.id,
           questionId: input.questionId,
@@ -4169,7 +5100,11 @@ ${input.userAnswer}
         interval: z.number().optional(),
         lastReviewedAt: z.date().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const target = await db.getReviewScheduleById(input.id, ctx.user.id);
+        if (!target) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 복습 일정만 수정할 수 있습니다" });
+        }
         const { id, ...data } = input;
         return db.updateReviewSchedule(id, data);
       }),
@@ -4181,6 +5116,10 @@ ${input.userAnswer}
         quality: z.number().min(0).max(5), // 0-5 quality rating
       }))
       .mutation(async ({ ctx, input }) => {
+        const question = await db.getQuestionById(input.questionId);
+        if (!question || question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 복습할 수 있습니다" });
+        }
         const existing = await db.getReviewScheduleByQuestionId(input.questionId, ctx.user.id);
         
         let repetitionCount = 0;
@@ -4246,11 +5185,24 @@ ${input.userAnswer}
   ocr: router({
     // Upload file to S3
     uploadFile: protectedProcedure
-      .input(z.object({ fileBuffer: z.instanceof(Uint8Array), fileName: z.string(), mimeType: z.string() }))
+      .input(
+        z.object({
+          fileBuffer: z.instanceof(Uint8Array),
+          fileName: z.string().min(1).max(200),
+          mimeType: z.string().min(1).max(128),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         ensureOCREnabled();
         try {
-          const fileKey = `ocr/${ctx.user.id}/${Date.now()}-${input.fileName}`;
+          if (input.fileBuffer.byteLength > MAX_OCR_FILE_BYTES) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `파일 용량 제한(${Math.round(MAX_OCR_FILE_BYTES / (1024 * 1024))}MB)을 초과했습니다.`,
+            });
+          }
+          const safeFileName = sanitizeUploadedFileName(input.fileName);
+          const fileKey = `ocr/${ctx.user.id}/${Date.now()}-${safeFileName}`;
           const { url } = await storagePut(fileKey, Buffer.from(input.fileBuffer), input.mimeType);
           return { s3Url: url };
         } catch (error) {
@@ -4268,8 +5220,8 @@ ${input.userAnswer}
       .input(
         z
           .object({
-            fileName: z.string().min(1),
-            mimeType: z.string().optional(),
+            fileName: z.string().min(1).max(200),
+            mimeType: z.string().min(1).max(128).optional(),
             s3Url: z.string().url().optional(),
             fileBuffer: z.instanceof(Uint8Array).optional(),
             selectedPages: z.array(z.number().int().min(1).max(2000)).max(500).optional(),
@@ -4282,18 +5234,37 @@ ${input.userAnswer}
         ensureOCREnabled();
         try {
           let rawBuffer: Uint8Array;
+          const safeFileName = sanitizeUploadedFileName(input.fileName);
           if (input.fileBuffer) {
+            if (input.fileBuffer.byteLength > MAX_OCR_FILE_BYTES) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `파일 용량 제한(${Math.round(MAX_OCR_FILE_BYTES / (1024 * 1024))}MB)을 초과했습니다.`,
+              });
+            }
             rawBuffer = input.fileBuffer;
           } else {
             // Backward compatibility path: start from uploaded URL
+            if (!isAllowedOcrSourceUrl(input.s3Url!)) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "허용되지 않은 OCR 파일 URL입니다.",
+              });
+            }
             const response = await fetch(input.s3Url!);
             if (!response.ok) {
               throw new Error(`Failed to download file: ${response.statusText}`);
             }
             rawBuffer = new Uint8Array(await response.arrayBuffer());
+            if (rawBuffer.byteLength > MAX_OCR_FILE_BYTES) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `파일 용량 제한(${Math.round(MAX_OCR_FILE_BYTES / (1024 * 1024))}MB)을 초과했습니다.`,
+              });
+            }
           }
 
-          const mimeType = normalizeOcrMimeType(input.fileName, input.mimeType);
+          const mimeType = normalizeOcrMimeType(safeFileName, input.mimeType);
           if (mimeType === "application/pdf" && input.selectedPages && input.selectedPages.length > 0) {
             rawBuffer = await buildPdfSubset(rawBuffer, input.selectedPages);
           }
@@ -4315,7 +5286,7 @@ ${input.userAnswer}
 
             const job = await db.createOcrJob({
               userId: ctx.user.id,
-              fileName: input.fileName,
+              fileName: safeFileName,
               s3Url: input.s3Url ?? "",
               status: "completed",
               extractedText,
@@ -4348,18 +5319,18 @@ ${input.userAnswer}
                 "[OCR] Inline document OCR start failed, falling back to GCS input:",
                 inlineErrorMsg
               );
-              gcsUri = await ocrModule.uploadToGCS(documentBuffer, input.fileName, mimeType);
+              gcsUri = await ocrModule.uploadToGCS(documentBuffer, safeFileName, mimeType);
               operationName = await ocrModule.startOCRJob(gcsUri, mimeType);
             }
           } else {
-            gcsUri = await ocrModule.uploadToGCS(documentBuffer, input.fileName, mimeType);
+            gcsUri = await ocrModule.uploadToGCS(documentBuffer, safeFileName, mimeType);
             operationName = await ocrModule.startOCRJob(gcsUri, mimeType);
           }
 
           // Create job record in database
           const job = await db.createOcrJob({
             userId: ctx.user.id,
-            fileName: input.fileName,
+            fileName: safeFileName,
             s3Url: input.s3Url ?? "",
             gcsUri,
             operationName,
@@ -5149,6 +6120,23 @@ ${input.userAnswer}
 
         const qPractice = allPractice.filter(p => p.questionId === input.questionId);
         const qTests = allTests.filter(t => t.questionId === input.questionId);
+        const subjectQuestionIdSet = new Set<number>(
+          subject?.id
+            ? (await db.getQuestionsBySubjectId(subject.id)).map((q) => q.id)
+            : [input.questionId]
+        );
+        const mockExamSessionIds = classifyMockExamSessionIds(
+          allTests
+            .filter((t) => subjectQuestionIdSet.has(t.questionId))
+            .map((t) => ({
+              id: t.id,
+              questionId: t.questionId,
+              completedAt: t.completedAt,
+              recallTime: t.recallTime,
+              isCorrect: t.isCorrect,
+              similarityScore: t.similarityScore ?? null,
+            }))
+        );
 
         const practiceSignal: PracticeSignal = {
           practiceCount: qPractice.length,
@@ -5158,43 +6146,21 @@ ${input.userAnswer}
             : null,
         };
 
-        const correctTests = qTests.filter(t => t.isCorrect === 1);
-        const wrongTests = qTests.filter(t => t.isCorrect === 0);
-        const avgSimilarity = qTests.length > 0
-          ? qTests.reduce((sum, t) => sum + (t.similarityScore || 0), 0) / qTests.length
-          : 0;
         const sortedTests = [...qTests].sort((a, b) =>
           new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
         );
-        let recentCorrectStreak = 0;
-        for (const t of sortedTests) {
-          if (t.isCorrect === 1) recentCorrectStreak++;
-          else break;
-        }
         const mostRecentTest = sortedTests[0] || null;
-        const mostRecentTestWasPoor = mostRecentTest
-          ? ((mostRecentTest.similarityScore ?? 0) < 50)
-          : false;
-
-        const avgRecallTime = qTests.length > 0
-          ? qTests.reduce((sum, t) => sum + (t.recallTime || 0), 0) / qTests.length
-          : undefined;
-
-        const testSignal: TestSignal = {
-          testCount: qTests.length,
-          correctCount: correctTests.length,
-          wrongCount: wrongTests.length,
-          averageSimilarityScore: Math.round(avgSimilarity),
-          mostRecentTestAt: sortedTests.length > 0 ? new Date(sortedTests[0].completedAt) : null,
-          recentCorrectStreak,
-          mostRecentTestWasPoor,
-          averageRecallTime: avgRecallTime,
-          recentTestHistory: sortedTests.map(t => ({
-            completedAt: new Date(t.completedAt),
-            isCorrect: t.isCorrect === 1,
-            similarityScore: t.similarityScore ?? 0,
+        const testSignal = buildWeightedTestSignal(
+          qTests.map((t) => ({
+            id: t.id,
+            questionId: t.questionId,
+            completedAt: t.completedAt,
+            recallTime: t.recallTime,
+            isCorrect: t.isCorrect,
+            similarityScore: t.similarityScore ?? null,
           })),
-        };
+          mockExamSessionIds
+        );
 
         const confidence = computeExamConfidence({
           practice: practiceSignal,
@@ -5257,7 +6223,7 @@ ${input.userAnswer}
         // 배지 계산
         const lastTest = sortedTests[0];
         const lastTestWrong = !!lastTest && lastTest.isCorrect === 0;
-        const wrongCount = wrongTests.length;
+        const wrongCount = qTests.filter(t => t.isCorrect === 0).length;
         const frequentlyWrong = qTests.length >= 3 && wrongCount / qTests.length >= 0.5;
 
         // 주의구간: 여러 시험에서 반복적으로 틀린 줄 집계
@@ -5324,6 +6290,18 @@ ${input.userAnswer}
           arr.push(test);
           testsByQuestion.set(test.questionId, arr);
         }
+        const mockExamSessionIds = classifyMockExamSessionIds(
+          allTests
+            .filter((t) => questionIdSet.has(t.questionId))
+            .map((t) => ({
+              id: t.id,
+              questionId: t.questionId,
+              completedAt: t.completedAt,
+              recallTime: t.recallTime,
+              isCorrect: t.isCorrect,
+              similarityScore: t.similarityScore ?? null,
+            }))
+        );
 
         const results: { questionId: number; confidence: ConfidenceResult }[] = [];
 
@@ -5340,48 +6318,18 @@ ${input.userAnswer}
               : null,
           };
 
-          // Build test signal
-          const correctTests = qTests.filter(t => t.isCorrect === 1);
-          const wrongTests = qTests.filter(t => t.isCorrect === 0);
-          const avgSimilarity = qTests.length > 0
-            ? qTests.reduce((sum, t) => sum + (t.similarityScore || 0), 0) / qTests.length
-            : 0;
-
-          // Calculate recent correct streak (from most recent test backward)
-          const sortedTests = [...qTests].sort((a, b) =>
-            new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
-          );
-          let recentCorrectStreak = 0;
-          for (const t of sortedTests) {
-            if (t.isCorrect === 1) recentCorrectStreak++;
-            else break;
-          }
-
-          const mostRecentTest = sortedTests[0] || null;
-          const mostRecentTestWasPoor = mostRecentTest
-            ? ((mostRecentTest.similarityScore ?? 0) < 50)
-            : false;
-
-           const avgRecallTime = qTests.length > 0
-            ? qTests.reduce((sum, t) => sum + (t.recallTime || 0), 0) / qTests.length
-            : undefined;
-          const testSignal: TestSignal = {
-            testCount: qTests.length,
-            correctCount: correctTests.length,
-            wrongCount: wrongTests.length,
-            averageSimilarityScore: Math.round(avgSimilarity),
-            mostRecentTestAt: sortedTests.length > 0
-              ? new Date(sortedTests[0].completedAt)
-              : null,
-            recentCorrectStreak,
-            mostRecentTestWasPoor,
-            averageRecallTime: avgRecallTime,
-            recentTestHistory: sortedTests.map(t => ({
-              completedAt: new Date(t.completedAt),
-              isCorrect: t.isCorrect === 1,
-              similarityScore: t.similarityScore ?? 0,
+          // Build test signal (모의고사 세션은 더 큰 가중치 반영)
+          const testSignal = buildWeightedTestSignal(
+            qTests.map((t) => ({
+              id: t.id,
+              questionId: t.questionId,
+              completedAt: t.completedAt,
+              recallTime: t.recallTime,
+              isCorrect: t.isCorrect,
+              similarityScore: t.similarityScore ?? null,
             })),
-          };
+            mockExamSessionIds
+          );
           const confidenceBase = computeExamConfidence({
             practice: practiceSignal,
             test: testSignal,
@@ -5461,6 +6409,23 @@ ${input.userAnswer}
         const qTests = allTests
           .filter(t => t.questionId === input.questionId)
           .sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
+        const subjectQuestionIdSet = new Set<number>(
+          subject?.id
+            ? (await db.getQuestionsBySubjectId(subject.id)).map((q) => q.id)
+            : [input.questionId]
+        );
+        const mockExamSessionIds = classifyMockExamSessionIds(
+          allTests
+            .filter((t) => subjectQuestionIdSet.has(t.questionId))
+            .map((t) => ({
+              id: t.id,
+              questionId: t.questionId,
+              completedAt: t.completedAt,
+              recallTime: t.recallTime,
+              isCorrect: t.isCorrect,
+              similarityScore: t.similarityScore ?? null,
+            }))
+        );
         const starterBaseScore = getStarterBaseScoreOverride({
           subjectName: subject?.name,
           question,
@@ -5468,10 +6433,15 @@ ${input.userAnswer}
         });
 
         // 모든 이벤트를 시간순으로 합치기
-        type Ev = { at: Date; type: 'practice' | 'test'; idx: number };
+        type Ev = { at: Date; type: 'practice' | 'test'; idx: number; testMode?: 'single' | 'mock' };
         const events: Ev[] = [
           ...qPractice.map((p, i) => ({ at: new Date(p.completedAt), type: 'practice' as const, idx: i })),
-          ...qTests.map((t, i) => ({ at: new Date(t.completedAt), type: 'test' as const, idx: i })),
+          ...qTests.map((t, i) => ({
+            at: new Date(t.completedAt),
+            type: 'test' as const,
+            idx: i,
+            testMode: mockExamSessionIds.has(t.id) ? 'mock' : 'single',
+          })),
         ].sort((a, b) => a.at.getTime() - b.at.getTime());
 
         if (events.length === 0) {
@@ -5529,6 +6499,7 @@ ${input.userAnswer}
           score: number;
           state: string;
           eventType: string;
+          testMode?: 'single' | 'mock';
           isCorrect?: boolean;
           accuracyRate?: number;
           practiceSessionCount?: number;
@@ -5553,28 +6524,17 @@ ${input.userAnswer}
             mostRecentPracticeAt,
           };
 
-          const sortedCumTests = [...cumTests].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
-          let streak = 0;
-          for (const t of sortedCumTests) { if (t.isCorrect === 1) streak++; else break; }
-          const mostRecentTest = sortedCumTests[0] || null;
-          const avgSimilarity = cumTests.length > 0 ? cumTests.reduce((s, t) => s + (t.similarityScore || 0), 0) / cumTests.length : 0;
-          const avgRecallTime = cumTests.length > 0 ? cumTests.reduce((s, t) => s + (t.recallTime || 0), 0) / cumTests.length : undefined;
-
-          const testSignal: TestSignal = {
-            testCount: cumTests.length,
-            correctCount: cumTests.filter(t => t.isCorrect === 1).length,
-            wrongCount: cumTests.filter(t => t.isCorrect === 0).length,
-            averageSimilarityScore: Math.round(avgSimilarity),
-            mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
-            recentCorrectStreak: streak,
-            mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
-            averageRecallTime: avgRecallTime,
-            recentTestHistory: sortedCumTests.map(t => ({
-              completedAt: new Date(t.completedAt),
-              isCorrect: t.isCorrect === 1,
-              similarityScore: t.similarityScore ?? 0,
+          const testSignal = buildWeightedTestSignal(
+            cumTests.map((t) => ({
+              id: t.id,
+              questionId: t.questionId,
+              completedAt: t.completedAt,
+              recallTime: t.recallTime,
+              isCorrect: t.isCorrect,
+              similarityScore: t.similarityScore ?? null,
             })),
-          };
+            mockExamSessionIds
+          );
 
           let result = computeExamConfidence({
             practice: practiceSignal,
@@ -5599,6 +6559,7 @@ ${input.userAnswer}
             ...(ev.type === 'test' ? {
               isCorrect: lastTest?.isCorrect === 1,
               accuracyRate: testAccuracyRate,
+              testMode: ev.testMode ?? 'single',
             } : {}),
           });
         }
@@ -5612,27 +6573,17 @@ ${input.userAnswer}
             totalPracticeDuration: qPractice.reduce((s, p) => s + p.duration, 0),
             mostRecentPracticeAt: qPractice.length > 0 ? new Date(qPractice[qPractice.length - 1].completedAt) : null,
           };
-          const sortedTests = [...qTests].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
-          let streak = 0;
-          for (const t of sortedTests) { if (t.isCorrect === 1) streak++; else break; }
-          const mostRecentTest = sortedTests[0] || null;
-          const avgSimilarity = qTests.length > 0 ? qTests.reduce((s, t) => s + (t.similarityScore || 0), 0) / qTests.length : 0;
-          const avgRecallTime = qTests.length > 0 ? qTests.reduce((s, t) => s + (t.recallTime || 0), 0) / qTests.length : undefined;
-          const testSignal: TestSignal = {
-            testCount: qTests.length,
-            correctCount: qTests.filter(t => t.isCorrect === 1).length,
-            wrongCount: qTests.filter(t => t.isCorrect === 0).length,
-            averageSimilarityScore: Math.round(avgSimilarity),
-            mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
-            recentCorrectStreak: streak,
-            mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
-            averageRecallTime: avgRecallTime,
-            recentTestHistory: sortedTests.map(t => ({
-              completedAt: new Date(t.completedAt),
-              isCorrect: t.isCorrect === 1,
-              similarityScore: t.similarityScore ?? 0,
+          const testSignal = buildWeightedTestSignal(
+            qTests.map((t) => ({
+              id: t.id,
+              questionId: t.questionId,
+              completedAt: t.completedAt,
+              recallTime: t.recallTime,
+              isCorrect: t.isCorrect,
+              similarityScore: t.similarityScore ?? null,
             })),
-          };
+            mockExamSessionIds
+          );
           let result = computeExamConfidence({
             practice: practiceSignal,
             test: testSignal,
@@ -5657,7 +6608,6 @@ ${input.userAnswer}
         await assertSubjectOwnershipOrThrow(input.subjectId, ctx.user.id);
         const subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
         const questionIds = subjectQuestions.map(q => q.id);
-        if (questionIds.length === 0) return { points: [] };
         const subject = await db.getSubjectById(input.subjectId);
         const examDate = resolveSubjectExamDate(subject);
         const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
@@ -5677,13 +6627,153 @@ ${input.userAnswer}
         }
         const qPractice = allPractice.filter(p => questionIds.includes(p.questionId));
         const qTests = allTests.filter(t => questionIds.includes(t.questionId));
+        const mockExamSessionIds = classifyMockExamSessionIds(
+          qTests.map((t) => ({
+            id: t.id,
+            questionId: t.questionId,
+            completedAt: t.completedAt,
+            recallTime: t.recallTime,
+            isCorrect: t.isCorrect,
+            similarityScore: t.similarityScore ?? null,
+          }))
+        );
         // 모든 이벤트를 시간순으로 합치기
-        type Ev = { at: Date; type: 'practice' | 'test'; questionId: number; sessionIdx: number };
+        type Ev = {
+          at: Date;
+          type: 'practice' | 'test';
+          questionId: number;
+          sessionIdx: number;
+          testMode?: 'single' | 'mock';
+        };
         const events: Ev[] = [
           ...qPractice.map((p, i) => ({ at: new Date(p.completedAt), type: 'practice' as const, questionId: p.questionId, sessionIdx: i })),
-          ...qTests.map((t, i) => ({ at: new Date(t.completedAt), type: 'test' as const, questionId: t.questionId, sessionIdx: i })),
+          ...qTests.map((t, i) => ({
+            at: new Date(t.completedAt),
+            type: 'test' as const,
+            questionId: t.questionId,
+            sessionIdx: i,
+            testMode: mockExamSessionIds.has(t.id) ? 'mock' : 'single',
+          })),
         ].sort((a, b) => a.at.getTime() - b.at.getTime());
-        if (events.length === 0) return { points: [] };
+        if (events.length === 0) {
+          const nowForPreview = new Date();
+          const emptyPracticeSignal: PracticeSignal = {
+            practiceCount: 0,
+            totalPracticeDuration: 0,
+            mostRecentPracticeAt: null,
+          };
+          const emptyTestSignal: TestSignal = {
+            testCount: 0,
+            correctCount: 0,
+            wrongCount: 0,
+            averageSimilarityScore: 0,
+            mostRecentTestAt: null,
+            recentCorrectStreak: 0,
+            mostRecentTestWasPoor: false,
+            recentTestHistory: [],
+          };
+
+          const previewRows: DemoQuestionPreview[] =
+            subjectQuestions.length > 0
+              ? subjectQuestions.map((question) => {
+                  const initialEstimate = buildInitialConfidenceEstimate(question);
+                  const baseConfidence = computeExamConfidence({
+                    practice: emptyPracticeSignal,
+                    test: emptyTestSignal,
+                    now: nowForPreview,
+                    examDate,
+                    userProfile,
+                    initialEstimate,
+                  });
+                  const starterInitialScoreOverride = getStarterInitialScoreOverride({
+                    subjectName: subject?.name,
+                    question,
+                    practiceCount: 0,
+                    testCount: 0,
+                    userRole: ctx.user.role,
+                  });
+                  const effectiveConfidence = applyUnlearnedLabel(
+                    starterInitialScoreOverride === null
+                      ? baseConfidence
+                      : applyDisplayScoreOverride(baseConfidence, starterInitialScoreOverride)
+                  );
+                  const scenario = buildUnlearnedScenarioEvents(
+                    question,
+                    initialEstimate,
+                    effectiveConfidence.displayScore
+                  );
+                  const historyPoints = mapScenarioEventsToHistoryPoints(
+                    scenario,
+                    nowForPreview.getTime()
+                  );
+
+                  return {
+                    displayScore: effectiveConfidence.displayScore,
+                    state: effectiveConfidence.state,
+                    label: effectiveConfidence.label,
+                    isColdStart: true,
+                    badges: {
+                      lastTestWrong: false,
+                      frequentlyWrong: false,
+                      hasWarnZone: false,
+                    },
+                    warnZoneLines: [],
+                    lastTestWrongLines: [],
+                    lastTestAccuracyRate: null,
+                    examDatePrediction: buildDemoExamPrediction(
+                      subject ?? null,
+                      effectiveConfidence.displayScore,
+                      initialEstimate
+                    ),
+                    historyPoints,
+                    isExample: true,
+                  };
+                })
+              : (() => {
+                  const scenario = buildUnlearnedScenarioEvents(
+                    { difficulty: "medium", displayOrder: 1 },
+                    { answerLength: 48 },
+                    42
+                  );
+                  const historyPoints = mapScenarioEventsToHistoryPoints(
+                    scenario,
+                    nowForPreview.getTime()
+                  );
+                  return [
+                    {
+                      displayScore: 42,
+                      state: resolveStateFromScore(42),
+                      label: "미학습",
+                      isColdStart: true,
+                      badges: {
+                        lastTestWrong: false,
+                        frequentlyWrong: false,
+                        hasWarnZone: false,
+                      },
+                      warnZoneLines: [],
+                      lastTestWrongLines: [],
+                      lastTestAccuracyRate: null,
+                      examDatePrediction: buildDemoExamPrediction(subject ?? null, 42, {
+                        answerLength: 48,
+                        difficulty: "medium",
+                      }),
+                      historyPoints,
+                      isExample: true,
+                    },
+                  ] as DemoQuestionPreview[];
+                })();
+
+          const points = buildDemoSubjectHistoryFromPreviews(previewRows).map((point) => ({
+            ...point,
+            questionCount: subjectQuestions.length,
+          }));
+
+          return {
+            points,
+            isExample: true,
+            previewLabel: "예시 화면",
+          };
+        }
         // 문제별 누적 상태 추적
         const cumPractice: Map<number, typeof qPractice> = new Map();
         const cumTests: Map<number, typeof qTests> = new Map();
@@ -5694,7 +6784,13 @@ ${input.userAnswer}
         // 이벤트 간격 축소 (같은 시간대 이벤트 묶기)
         const BUCKET_MS = 60_000;
         let lastBucketAt = -Infinity;
-        const points: { at: string; score: number; eventType: string; questionCount: number }[] = [];
+        const points: {
+          at: string;
+          score: number;
+          eventType: string;
+          questionCount: number;
+          testMode?: 'single' | 'mock';
+        }[] = [];
         for (const ev of events) {
           if (ev.type === 'practice') {
             cumPractice.get(ev.questionId)!.push(qPractice[ev.sessionIdx]);
@@ -5715,25 +6811,17 @@ ${input.userAnswer}
               totalPracticeDuration: pList.reduce((s, p) => s + p.duration, 0),
               mostRecentPracticeAt: pList.length > 0 ? new Date(pList[pList.length - 1].completedAt) : null,
             };
-            const sortedT = [...tList].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
-            let streak = 0;
-            for (const t of sortedT) { if (t.isCorrect === 1) streak++; else break; }
-            const mostRecentTest = sortedT[0] || null;
-            const avgSim = tList.length > 0 ? tList.reduce((s, t) => s + (t.similarityScore || 0), 0) / tList.length : 0;
-            const testSignal: TestSignal = {
-              testCount: tList.length,
-              correctCount: tList.filter(t => t.isCorrect === 1).length,
-              wrongCount: tList.filter(t => t.isCorrect === 0).length,
-              averageSimilarityScore: Math.round(avgSim),
-              mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
-              recentCorrectStreak: streak,
-              mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
-              recentTestHistory: sortedT.map(t => ({
-                completedAt: new Date(t.completedAt),
-                isCorrect: t.isCorrect === 1,
-                similarityScore: t.similarityScore ?? 0,
+            const testSignal = buildWeightedTestSignal(
+              tList.map((t) => ({
+                id: t.id,
+                questionId: t.questionId,
+                completedAt: t.completedAt,
+                recallTime: t.recallTime,
+                isCorrect: t.isCorrect,
+                similarityScore: t.similarityScore ?? null,
               })),
-            };
+              mockExamSessionIds
+            );
             let result = computeExamConfidence({
               practice: practiceSignal,
               test: testSignal,
@@ -5748,7 +6836,13 @@ ${input.userAnswer}
             totalScore += result.displayScore;
           }
           if (activeCount === 0) continue;
-          points.push({ at: ev.at.toISOString(), score: Math.round(totalScore / activeCount), eventType: ev.type, questionCount: activeCount });
+          points.push({
+            at: ev.at.toISOString(),
+            score: Math.round(totalScore / activeCount),
+            eventType: ev.type,
+            questionCount: activeCount,
+            testMode: ev.type === 'test' ? ev.testMode ?? 'single' : undefined,
+          });
         }
         // 현재 시점 안정도 추가
         const nowDate = new Date();
@@ -5766,20 +6860,17 @@ ${input.userAnswer}
               totalPracticeDuration: pList.reduce((s, p) => s + p.duration, 0),
               mostRecentPracticeAt: pList.length > 0 ? new Date(pList[pList.length - 1].completedAt) : null,
             };
-            const sortedT = [...tList].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
-            let streak = 0;
-            for (const t of sortedT) { if (t.isCorrect === 1) streak++; else break; }
-            const mostRecentTest = sortedT[0] || null;
-            const avgSim = tList.length > 0 ? tList.reduce((s, t) => s + (t.similarityScore || 0), 0) / tList.length : 0;
-            const testSignal: TestSignal = {
-              testCount: tList.length,
-              correctCount: tList.filter(t => t.isCorrect === 1).length,
-              wrongCount: tList.filter(t => t.isCorrect === 0).length,
-              averageSimilarityScore: Math.round(avgSim),
-              mostRecentTestAt: mostRecentTest ? new Date(mostRecentTest.completedAt) : null,
-              recentCorrectStreak: streak,
-              mostRecentTestWasPoor: mostRecentTest ? ((mostRecentTest.similarityScore ?? 0) < 50) : false,
-            };
+            const testSignal = buildWeightedTestSignal(
+              tList.map((t) => ({
+                id: t.id,
+                questionId: t.questionId,
+                completedAt: t.completedAt,
+                recallTime: t.recallTime,
+                isCorrect: t.isCorrect,
+                similarityScore: t.similarityScore ?? null,
+              })),
+              mockExamSessionIds
+            );
             let result = computeExamConfidence({
               practice: practiceSignal,
               test: testSignal,

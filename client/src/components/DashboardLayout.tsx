@@ -26,9 +26,10 @@ const menuItems = [
 ];
 
 const adminMenuItems = [
-  { icon: Settings, label: "데모 관리", path: "/admin/demo-management" },
+  { icon: Settings, label: "데모 관리", path: "/demo/subjects" },
 ];
 const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
+const RECENT_AUTH_AT_KEY = "numbering_recent_auth_at";
 
 function isGuestUser(user: { loginMethod?: string | null } | null | undefined): boolean {
   if (!user) return false;
@@ -63,10 +64,54 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const adminViewItems = user?.role === "admin"
     ? [{ icon: Eye, label: "데모 화면", path: "/demo" }]
     : [];
+  const isDemoContext =
+    location === "/demo" ||
+    location === "/demo/subjects" ||
+    location.startsWith("/demo/questions/") ||
+    location.startsWith("/demo/practice/") ||
+    location.startsWith("/demo/test/") ||
+    location.startsWith("/demo/subject-exam/") ||
+    location === "/admin/demo-management";
+
+  const resolveMenuPath = (path: string) => {
+    if (path === "/subjects") {
+      if (user?.role === "admin" && isDemoContext) return "/demo/subjects";
+      if (isGuest) return "/demo/subjects";
+    }
+    return path;
+  };
+
+  const isMenuItemActive = (path: string) => {
+    if (path === "/") {
+      return location === "/" || (isGuest && location === "/demo");
+    }
+    if (path === "/subjects") {
+      return (
+        location === "/subjects" ||
+        location.startsWith("/questions/") ||
+        location === "/demo/subjects" ||
+        location.startsWith("/demo/questions/")
+      );
+    }
+    return location === resolveMenuPath(path);
+  };
 
   const openLogin = () => {
     const returnTo = `${window.location.pathname}${window.location.search}`;
     setLocation(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+  };
+
+  const handleLogout = async () => {
+    try {
+      localStorage.setItem(RECENT_AUTH_AT_KEY, String(Date.now()));
+    } catch {
+      // ignore storage failures
+    }
+    try {
+      await logout();
+    } finally {
+      setLocation("/login?returnTo=%2F");
+    }
   };
 
   const goDashboard = () => setLocation("/");
@@ -142,11 +187,12 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
               {menuItems.map((item) => {
-                const isActive = location === item.path;
+                const itemPath = resolveMenuPath(item.path);
+                const isActive = isMenuItemActive(item.path);
                 return (
                   <button
                     key={item.path}
-                    onClick={() => { setLocation(item.path); setMobileOpen(false); }}
+                    onClick={() => { setLocation(itemPath); setMobileOpen(false); }}
                     className={`flex items-center gap-3 mx-2 px-3 py-2 rounded-md text-sm transition-colors ${
                       isActive
                         ? "bg-primary/10 text-primary font-medium"
@@ -222,7 +268,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   </button>
                 ) : (
                   <button
-                    onClick={logout}
+                    onClick={() => {
+                      void handleLogout();
+                    }}
                     className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md transition-colors"
                   >
                     <LogOut className="h-3.5 w-3.5" />
@@ -250,12 +298,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         {/* 메뉴 아이템들 */}
         <div className="flex flex-col items-center gap-1 w-full">
           {menuItems.map((item) => {
-            const isActive = location === item.path;
+            const itemPath = resolveMenuPath(item.path);
+            const isActive = isMenuItemActive(item.path);
             return (
               <Tooltip key={item.path}>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={() => setLocation(item.path)}
+                    onClick={() => setLocation(itemPath)}
                     className={`h-9 w-9 flex items-center justify-center rounded-md transition-colors ${
                       isActive
                         ? "bg-primary/10 text-primary"
@@ -367,7 +416,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 <>
                   {DEMO_PUBLISHING_ENABLED && (
                     <DropdownMenuItem
-                      onClick={() => setLocation("/admin/demo-management")}
+                      onClick={() => setLocation("/demo/subjects")}
                       className="cursor-pointer text-xs"
                     >
                       <Settings className="mr-2 h-3.5 w-3.5" />
@@ -394,7 +443,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem
-                  onClick={logout}
+                  onClick={() => {
+                    void handleLogout();
+                  }}
                   className="cursor-pointer text-destructive focus:text-destructive text-xs"
                 >
                   <LogOut className="mr-2 h-3.5 w-3.5" />

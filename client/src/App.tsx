@@ -6,7 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { SiteGate, useSiteAccess } from "./components/SiteGate";
 import { trpc } from "./lib/trpc";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import DashboardLayout from "./components/DashboardLayout";
 import Home from "./pages/Home";
 import Subjects from "./pages/Subjects";
@@ -15,7 +15,6 @@ import Practice from "./pages/Practice";
 import Test from "./pages/Test";
 import Statistics from "./pages/Statistics";
 import Demo from "./pages/Demo";
-import AdminDemoManagement from "./pages/AdminDemoManagement";
 import SubjectExam from "./pages/SubjectExam";
 import Login from "./pages/Login";
 import SharedSubject from "./pages/SharedSubject";
@@ -25,13 +24,15 @@ import { useVercelAnalytics } from "./hooks/useVercelAnalytics";
 const GUEST_ID_KEY = "numbering_guest_id";
 const RECENT_AUTH_AT_KEY = "numbering_recent_auth_at";
 const INIT_MAX_WAIT_MS = 2_500;
-const AUTH_ME_FETCH_TIMEOUT_MS = 5_000;
-const RECENT_AUTH_GRACE_MS = 20_000;
-const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
+const AUTH_ME_FETCH_TIMEOUT_MS = 2_000;
+const GUEST_BOOTSTRAP_BLOCK_MAX_MS = 900;
+const RECENT_AUTH_GRACE_MS = 10 * 60 * 1000;
+const AUTH_RESOLVE_MAX_WAIT_MS = 8_000;
 const PARTIAL_DENTURE_SUBJECT_NAME = "국소의치학";
-const PARTIAL_DENTURE_DEMO_PASSWORD = "우파교수";
 const PARTIAL_DENTURE_DEMO_UNLOCK_KEY = "demo_unlock_partial_denture";
 const UNLOCK_KEY_TIMEOUT_MS = 14 * 24 * 60 * 60 * 1000;
+const DEMO_BRIDGE_RETRY_DELAY_MS = 450;
+let partialDentureUnlockedInMemory = false;
 
 type PartialDentureUnlockRecord = {
   at: number;
@@ -55,6 +56,7 @@ function normalizePartialDentureUnlock(value: string | null): PartialDentureUnlo
 }
 
 function isPartialDentureUnlockedNow(): boolean {
+  if (partialDentureUnlockedInMemory) return true;
   if (typeof window === "undefined") return false;
   try {
     const raw = localStorage.getItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY);
@@ -73,12 +75,27 @@ function isPartialDentureUnlockedNow(): boolean {
 }
 
 function setPartialDentureUnlock() {
+  partialDentureUnlockedInMemory = true;
   if (typeof window === "undefined") return;
   const payload: PartialDentureUnlockRecord = {
     at: Date.now(),
     version: 1,
   };
-  localStorage.setItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY, JSON.stringify(payload));
+  try {
+    localStorage.setItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY, JSON.stringify(payload));
+  } catch {
+    // 브라우저 저장소 제약(사파리/프라이빗 모드 등)에서도 현재 세션은 유지
+  }
+}
+
+function normalizePasswordInput(value: string): string {
+  return (value ?? "")
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/^['"`]+|['"`]+$/g, "")
+    .toLowerCase();
 }
 
 async function fetchAuthMeWithTimeout(timeoutMs: number) {
@@ -229,29 +246,6 @@ function SubjectPracticeRedirect({ subjectId }: { subjectId: number }) {
   );
 }
 
-function resolveMappedSubjectId(
-  demoSubjectId: number,
-  userSubjects: Array<{ id: number; name: string; demoSourceSubjectId?: number | null }> | undefined,
-  demoSubjects: Array<{ id: number; name: string }> | undefined
-): number | null {
-  if (!Number.isFinite(demoSubjectId)) return null;
-  if (!userSubjects || userSubjects.length === 0) return null;
-
-  const byId = userSubjects.find((subject) => subject.id === demoSubjectId);
-  if (byId) return byId.id;
-
-  const bySource = userSubjects.find(
-    (subject) => subject.demoSourceSubjectId === demoSubjectId
-  );
-  if (bySource) return bySource.id;
-
-  const demoSubject = demoSubjects?.find((subject) => subject.id === demoSubjectId);
-  if (!demoSubject) return null;
-
-  const byName = userSubjects.find((subject) => subject.name === demoSubject.name);
-  return byName?.id ?? null;
-}
-
 function DemoSubjectRouteBridge({
   demoSubjectId,
   target,
@@ -260,19 +254,25 @@ function DemoSubjectRouteBridge({
   target: "questions" | "subject-exam";
 }) {
   const [, setLocation] = useLocation();
-  const [retriedOnce, setRetriedOnce] = useState(false);
-  const subjectsQuery = trpc.subjects.list.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-  });
-  const demoSubjectsQuery = trpc.demo.subjects.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-  });
-
-  const mappedSubjectId = resolveMappedSubjectId(
-    demoSubjectId,
-    (subjectsQuery.data as Array<{ id: number; name: string; demoSourceSubjectId?: number | null }> | undefined) ?? undefined,
-    (demoSubjectsQuery.data as Array<{ id: number; name: string }> | undefined) ?? undefined
+  const resolveQuery = trpc.demo.resolveSubjectWorkspace.useQuery(
+    { demoSubjectId },
+    {
+      refetchOnWindowFocus: false,
+      retry: false,
+    }
   );
+  const mappedSubjectId = resolveQuery.data?.mappedSubjectId ?? null;
+  const isPending = resolveQuery.data?.pending === true;
+
+  useEffect(() => {
+    if (mappedSubjectId) return;
+    if (resolveQuery.isLoading) return;
+    if (!isPending) return;
+    const timer = window.setTimeout(() => {
+      void resolveQuery.refetch();
+    }, DEMO_BRIDGE_RETRY_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [isPending, mappedSubjectId, resolveQuery]);
 
   useEffect(() => {
     if (!mappedSubjectId) return;
@@ -282,15 +282,7 @@ function DemoSubjectRouteBridge({
     setLocation(`/${target}/${mappedSubjectId}?${params.toString()}`);
   }, [demoSubjectId, mappedSubjectId, setLocation, target]);
 
-  useEffect(() => {
-    if (mappedSubjectId) return;
-    if (subjectsQuery.isLoading) return;
-    if (retriedOnce) return;
-    setRetriedOnce(true);
-    void subjectsQuery.refetch();
-  }, [mappedSubjectId, retriedOnce, subjectsQuery]);
-
-  const isLoading = subjectsQuery.isLoading || demoSubjectsQuery.isLoading || !retriedOnce;
+  const isLoading = resolveQuery.isLoading || (!mappedSubjectId && isPending);
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -318,26 +310,43 @@ function DemoQuestionRouteBridge({
   target: "practice" | "test";
 }) {
   const [, setLocation] = useLocation();
-  const questionsQuery = trpc.questions.listAll.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-  });
+  const resolveQuery = trpc.demo.resolveQuestionWorkspace.useQuery(
+    { demoQuestionId },
+    {
+      refetchOnWindowFocus: false,
+      retry: false,
+    }
+  );
+  const mappedQuestionId = resolveQuery.data?.mappedQuestionId ?? null;
+  const mappedDemoSubjectId = resolveQuery.data?.mappedDemoSubjectId ?? null;
+  const isPending = resolveQuery.data?.pending === true;
 
-  const mappedQuestionId = useMemo(() => {
-    if (!questionsQuery.data) return null;
-    const bySource = questionsQuery.data.find(
-      (question) => question.demoSourceQuestionId === demoQuestionId
-    );
-    if (bySource) return bySource.id;
-    const byId = questionsQuery.data.find((question) => question.id === demoQuestionId);
-    return byId?.id ?? null;
-  }, [demoQuestionId, questionsQuery.data]);
+  useEffect(() => {
+    if (mappedQuestionId) return;
+    if (resolveQuery.isLoading) return;
+    if (!isPending) return;
+    const timer = window.setTimeout(() => {
+      void resolveQuery.refetch();
+    }, DEMO_BRIDGE_RETRY_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [isPending, mappedQuestionId, resolveQuery]);
 
   useEffect(() => {
     if (!mappedQuestionId) return;
-    setLocation(`/${target}/${mappedQuestionId}`);
-  }, [mappedQuestionId, setLocation, target]);
+    const params = new URLSearchParams();
+    params.set("demo", "1");
+    if (mappedDemoSubjectId) {
+      params.set("demoSubjectId", String(mappedDemoSubjectId));
+    }
+    if (target === "practice") {
+      params.set("scrollNav", "1");
+    }
+    const query = params.toString();
+    setLocation(`/${target}/${mappedQuestionId}${query ? `?${query}` : ""}`);
+  }, [mappedDemoSubjectId, mappedQuestionId, setLocation, target]);
 
-  if (questionsQuery.isLoading) {
+  const isLoading = resolveQuery.isLoading || (!mappedQuestionId && isPending);
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-muted-foreground text-sm">데모 문제 연결 중...</div>
@@ -403,6 +412,17 @@ function DemoSubjectPasswordGate({
   const [unlocked, setUnlocked] = useState(() => {
     return isPartialDentureUnlockedNow();
   });
+  const verifyPassword = trpc.demo.verifySubjectPassword.useMutation({
+    onSuccess: () => {
+      setPartialDentureUnlock();
+      setUnlocked(true);
+      setPassword("");
+      setError("");
+    },
+    onError: (e) => {
+      setError(e.message || "비밀번호가 올바르지 않습니다.");
+    },
+  });
 
   const subjectName = useMemo(() => {
     const row = demoSubjects?.find((subject) => subject.id === subjectId);
@@ -412,14 +432,16 @@ function DemoSubjectPasswordGate({
   const requiresPassword = normalize(subjectName) === normalize(PARTIAL_DENTURE_SUBJECT_NAME);
 
   const handleUnlock = () => {
-    if (password.trim() === PARTIAL_DENTURE_DEMO_PASSWORD) {
-      setPartialDentureUnlock();
-      setUnlocked(true);
-      setPassword("");
-      setError("");
+    const entered = normalizePasswordInput(password);
+    if (!entered) {
+      setError("비밀번호를 입력해주세요.");
       return;
     }
-    setError("비밀번호가 올바르지 않습니다.");
+    setError("");
+    verifyPassword.mutate({
+      demoSubjectId: subjectId,
+      password: entered,
+    });
   };
 
   useEffect(() => {
@@ -466,9 +488,10 @@ function DemoSubjectPasswordGate({
         <button
           type="button"
           onClick={handleUnlock}
+          disabled={verifyPassword.isPending}
           className="w-full rounded-md bg-primary text-primary-foreground px-3 py-2 text-sm font-medium hover:opacity-95 transition-opacity"
         >
-          입장
+          {verifyPassword.isPending ? "확인 중..." : "입장"}
         </button>
       </div>
     </div>
@@ -482,14 +505,33 @@ function Router({
   user: { loginMethod?: string | null; role?: "user" | "admin" } | null | undefined;
   onAuthSuccess?: () => void;
 }) {
+  const [location] = useLocation();
   const isAdmin = user?.role === "admin";
   const isGuest = !user || isGuestUser(user);
-  const canAccessDemo = !user || isGuestUser(user) || isAdmin;
+  const shouldCheckEmptyState = Boolean(
+    user && !isGuestUser(user) && (location === "/" || location === "/subjects")
+  );
+  const subjectCountQuery = trpc.subjects.count.useQuery(undefined, {
+    enabled: shouldCheckEmptyState,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const subjectCountDecisionPending = shouldCheckEmptyState && subjectCountQuery.isLoading;
+  const hasNoSubjects =
+    shouldCheckEmptyState &&
+    !subjectCountQuery.isLoading &&
+    (subjectCountQuery.data ?? 0) <= 0;
+  const shouldShowDemoHome = isGuest || hasNoSubjects;
+  const canAccessDemo = !user || isGuestUser(user) || isAdmin || hasNoSubjects;
 
   return (
     <Switch>
       <Route path={"/"}>
-        {isGuest ? (
+        {subjectCountDecisionPending ? (
+          <Layout>
+            <div className="py-12 text-center text-sm text-muted-foreground">학습 현황을 불러오는 중...</div>
+          </Layout>
+        ) : shouldShowDemoHome ? (
           <Layout>
             <Demo />
           </Layout>
@@ -501,7 +543,13 @@ function Router({
       </Route>
       <Route path={"/subjects"}>
         <Layout>
-          <Subjects />
+          {subjectCountDecisionPending ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">과목 목록을 불러오는 중...</div>
+          ) : shouldShowDemoHome ? (
+            <Demo />
+          ) : (
+            <Subjects />
+          )}
         </Layout>
       </Route>
       <Route path={"/questions/:subjectId"}>
@@ -540,15 +588,20 @@ function Router({
         )}
       </Route>
       <Route path={"/statistics"}>
-        {isGuest ? (
-          <RouteRedirect to="/demo" />
-        ) : (
-          <Layout>
-            <Statistics />
-          </Layout>
-        )}
+        <Layout>
+          <Statistics demoPreview={shouldShowDemoHome} />
+        </Layout>
       </Route>
       <Route path={"/demo"}>
+        {canAccessDemo ? (
+          <Layout>
+            <Demo />
+          </Layout>
+        ) : (
+          <RouteRedirect to="/subjects" />
+        )}
+      </Route>
+      <Route path={"/demo/subjects"}>
         {canAccessDemo ? (
           <Layout>
             {isAdmin ? <Subjects demoWorkspace /> : <Demo />}
@@ -556,6 +609,9 @@ function Router({
         ) : (
           <RouteRedirect to="/subjects" />
         )}
+      </Route>
+      <Route path={"/demo/subjects/"}>
+        <RouteRedirect to="/demo/subjects" />
       </Route>
       <Route path={"/login"}>
         <Login />
@@ -568,11 +624,10 @@ function Router({
           canAccessDemo ? (
             <Layout>
               <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
-                {isAdmin ? (
-                  <Practice questionId={parseInt(params.questionId)} isDemo />
-                ) : (
-                  <Practice questionId={parseInt(params.questionId)} isDemo />
-                )}
+                <DemoQuestionRouteBridge
+                  demoQuestionId={parseInt(params.questionId)}
+                  target="practice"
+                />
               </DemoQuestionPasswordGate>
             </Layout>
           ) : (
@@ -585,11 +640,10 @@ function Router({
           canAccessDemo ? (
             <Layout>
               <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
-                {isAdmin ? (
-                  <Test questionId={parseInt(params.questionId)} isDemo />
-                ) : (
-                  <Test questionId={parseInt(params.questionId)} isDemo />
-                )}
+                <DemoQuestionRouteBridge
+                  demoQuestionId={parseInt(params.questionId)}
+                  target="test"
+                />
               </DemoQuestionPasswordGate>
             </Layout>
           ) : (
@@ -602,11 +656,10 @@ function Router({
           canAccessDemo ? (
             <Layout>
               <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
-                {isAdmin ? (
-                  <SubjectExam subjectId={parseInt(params.subjectId)} isDemo />
-                ) : (
-                  <SubjectExam subjectId={parseInt(params.subjectId)} isDemo />
-                )}
+                <DemoSubjectRouteBridge
+                  demoSubjectId={parseInt(params.subjectId)}
+                  target="subject-exam"
+                />
               </DemoSubjectPasswordGate>
             </Layout>
           ) : (
@@ -625,11 +678,10 @@ function Router({
           canAccessDemo ? (
             <Layout>
               <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
-                {isAdmin ? (
-                  <Questions subjectId={parseInt(params.subjectId)} demoWorkspace />
-                ) : (
-                  <Questions subjectId={parseInt(params.subjectId)} isDemo />
-                )}
+                <DemoSubjectRouteBridge
+                  demoSubjectId={parseInt(params.subjectId)}
+                  target="questions"
+                />
               </DemoSubjectPasswordGate>
             </Layout>
           ) : (
@@ -638,13 +690,7 @@ function Router({
         }
       </Route>
       <Route path={"/admin/demo-management"}>
-        {DEMO_PUBLISHING_ENABLED ? (
-          <DashboardLayout>
-            <AdminDemoManagement />
-          </DashboardLayout>
-        ) : (
-          <RouteRedirect to="/subjects" />
-        )}
+        <RouteRedirect to="/demo/subjects" />
       </Route>
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
@@ -653,21 +699,25 @@ function Router({
 }
 
 function AppContent() {
+  const utils = trpc.useUtils();
   const autoGuestLogin = trpc.auth.autoGuestLogin.useMutation();
   const [location, setLocation] = useLocation();
   // 먼저 현재 세션 확인 (이미 로그인된 경우 게스트 로그인 건너뜀)
   const [initDone, setInitDone] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [guestBootstrapFailed, setGuestBootstrapFailed] = useState(false);
+  const [guestBootstrapAttempted, setGuestBootstrapAttempted] = useState(false);
+  const [guestBootstrapGateOpened, setGuestBootstrapGateOpened] = useState(false);
   const meQuery = trpc.auth.me.useQuery(undefined, {
     enabled: initDone,
     retry: false,
     refetchOnWindowFocus: false,
-    refetchInterval: initDone && location !== "/login" && hasRecentAuthAttempt() ? 700 : false,
+    refetchInterval: false,
   });
 
   useBetaTelemetry(currentUser, location);
   useVercelAnalytics(location, currentUser);
+  const prevUserIdRef = useRef<number | null>(null);
 
   // 로그인/가입 성공 후 currentUser를 업데이트하는 함수 (reload 없이 레이아웃 전환)
   const handleAuthSuccess = async () => {
@@ -726,11 +776,69 @@ function AppContent() {
   useEffect(() => {
     if (!initDone) return;
     if (meQuery.isLoading) return;
-    setCurrentUser(meQuery.data ?? null);
-    if (meQuery.data && !isGuestUser(meQuery.data)) {
-      clearRecentAuthAttempt();
+
+    if (meQuery.data) {
+      setCurrentUser(meQuery.data);
+      if (!isGuestUser(meQuery.data)) {
+        clearRecentAuthAttempt();
+      }
+      return;
+    }
+
+    // auth.me가 null이어도 세션 쿠키가 살아있다면(일시 지연/타임아웃 가능성),
+    // 기존 사용자 상태를 즉시 지우지 않는다.
+    const hasSessionCookie =
+      typeof document !== "undefined" &&
+      document.cookie.includes("app_session_id=");
+
+    if (!hasSessionCookie) {
+      setCurrentUser(null);
     }
   }, [initDone, meQuery.data, meQuery.isLoading]);
+
+  useEffect(() => {
+    const currentUserId = Number.isFinite(currentUser?.id) ? Number(currentUser.id) : null;
+    if (prevUserIdRef.current === currentUserId) return;
+    prevUserIdRef.current = currentUserId;
+    if (currentUserId !== null) {
+      void utils.invalidate();
+    }
+  }, [currentUser?.id, utils]);
+
+  useEffect(() => {
+    if (!initDone) return;
+    if (location === "/login") return;
+    if (currentUser) return;
+    if (!hasRecentAuthAttempt()) return;
+    if (meQuery.isLoading) return;
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    setLocation(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+  }, [currentUser, initDone, location, meQuery.isLoading, setLocation]);
+
+  useEffect(() => {
+    if (!initDone) return;
+    if (location === "/login") return;
+    if (currentUser) return;
+    if (!hasRecentAuthAttempt()) return;
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const latest = await meQuery.refetch();
+        if (latest.data) {
+          setCurrentUser(latest.data);
+          return;
+        }
+      } catch {
+        // ignore and fallback to login screen below
+      }
+      const returnTo = `${window.location.pathname}${window.location.search}`;
+      setLocation(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+    }, AUTH_RESOLVE_MAX_WAIT_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [currentUser, initDone, location, meQuery.refetch, setLocation]);
 
   useEffect(() => {
     if (!initDone) return;
@@ -742,6 +850,7 @@ function AppContent() {
     if (hasRecentAuthAttempt()) return;
 
     const guestId = getOrCreateGuestId();
+    setGuestBootstrapAttempted(true);
     autoGuestLogin.mutate(
       { guestId },
       {
@@ -757,6 +866,9 @@ function AppContent() {
         },
         onError: () => {
           setGuestBootstrapFailed(true);
+          window.setTimeout(() => {
+            setGuestBootstrapFailed(false);
+          }, 3000);
         },
       }
     );
@@ -771,12 +883,39 @@ function AppContent() {
     meQuery.isLoading,
   ]);
 
+  useEffect(() => {
+    if (!guestBootstrapAttempted) return;
+    if (guestBootstrapGateOpened) return;
+    const timer = window.setTimeout(() => {
+      setGuestBootstrapGateOpened(true);
+    }, GUEST_BOOTSTRAP_BLOCK_MAX_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [guestBootstrapAttempted, guestBootstrapGateOpened]);
+
   if (!initDone) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center space-y-3">
           <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-sm text-muted-foreground">입장 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (
+    !currentUser &&
+    location !== "/login" &&
+    !hasRecentAuthAttempt() &&
+    (!guestBootstrapAttempted || (autoGuestLogin.isPending && !guestBootstrapGateOpened))
+  ) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-muted-foreground">게스트 세션 준비 중...</p>
         </div>
       </div>
     );
@@ -803,7 +942,8 @@ function AppContent() {
 
 function App() {
   // 접속 비밀번호 게이트 활성화 상태
-  const TEMP_DISABLE_SITE_GATE = true;
+  const TEMP_DISABLE_SITE_GATE =
+    import.meta.env.DEV || import.meta.env.VITE_DISABLE_SITE_GATE === "true";
   const { granted, grant } = useSiteAccess();
   const globalFooterNotice = (
     <p className="pointer-events-none fixed bottom-1.5 left-1/2 z-50 -translate-x-1/2 select-none text-[10px] text-muted-foreground/45">

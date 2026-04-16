@@ -202,6 +202,10 @@ function normalizeAutoNumberedAnswer(answer: string): string {
     .join("\n");
 }
 
+function normalizeTextInput(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function splitBulkBlocks(raw: string): string[] {
   const normalized = raw.replace(/\r\n/g, "\n").trim();
   if (!normalized) return [];
@@ -845,6 +849,13 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     { subjectId },
     { enabled: Number.isFinite(subjectId) && (isReadOnlyDemo || isDemoWorkspace) }
   );
+  const { data: demoLinkedConfidenceData } = trpc.demo.confidenceBySubject.useQuery(
+    { subjectId: demoLinkedSubjectId ?? 0 },
+    {
+      enabled: isDemoLinkedMode && !!demoLinkedSubjectId,
+      refetchOnWindowFocus: false,
+    }
+  );
   const confidenceData = (isReadOnlyDemo || isDemoWorkspace) ? demoConfidenceData : userConfidenceData;
   const utils = trpc.useUtils();
   const shareUpsertMutation = trpc.share.upsertBySubject.useMutation({
@@ -875,13 +886,86 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
 
   // Build confidence lookup map
   const confidenceMap = useMemo(() => {
-    if (!confidenceData?.questions) return new Map<number, ConfidenceData>();
     const map = new Map<number, ConfidenceData>();
-    for (const q of confidenceData.questions) {
-      map.set(q.questionId, q);
+
+    // 1) 실제 사용자 학습 데이터가 있으면 항상 우선 반영한다.
+    if (confidenceData?.questions) {
+      for (const q of confidenceData.questions) {
+        map.set(q.questionId, {
+          displayScore: q.displayScore,
+          state: q.state,
+          label: q.label,
+          isColdStart: q.isColdStart,
+          badges: q.badges,
+        });
+      }
     }
+
+    // 2) 데모 연결 모드에서는 "실데이터가 없는 문제"만 예시 데이터로 보완한다.
+    if (
+      isDemoLinkedMode &&
+      demoLinkedConfidenceData?.questions &&
+      demoLinkedPreviewQuery.data &&
+      questions &&
+      questions.length > 0
+    ) {
+      const normalizeSignature = (value: string | null | undefined) =>
+        (value ?? "")
+          .toLowerCase()
+          .replace(/\s+/g, "")
+          .replace(/[^0-9a-z가-힣]/g, "");
+      const sortedUserQuestions = [...questions].sort(
+        (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
+      );
+      const demoQuestionById = new Map(
+        demoLinkedPreviewQuery.data.map((question) => [question.id, question])
+      );
+      const userQuestionBySignature = new Map<string, typeof sortedUserQuestions[number]>();
+      for (const userQuestion of sortedUserQuestions) {
+        const signature = normalizeSignature(userQuestion.question);
+        if (signature && !userQuestionBySignature.has(signature)) {
+          userQuestionBySignature.set(signature, userQuestion);
+        }
+      }
+      const usedUserQuestionIds = new Set<number>();
+      const sortedDemoConfidenceRows = [...demoLinkedConfidenceData.questions].sort(
+        (a, b) =>
+          (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || (a.questionId ?? 0) - (b.questionId ?? 0)
+      );
+
+      for (const demoRow of sortedDemoConfidenceRows) {
+        const demoQuestion = demoQuestionById.get(demoRow.questionId);
+        const signature = normalizeSignature(demoQuestion?.question);
+        let matchedUserQuestion =
+          (signature ? userQuestionBySignature.get(signature) : undefined) ?? undefined;
+        if (matchedUserQuestion && usedUserQuestionIds.has(matchedUserQuestion.id)) {
+          matchedUserQuestion = undefined;
+        }
+        if (!matchedUserQuestion) {
+          matchedUserQuestion = sortedUserQuestions.find((question) => !usedUserQuestionIds.has(question.id));
+        }
+        if (!matchedUserQuestion) continue;
+
+        usedUserQuestionIds.add(matchedUserQuestion.id);
+        if (map.has(matchedUserQuestion.id)) continue;
+        map.set(matchedUserQuestion.id, {
+          displayScore: demoRow.displayScore,
+          state: demoRow.state,
+          label: demoRow.label,
+          isColdStart: demoRow.isColdStart ?? true,
+          badges: demoRow.badges,
+        });
+      }
+    }
+
     return map;
-  }, [confidenceData]);
+  }, [
+    confidenceData,
+    demoLinkedConfidenceData?.questions,
+    demoLinkedPreviewQuery.data,
+    isDemoLinkedMode,
+    questions,
+  ]);
 
   // 데모 예시 데이터가 비어도 신호등/점수 칸이 사라지지 않도록 폴백
   const displayConfidenceMap = useMemo(() => {
@@ -916,7 +1000,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   }, [confidenceMap, isReadOnlyDemo, questions]);
 
   const displayAggregate = useMemo<AggregateConfidenceSummary | null>(() => {
-    if (!isReadOnlyDemo && confidenceData?.aggregate && confidenceData.aggregate.totalQuestions === displayConfidenceMap.size) {
+    if (!isReadOnlyDemo && !isDemoLinkedMode && confidenceData?.aggregate && confidenceData.aggregate.totalQuestions === displayConfidenceMap.size) {
       return {
         ...confidenceData.aggregate,
         isColdStart: false,
@@ -951,17 +1035,18 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
           ? "yellow"
           : "red";
 
+    const isAllColdStart = rows.every((row) => row.isColdStart);
     return {
       totalQuestions,
       averageScore,
       greenCount,
       yellowCount,
       redCount,
-      isColdStart: true,
+      isColdStart: isAllColdStart,
       state,
       label: state === "green" ? "안정" : state === "yellow" ? "위험" : "취약",
     };
-  }, [confidenceData?.aggregate, displayConfidenceMap, isReadOnlyDemo]);
+  }, [confidenceData?.aggregate, displayConfidenceMap, isDemoLinkedMode, isReadOnlyDemo]);
 
   const createMutation = trpc.questions.create.useMutation({
     onSuccess: (data: any) => {
@@ -1356,9 +1441,10 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
 
   const handleCreate = useCallback(async () => {
     const question = formData.question;
+    const answerInput = normalizeTextInput(formData.answer);
     const answer = formData.autoNumbering
-      ? normalizeAutoNumberedAnswer(formData.answer)
-      : formData.answer.trim();
+      ? normalizeAutoNumberedAnswer(answerInput)
+      : answerInput.trim();
     const requestedDemoValue =
       isAdmin && DEMO_PUBLISHING_ENABLED ? (formData.isDemo ? 1 : 0) : undefined;
 
@@ -1430,7 +1516,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       createDemoMutation.mutate({
         subjectId,
         question,
-        answer: formData.imageUrl && formData.imageLabels.length > 0 ? "" : answer,
+        answer: formData.imageUrl && formData.imageLabels.length > 0 ? "" : normalizeTextInput(answer),
         imageUrl: formData.imageUrl || undefined,
         imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
         autoNumbering: formData.autoNumbering ? 1 : 0,
@@ -1442,7 +1528,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     createMutation.mutate({
       subjectId,
       question,
-      answer: formData.imageUrl && formData.imageLabels.length > 0 ? "" : answer,
+      answer: formData.imageUrl && formData.imageLabels.length > 0 ? "" : normalizeTextInput(answer),
       imageUrl: formData.imageUrl || undefined,
       imageLabels: formData.imageLabels.length > 0 ? JSON.stringify(formData.imageLabels) : undefined,
       autoNumbering: formData.autoNumbering ? 1 : 0,
@@ -1544,9 +1630,10 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       return;
     }
 
+    const answerInput = normalizeTextInput(formData.answer);
     const updatedAnswer = formData.autoNumbering
-      ? normalizeAutoNumberedAnswer(formData.answer)
-      : formData.answer.trim();
+      ? normalizeAutoNumberedAnswer(answerInput)
+      : answerInput.trim();
 
     if (isDemoWorkspace) {
       updateDemoMutation.mutate({

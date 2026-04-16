@@ -62,6 +62,7 @@ const CustomDot = (props: any) => {
   if (payload.eventType === "test") {
     const isSuccess = payload.score >= SUCCESS_THRESHOLD;
     const color = isSuccess ? "#22c55e" : SOFT_DANGER_COLOR;
+    const isMock = payload.testMode === "mock";
     const isLatest = payload.isLatest;
     const baseOpacity = eventLayerFocused ? 0.94 : 0.36;
     return (
@@ -69,16 +70,32 @@ const CustomDot = (props: any) => {
         {isLatest && (
           <circle cx={cx} cy={cy} r={9} fill={color} fillOpacity={eventLayerFocused ? 0.12 : 0.07} />
         )}
-        <circle
-          cx={cx}
-          cy={cy}
-          r={isLatest ? 5 : 4}
-          fill={color}
-          fillOpacity={baseOpacity}
-          stroke="white"
-          strokeWidth={1.5}
-          strokeOpacity={eventLayerFocused ? 1 : 0.7}
-        />
+        {isMock ? (
+          <rect
+            x={cx - (isLatest ? 4.6 : 3.8)}
+            y={cy - (isLatest ? 4.6 : 3.8)}
+            width={isLatest ? 9.2 : 7.6}
+            height={isLatest ? 9.2 : 7.6}
+            transform={`rotate(45 ${cx} ${cy})`}
+            fill={color}
+            fillOpacity={baseOpacity}
+            stroke="white"
+            strokeWidth={1.5}
+            strokeOpacity={eventLayerFocused ? 1 : 0.7}
+            rx={1.2}
+          />
+        ) : (
+          <circle
+            cx={cx}
+            cy={cy}
+            r={isLatest ? 5 : 4}
+            fill={color}
+            fillOpacity={baseOpacity}
+            stroke="white"
+            strokeWidth={1.5}
+            strokeOpacity={eventLayerFocused ? 1 : 0.7}
+          />
+        )}
       </g>
     );
   }
@@ -117,6 +134,21 @@ const CustomActiveDot = (props: any) => {
   if (payload.eventType === "test") {
     const isSuccess = payload.score >= SUCCESS_THRESHOLD;
     const color = isSuccess ? "#22c55e" : SOFT_DANGER_COLOR;
+    if (payload.testMode === "mock") {
+      return (
+        <rect
+          x={cx - 6}
+          y={cy - 6}
+          width={12}
+          height={12}
+          transform={`rotate(45 ${cx} ${cy})`}
+          fill={color}
+          stroke="white"
+          strokeWidth={2}
+          rx={1.2}
+        />
+      );
+    }
     return <circle cx={cx} cy={cy} r={7} fill={color} stroke="white" strokeWidth={2} />;
   }
   if (payload.eventType === "forgetting") {
@@ -153,6 +185,7 @@ const CustomTooltip = ({ active, payload }: any) => {
     const displayScore = d.score;
     const isSuccess = displayScore >= SUCCESS_THRESHOLD;
     const color = isSuccess ? "#22c55e" : SOFT_DANGER_COLOR;
+    const testModeLabel = d.testMode === "mock" ? "모의고사" : "개별 시험";
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[160px]">
         <div className="text-muted-foreground text-xs mb-1.5">
@@ -164,6 +197,7 @@ const CustomTooltip = ({ active, payload }: any) => {
             시험: {isSuccess ? "성공" : "실패"}
           </span>
         </div>
+        <div className="text-xs text-muted-foreground">{testModeLabel}</div>
         <div className="text-xs text-muted-foreground">안정도 {displayScore}점</div>
         {d.questionCount && (
           <div className="text-xs text-muted-foreground mt-1">{d.questionCount}개 문제 평균</div>

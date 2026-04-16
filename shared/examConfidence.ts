@@ -39,10 +39,12 @@ export interface TestSignal {
   mostRecentTestWasPoor: boolean; // similarityScore < 50
   averageRecallTime?: number; // seconds
   testType?: "individual" | "exam";
+  mockExamCount?: number;
   recentTestHistory?: Array<{
     completedAt: Date;
     isCorrect: boolean;
     similarityScore: number;
+    testMode?: "single" | "mock";
   }>;
 }
 
@@ -244,7 +246,7 @@ function getSpacingWeight(gapHours: number, hoursUntilExam: number | null): numb
 }
 
 function computeTimeWeightedStreakScore(
-  history: Array<{ completedAt: Date; isCorrect: boolean; similarityScore: number }>,
+  history: Array<{ completedAt: Date; isCorrect: boolean; similarityScore: number; testMode?: "single" | "mock" }>,
   now: Date,
   hoursUntilExam: number | null
 ): number {
@@ -262,9 +264,10 @@ function computeTimeWeightedStreakScore(
       ? hoursSince(item.completedAt, now)
       : (previous.getTime() - item.completedAt.getTime()) / (1000 * 60 * 60);
     const spacingWeight = getSpacingWeight(gap, hoursUntilExam);
+    const modeWeight = item.testMode === "mock" ? 1.22 : 1;
     const base = i === 0 ? 14 : i === 1 ? 11 : i === 2 ? 8 : 6;
 
-    total += base * spacingWeight;
+    total += base * spacingWeight * modeWeight;
     previous = item.completedAt;
   }
 
@@ -272,7 +275,7 @@ function computeTimeWeightedStreakScore(
 }
 
 function computeWeightedMastery(
-  history: Array<{ completedAt: Date; isCorrect: boolean; similarityScore: number }>,
+  history: Array<{ completedAt: Date; isCorrect: boolean; similarityScore: number; testMode?: "single" | "mock" }>,
   now: Date,
   fallback: Pick<TestSignal, "testCount" | "correctCount" | "averageSimilarityScore">
 ): number {
@@ -289,7 +292,8 @@ function computeWeightedMastery(
 
   for (const item of history.slice(0, 10)) {
     const ageHours = hoursSince(item.completedAt, now);
-    const recencyWeight = 0.35 + Math.exp(-ageHours / 20);
+    const modeWeight = item.testMode === "mock" ? 1.28 : 1;
+    const recencyWeight = (0.35 + Math.exp(-ageHours / 20)) * modeWeight;
 
     const s = clamp(Math.round(item.similarityScore), 0, 100);
     let similarityQuality = 0;
@@ -349,13 +353,13 @@ function computeInactivityPenalty(
 }
 
 function computeRecentPassStreak(
-  history: Array<{ completedAt: Date; isCorrect: boolean; similarityScore: number }>
+  history: Array<{ completedAt: Date; isCorrect: boolean; similarityScore: number; testMode?: "single" | "mock" }>
 ): number {
   let streak = 0;
   for (const item of history) {
     const passed = item.isCorrect || item.similarityScore >= 88;
     if (!passed) break;
-    streak += 1;
+    streak += item.testMode === "mock" ? 2 : 1;
   }
   return streak;
 }
@@ -463,6 +467,7 @@ function computeExamConfidenceInternal(
   const sortedHistory = (test.recentTestHistory ?? [])
     .slice()
     .sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime());
+  const mockExamCount = Math.max(0, Math.round(test.mockExamCount ?? 0));
 
   // A. Practice contribution
   const practiceVolumeBase = 22 * (1 - Math.exp(-practice.practiceCount * 0.32));
@@ -485,8 +490,9 @@ function computeExamConfidenceInternal(
     averageSimilarityScore: test.averageSimilarityScore,
   });
 
-  const testExposureScore = test.testCount > 0
-    ? clamp(Math.round(14 * (1 - Math.exp(-test.testCount * 0.6))), 0, 14)
+  const effectiveTestCountForExposure = test.testCount + mockExamCount * 1.35;
+  const testExposureScore = effectiveTestCountForExposure > 0
+    ? clamp(Math.round(14 * (1 - Math.exp(-effectiveTestCountForExposure * 0.6))), 0, 16)
     : 0;
   const testAccuracyScore = test.testCount > 0
     ? clamp(Math.round(masteryRate * 40), 0, 40)
@@ -497,6 +503,7 @@ function computeExamConfidenceInternal(
   const latestTest = sortedHistory[0];
   if (latestTest) {
     const sim = clamp(Math.round(latestTest.similarityScore), 0, 100);
+    const isMockLatest = latestTest.testMode === "mock";
     const ageHours = hoursSince(latestTest.completedAt, now);
     const freshness = ageHours <= 1
       ? 1
@@ -524,6 +531,9 @@ function computeExamConfidenceInternal(
     else if (sim < 70) baseBoost = -2;
 
     const latestPassed = latestTest.isCorrect || sim >= 92;
+    if (isMockLatest) {
+      baseBoost += latestPassed ? 3 : -3;
+    }
     if (latestTest.isCorrect) baseBoost += 3;
     else if (sim < 95) baseBoost -= 2;
     if (hoursUntilExam !== null && hoursUntilExam <= 24 && sim >= 90) baseBoost += 2;
@@ -571,7 +581,7 @@ function computeExamConfidenceInternal(
       baseBoost += surpriseBoost;
     }
 
-    recentSimilarityBoost = clamp(Math.round(baseBoost * freshness), -8, 24);
+    recentSimilarityBoost = clamp(Math.round(baseBoost * freshness), -11, 28);
   }
 
   let timeWeightedStreakScore = 0;
@@ -644,7 +654,8 @@ function computeExamConfidenceInternal(
             : item.similarityScore >= 50
               ? 0.9
               : 1.15;
-        penaltyAccumulator += 7 * ageWeight * severity;
+        const modePenaltyWeight = item.testMode === "mock" ? 1.2 : 1;
+        penaltyAccumulator += 7 * ageWeight * severity * modePenaltyWeight;
       }
 
       if (masteryRate >= 0.8) penaltyAccumulator *= 0.65;
@@ -755,13 +766,16 @@ function computeExamConfidenceInternal(
     }
     if (test.testCount === 1 && sortedHistory.length > 0) {
       const firstTest = sortedHistory[0];
-      const dynamicSingleTestCap = getSingleTestDisplayCap({
+      let dynamicSingleTestCap = getSingleTestDisplayCap({
         latestSimilarity: clamp(Math.round(firstTest.similarityScore), 0, 100),
         latestIsCorrect: !!firstTest.isCorrect,
         practiceCount: practice.practiceCount,
         difficulty: questionDifficulty,
         hoursUntilExam,
       });
+      if (firstTest.testMode === "mock") {
+        dynamicSingleTestCap = Math.min(99, dynamicSingleTestCap + 6);
+      }
       displayCap = Math.min(displayCap, dynamicSingleTestCap);
     }
   }

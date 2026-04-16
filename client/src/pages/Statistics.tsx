@@ -24,7 +24,7 @@ function formatMinutes(minutes: number) {
   return `${hours}시간 ${mins}분`;
 }
 
-export default function Statistics() {
+export default function Statistics({ demoPreview = false }: { demoPreview?: boolean }) {
   const [, setLocation] = useLocation();
   const { data: me } = trpc.auth.me.useQuery();
   const { data: summary, isLoading: summaryLoading } = trpc.statistics.getSummary.useQuery();
@@ -79,13 +79,102 @@ export default function Statistics() {
     alert("통계가 초기화되었습니다.");
   };
 
+  const exampleSummary = useMemo(() => {
+    return {
+      totalPracticeTime: 42 * 60,
+      totalPracticeCount: 18,
+      totalTestCount: 7,
+      totalCorrect: 5,
+      avgPracticeTypingSpeed: 238,
+      overallCorrectRate: 71,
+      practiceVsTestData: [
+        { label: "0회", questionCount: 1, testCount: 1, correctRate: 0 },
+        { label: "1-2회", questionCount: 2, testCount: 2, correctRate: 50 },
+        { label: "3-5회", questionCount: 3, testCount: 2, correctRate: 50 },
+        { label: "6-10회", questionCount: 2, testCount: 1, correctRate: 100 },
+        { label: "11회+", questionCount: 1, testCount: 1, correctRate: 100 },
+      ],
+      weakQuestions: [
+        {
+          questionId: -900001,
+          question: "예시) 표 I-3 상악 치아 크기",
+          subjectId: -800001,
+          practiceCount: 2,
+          testCount: 2,
+          correctRate: 50,
+          latestSimilarity: 67,
+        },
+      ],
+    };
+  }, []);
+
+  const exampleSubjectAnalysis = useMemo(() => {
+    const now = Date.now();
+    const d = (daysAgo: number) => new Date(now - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return [
+      {
+        subjectId: -800001,
+        subjectName: "치아형태학 (예시)",
+        subjectColor: "#3B82F6",
+        totalQuestions: 3,
+        practiceCount: 18,
+        totalPracticeTime: 42 * 60,
+        totalTests: 7,
+        overallCorrectRate: 71,
+        overallAvgSimilarity: 79,
+        questionAnalysis: [
+          {
+            questionId: -900001,
+            question: "예시) 표 I-3 상악 치아 크기",
+            practiceCount: 2,
+            practiceTime: 5 * 60,
+            testCount: 2,
+            correctCount: 1,
+            correctRate: 50,
+            latestSimilarity: 67,
+          },
+          {
+            questionId: -900002,
+            question: "예시) Box-1 절치들의 근원심구별",
+            practiceCount: 9,
+            practiceTime: 21 * 60,
+            testCount: 3,
+            correctCount: 3,
+            correctRate: 100,
+            latestSimilarity: 95,
+          },
+          {
+            questionId: -900003,
+            question: "예시) Box-9 하악 제1소구치와 제2소구치의 차이점",
+            practiceCount: 7,
+            practiceTime: 16 * 60,
+            testCount: 2,
+            correctCount: 1,
+            correctRate: 50,
+            latestSimilarity: 74,
+          },
+        ],
+        performanceTrend: [
+          { date: d(4), correctRate: 50, avgSimilarity: 66, testCount: 2, cumulativePractice: 4 },
+          { date: d(2), correctRate: 67, avgSimilarity: 78, testCount: 3, cumulativePractice: 12 },
+          { date: d(0), correctRate: 71, avgSimilarity: 83, testCount: 2, cumulativePractice: 18 },
+        ],
+      },
+    ];
+  }, []);
+
+  const hasLiveData = Boolean(summary && (summary.totalPracticeCount > 0 || summary.totalTestCount > 0));
+  const useExampleData = !summaryLoading && !analysisLoading && (demoPreview || !hasLiveData);
+  const summaryData = useExampleData ? exampleSummary : summary;
+  const subjectAnalysisData = useExampleData ? exampleSubjectAnalysis : subjectAnalysis;
+
   // 학습 전략 추천 생성
   const strategies = useMemo(() => {
-    if (!summary || !subjectAnalysis) return [];
+    if (!summaryData || !subjectAnalysisData) return [];
     const result: { type: "warning" | "success" | "tip"; icon: any; message: string }[] = [];
 
     // 연습 부족 과목 찾기
-    const lowPracticeSubjects = subjectAnalysis.filter(
+    const lowPracticeSubjects = subjectAnalysisData.filter(
       (s) => s.totalQuestions > 0 && s.practiceCount / Math.max(s.totalQuestions, 1) < 3
     );
     if (lowPracticeSubjects.length > 0) {
@@ -97,7 +186,7 @@ export default function Statistics() {
     }
 
     // 연습 많이 했는데 시험 성과 낮은 과목
-    const highPracticeLowTest = subjectAnalysis.filter(
+    const highPracticeLowTest = subjectAnalysisData.filter(
       (s) => s.practiceCount > 10 && s.totalTests > 3 && s.overallCorrectRate < 50
     );
     if (highPracticeLowTest.length > 0) {
@@ -109,7 +198,7 @@ export default function Statistics() {
     }
 
     // 연습량 대비 성과 좋은 과목
-    const efficientSubjects = subjectAnalysis.filter(
+    const efficientSubjects = subjectAnalysisData.filter(
       (s) => s.totalTests > 3 && s.overallCorrectRate >= 80
     );
     if (efficientSubjects.length > 0) {
@@ -121,8 +210,8 @@ export default function Statistics() {
     }
 
     // 어려운 문제 연습 부족
-    if (summary.weakQuestions.length > 0) {
-      const weakCount = summary.weakQuestions.length;
+    if (summaryData.weakQuestions.length > 0) {
+      const weakCount = summaryData.weakQuestions.length;
       result.push({
         type: "warning",
         icon: Target,
@@ -131,7 +220,7 @@ export default function Statistics() {
     }
 
     // 연습 횟수와 시험 성과 상관관계 인사이트
-    const pvt = summary.practiceVsTestData;
+    const pvt = summaryData.practiceVsTestData;
     const highPracticeBucket = pvt.find((b) => b.label === "11회+");
     const lowPracticeBucket = pvt.find((b) => b.label === "0회");
     if (highPracticeBucket && lowPracticeBucket && highPracticeBucket.testCount > 0 && lowPracticeBucket.testCount > 0) {
@@ -154,7 +243,7 @@ export default function Statistics() {
     }
 
     return result;
-  }, [summary, subjectAnalysis]);
+  }, [summaryData, subjectAnalysisData]);
 
   if (summaryLoading || analysisLoading) {
     return (
@@ -164,7 +253,7 @@ export default function Statistics() {
     );
   }
 
-  const hasData = summary && (summary.totalPracticeCount > 0 || summary.totalTestCount > 0);
+  const hasData = Boolean(summaryData && (summaryData.totalPracticeCount > 0 || summaryData.totalTestCount > 0));
 
   return (
     <div className="space-y-6">
@@ -219,6 +308,12 @@ export default function Statistics() {
         )}
       </div>
 
+      {useExampleData && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+          예시 화면 · 실제 학습 기록이 없어 예시 통계 데이터를 표시합니다.
+        </div>
+      )}
+
       {!hasData ? (
         <Card className="shadow-elegant">
           <CardContent className="py-16 text-center">
@@ -237,8 +332,8 @@ export default function Statistics() {
                 <Dumbbell className="h-4 w-4 text-blue-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{summary!.totalPracticeCount}회</div>
-                <p className="text-xs text-muted-foreground">{formatDuration(summary!.totalPracticeTime)} 투자</p>
+                <div className="text-2xl font-bold">{summaryData!.totalPracticeCount}회</div>
+                <p className="text-xs text-muted-foreground">{formatDuration(summaryData!.totalPracticeTime)} 투자</p>
               </CardContent>
             </Card>
 
@@ -248,8 +343,8 @@ export default function Statistics() {
                 <ClipboardCheck className="h-4 w-4 text-purple-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{summary!.totalTestCount}회</div>
-                <p className="text-xs text-muted-foreground">{summary!.totalCorrect}회 정답</p>
+                <div className="text-2xl font-bold">{summaryData!.totalTestCount}회</div>
+                <p className="text-xs text-muted-foreground">{summaryData!.totalCorrect}회 정답</p>
               </CardContent>
             </Card>
 
@@ -259,7 +354,7 @@ export default function Statistics() {
                 <Target className="h-4 w-4 text-green-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{summary!.overallCorrectRate}%</div>
+                <div className="text-2xl font-bold">{summaryData!.overallCorrectRate}%</div>
                 <p className="text-xs text-muted-foreground">백지 복습 기준</p>
               </CardContent>
             </Card>
@@ -271,8 +366,8 @@ export default function Statistics() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {subjectAnalysis && subjectAnalysis.reduce((s, a) => s + a.totalQuestions, 0) > 0
-                    ? (summary!.totalPracticeCount / subjectAnalysis.reduce((s, a) => s + a.totalQuestions, 0)).toFixed(1)
+                  {subjectAnalysisData && subjectAnalysisData.reduce((s, a) => s + a.totalQuestions, 0) > 0
+                    ? (summaryData!.totalPracticeCount / subjectAnalysisData.reduce((s, a) => s + a.totalQuestions, 0)).toFixed(1)
                     : "0"}회
                 </div>
                 <p className="text-xs text-muted-foreground">전체 문제 기준</p>
@@ -285,7 +380,7 @@ export default function Statistics() {
                 <Keyboard className="h-4 w-4 text-indigo-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{summary!.avgPracticeTypingSpeed} CPM</div>
+                <div className="text-2xl font-bold">{summaryData!.avgPracticeTypingSpeed} CPM</div>
                 <p className="text-xs text-muted-foreground">연습 모드 전체 평균</p>
               </CardContent>
             </Card>
@@ -544,9 +639,9 @@ export default function Statistics() {
               <CardDescription>문제를 몇 번 연습해야 시험에서 맞출 수 있는지 보여줍니다</CardDescription>
             </CardHeader>
             <CardContent>
-              {summary!.practiceVsTestData.some(d => d.testCount > 0) ? (
+              {summaryData!.practiceVsTestData.some(d => d.testCount > 0) ? (
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={summary!.practiceVsTestData}>
+                  <BarChart data={summaryData!.practiceVsTestData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="label" label={{ value: "연습 횟수", position: "insideBottom", offset: -5 }} />
                     <YAxis domain={[0, 100]} label={{ value: "정답률 (%)", angle: -90, position: "insideLeft" }} />
@@ -575,8 +670,8 @@ export default function Statistics() {
             </TabsList>
 
             <TabsContent value="subjects" className="space-y-4">
-              {subjectAnalysis && subjectAnalysis.length > 0 ? (
-                subjectAnalysis.map((subject) => (
+              {subjectAnalysisData && subjectAnalysisData.length > 0 ? (
+                subjectAnalysisData.map((subject) => (
                   <Card key={subject.subjectId} className="shadow-elegant overflow-hidden">
                     <button
                       className="w-full text-left"
@@ -713,9 +808,9 @@ export default function Statistics() {
                   <CardDescription>시험에서 자주 틀리는 문제들입니다. 이 문제들을 집중 연습하세요.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {summary!.weakQuestions.length > 0 ? (
+                  {summaryData!.weakQuestions.length > 0 ? (
                     <div className="space-y-2">
-                      {summary!.weakQuestions.map((q) => (
+                      {summaryData!.weakQuestions.map((q) => (
                         <button
                           key={q.questionId}
                           type="button"
@@ -740,7 +835,7 @@ export default function Statistics() {
                     </div>
                   ) : (
                     <p className="text-center text-muted-foreground py-8">
-                      {summary!.totalTestCount > 0
+                      {summaryData!.totalTestCount > 0
                         ? "모든 문제의 정답률이 70% 이상입니다. 잘하고 있습니다!"
                         : "시험 데이터가 없습니다. 시험 모드를 진행해보세요."}
                     </p>

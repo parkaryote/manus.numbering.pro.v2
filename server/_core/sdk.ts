@@ -278,7 +278,14 @@ class SDKServer {
 
     const sessionUserId = session.openId;
     const signedInAt = new Date();
-    let user = await db.getUserByOpenId(sessionUserId);
+    let user: User | undefined;
+    try {
+      user = await db.getUserByOpenId(sessionUserId);
+    } catch (error) {
+      console.warn("[Auth] getUserByOpenId failed once, retrying:", error);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      user = await db.getUserByOpenId(sessionUserId);
+    }
 
     // If user not in DB, sync from OAuth server automatically
     if (!user) {
@@ -302,10 +309,15 @@ class SDKServer {
       throw ForbiddenError("User not found");
     }
 
-    await db.upsertUser({
-      openId: user.openId,
-      lastSignedIn: signedInAt,
-    });
+    // 마지막 접속시간 갱신 실패가 인증 실패로 번지지 않도록 best-effort 처리
+    try {
+      await db.upsertUser({
+        openId: user.openId,
+        lastSignedIn: signedInAt,
+      });
+    } catch (error) {
+      console.warn("[Auth] Non-blocking lastSignedIn update failed:", error);
+    }
 
     return user;
   }

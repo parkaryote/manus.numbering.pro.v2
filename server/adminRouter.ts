@@ -111,7 +111,7 @@ export const adminRouter = router({
         z.object({
           questionId: z.number(),
           question: z.string(),
-          answer: z.string().default(""),
+          answer: z.string().optional().default(""),
           imageUrl: z.string().optional(),
           imageLabels: z.string().optional(),
           tableData: z.string().optional(),

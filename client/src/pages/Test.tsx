@@ -22,6 +22,13 @@ interface TestProps {
 
 type MatchTone = "correct" | "answer";
 
+type ConfidenceImpact = {
+  before: number;
+  after: number;
+  delta: number;
+  estimated: boolean;
+};
+
 function buildNonWhitespaceTokens(codepoints: string[]) {
   const tokens: Array<{ ch: string; pos: number }> = [];
   for (let i = 0; i < codepoints.length; i++) {
@@ -297,6 +304,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [showConfidencePopup, setShowConfidencePopup] = useState(false);
   const [confidenceBefore, setConfidenceBefore] = useState(0);
   const [confidenceAfter, setConfidenceAfter] = useState(0);
+  const [confidenceImpact, setConfidenceImpact] = useState<ConfidenceImpact | null>(null);
 
   // 타이핑 속도 보너스 수집 상태
   const typingStartTimeRef = useRef<number | null>(null);
@@ -306,6 +314,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const inputCharsRef = useRef(0);
   const [speedBonus, setSpeedBonus] = useState<{ bonus: number; label: string; ratio: number } | null>(null);
   const isMacPlatform = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+  const utils = trpc.useUtils();
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const { data: confidenceData, refetch: refetchConfidence } = trpc.confidence.getByQuestion.useQuery(
@@ -344,36 +353,42 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   
   const triggerConfidencePopup = useCallback(async (data: any) => {
     const prevScore = confidenceBefore;
-    // DB에서 최신 점수 가져와서 실제 변화량 계산
     let newScore = prevScore;
+    let estimated = false;
+    const estimatedScore = Math.max(0, Math.min(100, prevScore + estimateTestConfidenceDelta({
+      currentScore: prevScore,
+      isCorrect: !!data.isCorrect,
+      similarityScore: data.similarityScore || 0,
+      recallTime,
+      hoursUntilExam: estimatedHoursUntilExam,
+    })));
+
     if (!isDemo) {
       try {
         const result = await refetchConfidence();
         newScore = Math.round(result.data?.displayScore ?? prevScore);
       } catch {
-        // refetch 실패 시, 공유 추정식(서버 정책 기반)으로 fallback
-        const scoreChange = estimateTestConfidenceDelta({
-          currentScore: prevScore,
-          isCorrect: !!data.isCorrect,
-          similarityScore: data.similarityScore || 0,
-          recallTime,
-          hoursUntilExam: estimatedHoursUntilExam,
-        });
-        newScore = Math.max(0, Math.min(100, prevScore + scoreChange));
+        newScore = estimatedScore;
+        estimated = true;
       }
     } else {
-      // 데모 모드: 공유 추정식 사용
-      const scoreChange = estimateTestConfidenceDelta({
-        currentScore: prevScore,
-        isCorrect: !!data.isCorrect,
-        similarityScore: data.similarityScore || 0,
-        recallTime,
-        hoursUntilExam: estimatedHoursUntilExam,
-      });
-      newScore = Math.max(0, Math.min(100, prevScore + scoreChange));
+      newScore = estimatedScore;
+      estimated = true;
     }
+
+    if (!estimated && newScore === prevScore && estimatedScore !== prevScore) {
+      newScore = estimatedScore;
+      estimated = true;
+    }
+
     setConfidenceBefore(prevScore);
     setConfidenceAfter(newScore);
+    setConfidenceImpact({
+      before: prevScore,
+      after: newScore,
+      delta: newScore - prevScore,
+      estimated,
+    });
     setShowConfidencePopup(true);
   }, [confidenceBefore, recallTime, isDemo, refetchConfidence, estimatedHoursUntilExam]);
 
@@ -401,6 +416,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
           questionId: question.id,
           quality,
         });
+        void utils.confidence.getBySubject.invalidate({ subjectId: question.subjectId });
       }
     },
     onError: (error: any) => {
@@ -494,6 +510,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     setTableResults(null);
     setTableScore(null);
     setSpeedBonus(null);
+    setConfidenceImpact(null);
     typingStartTimeRef.current = null;
     timeToFirstKeyRef.current = null;
     backspaceCountRef.current = 0;
@@ -706,6 +723,26 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       };
     });
   }, [tableAnswers, tableData, tableResults]);
+
+  const confidenceStateClasses = useMemo(() => {
+    const score = confidenceImpact?.after ?? confidenceAfter;
+    if (score >= 80) {
+      return {
+        panel: "border-emerald-200 bg-emerald-50/80 dark:border-emerald-900/60 dark:bg-emerald-950/20",
+        delta: "text-emerald-700 dark:text-emerald-300",
+      };
+    }
+    if (score >= 40) {
+      return {
+        panel: "border-amber-200 bg-amber-50/80 dark:border-amber-900/60 dark:bg-amber-950/20",
+        delta: "text-amber-700 dark:text-amber-300",
+      };
+    }
+    return {
+      panel: "border-rose-200 bg-rose-50/80 dark:border-rose-900/60 dark:bg-rose-950/20",
+      delta: "text-rose-700 dark:text-rose-300",
+    };
+  }, [confidenceAfter, confidenceImpact]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const keyLower = e.key.toLowerCase();
@@ -1208,6 +1245,39 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                       {speedBonusText && <p className="text-xs font-bold text-blue-500 mt-1">{speedBonusText}</p>}
                     </div>
                   </div>
+                  {confidenceImpact && (
+                    <div className={`rounded-xl border p-4 ${confidenceStateClasses.panel}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="font-semibold">안정도 반영</h3>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {confidenceImpact.estimated
+                              ? "채점 직후 추정 로직으로 반영한 점수입니다."
+                              : "채점 직후 반영된 안정도 변화입니다."}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 text-[11px]">
+                          {confidenceImpact.estimated ? "추정 반영" : "실측 반영"}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 mt-4">
+                        <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
+                          <p className="text-[11px] text-muted-foreground">이전 안정도</p>
+                          <p className="text-2xl font-bold mt-1">{confidenceImpact.before}점</p>
+                        </div>
+                        <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
+                          <p className="text-[11px] text-muted-foreground">이번 시험 반영</p>
+                          <p className={`text-2xl font-bold mt-1 ${confidenceImpact.delta > 0 ? "text-emerald-600 dark:text-emerald-300" : confidenceImpact.delta < 0 ? "text-rose-600 dark:text-rose-300" : confidenceStateClasses.delta}`}>
+                            {confidenceImpact.delta > 0 ? "+" : ""}{confidenceImpact.delta}점
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
+                          <p className="text-[11px] text-muted-foreground">반영 후 안정도</p>
+                          <p className="text-2xl font-bold mt-1">{confidenceImpact.after}점</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="space-y-3">
                     <h3 className="font-semibold">정답 비교</h3>
                     {tableData && (
@@ -1297,6 +1367,40 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   {speedBonusText && <p className="text-xs font-bold text-blue-500 mt-1">{speedBonusText}</p>}
                 </div>
               </div>
+
+              {confidenceImpact && (
+                <div className={`rounded-xl border p-4 ${confidenceStateClasses.panel}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold">안정도 반영</h3>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {confidenceImpact.estimated
+                          ? "채점 직후 추정 로직으로 반영한 점수입니다."
+                          : "채점 직후 반영된 안정도 변화입니다."}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="shrink-0 text-[11px]">
+                      {confidenceImpact.estimated ? "추정 반영" : "실측 반영"}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 mt-4">
+                    <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
+                      <p className="text-[11px] text-muted-foreground">이전 안정도</p>
+                      <p className="text-2xl font-bold mt-1">{confidenceImpact.before}점</p>
+                    </div>
+                    <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
+                      <p className="text-[11px] text-muted-foreground">이번 시험 반영</p>
+                      <p className={`text-2xl font-bold mt-1 ${confidenceImpact.delta > 0 ? "text-emerald-600 dark:text-emerald-300" : confidenceImpact.delta < 0 ? "text-rose-600 dark:text-rose-300" : confidenceStateClasses.delta}`}>
+                        {confidenceImpact.delta > 0 ? "+" : ""}{confidenceImpact.delta}점
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border/70 bg-background/75 px-3 py-3 text-center">
+                      <p className="text-[11px] text-muted-foreground">반영 후 안정도</p>
+                      <p className="text-2xl font-bold mt-1">{confidenceImpact.after}점</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {result?.mistakeHighlights && (
                 <div className="space-y-2">

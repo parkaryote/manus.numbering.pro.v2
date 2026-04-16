@@ -65,7 +65,7 @@ function initAnalytics() {
 initAnalytics();
 
 const TRPC_FETCH_TIMEOUT_MS = 12000;
-const TRPC_AUTH_FETCH_TIMEOUT_MS = 30000;
+const TRPC_AUTH_FETCH_TIMEOUT_MS = 10000;
 const TRPC_OCR_FETCH_TIMEOUT_MS = 180000;
 
 function resolveTrpcTimeoutMs(input: RequestInfo | URL): number {
