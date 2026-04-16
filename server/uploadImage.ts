@@ -2,8 +2,22 @@ import express from "express";
 import multer from "multer";
 import { storagePut } from "./storage.js";
 import { nanoid } from "nanoid";
+import { sdk } from "./_core/sdk.js";
 
 const router = express.Router();
+const ALLOWED_IMAGE_MIME = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+
+const EXT_BY_IMAGE_MIME: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -11,27 +25,35 @@ const upload = multer({
     fileSize: 16 * 1024 * 1024, // 16MB
   },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) {
+    if (ALLOWED_IMAGE_MIME.has((file.mimetype ?? "").toLowerCase())) {
       cb(null, true);
     } else {
-      cb(new Error("Only image files are allowed"));
+      cb(new Error("Only jpg/png/webp/gif images are allowed"));
     }
   },
 });
 
-router.post("/", upload.single("file"), async (req, res) => {
+router.post("/", async (req, res, next) => {
+  try {
+    await sdk.authenticateRequest(req as any);
+    next();
+  } catch {
+    res.status(401).json({ error: "Unauthorized" });
+  }
+}, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    const fileExtension = req.file.originalname.split(".").pop() || "jpg";
+    const normalizedMime = (req.file.mimetype ?? "").toLowerCase();
+    const fileExtension = EXT_BY_IMAGE_MIME[normalizedMime] ?? "jpg";
     const fileKey = `questions/${nanoid()}.${fileExtension}`;
 
     const { url } = await storagePut(
       fileKey,
       req.file.buffer,
-      req.file.mimetype
+      normalizedMime
     );
 
     res.json({ url, key: fileKey });

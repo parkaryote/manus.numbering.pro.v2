@@ -162,6 +162,15 @@ class SDKServer {
 
   private getSessionSecret() {
     const secret = ENV.cookieSecret;
+    if (!secret) {
+      if (ENV.isProduction) {
+        throw new Error("JWT_SECRET is required in production.");
+      }
+      return new TextEncoder().encode("local-dev-insecure-jwt-secret-change-me");
+    }
+    if (ENV.isProduction && secret.length < 32) {
+      throw new Error("JWT_SECRET must be at least 32 characters in production.");
+    }
     return new TextEncoder().encode(secret);
   }
 
@@ -199,6 +208,7 @@ class SDKServer {
       name: payload.name,
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setIssuedAt(Math.floor(issuedAt / 1000))
       .setExpirationTime(expirationSeconds)
       .sign(secretKey);
   }

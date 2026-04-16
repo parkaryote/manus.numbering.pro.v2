@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { getGoogleRedirectUri, parseGoogleStateReturnTo, startGoogleOAuthLogin } from "@/lib/googleOAuth";
+import { consumeGoogleOAuthState, getGoogleRedirectUri, parseGoogleStateReturnTo, startGoogleOAuthLogin } from "@/lib/googleOAuth";
 import { Chrome, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -140,6 +140,12 @@ export default function Login() {
 
     setHasProcessedGoogleCode(true);
     markRecentAuthAttempt();
+    if (!consumeGoogleOAuthState(state)) {
+      setBlockingMessage(null);
+      toast.error("Google 로그인 요청 검증에 실패했습니다. 다시 시도해주세요.");
+      window.history.replaceState({}, "", "/login");
+      return;
+    }
     setBlockingMessage("Google 로그인 처리 중...");
     googleReturnToRef.current = parseGoogleStateReturnTo(state);
     window.history.replaceState({}, "", "/login");
@@ -204,8 +210,8 @@ export default function Login() {
       toast.error("아이디를 입력해주세요.");
       return;
     }
-    if (signupPassword.length < 4) {
-      toast.error("비밀번호는 4자 이상이어야 합니다.");
+    if (signupPassword.length < 8) {
+      toast.error("비밀번호는 8자 이상이어야 합니다.");
       return;
     }
     if (signupPassword !== signupPasswordConfirm) {

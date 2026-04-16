@@ -2,6 +2,8 @@ const GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_SCOPE = "openid email profile";
 const GOOGLE_REDIRECT_PATH = "/login";
 const GOOGLE_REDIRECT_URI_ENV = (import.meta.env.VITE_GOOGLE_OAUTH_REDIRECT_URI ?? "").trim();
+const GOOGLE_STATE_STORAGE_KEY = "numbering_google_oauth_state";
+const GOOGLE_STATE_MAX_AGE_MS = 10 * 60 * 1000;
 
 function base64Encode(input: string): string {
   const utf8 = encodeURIComponent(input).replace(/%([0-9A-F]{2})/g, (_, hex) =>
@@ -25,6 +27,14 @@ function sanitizeReturnTo(path: string | null | undefined): string {
   return path;
 }
 
+function parseGoogleStateUnsafe(state: string): { returnTo?: string; issuedAt?: number; nonce?: string } | null {
+  try {
+    return JSON.parse(base64Decode(state)) as { returnTo?: string; issuedAt?: number; nonce?: string };
+  } catch {
+    return null;
+  }
+}
+
 export function buildGoogleState(returnTo: string): string {
   return base64Encode(
     JSON.stringify({
@@ -37,12 +47,35 @@ export function buildGoogleState(returnTo: string): string {
 
 export function parseGoogleStateReturnTo(state: string | null | undefined): string {
   if (!state) return "/";
+  const decoded = parseGoogleStateUnsafe(state);
+  return sanitizeReturnTo(decoded?.returnTo);
+}
+
+export function storeGoogleOAuthState(state: string) {
+  if (typeof window === "undefined") return;
   try {
-    const decoded = JSON.parse(base64Decode(state)) as { returnTo?: string };
-    return sanitizeReturnTo(decoded?.returnTo);
+    window.sessionStorage.setItem(GOOGLE_STATE_STORAGE_KEY, state);
   } catch {
-    return "/";
+    // ignore
   }
+}
+
+export function consumeGoogleOAuthState(state: string | null | undefined): boolean {
+  if (!state || typeof window === "undefined") return false;
+  try {
+    const expected = window.sessionStorage.getItem(GOOGLE_STATE_STORAGE_KEY);
+    window.sessionStorage.removeItem(GOOGLE_STATE_STORAGE_KEY);
+    if (!expected || expected !== state) return false;
+  } catch {
+    return false;
+  }
+
+  const decoded = parseGoogleStateUnsafe(state);
+  if (!decoded || typeof decoded.issuedAt !== "number") return false;
+  const age = Date.now() - decoded.issuedAt;
+  if (age < -60_000 || age > GOOGLE_STATE_MAX_AGE_MS) return false;
+  if (!decoded.nonce || decoded.nonce.length < 8) return false;
+  return true;
 }
 
 export function startGoogleOAuthLogin(input: {
@@ -56,6 +89,7 @@ export function startGoogleOAuthLogin(input: {
 
   const redirectUri = getGoogleRedirectUri();
   const state = buildGoogleState(input.returnTo);
+  storeGoogleOAuthState(state);
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,

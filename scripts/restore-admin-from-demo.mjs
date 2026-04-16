@@ -2,11 +2,15 @@ import "dotenv/config";
 import mysql from "mysql2/promise";
 
 const DATABASE_URL = process.env.DATABASE_URL;
-const ADMIN_EMAIL = process.env.OWNER_EMAIL || "parkaryote@snu.ac.kr";
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "parkaryote";
+const ADMIN_EMAIL = (process.env.OWNER_EMAIL ?? "").trim();
+const ADMIN_USERNAME = (process.env.ADMIN_USERNAME ?? "").trim();
 
 if (!DATABASE_URL) {
   console.error("DATABASE_URL is required.");
+  process.exit(1);
+}
+if (!ADMIN_EMAIL && !ADMIN_USERNAME) {
+  console.error("Set OWNER_EMAIL or ADMIN_USERNAME to locate the admin account safely.");
   process.exit(1);
 }
 

@@ -563,6 +563,9 @@ const GOOGLE_JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth
 const AUTH_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const AUTH_RATE_LIMIT_BLOCK_MS = 15 * 60 * 1000;
 const AUTH_RATE_LIMIT_MAX_FAILS = 8;
+const SHARE_ACCESS_RATE_LIMIT_MAX_FAILS = 10;
+const VERIFY_GATE_RATE_LIMIT_MAX_FAILS = 10;
+const TELEMETRY_PAYLOAD_MAX_BYTES = 8 * 1024;
 
 type AuthRateLimitBucket = {
   failCount: number;
@@ -650,6 +653,19 @@ function assertAuthRateLimitAllowed(key: string) {
   }
 }
 
+function assertAuthRateLimitAllowedWithMessage(key: string, message: string) {
+  const now = Date.now();
+  pruneAuthRateLimitBuckets(now);
+  const bucket = authRateLimitBuckets.get(key);
+  if (!bucket) return;
+  if (bucket.blockedUntil > now) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message,
+    });
+  }
+}
+
 function registerAuthFailure(key: string) {
   const now = Date.now();
   const current = authRateLimitBuckets.get(key);
@@ -668,8 +684,47 @@ function registerAuthFailure(key: string) {
   authRateLimitBuckets.set(key, current);
 }
 
+function registerAuthFailureWithThreshold(key: string, maxFails: number) {
+  const now = Date.now();
+  const current = authRateLimitBuckets.get(key);
+  if (!current || now - current.windowStartedAt > AUTH_RATE_LIMIT_WINDOW_MS) {
+    authRateLimitBuckets.set(key, {
+      failCount: 1,
+      windowStartedAt: now,
+      blockedUntil: 0,
+    });
+    return;
+  }
+  current.failCount += 1;
+  if (current.failCount >= Math.max(1, maxFails)) {
+    current.blockedUntil = now + AUTH_RATE_LIMIT_BLOCK_MS;
+  }
+  authRateLimitBuckets.set(key, current);
+}
+
 function clearAuthFailures(key: string) {
   authRateLimitBuckets.delete(key);
+}
+
+function safeSerializeTelemetryPayload(payload: unknown): string | null {
+  if (payload === undefined) return null;
+  try {
+    const serialized = JSON.stringify(payload);
+    if (!serialized) return null;
+    if (Buffer.byteLength(serialized, "utf8") <= TELEMETRY_PAYLOAD_MAX_BYTES) {
+      return serialized;
+    }
+    return JSON.stringify({
+      truncated: true,
+      message: "payload_too_large",
+      maxBytes: TELEMETRY_PAYLOAD_MAX_BYTES,
+    });
+  } catch {
+    return JSON.stringify({
+      truncated: true,
+      message: "payload_serialization_failed",
+    });
+  }
 }
 
 function resolveRequestOrigin(req: {
@@ -3043,18 +3098,22 @@ export const appRouter = router({
     }),
     verifySitePassword: publicProcedure
       .input(z.object({ password: z.string() }))
-      .mutation(({ input }) => {
+      .mutation(({ input, ctx }) => {
+        const rateLimitKey = buildAuthRateLimitKey(ctx.req as any, "site-gate", "site-gate");
+        assertAuthRateLimitAllowedWithMessage(rateLimitKey, "비밀번호 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.");
         const expected = ENV.siteGatePassword;
         if (!expected) {
           // If no gate password is configured in env, do not block access.
           return { success: true };
         }
         if (!isSecretMatch(input.password, [expected])) {
+          registerAuthFailureWithThreshold(rateLimitKey, VERIFY_GATE_RATE_LIMIT_MAX_FAILS);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "비밀번호가 올바르지 않습니다",
           });
         }
+        clearAuthFailures(rateLimitKey);
         return { success: true };
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -3460,7 +3519,7 @@ export const appRouter = router({
           password: z.string().min(1).max(128),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const subject = await db.getSubjectById(input.demoSubjectId);
         if (!subject || subject.isDemo !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다." });
@@ -3469,6 +3528,16 @@ export const appRouter = router({
         if (!isPartialDentureSubjectName(subject.name)) {
           return { success: true };
         }
+
+        const rateLimitKey = buildAuthRateLimitKey(
+          ctx.req as any,
+          "demo-subject-password",
+          `subject-${input.demoSubjectId}`
+        );
+        assertAuthRateLimitAllowedWithMessage(
+          rateLimitKey,
+          "비밀번호 시도가 너무 많습니다. 잠시 후 다시 시도해주세요."
+        );
 
         const configured = ENV.partialDentureDemoPassword.trim();
         const legacy = ENV.partialDentureDemoLegacyPassword.trim();
@@ -3480,12 +3549,14 @@ export const appRouter = router({
         }
 
         if (!isSecretMatch(input.password, [configured, legacy])) {
+          registerAuthFailureWithThreshold(rateLimitKey, VERIFY_GATE_RATE_LIMIT_MAX_FAILS);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "비밀번호가 올바르지 않습니다.",
           });
         }
 
+        clearAuthFailures(rateLimitKey);
         return { success: true };
       }),
 
@@ -4261,7 +4332,12 @@ export const appRouter = router({
           password: z.string().min(1).max(128),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const rateLimitKey = buildAuthRateLimitKey(ctx.req as any, "share-access", input.token);
+        assertAuthRateLimitAllowedWithMessage(
+          rateLimitKey,
+          "공유 링크 비밀번호 시도가 너무 많습니다. 잠시 후 다시 시도해주세요."
+        );
         const share = await db.getSubjectShareByToken(input.token);
         if (!share || share.isActive !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "공유 링크를 찾을 수 없습니다." });
@@ -4270,6 +4346,7 @@ export const appRouter = router({
         const bcrypt = await import("bcryptjs");
         const ok = await bcrypt.compare(input.password, share.passwordHash);
         if (!ok) {
+          registerAuthFailureWithThreshold(rateLimitKey, SHARE_ACCESS_RATE_LIMIT_MAX_FAILS);
           throw new TRPCError({ code: "UNAUTHORIZED", message: "비밀번호가 올바르지 않습니다." });
         }
 
@@ -4280,6 +4357,7 @@ export const appRouter = router({
         const questions = await db.getQuestionsBySubjectId(subject.id);
 
         await db.markSubjectShareAccessed(share.id);
+        clearAuthFailures(rateLimitKey);
 
         return {
           subject: {
@@ -4705,6 +4783,9 @@ export const appRouter = router({
         if (!question) {
           throw new Error("문제를 찾을 수 없습니다");
         }
+        if (question.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 시험 채점할 수 있습니다" });
+        }
 
         // 이미지 문제인 경우 imageLabels에서 정답 추출
         const isImageQuestion = question.imageUrl && question.imageLabels;
@@ -4717,15 +4798,10 @@ export const appRouter = router({
             correctAnswer = imageLabels.map((label: any, index: number) => 
               `${index + 1}. ${label.answer}`
             ).join("\n");
-            console.log("[DEBUG] Image question detected");
-            console.log("[DEBUG] correctAnswer:", correctAnswer);
-            console.log("[DEBUG] userAnswer:", input.userAnswer);
           } catch (e) {
             console.error("Failed to parse imageLabels:", e);
           }
         }
-        
-        console.log("[DEBUG] useAIGrading:", question.useAIGrading);
 
         // Check if AI grading is enabled for this question
         if (!question.useAIGrading) {
@@ -4744,8 +4820,6 @@ export const appRouter = router({
                 const userAnswerLine = userAnswerLines[i] || "";
                 const userAnswer = userAnswerLine.replace(/^\d+\.\s*/, "").trim().toLowerCase();
                 
-                console.log(`[DEBUG] Label ${i + 1}: correct="${correctAnswer}", user="${userAnswer}"`);
-                
                 const isLabelCorrect = userAnswer === correctAnswer;
                 if (isLabelCorrect) {
                   correctCount++;
@@ -4761,8 +4835,6 @@ export const appRouter = router({
               
               const accuracyRate = Math.round((correctCount / totalCount) * 100);
               const isCorrect = accuracyRate === 100;
-              
-              console.log(`[DEBUG] Image question grading: ${correctCount}/${totalCount} correct, accuracy: ${accuracyRate}%`);
               
               // Save test session
               await db.createTestSession({
@@ -4792,12 +4864,6 @@ export const appRouter = router({
           
           const ignoreAutoNumbering = question.autoNumbering === 1;
           const graded = evaluateTextAnswerByBestLineMatch(input.userAnswer, correctAnswer, ignoreAutoNumbering);
-
-          console.log("[DEBUG] Line matching comparison mode");
-          console.log("[DEBUG] correctLineCount:", graded.correctLineCount, "/", graded.totalLines);
-          console.log("[DEBUG] isCorrect:", graded.isCorrect);
-          console.log("[DEBUG] accuracyRate:", graded.accuracyRate);
-          console.log("[DEBUG] similarityScore:", graded.similarityScore);
 
           // Save test session
           await db.createTestSession({
@@ -5723,7 +5789,7 @@ ${input.userAnswer}
             activeMs: Math.max(0, Math.min(10 * 60 * 1000, event.activeMs ?? 0)),
             interactionCount: Math.max(0, Math.min(10_000, event.interactionCount ?? 0)),
             visible: event.visible === false ? 0 : 1,
-            payload: event.payload === undefined ? null : JSON.stringify(event.payload),
+            payload: safeSerializeTelemetryPayload(event.payload),
             occurredAt,
           };
         });
