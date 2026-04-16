@@ -25,6 +25,11 @@ interface PracticeProps {
 
 type InputLayoutPreference = "horizontal" | "vertical";
 
+type PracticeScrollSnapshot = {
+  containerTop: number;
+  windowTop: number;
+};
+
 const JAMO_TO_KEYSTROKE: Record<string, string> = {
   "ㄱ": "r",
   "ㄲ": "r",
@@ -325,6 +330,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [currentCursorLineIndex, setCurrentCursorLineIndex] = useState(0); // 현재 커서 위치의 줄 인덱스
   const [lineIndicatorPulse, setLineIndicatorPulse] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const resetScrollSnapshotRef = useRef<PracticeScrollSnapshot | null>(null);
   const [showDamageNumber, setShowDamageNumber] = useState(false);
   const [damageValue, setDamageValue] = useState(0);
   const confidenceScoreForAnimationRef = useRef<number | null>(null);
@@ -608,6 +614,58 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (displayedConfidenceScore >= CONFIDENCE_THRESHOLDS.yellow) return "yellow";
     return "red";
   }, [displayedConfidenceScore]);
+
+  const capturePracticeScrollSnapshot = useCallback((): PracticeScrollSnapshot | null => {
+    if (typeof window === "undefined") return null;
+    return {
+      containerTop: scrollContainerRef.current?.scrollTop ?? 0,
+      windowTop:
+        window.scrollY ||
+        document.documentElement.scrollTop ||
+        document.body.scrollTop ||
+        0,
+    };
+  }, []);
+
+  const restorePracticeScrollSnapshot = useCallback((snapshot: PracticeScrollSnapshot | null) => {
+    if (!snapshot || typeof window === "undefined") return;
+
+    const apply = () => {
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = snapshot.containerTop;
+      }
+      window.scrollTo(0, snapshot.windowTop);
+    };
+
+    apply();
+    requestAnimationFrame(() => {
+      apply();
+      setTimeout(apply, 60);
+    });
+  }, []);
+
+  const focusPracticeTextareaPreservingScroll = useCallback((cursor: number) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const snapshot = resetScrollSnapshotRef.current;
+    if (snapshot) {
+      restorePracticeScrollSnapshot(snapshot);
+    }
+
+    try {
+      textarea.focus({ preventScroll: true });
+    } catch {
+      textarea.focus();
+    }
+
+    textarea.setSelectionRange(cursor, cursor);
+
+    if (snapshot) {
+      restorePracticeScrollSnapshot(snapshot);
+      setTimeout(() => restorePracticeScrollSnapshot(snapshot), 120);
+    }
+  }, [restorePracticeScrollSnapshot]);
 
   const appendOptimisticConfidenceHistoryPoint = useCallback((params: {
     score: number;
@@ -3033,6 +3091,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
   const handleCorrectAnswer = (currentInputLength?: number) => {
     if (isResettingRef.current || isFadingOut) return;
+    resetScrollSnapshotRef.current = isMobile ? capturePracticeScrollSnapshot() : null;
     setPracticeCount(prev => prev + 1);
     const nextSessionCount = sessionCompleteCount + 1;
     const shouldKeepAutoHide = nextSessionCount >= 3;
@@ -3076,9 +3135,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         setIsFadingOut(false);
         isResettingRef.current = false; // 초기화 완료
         if (textareaRef.current) {
-          textareaRef.current.focus();
-          textareaRef.current.setSelectionRange(seeded.length, seeded.length); // 커서를 입력 끝으로
+          focusPracticeTextareaPreservingScroll(seeded.length);
         }
+        resetScrollSnapshotRef.current = null;
       }, 50);
     }, 400);
     

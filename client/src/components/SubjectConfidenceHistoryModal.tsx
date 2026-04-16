@@ -532,8 +532,8 @@ export function SubjectConfidenceHistoryModal({
                 회상/유지 구간 (실선)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-0.5 rounded border-t-2 border-dashed border-slate-500" />
-                망각 구간 (점선)
+                <span className="inline-block w-3 h-0.5 rounded bg-slate-500 opacity-75" />
+                망각 구간 (실선)
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
@@ -563,7 +563,7 @@ export function SubjectConfidenceHistoryModal({
                   <ReferenceArea y1={40} y2={80} fill="#d4a72c" fillOpacity={0.055} />
                   <ReferenceArea y1={80} y2={100} fill="#22c55e" fillOpacity={0.06} />
 
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
+                  <CartesianGrid stroke="hsl(var(--border))" opacity={0.22} />
                   <XAxis
                     type="number"
                     dataKey="xPos"
@@ -591,15 +591,13 @@ export function SubjectConfidenceHistoryModal({
                   <ReferenceLine
                     y={80}
                     stroke="#22c55e"
-                    strokeDasharray="4 3"
-                    strokeOpacity={0.4}
+                    strokeOpacity={0.22}
                     label={{ value: "안정", position: "insideTopRight", fontSize: 12, fill: "#22c55e", fillOpacity: 0.75, dx: -14 }}
                   />
                   <ReferenceLine
                     y={40}
                     stroke="#d4a72c"
-                    strokeDasharray="4 3"
-                    strokeOpacity={0.4}
+                    strokeOpacity={0.22}
                     label={{ value: "위험", position: "insideBottomRight", fontSize: 12, fill: "#d4a72c", fillOpacity: 0.75, dx: -14 }}
                   />
 
@@ -627,7 +625,6 @@ export function SubjectConfidenceHistoryModal({
                     stroke="#64748b"
                     strokeOpacity={0.82}
                     strokeWidth={3}
-                    strokeDasharray="4 5"
                     dot={false}
                     activeDot={false}
                     isAnimationActive={true}
