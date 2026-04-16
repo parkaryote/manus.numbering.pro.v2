@@ -568,7 +568,28 @@ export async function hasTestSessionByUserId(userId: number) {
 export async function createTestSession(session: InsertTestSession) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db.insert(testSessions).values(session);
+  const result = await db.insert(testSessions).values(session);
+  const insertId = Number(result[0].insertId);
+  const created = await db.select().from(testSessions).where(eq(testSessions.id, insertId)).limit(1);
+  return created[0];
+}
+
+export async function getTestSessionsByIdsForUser(ids: number[], userId: number) {
+  const db = await getDb();
+  if (!db || ids.length === 0) return [];
+  return db
+    .select()
+    .from(testSessions)
+    .where(and(inArray(testSessions.id, ids), eq(testSessions.userId, userId)));
+}
+
+export async function deleteTestSessionsByIdsForUser(ids: number[], userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (ids.length === 0) return { affectedRows: 0 };
+  return db
+    .delete(testSessions)
+    .where(and(inArray(testSessions.id, ids), eq(testSessions.userId, userId)));
 }
 
 export async function deleteAllTestSessions(userId: number) {

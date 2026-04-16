@@ -16,6 +16,7 @@ import { CONFIDENCE_THRESHOLDS, estimatePracticeConfidenceDelta } from "@shared/
 import { buildNextAutoNumberingValue, getForcedPrefixByTemplateProgress, getLinePrefixHint } from "@/lib/autoNumbering";
 import { getImageAttribution } from "@/lib/imageAttribution";
 import { useIsMobile } from "@/hooks/useMobile";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 interface PracticeProps {
   questionId: number;
@@ -230,6 +231,8 @@ function shuffleBySeed<T>(items: T[], seed: string): T[] {
 
 export default function Practice({ questionId, isDemo = false }: PracticeProps) {
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const isMobile = useIsMobile();
   const SCORE_STATE_COLOR = {
     green: "#10b981",
@@ -439,6 +442,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     : null;
   const totalQuestions = orderedSubjectQuestions?.length ?? 0;
   const showToothMorphologySource = (subject?.name ?? "").includes("치아형태학");
+  const isAdminDemoQuestion = isAdmin && question?.isDemo === 1;
+  const canEditQuestion = Boolean(question && (!isDemo || isAdminDemoQuestion));
   const { data: practiceCountData } = trpc.practice.countByQuestion.useQuery(
     { questionId },
     { enabled: !!questionId && !isDemo }
@@ -486,6 +491,22 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       toast.error('수정 실패: ' + error.message);
     },
   });
+  const updateDemoQuestionMutation = trpc.admin.demo.updateQuestion.useMutation({
+    onSuccess: () => {
+      toast.success('데모 문제가 수정되었습니다');
+      setEditMode(false);
+      utils.questions.getById.invalidate({ id: questionId });
+      if (question?.subjectId) {
+        utils.demo.questions.invalidate({ subjectId: question.subjectId });
+        utils.admin.demo.questions.invalidate({ subjectId: question.subjectId });
+      }
+    },
+    onError: (error) => {
+      toast.error('수정 실패: ' + error.message);
+    },
+  });
+  const isQuestionUpdatePending =
+    updateQuestionMutation.isPending || updateDemoQuestionMutation.isPending;
 
   // 페이지 언마운트 또는 돌아가기 시 자동으로 연습 기록 저장 (1회만)
   const hasBeenSaved = useRef(false);
@@ -1009,7 +1030,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   // 문제 수정 저장
   const handleSaveEdit = () => {
-    if (!question || isDemo) return;
+    if (!question) return;
+    const shouldUseDemoAdminMutation = isAdmin && question.isDemo === 1;
+    if (isDemo && !shouldUseDemoAdminMutation) return;
     if (isTableQuestion) {
       if (!editTableData) {
         toast.error("표를 작성하세요");
@@ -1020,10 +1043,29 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         toast.error("연습 셀을 1개 이상 지정하세요");
         return;
       }
-      updateQuestionMutation.mutate({
-        id: question.id,
+      if (shouldUseDemoAdminMutation) {
+        updateDemoQuestionMutation.mutate({
+          questionId: question.id,
+          question: editQuestion,
+          answer: "",
+          tableData: JSON.stringify(editTableData),
+          autoNumbering: 0,
+        });
+      } else {
+        updateQuestionMutation.mutate({
+          id: question.id,
+          question: editQuestion,
+          tableData: JSON.stringify(editTableData),
+        });
+      }
+      return;
+    }
+    if (shouldUseDemoAdminMutation) {
+      updateDemoQuestionMutation.mutate({
+        questionId: question.id,
         question: editQuestion,
-        tableData: JSON.stringify(editTableData),
+        answer: editAnswer,
+        autoNumbering: editAutoNumbering ? 1 : 0,
       });
       return;
     }
@@ -4021,7 +4063,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     <span className="hidden sm:block text-[10px] text-muted-foreground/50 leading-none opacity-0">·</span>
                   </div>
                 )}
-                {!isDemo && question && (
+                {canEditQuestion && (
                   <div className="flex shrink-0 flex-col items-center gap-0">
                     <Button
                       variant="ghost"
@@ -4029,7 +4071,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       className={`h-7 sm:h-8 gap-1.5 text-[11px] sm:text-xs ${editMode ? 'bg-orange-500/10 text-orange-600' : ''}`}
                       onClick={() => {
                         if (isImageQuestion) {
-                          setLocation(`/questions/${question.subjectId}`);
+                          setLocation(
+                            isAdminDemoQuestion
+                              ? `/demo/questions/${question.subjectId}`
+                              : `/questions/${question.subjectId}`
+                          );
                           return;
                         }
                         editMode ? setEditMode(false) : startEditMode();
@@ -4056,15 +4102,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   <span className="text-sm font-semibold text-orange-700 dark:text-orange-400">문제 수정</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs gap-1 border-orange-300 text-orange-700 hover:bg-orange-100"
-                    onClick={handleSaveEdit}
-                    disabled={updateQuestionMutation.isPending}
-                  >
-                    <Check className="h-3 w-3" />
-                    {updateQuestionMutation.isPending ? '저장 중...' : '저장'}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs gap-1 border-orange-300 text-orange-700 hover:bg-orange-100"
+                      onClick={handleSaveEdit}
+                      disabled={isQuestionUpdatePending}
+                    >
+                      <Check className="h-3 w-3" />
+                    {isQuestionUpdatePending ? '저장 중...' : '저장'}
                   </Button>
                   <Button
                     size="sm"

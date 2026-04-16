@@ -5276,7 +5276,7 @@ export const appRouter = router({
               const isCorrect = accuracyRate === 100;
               
               // Save test session
-              await db.createTestSession({
+              const createdSession = await db.createTestSession({
                 userId: ctx.user.id,
                 questionId: input.questionId,
                 userAnswer: input.userAnswer,
@@ -5295,6 +5295,7 @@ export const appRouter = router({
                 mistakes: labelComparisons,
                 feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctCount}/${totalCount} 정답`,
                 missingKeywords: [],
+                createdSessionId: createdSession.id,
               };
             } catch (e) {
               console.error("Failed to grade image question:", e);
@@ -5305,7 +5306,7 @@ export const appRouter = router({
           const graded = evaluateTextAnswerByBestLineMatch(input.userAnswer, correctAnswer, ignoreAutoNumbering);
 
           // Save test session
-          await db.createTestSession({
+          const createdSession = await db.createTestSession({
             userId: ctx.user.id,
             questionId: input.questionId,
             userAnswer: input.userAnswer,
@@ -5317,7 +5318,10 @@ export const appRouter = router({
             completedAt: new Date(),
           });
 
-          return graded;
+          return {
+            ...graded,
+            createdSessionId: createdSession.id,
+          };
         }
 
         // Deduct AI credit
@@ -5408,7 +5412,7 @@ ${input.userAnswer}
           const llmFeedback = evaluation.feedback || "";
 
           // Save test session
-          await db.createTestSession({
+          const createdSession = await db.createTestSession({
             userId: ctx.user.id,
             questionId: input.questionId,
             userAnswer: input.userAnswer,
@@ -5427,6 +5431,7 @@ ${input.userAnswer}
             mistakeHighlights,
             llmFeedback,
             missingKeywords: evaluation.missingKeywords || [],
+            createdSessionId: createdSession.id,
           };
         } catch (error) {
           console.error("LLM evaluation error:", error);
@@ -5439,7 +5444,7 @@ ${input.userAnswer}
             (1 - (Math.abs(correctAnswerNormalized.length - userAnswerNormalized.length) / Math.max(correctAnswerNormalized.length, userAnswerNormalized.length))) * 100
           );
 
-          await db.createTestSession({
+          const createdSession = await db.createTestSession({
             userId: ctx.user.id,
             questionId: input.questionId,
             userAnswer: input.userAnswer,
@@ -5457,8 +5462,32 @@ ${input.userAnswer}
             accuracyRate: similarityScore,
             mistakeHighlights: null,
             llmFeedback: "LLM 평가를 사용할 수 없어 기본 평가를 사용했습니다.",
+            createdSessionId: createdSession.id,
           };
         }
+      }),
+
+    deleteSessions: protectedProcedure
+      .input(
+        z.object({
+          ids: z.array(z.number().int().positive()).min(1),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const sessions = await db.getTestSessionsByIdsForUser(input.ids, ctx.user.id);
+        if (sessions.length === 0) {
+          return { deletedCount: 0, questionIds: [] as number[] };
+        }
+
+        await db.deleteTestSessionsByIdsForUser(
+          sessions.map((session) => session.id),
+          ctx.user.id
+        );
+
+        return {
+          deletedCount: sessions.length,
+          questionIds: Array.from(new Set(sessions.map((session) => session.questionId))),
+        };
       }),
     
     deleteAll: protectedProcedure
@@ -7008,6 +7037,7 @@ ${input.userAnswer}
           isCorrect?: boolean;
           accuracyRate?: number;
           practiceSessionCount?: number;
+          sessionIds?: number[];
         }[] = [];
         let pCount = 0, pDuration = 0;
         let mostRecentPracticeAt: Date | null = null;
@@ -7065,6 +7095,7 @@ ${input.userAnswer}
               isCorrect: lastTest?.isCorrect === 1,
               accuracyRate: testAccuracyRate,
               testMode: ev.testMode ?? 'single',
+              sessionIds: lastTest ? [lastTest.id] : [],
             } : {}),
           });
         }
@@ -7288,22 +7319,20 @@ ${input.userAnswer}
         }
         // 이벤트 간격 축소 (같은 시간대 이벤트 묶기)
         const BUCKET_MS = 60_000;
-        let lastBucketAt = -Infinity;
         const points: {
           at: string;
           score: number;
           eventType: string;
           questionCount: number;
           testMode?: 'single' | 'mock';
+          sessionIds?: number[];
         }[] = [];
-        for (const ev of events) {
-          if (ev.type === 'practice') {
-            cumPractice.get(ev.questionId)!.push(qPractice[ev.sessionIdx]);
-          } else {
-            cumTests.get(ev.questionId)!.push(qTests[ev.sessionIdx]);
-          }
-          if (ev.at.getTime() - lastBucketAt < BUCKET_MS) continue;
-          lastBucketAt = ev.at.getTime();
+        const buildAggregatePoint = (
+          at: Date,
+          eventType: 'practice' | 'test',
+          sessionIds: number[],
+          bucketTestModes: Array<'single' | 'mock'>
+        ) => {
           let totalScore = 0;
           let activeCount = 0;
           for (const qId of questionIds) {
@@ -7330,7 +7359,7 @@ ${input.userAnswer}
             let result = computeExamConfidence({
               practice: practiceSignal,
               test: testSignal,
-              now: ev.at,
+              now: at,
               examDate,
               userProfile,
             });
@@ -7340,14 +7369,80 @@ ${input.userAnswer}
             }
             totalScore += result.displayScore;
           }
-          if (activeCount === 0) continue;
-          points.push({
-            at: ev.at.toISOString(),
+          if (activeCount === 0) return null;
+          return {
+            at: at.toISOString(),
             score: Math.round(totalScore / activeCount),
-            eventType: ev.type,
+            eventType,
             questionCount: activeCount,
-            testMode: ev.type === 'test' ? ev.testMode ?? 'single' : undefined,
-          });
+            testMode: eventType === 'test'
+              ? (bucketTestModes.includes('mock') ? 'mock' : 'single')
+              : undefined,
+            sessionIds: eventType === 'test' ? sessionIds : [],
+          };
+        };
+        let currentBucket:
+          | {
+              startedAtMs: number;
+              endedAt: Date;
+              eventType: 'practice' | 'test';
+              sessionIds: number[];
+              testModes: Array<'single' | 'mock'>;
+            }
+          | null = null;
+        for (const ev of events) {
+          if (ev.type === 'practice') {
+            cumPractice.get(ev.questionId)!.push(qPractice[ev.sessionIdx]);
+          } else {
+            cumTests.get(ev.questionId)!.push(qTests[ev.sessionIdx]);
+          }
+          const currentSessionId = ev.type === 'test' ? qTests[ev.sessionIdx]?.id : null;
+          if (!currentBucket) {
+            currentBucket = {
+              startedAtMs: ev.at.getTime(),
+              endedAt: ev.at,
+              eventType: ev.type,
+              sessionIds: currentSessionId ? [currentSessionId] : [],
+              testModes: ev.type === 'test' ? [ev.testMode ?? 'single'] : [],
+            };
+            continue;
+          }
+
+          if (ev.at.getTime() - currentBucket.startedAtMs < BUCKET_MS) {
+            currentBucket.endedAt = ev.at;
+            if (ev.type === 'test') {
+              if (currentSessionId) currentBucket.sessionIds.push(currentSessionId);
+              currentBucket.testModes.push(ev.testMode ?? 'single');
+              currentBucket.eventType = 'test';
+            }
+            continue;
+          }
+
+          const point = buildAggregatePoint(
+            currentBucket.endedAt,
+            currentBucket.eventType,
+            currentBucket.sessionIds,
+            currentBucket.testModes
+          );
+          if (point) points.push(point);
+
+          currentBucket = {
+            startedAtMs: ev.at.getTime(),
+            endedAt: ev.at,
+            eventType: ev.type,
+            sessionIds: currentSessionId ? [currentSessionId] : [],
+            testModes: ev.type === 'test' ? [ev.testMode ?? 'single'] : [],
+          };
+        }
+
+        if (currentBucket) {
+          const point = buildAggregatePoint(
+            currentBucket.endedAt,
+            currentBucket.eventType,
+            currentBucket.sessionIds,
+            currentBucket.testModes
+          );
+          if (point) points.push(point);
         }
         // 현재 시점 안정도 추가
         const nowDate = new Date();

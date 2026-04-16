@@ -651,12 +651,18 @@ function Router({
         {(params) =>
           canAccessDemo ? (
             <Layout>
-              <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
-                <DemoQuestionRouteBridge
-                  demoQuestionId={parseInt(params.questionId)}
-                  target="practice"
-                />
-              </DemoQuestionPasswordGate>
+              {isAdmin ? (
+                <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
+                  <Practice questionId={parseInt(params.questionId)} isDemo />
+                </DemoQuestionPasswordGate>
+              ) : (
+                <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
+                  <DemoQuestionRouteBridge
+                    demoQuestionId={parseInt(params.questionId)}
+                    target="practice"
+                  />
+                </DemoQuestionPasswordGate>
+              )}
             </Layout>
           ) : (
             <RouteRedirect to={`/practice/${parseInt(params.questionId)}`} />
@@ -667,12 +673,18 @@ function Router({
         {(params) =>
           canAccessDemo ? (
             <Layout>
-              <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
-                <DemoQuestionRouteBridge
-                  demoQuestionId={parseInt(params.questionId)}
-                  target="test"
-                />
-              </DemoQuestionPasswordGate>
+              {isAdmin ? (
+                <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
+                  <Test questionId={parseInt(params.questionId)} isDemo />
+                </DemoQuestionPasswordGate>
+              ) : (
+                <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
+                  <DemoQuestionRouteBridge
+                    demoQuestionId={parseInt(params.questionId)}
+                    target="test"
+                  />
+                </DemoQuestionPasswordGate>
+              )}
             </Layout>
           ) : (
             <RouteRedirect to={`/test/${parseInt(params.questionId)}`} />
@@ -683,12 +695,18 @@ function Router({
         {(params) =>
           canAccessDemo ? (
             <Layout>
-              <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
-                <DemoSubjectRouteBridge
-                  demoSubjectId={parseInt(params.subjectId)}
-                  target="subject-exam"
-                />
-              </DemoSubjectPasswordGate>
+              {isAdmin ? (
+                <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
+                  <SubjectExam subjectId={parseInt(params.subjectId)} isDemo />
+                </DemoSubjectPasswordGate>
+              ) : (
+                <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
+                  <DemoSubjectRouteBridge
+                    demoSubjectId={parseInt(params.subjectId)}
+                    target="subject-exam"
+                  />
+                </DemoSubjectPasswordGate>
+              )}
             </Layout>
           ) : (
             <RouteRedirect to={`/subject-exam/${parseInt(params.subjectId)}`} />
@@ -705,12 +723,18 @@ function Router({
         {(params) =>
           canAccessDemo ? (
             <Layout>
-              <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
-                <DemoSubjectRouteBridge
-                  demoSubjectId={parseInt(params.subjectId)}
-                  target="questions"
-                />
-              </DemoSubjectPasswordGate>
+              {isAdmin ? (
+                <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
+                  <Questions subjectId={parseInt(params.subjectId)} demoWorkspace />
+                </DemoSubjectPasswordGate>
+              ) : (
+                <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
+                  <DemoSubjectRouteBridge
+                    demoSubjectId={parseInt(params.subjectId)}
+                    target="questions"
+                  />
+                </DemoSubjectPasswordGate>
+              )}
             </Layout>
           ) : (
             <RouteRedirect to="/subjects" />

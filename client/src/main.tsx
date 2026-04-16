@@ -10,9 +10,12 @@ import App from "./App";
 import { getLoginUrl } from "./const";
 import "./index.css";
 
-if (typeof window !== "undefined" && window.location.hostname === "www.numbering.pro") {
-  const target = `https://numbering.pro${window.location.pathname}${window.location.search}${window.location.hash}`;
-  window.location.replace(target);
+if (typeof window !== "undefined") {
+  const host = window.location.hostname.toLowerCase();
+  if (host === "www.numbering.pro" || host.endsWith(".up.railway.app")) {
+    const target = `https://numbering.pro${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.location.replace(target);
+  }
 }
 
 // Declare gtag for TypeScript

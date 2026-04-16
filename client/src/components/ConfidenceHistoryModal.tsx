@@ -1,4 +1,5 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { useState } from "react";
 import {
@@ -18,6 +19,7 @@ import {
   buildSoftTimeScale,
   formatSoftRelativeTick,
 } from "@/lib/softTimeScale";
+import { toast } from "sonner";
 
 interface ExamDatePrediction {
   predictedScore: number;
@@ -51,6 +53,8 @@ type HistoryPoint = {
   accuracyRate?: number;
   practiceSessionCount?: number;
   practiceDelta?: number;
+  sessionIds?: number[];
+  testMode?: "single" | "mock";
 };
 
 function normalizePointTimestamp(at: string, nowMs: number): string {
@@ -248,9 +252,15 @@ function addSegmentLineScores<
 
 // 커스텀 점 렌더러
 const CustomDot = (props: any) => {
-  const { cx, cy, payload, eventLayerFocused = false } = props;
+  const { cx, cy, payload, eventLayerFocused = false, onSelectPoint } = props;
   if (!cx || !cy) return null;
   if (payload.synthetic) return null;
+  const isSelectableTestPoint =
+    payload.eventType === "test" && Array.isArray(payload.sessionIds) && payload.sessionIds.length > 0;
+  const handleClick = () => {
+    if (!isSelectableTestPoint || typeof onSelectPoint !== "function") return;
+    onSelectPoint(payload);
+  };
 
   if (payload.eventType === "test") {
     const isSuccess = payload.accuracyRate !== undefined
@@ -260,7 +270,11 @@ const CustomDot = (props: any) => {
     const isLatest = payload.isLatest;
     const baseOpacity = eventLayerFocused ? 0.94 : 0.36;
     return (
-      <g key={`dot-${cx}-${cy}`}>
+      <g
+        key={`dot-${cx}-${cy}`}
+        onClick={handleClick}
+        style={isSelectableTestPoint ? { cursor: "pointer" } : undefined}
+      >
         {isLatest && (
           <circle cx={cx} cy={cy} r={9} fill={color} fillOpacity={eventLayerFocused ? 0.12 : 0.07} />
         )}
@@ -301,9 +315,15 @@ const CustomDot = (props: any) => {
 
 // 커스텀 활성 점 (호버 시)
 const CustomActiveDot = (props: any) => {
-  const { cx, cy, payload } = props;
+  const { cx, cy, payload, onSelectPoint } = props;
   if (!cx || !cy) return null;
   if (payload.synthetic) return null;
+  const isSelectableTestPoint =
+    payload.eventType === "test" && Array.isArray(payload.sessionIds) && payload.sessionIds.length > 0;
+  const handleClick = () => {
+    if (!isSelectableTestPoint || typeof onSelectPoint !== "function") return;
+    onSelectPoint(payload);
+  };
 
   if (payload.eventType === "practice") {
     return <circle cx={cx} cy={cy} r={4.5} fill="#9ca3af" stroke="white" strokeWidth={1.5} />;
@@ -313,7 +333,18 @@ const CustomActiveDot = (props: any) => {
       ? payload.accuracyRate >= SUCCESS_ACCURACY_THRESHOLD
       : payload.isCorrect === true;
     const color = isSuccess ? "#22c55e" : SOFT_DANGER_COLOR;
-    return <circle cx={cx} cy={cy} r={7} fill={color} stroke="white" strokeWidth={2} />;
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={7}
+        fill={color}
+        stroke="white"
+        strokeWidth={2}
+        onClick={handleClick}
+        style={isSelectableTestPoint ? { cursor: "pointer" } : undefined}
+      />
+    );
   }
   if (payload.eventType === "forgetting") return null;
   if (payload.eventType === "exam_predict") {
@@ -437,6 +468,25 @@ export function ConfidenceHistoryModal({
 }: Props) {
   const [isEventLayerFocused, setIsEventLayerFocused] = useState(false);
   const [isTooltipNearPoint, setIsTooltipNearPoint] = useState(false);
+  const [selectedTestPoint, setSelectedTestPoint] = useState<HistoryPoint | null>(null);
+  const utils = trpc.useUtils();
+  const deleteTestSessionsMutation = trpc.test.deleteSessions.useMutation({
+    onSuccess: async () => {
+      setSelectedTestPoint(null);
+      await Promise.all([
+        utils.test.getByQuestion.invalidate(),
+        utils.test.getByUser.invalidate(),
+        utils.confidence.getHistory.invalidate(),
+        utils.confidence.getByQuestion.invalidate(),
+        utils.confidence.getBySubject.invalidate(),
+        utils.confidence.getHistoryBySubject.invalidate(),
+      ]);
+      toast.success("시험 기록을 삭제하고 그래프를 다시 계산했습니다.");
+    },
+    onError: (error) => {
+      toast.error("시험 기록 삭제 실패: " + error.message);
+    },
+  });
   const liveHistoryQuery = trpc.confidence.getHistory.useQuery(
     { questionId: questionId! },
     { enabled: open && questionId !== null && !isDemo }
@@ -668,6 +718,22 @@ export function ConfidenceHistoryModal({
     setIsTooltipNearPoint(false);
   };
 
+  const handleSelectTestPoint = (point: HistoryPoint) => {
+    if (isDemo) return;
+    if (!Array.isArray(point.sessionIds) || point.sessionIds.length === 0) return;
+    setSelectedTestPoint(point);
+  };
+
+  const handleDeleteSelectedPoint = async () => {
+    if (!selectedTestPoint || !selectedTestPoint.sessionIds?.length) return;
+    const label = selectedTestPoint.testMode === "mock" ? "모의고사" : "시험";
+    const count = selectedTestPoint.sessionIds.length;
+    if (!window.confirm(`${label} 기록 ${count}개를 삭제하고 안정도/그래프 반영을 취소할까요?`)) {
+      return;
+    }
+    await deleteTestSessionsMutation.mutateAsync({ ids: selectedTestPoint.sessionIds });
+  };
+
   const formatConfidenceXAxisTick = (value: number) => {
     const x = Number(value);
     if (
@@ -727,7 +793,11 @@ export function ConfidenceHistoryModal({
             <div className="flex items-center gap-2.5 sm:gap-3 text-[11px] sm:text-xs text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
-                회상/유지 구간
+                회상/유지 구간 (실선)
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-0.5 rounded border-t-2 border-dashed border-slate-500" />
+                망각 구간 (점선)
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
@@ -803,7 +873,7 @@ export function ConfidenceHistoryModal({
                   />
 
                   <Line
-                    type="monotone"
+                    type="linear"
                     dataKey="retentionScore"
                     stroke={BRAND_COLOR}
                     strokeOpacity={0.92}
@@ -814,17 +884,21 @@ export function ConfidenceHistoryModal({
                     connectNulls={false}
                   />
                   <Line
-                    type="monotone"
+                    type="linear"
                     dataKey="forgettingScore"
                     stroke="#64748b"
                     strokeOpacity={0.82}
                     strokeWidth={3}
                     strokeDasharray="4 5"
                     dot={(props: any) =>
-                      props?.payload?.eventType === "exam_predict" ? <CustomDot {...props} /> : <g />
+                      props?.payload?.eventType === "exam_predict"
+                        ? <CustomDot {...props} onSelectPoint={handleSelectTestPoint} />
+                        : <g />
                     }
                     activeDot={(props: any) =>
-                      props?.payload?.eventType === "exam_predict" ? <CustomActiveDot {...props} /> : <g />
+                      props?.payload?.eventType === "exam_predict"
+                        ? <CustomActiveDot {...props} onSelectPoint={handleSelectTestPoint} />
+                        : <g />
                     }
                     isAnimationActive={false}
                     connectNulls={false}
@@ -835,14 +909,34 @@ export function ConfidenceHistoryModal({
                     stroke={BRAND_COLOR}
                     strokeOpacity={0}
                     strokeWidth={8}
-                    dot={<CustomDot eventLayerFocused={isEventLayerFocused} />}
-                    activeDot={<CustomActiveDot />}
+                    dot={<CustomDot eventLayerFocused={isEventLayerFocused} onSelectPoint={handleSelectTestPoint} />}
+                    activeDot={<CustomActiveDot onSelectPoint={handleSelectTestPoint} />}
                     isAnimationActive={false}
                     connectNulls={false}
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
+
+            {!isDemo && selectedTestPoint?.sessionIds?.length ? (
+              <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-xs text-muted-foreground">
+                  선택한 {selectedTestPoint.testMode === "mock" ? "모의고사" : "시험"} 기록
+                  {selectedTestPoint.sessionIds.length > 1 ? ` ${selectedTestPoint.sessionIds.length}개` : ""}를 삭제하면
+                  안정도와 그래프가 다시 계산됩니다.
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={handleDeleteSelectedPoint}
+                  disabled={deleteTestSessionsMutation.isPending}
+                >
+                  {deleteTestSessionsMutation.isPending ? "삭제 중..." : "선택한 기록 삭제"}
+                </Button>
+              </div>
+            ) : null}
 
             {/* 시험일 예측 요약 (있을 경우) */}
             {projectionExamDatePrediction && (

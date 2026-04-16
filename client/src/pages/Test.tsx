@@ -325,6 +325,8 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [confidenceBefore, setConfidenceBefore] = useState(0);
   const [confidenceAfter, setConfidenceAfter] = useState(0);
   const [confidenceImpact, setConfidenceImpact] = useState<ConfidenceImpact | null>(null);
+  const [submittedSessionIds, setSubmittedSessionIds] = useState<number[]>([]);
+  const [isResultExcluded, setIsResultExcluded] = useState(false);
 
   // 타이핑 속도 보너스 수집 상태
   const typingStartTimeRef = useRef<number | null>(null);
@@ -388,6 +390,32 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       }
     },
   });
+  const createTestMutation = trpc.test.create.useMutation();
+  const deleteTestSessionsMutation = trpc.test.deleteSessions.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.test.getByQuestion.invalidate({ questionId }),
+        utils.test.getByUser.invalidate(),
+        utils.confidence.getHistory.invalidate({ questionId }),
+        utils.confidence.getByQuestion.invalidate({ questionId }),
+        utils.confidence.getBySubject.invalidate(),
+        utils.confidence.getHistoryBySubject.invalidate(),
+      ]);
+      setSubmittedSessionIds([]);
+      setIsResultExcluded(true);
+      setConfidenceAfter(confidenceBefore);
+      setConfidenceImpact({
+        before: confidenceBefore,
+        after: confidenceBefore,
+        delta: 0,
+        estimated: false,
+      });
+      toast.success("이번 시험 결과를 통계/안정도 반영에서 제외했습니다.");
+    },
+    onError: (error) => {
+      toast.error("시험 기록 삭제 실패: " + error.message);
+    },
+  });
   
   const triggerConfidencePopup = useCallback(async (data: any) => {
     const prevScore = confidenceBefore;
@@ -442,6 +470,10 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     onSuccess: async (data: any) => {
       setResult(data);
       setIsSubmitted(true);
+      setIsResultExcluded(false);
+      setSubmittedSessionIds(
+        typeof data?.createdSessionId === "number" ? [data.createdSessionId] : []
+      );
       triggerConfidencePopup(data);
       
       // Update review schedule based on performance
@@ -466,6 +498,8 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     onSuccess: (data: any) => {
       setResult(data);
       setIsSubmitted(true);
+      setIsResultExcluded(false);
+      setSubmittedSessionIds([]);
       triggerConfidencePopup(data);
     },
     onError: (error: any) => {
@@ -549,6 +583,8 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     setTableScore(null);
     setSpeedBonus(null);
     setConfidenceImpact(null);
+    setSubmittedSessionIds([]);
+    setIsResultExcluded(false);
     typingStartTimeRef.current = null;
     timeToFirstKeyRef.current = null;
     backspaceCountRef.current = 0;
@@ -565,6 +601,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       setTableResults(results);
       setTableScore({ score, total });
       setIsSubmitted(true);
+      setIsResultExcluded(false);
 
       // GA4 이벤트 추적: 시험 제출
       trackTestSubmit(
@@ -580,10 +617,34 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       const quality = score === total
         ? (recallTime <= 15 ? 5 : 4)
         : (accuracyRate >= 80 ? 2 : accuracyRate >= 60 ? 1 : 0);
-      await updateReviewMutation.mutateAsync({
-        questionId: question.id,
-        quality,
-      });
+      if (!isDemo) {
+        const flattenedAnswer = getBlankCells(tableData)
+          .map((key) => tableAnswers[key] ?? "")
+          .join("\n");
+        const createdSession = await createTestMutation.mutateAsync({
+          questionId: question.id,
+          userAnswer: flattenedAnswer,
+          isCorrect: score === total ? 1 : 0,
+          recallTime,
+          similarityScore: accuracyRate,
+          mistakeHighlights: JSON.stringify(
+            getBlankCells(tableData).map((key, index) => ({
+              lineIndex: index + 1,
+              cellKey: key,
+              correctAnswer: tableData.cells[Number(key.split("-")[0])]?.[Number(key.split("-")[1])]?.content ?? "",
+              userAnswer: tableAnswers[key] ?? "",
+              isCorrect: !!results[key],
+            }))
+          ),
+        });
+        setSubmittedSessionIds(typeof createdSession?.id === "number" ? [createdSession.id] : []);
+        await updateReviewMutation.mutateAsync({
+          questionId: question.id,
+          quality,
+        });
+      } else {
+        setSubmittedSessionIds([]);
+      }
 
       // 표 문제 안정도 팝업
       const tableScoreData = { isCorrect: score === total, similarityScore: Math.round((score / total) * 100) };
@@ -775,6 +836,18 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     };
   }, [confidenceAfter, confidenceImpact]);
 
+  const handleExcludeResult = async () => {
+    if (isDemo) return;
+    if (!submittedSessionIds.length) {
+      toast.info("되돌릴 시험 기록이 없습니다.");
+      return;
+    }
+    if (!window.confirm("이번 시험 결과를 통계와 안정도 반영에서 제외할까요?")) {
+      return;
+    }
+    await deleteTestSessionsMutation.mutateAsync({ ids: submittedSessionIds });
+  };
+
   const renderConfidenceImpactCard = () => {
     if (!confidenceImpact) return null;
     const beforeState = getConfidenceSignalState(confidenceImpact.before);
@@ -786,14 +859,16 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
           <div>
             <h3 className="font-semibold">안정도 반영</h3>
             <p className="text-xs text-muted-foreground mt-1">
-              {confidenceImpact.estimated
+              {isResultExcluded
+                ? "이번 시험 결과는 통계와 안정도 반영에서 제외되었습니다."
+                : confidenceImpact.estimated
                 ? "채점 직후 추정 로직으로 반영한 점수입니다."
                 : "채점 직후 반영된 안정도 변화입니다."}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="shrink-0 text-[11px]">
-              {confidenceImpact.estimated ? "추정 반영" : "실측 반영"}
+              {isResultExcluded ? "반영 취소됨" : confidenceImpact.estimated ? "추정 반영" : "실측 반영"}
             </Badge>
             <Button
               type="button"
@@ -1587,6 +1662,19 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   <RotateCcw className="h-4 w-4" />
                   다시 풀기
                 </Button>
+                {!isDemo && (
+                  <Button
+                    onClick={handleExcludeResult}
+                    variant="outline"
+                    disabled={!submittedSessionIds.length || deleteTestSessionsMutation.isPending || isResultExcluded}
+                  >
+                    {isResultExcluded
+                      ? "반영 취소됨"
+                      : deleteTestSessionsMutation.isPending
+                        ? "취소 중..."
+                        : "이번 결과 반영 취소"}
+                  </Button>
+                )}
                 <Button
                   onClick={() => setLocation(questionListPath)}
                   variant="outline"

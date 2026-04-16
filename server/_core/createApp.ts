@@ -90,7 +90,6 @@ export function createApp() {
   });
 
   app.use((req, res, next) => {
-    if (process.env.NODE_ENV !== "production") return next();
     if (req.method !== "GET" && req.method !== "HEAD") return next();
 
     const forwardedHost = req.headers["x-forwarded-host"];
@@ -99,7 +98,7 @@ export function createApp() {
       : forwardedHost || req.headers.host || "";
     const host = String(rawHost).split(",")[0]?.trim().toLowerCase().split(":")[0];
 
-    if (host === "www.numbering.pro") {
+    if (host === "www.numbering.pro" || host.endsWith(".up.railway.app")) {
       const targetUrl = `https://numbering.pro${req.originalUrl || req.url || "/"}`;
       return res.redirect(308, targetUrl);
     }

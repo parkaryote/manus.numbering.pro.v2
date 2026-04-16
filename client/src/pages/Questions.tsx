@@ -789,6 +789,8 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   const subjectIsDemo = subject?.isDemo === 1;
   const isDemoWorkspace = isAdmin && (demoWorkspace || subjectIsDemo);
   const isReadOnlyDemo = (isDemo || subjectIsDemo) && !isDemoWorkspace;
+  const isEditingDemoQuestion = isAdmin && editingQuestion?.isDemo === 1;
+  const shouldUseDemoAdminMutation = isAdmin && (isDemoWorkspace || isEditingDemoQuestion);
   const queryParams = useMemo(() => {
     if (typeof window === "undefined") return new URLSearchParams();
     return new URLSearchParams(window.location.search);
@@ -1732,7 +1734,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       }
 
       const singleItem = inlineBulkParseResult.items[0];
-      if (isDemoWorkspace) {
+      if (shouldUseDemoAdminMutation) {
         updateDemoMutation.mutate({
           questionId: editingQuestion.id,
           question: singleItem.question,
@@ -1775,7 +1777,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
         toast.error("최소 1개의 빈칸을 지정하세요");
         return;
       }
-      if (isDemoWorkspace) {
+      if (shouldUseDemoAdminMutation) {
         updateDemoMutation.mutate({
           questionId: editingQuestion.id,
           question: formData.question,
@@ -1818,7 +1820,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       ? normalizeAutoNumberedAnswer(answerInput)
       : answerInput.trim();
 
-    if (isDemoWorkspace) {
+    if (shouldUseDemoAdminMutation) {
       updateDemoMutation.mutate({
         questionId: editingQuestion.id,
         question: formData.question,
@@ -1847,7 +1849,8 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
 
   const handleDelete = (id: number) => {
     if (confirm("이 문제를 삭제하시겠습니까?")) {
-      if (isDemoWorkspace) {
+      const targetQuestion = rawQuestions.find((question) => question.id === id);
+      if (isAdmin && targetQuestion?.isDemo === 1) {
         deleteDemoMutation.mutate({ questionId: id });
         return;
       }
@@ -2446,7 +2449,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                       onCopy={handleCopy}
                       onMove={handleMove}
                       onToggleStar={(id) => {
-                        if (isDemoWorkspace) {
+                        if (isAdmin && q.isDemo === 1) {
                           toggleDemoStarMutation.mutate({ questionId: id });
                           return;
                         }

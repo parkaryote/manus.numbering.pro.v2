@@ -1,4 +1,5 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { useState } from "react";
 import {
@@ -18,6 +19,7 @@ import {
   buildSoftTimeScale,
   formatSoftRelativeTick,
 } from "@/lib/softTimeScale";
+import { toast } from "sonner";
 
 interface Props {
   subjectId: number | null;
@@ -27,6 +29,15 @@ interface Props {
   isDemo?: boolean;
   previewLabel?: string;
 }
+
+type SubjectHistoryPoint = {
+  at: string;
+  score: number;
+  eventType: string;
+  questionCount?: number;
+  testMode?: "single" | "mock";
+  sessionIds?: number[];
+};
 
 // 브랜드 컬러 (보라 계열) - 선에만 사용
 const BRAND_COLOR = "#8b5cf6";
@@ -141,9 +152,15 @@ function addSegmentLineScores<
 }
 
 const CustomDot = (props: any) => {
-  const { cx, cy, payload, eventLayerFocused = false } = props;
+  const { cx, cy, payload, eventLayerFocused = false, onSelectPoint } = props;
   if (!cx || !cy) return null;
   if (payload.synthetic) return null;
+  const isSelectableTestPoint =
+    payload.eventType === "test" && Array.isArray(payload.sessionIds) && payload.sessionIds.length > 0;
+  const handleClick = () => {
+    if (!isSelectableTestPoint || typeof onSelectPoint !== "function") return;
+    onSelectPoint(payload);
+  };
 
   if (payload.eventType === "test") {
     const isSuccess = payload.score >= SUCCESS_THRESHOLD;
@@ -152,7 +169,11 @@ const CustomDot = (props: any) => {
     const isLatest = payload.isLatest;
     const baseOpacity = eventLayerFocused ? 0.94 : 0.36;
     return (
-      <g key={`dot-${cx}-${cy}`}>
+      <g
+        key={`dot-${cx}-${cy}`}
+        onClick={handleClick}
+        style={isSelectableTestPoint ? { cursor: "pointer" } : undefined}
+      >
         {isLatest && (
           <circle cx={cx} cy={cy} r={9} fill={color} fillOpacity={eventLayerFocused ? 0.12 : 0.07} />
         )}
@@ -199,9 +220,15 @@ const CustomDot = (props: any) => {
 };
 
 const CustomActiveDot = (props: any) => {
-  const { cx, cy, payload } = props;
+  const { cx, cy, payload, onSelectPoint } = props;
   if (!cx || !cy) return null;
   if (payload.synthetic) return null;
+  const isSelectableTestPoint =
+    payload.eventType === "test" && Array.isArray(payload.sessionIds) && payload.sessionIds.length > 0;
+  const handleClick = () => {
+    if (!isSelectableTestPoint || typeof onSelectPoint !== "function") return;
+    onSelectPoint(payload);
+  };
 
   if (payload.eventType === "practice") {
     return <circle cx={cx} cy={cy} r={4.5} fill="#9ca3af" stroke="white" strokeWidth={1.5} />;
@@ -221,10 +248,23 @@ const CustomActiveDot = (props: any) => {
           stroke="white"
           strokeWidth={2}
           rx={1.2}
+          onClick={handleClick}
+          style={isSelectableTestPoint ? { cursor: "pointer" } : undefined}
         />
       );
     }
-    return <circle cx={cx} cy={cy} r={7} fill={color} stroke="white" strokeWidth={2} />;
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={7}
+        fill={color}
+        stroke="white"
+        strokeWidth={2}
+        onClick={handleClick}
+        style={isSelectableTestPoint ? { cursor: "pointer" } : undefined}
+      />
+    );
   }
   if (payload.eventType === "forgetting") return null;
   return <circle cx={cx} cy={cy} r={7} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />;
@@ -320,6 +360,25 @@ export function SubjectConfidenceHistoryModal({
 }: Props) {
   const [isEventLayerFocused, setIsEventLayerFocused] = useState(false);
   const [isTooltipNearPoint, setIsTooltipNearPoint] = useState(false);
+  const [selectedTestPoint, setSelectedTestPoint] = useState<SubjectHistoryPoint | null>(null);
+  const utils = trpc.useUtils();
+  const deleteTestSessionsMutation = trpc.test.deleteSessions.useMutation({
+    onSuccess: async () => {
+      setSelectedTestPoint(null);
+      await Promise.all([
+        utils.test.getByQuestion.invalidate(),
+        utils.test.getByUser.invalidate(),
+        utils.confidence.getHistory.invalidate(),
+        utils.confidence.getByQuestion.invalidate(),
+        utils.confidence.getBySubject.invalidate(),
+        utils.confidence.getHistoryBySubject.invalidate(),
+      ]);
+      toast.success("시험 기록을 삭제하고 과목 그래프를 다시 계산했습니다.");
+    },
+    onError: (error) => {
+      toast.error("시험 기록 삭제 실패: " + error.message);
+    },
+  });
   const liveHistoryQuery = trpc.confidence.getHistoryBySubject.useQuery(
     { subjectId: subjectId! },
     { enabled: open && subjectId !== null && !isDemo }
@@ -334,7 +393,7 @@ export function SubjectConfidenceHistoryModal({
   const isLoading = isDemo ? demoHistoryQuery.isLoading : liveHistoryQuery.isLoading;
 
   const normalizedNowMs = Date.now();
-  const points = (data?.points ?? []).map((point) => ({
+  const points = ((data?.points ?? []) as SubjectHistoryPoint[]).map((point) => ({
     ...point,
     at: normalizePointTimestamp(point.at, normalizedNowMs),
   }));
@@ -415,6 +474,22 @@ export function SubjectConfidenceHistoryModal({
     setIsTooltipNearPoint(false);
   };
 
+  const handleSelectTestPoint = (point: SubjectHistoryPoint) => {
+    if (isDemo) return;
+    if (!Array.isArray(point.sessionIds) || point.sessionIds.length === 0) return;
+    setSelectedTestPoint(point);
+  };
+
+  const handleDeleteSelectedPoint = async () => {
+    if (!selectedTestPoint || !selectedTestPoint.sessionIds?.length) return;
+    const label = selectedTestPoint.testMode === "mock" ? "모의고사" : "시험";
+    const count = selectedTestPoint.sessionIds.length;
+    if (!window.confirm(`${label} 기록 ${count}개를 삭제하고 과목 안정도 반영을 취소할까요?`)) {
+      return;
+    }
+    await deleteTestSessionsMutation.mutateAsync({ ids: selectedTestPoint.sessionIds });
+  };
+
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="w-[calc(100vw-16px)] max-w-[1180px] sm:w-[calc(100vw-28px)] sm:max-w-[1180px] max-h-[92svh] overflow-hidden !p-2.5 sm:!p-4">
@@ -454,7 +529,11 @@ export function SubjectConfidenceHistoryModal({
             <div className="flex items-center gap-2.5 sm:gap-3 text-[11px] sm:text-xs text-muted-foreground px-1 flex-wrap">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: BRAND_COLOR }} />
-                회상/유지 구간
+                회상/유지 구간 (실선)
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-0.5 rounded border-t-2 border-dashed border-slate-500" />
+                망각 구간 (점선)
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
@@ -531,7 +610,7 @@ export function SubjectConfidenceHistoryModal({
                   />
 
                   <Line
-                    type="monotone"
+                    type="linear"
                     dataKey="retentionScore"
                     stroke={BRAND_COLOR}
                     strokeOpacity={0.92}
@@ -543,7 +622,7 @@ export function SubjectConfidenceHistoryModal({
                     connectNulls={false}
                   />
                   <Line
-                    type="monotone"
+                    type="linear"
                     dataKey="forgettingScore"
                     stroke="#64748b"
                     strokeOpacity={0.82}
@@ -561,14 +640,34 @@ export function SubjectConfidenceHistoryModal({
                     stroke={BRAND_COLOR}
                     strokeOpacity={0}
                     strokeWidth={8}
-                    dot={<CustomDot eventLayerFocused={isEventLayerFocused} />}
-                    activeDot={<CustomActiveDot />}
+                    dot={<CustomDot eventLayerFocused={isEventLayerFocused} onSelectPoint={handleSelectTestPoint} />}
+                    activeDot={<CustomActiveDot onSelectPoint={handleSelectTestPoint} />}
                     isAnimationActive={true}
                     animationDuration={600}
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
+
+            {!isDemo && selectedTestPoint?.sessionIds?.length ? (
+              <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-xs text-muted-foreground">
+                  선택한 {selectedTestPoint.testMode === "mock" ? "모의고사" : "시험"} 기록
+                  {selectedTestPoint.sessionIds.length > 1 ? ` ${selectedTestPoint.sessionIds.length}개` : ""}를 삭제하면
+                  과목 안정도와 그래프가 다시 계산됩니다.
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={handleDeleteSelectedPoint}
+                  disabled={deleteTestSessionsMutation.isPending}
+                >
+                  {deleteTestSessionsMutation.isPending ? "삭제 중..." : "선택한 기록 삭제"}
+                </Button>
+              </div>
+            ) : null}
 
             {/* 요약 통계 */}
             <div className="grid grid-cols-3 gap-2">
