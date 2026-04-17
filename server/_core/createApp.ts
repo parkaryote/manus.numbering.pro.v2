@@ -3,6 +3,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "../routers.js";
 import uploadAudioRouter from "../uploadAudio.js";
 import uploadImageRouter from "../uploadImage.js";
+import imageProxyRouter from "../imageProxy.js";
 import { createContext } from "./context.js";
 import { registerOAuthRoutes } from "./oauth.js";
 import fs from "fs";
@@ -26,6 +27,41 @@ function resolveRequestOrigin(req: {
   return `${proto}://${host}`;
 }
 
+function normalizeSampleRate(rawValue: string | undefined): number {
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed)) return 1;
+  if (parsed <= 0) return 0;
+  if (parsed >= 1) return 1;
+  return parsed;
+}
+
+function getHeaderValue(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return value ?? "";
+}
+
+type RequestIpLike = {
+  headers?: Record<string, string | string[] | undefined>;
+  ip?: string;
+  socket?: {
+    remoteAddress?: string;
+  };
+};
+
+function getClientIp(req: RequestIpLike): string {
+  const forwardedFor = getHeaderValue(req.headers?.["x-forwarded-for"]);
+  if (forwardedFor) {
+    const first = forwardedFor.split(",")[0]?.trim();
+    if (first) return first.slice(0, 128);
+  }
+  return (req.ip || req.socket?.remoteAddress || "").slice(0, 128);
+}
+
+function sanitizeUserAgent(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.slice(0, 256);
+}
+
 export function createApp() {
   const app = express();
   const localUploadsDir =
@@ -39,6 +75,41 @@ export function createApp() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   app.use("/uploads", express.static(localUploadsDir));
+
+  const trafficLogEnabled = process.env.TRAFFIC_LOG_ENABLED !== "false";
+  const trafficLogSampleRate = normalizeSampleRate(process.env.TRAFFIC_LOG_SAMPLE_RATE);
+  if (trafficLogEnabled) {
+    app.use((req, res, next) => {
+      const startedAt = process.hrtime.bigint();
+      res.on("finish", () => {
+        if (trafficLogSampleRate <= 0) return;
+        if (trafficLogSampleRate < 1 && Math.random() > trafficLogSampleRate) return;
+
+        const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+        const rawHost = getHeaderValue(req.headers["x-forwarded-host"]) || getHeaderValue(req.headers.host);
+        const rawReferer = getHeaderValue(req.headers.referer);
+        const userAgent = sanitizeUserAgent(getHeaderValue(req.headers["user-agent"]));
+        const method = req.method.toUpperCase();
+        const path = (req.originalUrl || req.url || "/").slice(0, 512);
+
+        const payload = {
+          ts: new Date().toISOString(),
+          type: "traffic",
+          method,
+          path,
+          status: res.statusCode,
+          durationMs: Math.max(0, Math.round(elapsedMs)),
+          ip: getClientIp(req),
+          host: rawHost.slice(0, 128),
+          referer: rawReferer.slice(0, 256),
+          userAgent,
+        };
+
+        console.log(`[Traffic] ${JSON.stringify(payload)}`);
+      });
+      next();
+    });
+  }
 
   app.use((req, res, next) => {
     const isProd = process.env.NODE_ENV === "production";
@@ -124,6 +195,8 @@ export function createApp() {
 
   app.use("/api/upload/image", uploadImageRouter);
   app.use("/upload/image", uploadImageRouter);
+  app.use("/api/image-proxy", imageProxyRouter);
+  app.use("/image-proxy", imageProxyRouter);
 
   const trpcMiddleware = createExpressMiddleware({
     router: appRouter,

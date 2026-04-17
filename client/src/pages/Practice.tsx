@@ -20,6 +20,7 @@ import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { useIsMobile } from "@/hooks/useMobile";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { parseMnemonicAnswer } from "@shared/answerMnemonics";
+import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
 
 interface PracticeProps {
   questionId: number;
@@ -4595,7 +4596,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     )}
                     <img
                       ref={imageElementRef}
-                      src={question.imageUrl || ""}
+                      src={resolveRenderableImageUrl(question.imageUrl)}
                       alt="Question image"
                       className={`w-full h-auto block ${!imageLoaded ? 'hidden' : ''}`}
                       onLoad={(e) => {

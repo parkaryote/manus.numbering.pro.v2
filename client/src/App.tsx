@@ -37,7 +37,7 @@ const GUEST_BOOTSTRAP_BLOCK_MAX_MS = 900;
 const RECENT_AUTH_GRACE_MS = 10 * 60 * 1000;
 const AUTH_RESOLVE_MAX_WAIT_MS = 8_000;
 const DEMO_BRIDGE_RETRY_DELAY_MS = 450;
-const DEMO_BRIDGE_MAX_PENDING_RETRIES = 12;
+const DEMO_BRIDGE_MAX_ERROR_RETRIES = 8;
 
 async function fetchAuthMeWithTimeout(timeoutMs: number) {
   const controller = new AbortController();
@@ -226,7 +226,7 @@ function DemoSubjectRouteBridge({
 }) {
   const [, setLocation] = useLocation();
   const guestId = useMemo(() => getOrCreateGuestId(), []);
-  const [pendingRetryCount, setPendingRetryCount] = useState(0);
+  const [errorRetryCount, setErrorRetryCount] = useState(0);
   const resolveQuery = trpc.demo.resolveSubjectWorkspace.useQuery(
     { demoSubjectId, guestId },
     {
@@ -238,18 +238,34 @@ function DemoSubjectRouteBridge({
   const isPending = resolveQuery.data?.pending === true;
 
   useEffect(() => {
-    if (mappedSubjectId || !isPending) {
-      if (pendingRetryCount !== 0) setPendingRetryCount(0);
+    if (mappedSubjectId || !isPending || resolveQuery.isLoading) {
       return;
     }
-    if (pendingRetryCount >= DEMO_BRIDGE_MAX_PENDING_RETRIES) return;
-    if (resolveQuery.isLoading) return;
     const timer = window.setTimeout(() => {
-      setPendingRetryCount((count) => count + 1);
       void resolveQuery.refetch();
     }, DEMO_BRIDGE_RETRY_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [isPending, mappedSubjectId, pendingRetryCount, resolveQuery]);
+  }, [isPending, mappedSubjectId, resolveQuery.isLoading, resolveQuery.refetch]);
+
+  useEffect(() => {
+    if (!resolveQuery.isError || mappedSubjectId) {
+      if (errorRetryCount !== 0) setErrorRetryCount(0);
+      return;
+    }
+    if (resolveQuery.isLoading) return;
+    if (errorRetryCount >= DEMO_BRIDGE_MAX_ERROR_RETRIES) return;
+    const timer = window.setTimeout(() => {
+      setErrorRetryCount((count) => count + 1);
+      void resolveQuery.refetch();
+    }, DEMO_BRIDGE_RETRY_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [
+    errorRetryCount,
+    mappedSubjectId,
+    resolveQuery.isError,
+    resolveQuery.isLoading,
+    resolveQuery.refetch,
+  ]);
 
   useEffect(() => {
     if (!mappedSubjectId) return;
@@ -259,11 +275,10 @@ function DemoSubjectRouteBridge({
     setLocation(`/${target}/${mappedSubjectId}?${params.toString()}`);
   }, [demoSubjectId, mappedSubjectId, setLocation, target]);
 
+  const isAutoRetryingError = resolveQuery.isError && errorRetryCount < DEMO_BRIDGE_MAX_ERROR_RETRIES;
   const isLoading =
     resolveQuery.isLoading ||
-    (!mappedSubjectId &&
-      isPending &&
-      pendingRetryCount < DEMO_BRIDGE_MAX_PENDING_RETRIES);
+    (!mappedSubjectId && (isPending || isAutoRetryingError));
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -272,10 +287,38 @@ function DemoSubjectRouteBridge({
     );
   }
 
+  if (resolveQuery.isError) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="space-y-2 text-center">
+          <div className="text-muted-foreground text-sm">데모 작업공간 연결이 지연되고 있습니다.</div>
+          <div className="flex items-center justify-center gap-2">
+            <Button size="sm" variant="secondary" onClick={() => void resolveQuery.refetch()}>
+              다시 시도
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setLocation("/demo")}>
+              데모 홈으로
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!mappedSubjectId) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-muted-foreground text-sm">개인 데모 과목을 찾지 못했습니다. 다시 시도해주세요.</div>
+        <div className="space-y-2 text-center">
+          <div className="text-muted-foreground text-sm">개인 데모 과목을 찾지 못했습니다.</div>
+          <div className="flex items-center justify-center gap-2">
+            <Button size="sm" variant="secondary" onClick={() => void resolveQuery.refetch()}>
+              다시 시도
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setLocation("/demo")}>
+              데모 홈으로
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -292,7 +335,7 @@ function DemoQuestionRouteBridge({
 }) {
   const [, setLocation] = useLocation();
   const guestId = useMemo(() => getOrCreateGuestId(), []);
-  const [pendingRetryCount, setPendingRetryCount] = useState(0);
+  const [errorRetryCount, setErrorRetryCount] = useState(0);
   const resolveQuery = trpc.demo.resolveQuestionWorkspace.useQuery(
     { demoQuestionId, guestId },
     {
@@ -305,18 +348,34 @@ function DemoQuestionRouteBridge({
   const isPending = resolveQuery.data?.pending === true;
 
   useEffect(() => {
-    if (mappedQuestionId || !isPending) {
-      if (pendingRetryCount !== 0) setPendingRetryCount(0);
+    if (mappedQuestionId || !isPending || resolveQuery.isLoading) {
       return;
     }
-    if (pendingRetryCount >= DEMO_BRIDGE_MAX_PENDING_RETRIES) return;
-    if (resolveQuery.isLoading) return;
     const timer = window.setTimeout(() => {
-      setPendingRetryCount((count) => count + 1);
       void resolveQuery.refetch();
     }, DEMO_BRIDGE_RETRY_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [isPending, mappedQuestionId, pendingRetryCount, resolveQuery]);
+  }, [isPending, mappedQuestionId, resolveQuery.isLoading, resolveQuery.refetch]);
+
+  useEffect(() => {
+    if (!resolveQuery.isError || mappedQuestionId) {
+      if (errorRetryCount !== 0) setErrorRetryCount(0);
+      return;
+    }
+    if (resolveQuery.isLoading) return;
+    if (errorRetryCount >= DEMO_BRIDGE_MAX_ERROR_RETRIES) return;
+    const timer = window.setTimeout(() => {
+      setErrorRetryCount((count) => count + 1);
+      void resolveQuery.refetch();
+    }, DEMO_BRIDGE_RETRY_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [
+    errorRetryCount,
+    mappedQuestionId,
+    resolveQuery.isError,
+    resolveQuery.isLoading,
+    resolveQuery.refetch,
+  ]);
 
   useEffect(() => {
     if (!mappedQuestionId) return;
@@ -332,11 +391,10 @@ function DemoQuestionRouteBridge({
     setLocation(`/${target}/${mappedQuestionId}${query ? `?${query}` : ""}`);
   }, [mappedDemoSubjectId, mappedQuestionId, setLocation, target]);
 
+  const isAutoRetryingError = resolveQuery.isError && errorRetryCount < DEMO_BRIDGE_MAX_ERROR_RETRIES;
   const isLoading =
     resolveQuery.isLoading ||
-    (!mappedQuestionId &&
-      isPending &&
-      pendingRetryCount < DEMO_BRIDGE_MAX_PENDING_RETRIES);
+    (!mappedQuestionId && (isPending || isAutoRetryingError));
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -345,10 +403,38 @@ function DemoQuestionRouteBridge({
     );
   }
 
+  if (resolveQuery.isError) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="space-y-2 text-center">
+          <div className="text-muted-foreground text-sm">데모 문제 연결이 지연되고 있습니다.</div>
+          <div className="flex items-center justify-center gap-2">
+            <Button size="sm" variant="secondary" onClick={() => void resolveQuery.refetch()}>
+              다시 시도
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setLocation("/demo")}>
+              데모 홈으로
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!mappedQuestionId) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-muted-foreground text-sm">개인 데모 문제를 찾지 못했습니다.</div>
+        <div className="space-y-2 text-center">
+          <div className="text-muted-foreground text-sm">개인 데모 문제를 찾지 못했습니다.</div>
+          <div className="flex items-center justify-center gap-2">
+            <Button size="sm" variant="secondary" onClick={() => void resolveQuery.refetch()}>
+              다시 시도
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setLocation("/demo")}>
+              데모 홈으로
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

@@ -43,6 +43,7 @@ import imageCompression from "browser-image-compression";
 import { trackQuestionCreate, trackQuestionUpdate, trackQuestionDelete } from "@/lib/ga4Events";
 import { CONFIDENCE_THRESHOLDS } from "@shared/examConfidence";
 import { stripMnemonicHintsFromAnswer } from "@shared/answerMnemonics";
+import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
 
 interface QuestionsProps {
   subjectId: number;
@@ -118,6 +119,13 @@ const BULLET_LINE_REGEX = /^\s*[-*•]\s+.+$/;
 const BLANK_MARKER_REGEX = /^\s*(?:\{\{([\s\S]*?)\}\}|\[\[([\s\S]*?)\]\]|\[([\s\S]*?)\])\s*$/;
 const BULK_DELIMITER_REGEX = /(?:^|\n)\s*---+\s*(?:\n|$)/;
 const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
+
+function normalizeQuestionSignature(value: string | null | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[^0-9a-z가-힣]/g, "");
+}
 
 function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -558,7 +566,15 @@ function SortableQuestionCard({
   };
 
   const hasImage = !!question.imageUrl;
-  const hasLabels = question.imageLabels && JSON.parse(question.imageLabels).length > 0;
+  let hasLabels = false;
+  if (question.imageLabels) {
+    try {
+      const parsed = JSON.parse(question.imageLabels);
+      hasLabels = Array.isArray(parsed) && parsed.length > 0;
+    } catch {
+      hasLabels = false;
+    }
+  }
   const hasTable = !!question.tableData;
 
   return (
@@ -584,7 +600,7 @@ function SortableQuestionCard({
         {hasImage && question.imageUrl && (
           <div className="w-16 h-16 flex-shrink-0 border-r overflow-hidden bg-muted/20">
             <img
-              src={question.imageUrl!}
+              src={resolveRenderableImageUrl(question.imageUrl)}
               alt=""
               className="w-full h-full object-cover"
             />

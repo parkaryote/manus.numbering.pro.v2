@@ -18,6 +18,7 @@ import { getImageAttribution } from "@/lib/imageAttribution";
 import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { useIsMobile } from "@/hooks/useMobile";
 import { stripMnemonicHintsFromAnswer } from "@shared/answerMnemonics";
+import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
 
 interface TestProps {
   questionId: number;
@@ -1182,7 +1183,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   </div>
                 )}
                 <img
-                  src={question.imageUrl || ""}
+                  src={resolveRenderableImageUrl(question.imageUrl)}
                   alt="Question image"
                   className={`w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
                   onLoad={() => setImageLoaded(true)}
@@ -1296,7 +1297,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                       }`}
                     >
                       <img
-                        src={question.imageUrl || ""}
+                        src={resolveRenderableImageUrl(question.imageUrl)}
                         alt="Question image"
                         className="w-full h-auto rounded-lg border border-border/70"
                         loading="eager"

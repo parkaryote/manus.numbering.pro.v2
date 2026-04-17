@@ -13,6 +13,7 @@ import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
 import { SubjectConfidenceHistoryModal } from "@/components/SubjectConfidenceHistoryModal";
 import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
+import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
 
 interface SubjectExamProps {
   subjectId: number;
@@ -973,7 +974,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
               {isImageQuestion && (
                 <div className="space-y-3">
                   <div className="relative">
-                    <img src={q.imageUrl || ""} alt="문제 이미지" className="w-full rounded-lg border border-border" />
+                    <img src={resolveRenderableImageUrl(q.imageUrl)} alt="문제 이미지" className="w-full rounded-lg border border-border" />
                     {imageLabels.map((_: any, labelIdx: number) => (
                       <div
                         key={labelIdx}

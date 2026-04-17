@@ -9,6 +9,7 @@ import { ArrowLeft, Lock } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
 
 function parseTableSummary(raw?: string | null): string {
   if (!raw) return "";
@@ -182,7 +183,7 @@ export default function SharedSubject({ token }: { token: string }) {
               </CardHeader>
               <CardContent className="space-y-3">
                 {current.imageUrl && (
-                  <img src={current.imageUrl} alt="" className="max-h-72 w-full rounded-md border object-contain" />
+                  <img src={resolveRenderableImageUrl(current.imageUrl)} alt="" className="max-h-72 w-full rounded-md border object-contain" />
                 )}
                 <div className="rounded-md border bg-muted/20 p-3">
                   {current.tableData ? (

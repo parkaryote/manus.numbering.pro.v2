@@ -335,7 +335,12 @@ export async function mirrorTelemetryRowsToCsv(input: {
         interactionCount: row.interactionCount,
       },
       payload: row.payload,
-      occurredAt: row.occurredAt instanceof Date ? row.occurredAt : new Date(row.occurredAt),
+      occurredAt:
+        row.occurredAt instanceof Date
+          ? row.occurredAt
+          : row.occurredAt
+            ? new Date(row.occurredAt)
+            : new Date(),
       persistToTelemetryDb: false,
     });
   }

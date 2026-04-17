@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { X } from "lucide-react";
 import { toast } from "sonner";
+import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
 
 export interface ImageLabel {
   id: string;
@@ -298,7 +299,7 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
             }
           }}
         >
-          <img src={imageUrl} alt="Question" className="w-full h-auto pointer-events-none" draggable={false} />
+          <img src={resolveRenderableImageUrl(imageUrl)} alt="Question" className="w-full h-auto pointer-events-none" draggable={false} />
           
           {/* Existing labels */}
           {labels.map((label, index) => (

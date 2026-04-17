@@ -4361,118 +4361,132 @@ export const appRouter = router({
     resolveSubjectWorkspace: publicProcedure
       .input(z.object({ demoSubjectId: z.number(), guestId: GUEST_ID_SCHEMA.optional() }))
       .query(async ({ input, ctx }) => {
-        await ensureHardcodedToothBox7DemoQuestionExists();
-        const actor = await resolveOrBootstrapGuestUser(ctx, input.guestId ?? null);
-        if (!actor) {
+        try {
+          await ensureHardcodedToothBox7DemoQuestionExists();
+          const actor = await resolveOrBootstrapGuestUser(ctx, input.guestId ?? null);
+          if (!actor) {
+            return { mappedSubjectId: null as number | null, pending: true };
+          }
+          const demoSubject = await db.getSubjectById(input.demoSubjectId);
+          if (!demoSubject || demoSubject.isDemo !== 1) {
+            return { mappedSubjectId: null as number | null, pending: false };
+          }
+          const subject = await ensureDemoWorkspaceSubjectForUser(actor.id, input.demoSubjectId);
+          if (subject) {
+            return { mappedSubjectId: subject.id, pending: false };
+          }
+          triggerStarterSyncInBackground(actor.id, { force: true });
+          return { mappedSubjectId: null as number | null, pending: true };
+        } catch (error) {
+          console.warn("[DemoBridge] resolveSubjectWorkspace delayed:", error);
           return { mappedSubjectId: null as number | null, pending: true };
         }
-        const demoSubject = await db.getSubjectById(input.demoSubjectId);
-        if (!demoSubject || demoSubject.isDemo !== 1) {
-          return { mappedSubjectId: null as number | null, pending: false };
-        }
-        const subject = await ensureDemoWorkspaceSubjectForUser(actor.id, input.demoSubjectId);
-        if (subject) {
-          return { mappedSubjectId: subject.id, pending: false };
-        }
-        triggerStarterSyncInBackground(actor.id, { force: true });
-        return { mappedSubjectId: null as number | null, pending: true };
       }),
 
     resolveQuestionWorkspace: publicProcedure
       .input(z.object({ demoQuestionId: z.number(), guestId: GUEST_ID_SCHEMA.optional() }))
       .query(async ({ input, ctx }) => {
-        const actor = await resolveOrBootstrapGuestUser(ctx, input.guestId ?? null);
-        if (!actor) {
+        try {
+          const actor = await resolveOrBootstrapGuestUser(ctx, input.guestId ?? null);
+          if (!actor) {
+            return {
+              mappedQuestionId: null as number | null,
+              mappedDemoSubjectId: null as number | null,
+              pending: true,
+            };
+          }
+
+          const userSubjects = await db.getSubjectsByUserId(actor.id);
+          const userSubjectById = new Map(userSubjects.map((subject) => [subject.id, subject] as const));
+          const userQuestions = await db.getQuestionsByUserId(actor.id);
+          const mappedQuestion =
+            userQuestions.find(
+              (question) =>
+                typeof question.demoSourceQuestionId === "number" &&
+                question.demoSourceQuestionId === input.demoQuestionId
+            ) ?? userQuestions.find((question) => question.id === input.demoQuestionId);
+          if (mappedQuestion) {
+            const linkedSubject = userSubjectById.get(mappedQuestion.subjectId);
+            return {
+              mappedQuestionId: mappedQuestion.id,
+              mappedDemoSubjectId:
+                linkedSubject &&
+                typeof linkedSubject.demoSourceSubjectId === "number" &&
+                linkedSubject.demoSourceSubjectId > 0
+                  ? linkedSubject.demoSourceSubjectId
+                  : null,
+              pending: false,
+            };
+          }
+
+          const demoQuestion = await db.getQuestionById(input.demoQuestionId);
+          if (!demoQuestion || demoQuestion.isDemo !== 1 || !demoQuestion.subjectId) {
+            return {
+              mappedQuestionId: null as number | null,
+              mappedDemoSubjectId: null as number | null,
+              pending: false,
+            };
+          }
+
+          const linkedSubject = await ensureDemoWorkspaceSubjectForUser(
+            actor.id,
+            demoQuestion.subjectId
+          );
+          if (linkedSubject) {
+            const linkedQuestions = await db.getQuestionsBySubjectId(linkedSubject.id);
+            const linkedBySource = linkedQuestions.find(
+              (question) =>
+                typeof question.demoSourceQuestionId === "number" &&
+                question.demoSourceQuestionId === input.demoQuestionId
+            );
+            if (linkedBySource) {
+              return {
+                mappedQuestionId: linkedBySource.id,
+                mappedDemoSubjectId: demoQuestion.subjectId,
+                pending: false,
+              };
+            }
+
+            const demoQuestionSignature = normalizeQuestionTextValue(demoQuestion.question);
+            const linkedByText = linkedQuestions.find(
+              (question) => normalizeQuestionTextValue(question.question) === demoQuestionSignature
+            );
+            if (linkedByText) {
+              return {
+                mappedQuestionId: linkedByText.id,
+                mappedDemoSubjectId: demoQuestion.subjectId,
+                pending: false,
+              };
+            }
+
+            const upsertedQuestionId = await upsertSingleDemoQuestionToSubject(
+              actor.id,
+              linkedSubject.id,
+              demoQuestion
+            );
+            if (upsertedQuestionId) {
+              return {
+                mappedQuestionId: upsertedQuestionId,
+                mappedDemoSubjectId: demoQuestion.subjectId,
+                pending: false,
+              };
+            }
+          }
+
+          triggerStarterSyncInBackground(actor.id, { force: true });
+          return {
+            mappedQuestionId: null as number | null,
+            mappedDemoSubjectId: demoQuestion.subjectId,
+            pending: true,
+          };
+        } catch (error) {
+          console.warn("[DemoBridge] resolveQuestionWorkspace delayed:", error);
           return {
             mappedQuestionId: null as number | null,
             mappedDemoSubjectId: null as number | null,
             pending: true,
           };
         }
-
-        const userSubjects = await db.getSubjectsByUserId(actor.id);
-        const userSubjectById = new Map(userSubjects.map((subject) => [subject.id, subject] as const));
-        const userQuestions = await db.getQuestionsByUserId(actor.id);
-        const mappedQuestion =
-          userQuestions.find(
-            (question) =>
-              typeof question.demoSourceQuestionId === "number" &&
-              question.demoSourceQuestionId === input.demoQuestionId
-          ) ?? userQuestions.find((question) => question.id === input.demoQuestionId);
-        if (mappedQuestion) {
-          const linkedSubject = userSubjectById.get(mappedQuestion.subjectId);
-          return {
-            mappedQuestionId: mappedQuestion.id,
-            mappedDemoSubjectId:
-              linkedSubject &&
-              typeof linkedSubject.demoSourceSubjectId === "number" &&
-              linkedSubject.demoSourceSubjectId > 0
-                ? linkedSubject.demoSourceSubjectId
-                : null,
-            pending: false,
-          };
-        }
-
-        const demoQuestion = await db.getQuestionById(input.demoQuestionId);
-        if (!demoQuestion || demoQuestion.isDemo !== 1 || !demoQuestion.subjectId) {
-          return {
-            mappedQuestionId: null as number | null,
-            mappedDemoSubjectId: null as number | null,
-            pending: false,
-          };
-        }
-
-        const linkedSubject = await ensureDemoWorkspaceSubjectForUser(
-          actor.id,
-          demoQuestion.subjectId
-        );
-        if (linkedSubject) {
-          const linkedQuestions = await db.getQuestionsBySubjectId(linkedSubject.id);
-          const linkedBySource = linkedQuestions.find(
-            (question) =>
-              typeof question.demoSourceQuestionId === "number" &&
-              question.demoSourceQuestionId === input.demoQuestionId
-          );
-          if (linkedBySource) {
-            return {
-              mappedQuestionId: linkedBySource.id,
-              mappedDemoSubjectId: demoQuestion.subjectId,
-              pending: false,
-            };
-          }
-
-          const demoQuestionSignature = normalizeQuestionTextValue(demoQuestion.question);
-          const linkedByText = linkedQuestions.find(
-            (question) => normalizeQuestionTextValue(question.question) === demoQuestionSignature
-          );
-          if (linkedByText) {
-            return {
-              mappedQuestionId: linkedByText.id,
-              mappedDemoSubjectId: demoQuestion.subjectId,
-              pending: false,
-            };
-          }
-
-          const upsertedQuestionId = await upsertSingleDemoQuestionToSubject(
-            actor.id,
-            linkedSubject.id,
-            demoQuestion
-          );
-          if (upsertedQuestionId) {
-            return {
-              mappedQuestionId: upsertedQuestionId,
-              mappedDemoSubjectId: demoQuestion.subjectId,
-              pending: false,
-            };
-          }
-        }
-
-        triggerStarterSyncInBackground(actor.id, { force: true });
-        return {
-          mappedQuestionId: null as number | null,
-          mappedDemoSubjectId: demoQuestion.subjectId,
-          pending: true,
-        };
       }),
 
     dashboard: publicProcedure.query(async ({ ctx }) => {
@@ -7952,20 +7966,21 @@ ${input.userAnswer}
         }
         // 이벤트 간격 축소 (같은 시간대 이벤트 묶기)
         const BUCKET_MS = 60_000;
-        const points: {
+        type AggregateHistoryPoint = {
           at: string;
           score: number;
           eventType: string;
           questionCount: number;
-          testMode?: 'single' | 'mock';
-          sessionIds?: number[];
-        }[] = [];
+          testMode?: string;
+          sessionIds: number[];
+        };
+        const points: AggregateHistoryPoint[] = [];
         const buildAggregatePoint = (
           at: Date,
           eventType: 'practice' | 'test',
           sessionIds: number[],
           bucketTestModes: Array<'single' | 'mock'>
-        ) => {
+        ): AggregateHistoryPoint | null => {
           let totalScore = 0;
           let activeCount = 0;
           for (const qId of questionIds) {
@@ -8118,7 +8133,13 @@ ${input.userAnswer}
             totalScore += result.displayScore;
           }
           if (activeCount > 0) {
-            points.push({ at: nowDate.toISOString(), score: Math.round(totalScore / activeCount), eventType: 'now', questionCount: activeCount });
+            points.push({
+              at: nowDate.toISOString(),
+              score: Math.round(totalScore / activeCount),
+              eventType: 'now',
+              questionCount: activeCount,
+              sessionIds: [],
+            });
           }
         }
         return { points };
