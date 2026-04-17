@@ -774,21 +774,58 @@ function resolveGoogleRedirectUri(
   requested?: string
 ): string {
   const configured = ENV.googleOAuthRedirectUri.trim();
-  const fallback = configured || (!ENV.isProduction ? `${resolveRequestOrigin(req).replace(/\/+$/, "")}/login` : "");
-  if (!fallback) {
+  const allowedRaw = new Set<string>();
+
+  if (configured) {
+    allowedRaw.add(configured);
+  }
+
+  if (!ENV.isProduction) {
+    allowedRaw.add(`${resolveRequestOrigin(req).replace(/\/+$/, "")}/login`);
+  } else {
+    allowedRaw.add("https://numbering.pro/login");
+    allowedRaw.add("https://www.numbering.pro/login");
+    try {
+      allowedRaw.add(`${resolveRequestOrigin(req).replace(/\/+$/, "")}/login`);
+    } catch {
+      // ignore host parsing failures for non-request flows
+    }
+  }
+
+  if (allowedRaw.size === 0) {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
       message: "GOOGLE_OAUTH_REDIRECT_URI가 설정되지 않았습니다.",
     });
   }
 
-  if (!requested) return fallback;
-
   const normalize = (raw: string) => {
     const parsed = new URL(raw);
     const path = parsed.pathname.replace(/\/+$/, "") || "/";
     return `${parsed.origin}${path}`;
   };
+
+  const allowed = new Set<string>();
+  for (const raw of allowedRaw) {
+    try {
+      allowed.add(normalize(raw));
+    } catch {
+      // ignore malformed configured values
+    }
+  }
+
+  if (allowed.size === 0) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "유효한 GOOGLE_OAUTH_REDIRECT_URI가 없습니다.",
+    });
+  }
+
+  const defaultRedirectUri = allowed.has("https://numbering.pro/login")
+    ? "https://numbering.pro/login"
+    : Array.from(allowed)[0]!;
+
+  if (!requested) return defaultRedirectUri;
 
   let normalizedRequested: string;
   try {
@@ -800,17 +837,13 @@ function resolveGoogleRedirectUri(
     });
   }
 
-  const allowed = new Set<string>([normalize(fallback)]);
-  if (configured) {
-    allowed.add(normalize(configured));
-  }
   if (!allowed.has(normalizedRequested)) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: "허용되지 않은 redirectUri입니다.",
     });
   }
-  return requested;
+  return normalizedRequested;
 }
 
 type GoogleTokenResponse = {

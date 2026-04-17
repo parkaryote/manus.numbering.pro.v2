@@ -2,6 +2,7 @@ const GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_SCOPE = "openid email profile";
 const GOOGLE_REDIRECT_PATH = "/login";
 const GOOGLE_REDIRECT_URI_ENV = (import.meta.env.VITE_GOOGLE_OAUTH_REDIRECT_URI ?? "").trim();
+const GOOGLE_CANONICAL_REDIRECT_URI = "https://numbering.pro/login";
 const GOOGLE_STATE_STORAGE_KEY = "numbering_google_oauth_state";
 const GOOGLE_STATE_FALLBACK_STORAGE_KEY = "numbering_google_oauth_state_fallback";
 const GOOGLE_STATE_MAX_AGE_MS = 10 * 60 * 1000;
@@ -120,6 +121,14 @@ export function startGoogleOAuthLogin(input: {
 }
 
 export function getGoogleRedirectUri(): string {
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname.toLowerCase();
+    const isCanonicalHost = host === "numbering.pro" || host === "www.numbering.pro";
+    const isRailwayHost = host.endsWith(".up.railway.app");
+    if (isCanonicalHost || isRailwayHost) {
+      return GOOGLE_CANONICAL_REDIRECT_URI;
+    }
+  }
   if (GOOGLE_REDIRECT_URI_ENV) return GOOGLE_REDIRECT_URI_ENV;
   return `${window.location.origin}${GOOGLE_REDIRECT_PATH}`;
 }

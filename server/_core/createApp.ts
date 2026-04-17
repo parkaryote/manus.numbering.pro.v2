@@ -183,6 +183,18 @@ export function createApp() {
       return res.redirect(308, targetUrl);
     }
 
+    const isRailwayHost = host?.endsWith(".up.railway.app");
+    const pathWithQuery = req.originalUrl || req.url || "/";
+    const pathOnly = String(pathWithQuery).split("?")[0] || "/";
+    const isAuthRelatedPath =
+      pathOnly === "/login" ||
+      pathOnly === "/oauth/callback" ||
+      pathOnly === "/api/oauth/callback";
+    if (isRailwayHost && isAuthRelatedPath) {
+      const targetUrl = `https://numbering.pro${pathWithQuery}`;
+      return res.redirect(308, targetUrl);
+    }
+
     return next();
   });
 
