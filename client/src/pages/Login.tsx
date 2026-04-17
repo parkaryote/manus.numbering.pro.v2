@@ -82,6 +82,13 @@ export default function Login() {
     window.location.assign(sanitizeNextPath(nextPath));
   };
 
+  const finishGuestAndRedirect = (nextPath: string) => {
+    setBlockingMessage("게스트 세션 적용 중...");
+    markRecentAuthAttempt();
+    void utils.auth.me.invalidate();
+    window.location.replace(sanitizeNextPath(nextPath));
+  };
+
   const googleLogin = trpc.auth.googleLoginWithCode.useMutation({
     onSuccess: () => {
       const nextPath = googleReturnToRef.current || "/";
@@ -120,9 +127,7 @@ export default function Login() {
 
   const guestLogin = trpc.auth.autoGuestLogin.useMutation({
     onSuccess: () => {
-      setBlockingMessage("게스트 세션 적용 중...");
-      void utils.auth.me.invalidate();
-      window.location.assign("/");
+      finishGuestAndRedirect(requestedReturnTo);
     },
     onError: () => {
       setBlockingMessage(null);
@@ -178,7 +183,10 @@ export default function Login() {
   useEffect(() => {
     if (!meQuery.data) return;
     if (blockingMessage) return;
-    if (isGuestUser(meQuery.data)) return;
+    if (isGuestUser(meQuery.data)) {
+      setLocation(requestedReturnTo);
+      return;
+    }
     setLocation(requestedReturnTo);
   }, [blockingMessage, meQuery.data, requestedReturnTo, setLocation]);
 
@@ -281,12 +289,11 @@ export default function Login() {
                 variant="outline"
                 className="w-full gap-2"
                 onClick={() => {
-                  const guestId = getOrCreateId(GUEST_ID_KEY);
-                  try {
-                    localStorage.removeItem(RECENT_AUTH_AT_KEY);
-                  } catch {
-                    // ignore
+                  if (isGuestUser(meQuery.data)) {
+                    finishGuestAndRedirect(requestedReturnTo);
+                    return;
                   }
+                  const guestId = getOrCreateId(GUEST_ID_KEY);
                   setBlockingMessage("게스트로 입장 중...");
                   guestLogin.mutate({ guestId });
                 }}

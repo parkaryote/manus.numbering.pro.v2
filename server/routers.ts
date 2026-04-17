@@ -4235,12 +4235,12 @@ export const appRouter = router({
           if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "게스트 계정 생성 실패" });
         }
 
-        // 서버리스 환경에서는 응답 이후 백그라운드 작업이 중단될 수 있으므로
-        // 게스트 최초 진입 시 스타터 데이터 동기화를 짧게라도 선반영한다.
+        // 게스트 진입은 로그인 버튼 체감 속도가 중요하므로
+        // 스타터 데이터는 아주 짧게만 선반영하고 나머지는 백그라운드로 넘긴다.
         if (isNewGuest) {
-          const synced = await waitForStarterSyncWithBudget(user.id, 2500, { force: true });
+          const synced = await waitForStarterSyncWithBudget(user.id, 180, { force: true });
           if (!synced) {
-            await awaitStarterSyncCompletion(user.id, { force: true });
+            triggerStarterSyncInBackground(user.id, { force: true });
           }
         }
 

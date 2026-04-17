@@ -930,13 +930,24 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       );
     }
     if (!isDemoLinkedMode || !demoLinkedSubjectId) return sourceQuestions;
-    if (!demoLinkedPreviewQuery.data) return [];
+    if (!demoLinkedPreviewQuery.data) return sourceQuestions;
     const allowedSourceQuestionIds = new Set(
       demoLinkedPreviewQuery.data.map((question) => question.id)
     );
-    return sourceQuestions.filter((question: any) =>
-      allowedSourceQuestionIds.has(question.demoSourceQuestionId ?? -1)
+    const allowedPreviewSignatures = new Set(
+      demoLinkedPreviewQuery.data.map((question) => normalizeQuestionSignature(question.question))
     );
+    return sourceQuestions.filter((question: any) => {
+      const sourceId = Number(question.demoSourceQuestionId ?? 0);
+      if (!Number.isFinite(sourceId) || sourceId <= 0) {
+        return true;
+      }
+      if (allowedSourceQuestionIds.has(sourceId)) {
+        return true;
+      }
+      const signature = normalizeQuestionSignature(question.question);
+      return !!signature && allowedPreviewSignatures.has(signature);
+    });
   }, [
     demoLinkedPreviewQuery.data,
     demoLinkedSubjectId,

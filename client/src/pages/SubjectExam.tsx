@@ -185,13 +185,16 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
     const baseQuestions = isDemo ? demoQuestionsQuery.data : userQuestionsQuery.data;
     if (!baseQuestions) return baseQuestions;
     if (!isDemoLinkedMode || !demoLinkedSubjectId) return baseQuestions;
-    if (!demoLinkedPreviewQuery.data) return undefined;
+    if (!demoLinkedPreviewQuery.data) return baseQuestions;
     const allowedSourceQuestionIds = new Set(demoLinkedPreviewQuery.data.map((question) => question.id));
     const allowedPreviewSignatures = new Set(
       demoLinkedPreviewQuery.data.map((question) => normalizeQuestionSignature(question.question))
     );
     const filtered = baseQuestions.filter((question: any) => {
       const sourceId = Number(question.demoSourceQuestionId ?? 0);
+      if (!Number.isFinite(sourceId) || sourceId <= 0) {
+        return true;
+      }
       if (Number.isFinite(sourceId) && sourceId > 0 && allowedSourceQuestionIds.has(sourceId)) {
         return true;
       }

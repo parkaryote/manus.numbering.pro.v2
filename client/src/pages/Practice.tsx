@@ -431,13 +431,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const filteredSubjectQuestions = useMemo(() => {
     if (!subjectQuestions) return undefined;
     if (!isDemoLinkedMode || !demoLinkedSubjectId) return subjectQuestions;
-    if (!demoLinkedPreviewQuery.data) return [];
+    if (!demoLinkedPreviewQuery.data) return subjectQuestions;
     const allowedSourceQuestionIds = new Set(
       demoLinkedPreviewQuery.data.map((q) => q.id)
     );
-    return subjectQuestions.filter((q: any) =>
-      allowedSourceQuestionIds.has(q.demoSourceQuestionId ?? -1)
-    );
+    return subjectQuestions.filter((q: any) => {
+      const sourceId = Number(q.demoSourceQuestionId ?? 0);
+      if (!Number.isFinite(sourceId) || sourceId <= 0) {
+        return true;
+      }
+      return allowedSourceQuestionIds.has(sourceId);
+    });
   }, [demoLinkedPreviewQuery.data, demoLinkedSubjectId, isDemoLinkedMode, subjectQuestions]);
 
   const orderedSubjectQuestions = useMemo(() => {
