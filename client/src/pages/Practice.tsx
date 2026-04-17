@@ -1948,9 +1948,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }, [isDemo, isDemoLinkedMode, question]);
   const fixedDemoTableCellKeys = useMemo(() => {
     if (!isDemoGuestFixedCellContext || demoFixedTableCellIndexes.length === 0) return [];
-    return demoFixedTableCellIndexes
+    const mappedKeys = demoFixedTableCellIndexes
       .map((oneBasedIdx) => tableBlankCells[oneBasedIdx - 1] ?? null)
       .filter((key): key is string => Boolean(key));
+    // 표 구조/빈칸 개수가 변경되어 하드코딩 인덱스가 일부만 매칭되면
+    // 강제 셀 모드를 끄고 현재 빈칸 설정(예: 4개 빈칸)을 그대로 사용한다.
+    if (mappedKeys.length !== demoFixedTableCellIndexes.length) {
+      return [];
+    }
+    return mappedKeys;
   }, [demoFixedTableCellIndexes, isDemoGuestFixedCellContext, tableBlankCells]);
   const isFixedDemoTableCellMode = fixedDemoTableCellKeys.length > 0;
   const effectiveTableCheckedCells = useMemo(() => {
