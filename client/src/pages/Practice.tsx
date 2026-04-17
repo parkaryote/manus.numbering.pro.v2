@@ -4645,14 +4645,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 partialInput={tableCellInput}
                 cellSubmittedResult={tableCellSubmittedResult}
                 wrongCells={tableWrongCells}
-                onCellCheck={(key) => {
-                  if (isFixedDemoTableCellMode) return;
+                onCellCheck={isFixedDemoTableCellMode ? undefined : ((key) => {
                   setTableCheckedCells(prev => {
                     const next = new Set(prev);
                     if (next.has(key)) next.delete(key); else next.add(key);
                     return next;
                   });
-                }}
+                })}
                 onCellActivate={(key) => {
                   const idx = tableBlankCells.indexOf(key);
                   if (idx >= 0) {
@@ -5156,9 +5155,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               {/* 연습 횟수 + 초기화 */}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="hidden sm:block text-xs text-muted-foreground min-w-0">
-                  {isShortViewport
-                    ? "연습장 모드: Enter 확인 · ↑/↓ 셀 이동 · 더블클릭/우클릭 집중 연습"
-                    : "연습장 모드: 띄어쓰기·한/영 전환 없이 입력해도 돼요. Enter로 현재 셀 확인, ↑/↓로 위아래 셀 이동, 셀 더블클릭/우클릭으로 집중 연습 설정이 가능해요."}
+                  {isFixedDemoTableCellMode
+                    ? "연습장 모드: Enter 확인 · ↑/↓ 셀 이동 (데모는 연습 셀 고정)"
+                    : isShortViewport
+                      ? "연습장 모드: Enter 확인 · ↑/↓ 셀 이동 · 코너 플래그로 집중 연습"
+                      : "연습장 모드: 띄어쓰기·한/영 전환 없이 입력해도 돼요. Enter로 현재 셀 확인, ↑/↓로 위아래 셀 이동, 코너 플래그 클릭으로 집중 연습을 설정할 수 있어요."}
                 </span>
                 <div className="flex items-center gap-2 ml-auto">
                   <span className="text-xs text-muted-foreground">연습 {practiceCount}회</span>

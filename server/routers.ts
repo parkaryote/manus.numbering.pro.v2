@@ -1650,6 +1650,27 @@ function selectPublicDemoShowcaseQuestions<T extends { question?: string | null;
   });
 }
 
+async function getStablePublicDemoShowcaseQuestions(
+  subject: { id?: number | null; name?: string | null } | null | undefined
+) {
+  if (!subject?.id) return [];
+  const expectedShowcaseCount = isToothMorphologySubjectName(subject.name)
+    ? DEMO_PUBLIC_TOOTH_SHOWCASE_KEYS_IN_ORDER.length
+    : 0;
+
+  let rawQuestions = await db.getDemoQuestions(subject.id);
+  let selectedQuestions = selectPublicDemoShowcaseQuestions(subject, rawQuestions);
+
+  if (expectedShowcaseCount > 0 && selectedQuestions.length < expectedShowcaseCount) {
+    const synced = await waitForDemoCatalogSyncWithBudget(900, { force: true });
+    if (!synced) triggerDemoCatalogSyncInBackground({ force: true });
+    rawQuestions = await db.getDemoQuestions(subject.id);
+    selectedQuestions = selectPublicDemoShowcaseQuestions(subject, rawQuestions);
+  }
+
+  return selectedQuestions;
+}
+
 async function resolveDemoSequenceIndexForQuestion(
   questionId: number,
   subject: { id?: number | null; name?: string | null } | null | undefined
@@ -1658,8 +1679,7 @@ async function resolveDemoSequenceIndexForQuestion(
   const normalizedSubjectName = resolveDemoSequenceSubjectName(subject.name);
   if (!normalizedSubjectName) return null;
 
-  const rawQuestions = await db.getDemoQuestions(subject.id);
-  const filteredQuestions = selectPublicDemoShowcaseQuestions(subject, rawQuestions);
+  const filteredQuestions = await getStablePublicDemoShowcaseQuestions(subject);
   const sortedQuestions = sortDemoQuestionsByDisplayOrderStable(filteredQuestions);
   const idx = sortedQuestions.findIndex((row) => row.id === questionId);
   return idx >= 0 ? idx : null;
@@ -2426,6 +2446,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     fallbackAnswer: string;
     fallbackImageUrl?: string;
     fallbackImageLabels?: string;
+    forceQuestionText?: boolean;
     forceFallbackMedia?: boolean;
     displayOrder: number;
     difficulty: "easy" | "medium" | "hard";
@@ -2455,8 +2476,9 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
       return false;
     }
 
-    const canonicalQuestionText =
-      source?.question && source.question.trim().length > 0
+    const canonicalQuestionText = input.forceQuestionText
+      ? (questionTextCandidates[0] ?? input.questionText)
+      : source?.question && source.question.trim().length > 0
         ? source.question
         : matchedQuestion?.question && matchedQuestion.question.trim().length > 0
           ? matchedQuestion.question
@@ -2503,6 +2525,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
   const createdBox7 = await upsertShowcaseDemoQuestion({
     questionText: HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT,
     fallbackAnswer: HARD_CODED_TOOTH_BOX7_DEMO_ANSWER,
+    forceQuestionText: true,
     displayOrder: 7,
     difficulty: "easy",
     fallbackAutoNumbering: 1,
@@ -2516,6 +2539,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
   const createdCuspRidge = await upsertShowcaseDemoQuestion({
     questionText: TOOTH_MOLAR_CUSP_RIDGE_DEMO_QUESTION_TEXT,
     fallbackAnswer: TOOTH_MOLAR_CUSP_RIDGE_DEMO_FALLBACK_ANSWER,
+    forceQuestionText: true,
     displayOrder: 8,
     difficulty: "easy",
     fallbackAutoNumbering: 0,
@@ -2532,6 +2556,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     fallbackAnswer: TOOTH_DIRECTION_BLANK_DEMO_FALLBACK_ANSWER,
     fallbackImageUrl: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_URL,
     fallbackImageLabels: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_LABELS,
+    forceQuestionText: true,
     forceFallbackMedia: true,
     displayOrder: 9,
     difficulty: "medium",
@@ -4639,8 +4664,7 @@ export const appRouter = router({
 
       const subjects = await Promise.all(
         demoSubjects.map(async (subject) => {
-          const rawQuestions = await db.getDemoQuestions(subject.id);
-          const questions = selectPublicDemoShowcaseQuestions(subject, rawQuestions).sort(
+          const questions = (await getStablePublicDemoShowcaseQuestions(subject)).sort(
             (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
           );
           const linkedSubject =
@@ -4912,8 +4936,7 @@ export const appRouter = router({
         if (!subject || subject.isDemo !== 1) {
           return [];
         }
-        const rawQuestions = await db.getDemoQuestions(input.subjectId);
-        return selectPublicDemoShowcaseQuestions(subject, rawQuestions);
+        return getStablePublicDemoShowcaseQuestions(subject);
       }),
 
     confidenceByQuestion: publicProcedure
@@ -4968,8 +4991,7 @@ export const appRouter = router({
         if (!subject || subject.isDemo !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다" });
         }
-        const rawQuestions = await db.getDemoQuestions(input.subjectId);
-        const questions = selectPublicDemoShowcaseQuestions(subject, rawQuestions);
+        const questions = await getStablePublicDemoShowcaseQuestions(subject);
         const sortedQuestions = [...questions].sort(
           (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
         );
@@ -5005,8 +5027,7 @@ export const appRouter = router({
         if (!subject || subject.isDemo !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다" });
         }
-        const rawQuestions = await db.getDemoQuestions(input.subjectId);
-        const questions = selectPublicDemoShowcaseQuestions(subject, rawQuestions).sort(
+        const questions = (await getStablePublicDemoShowcaseQuestions(subject)).sort(
           (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
         );
         const previews = questions.map((question, sequenceIndex) =>

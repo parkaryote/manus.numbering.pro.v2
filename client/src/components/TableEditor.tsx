@@ -903,17 +903,28 @@ export function TableView({
                     {/* 하단 입력창 모드: 빈칸 셀에 코너 플래그 + 채점 시각화 */}
                     {activeCellKey !== null && isBlank && (
                       <>
-                        {/* 코너 플래그: 셀 클릭으로 집중 연습 선택/해제 */}
-                        {onCellCheck && isCellChecked && (
-                          <div
-                            className="absolute top-0 right-0 w-0 h-0 z-10 pointer-events-none"
-                            style={{
-                              borderStyle: 'solid',
-                              borderWidth: '0 10px 10px 0',
-                              borderColor: 'transparent oklch(0.55 0.2 290) transparent transparent',
+                        {/* 코너 플래그 버튼: 클릭으로 집중 연습 선택/해제 */}
+                        {onCellCheck && !isCompleted && (
+                          <button
+                            type="button"
+                            className="absolute top-0 right-0 z-20 h-4 w-4"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              onCellCheck(cellKey);
                             }}
-                            title="집중 연습 선택됨"
-                          />
+                            title={isCellChecked ? "집중 연습 해제" : "집중 연습 선택"}
+                            aria-label={isCellChecked ? "집중 연습 해제" : "집중 연습 선택"}
+                          >
+                            <span
+                              className="block h-0 w-0"
+                              style={{
+                                borderStyle: "solid",
+                                borderWidth: "0 14px 14px 0",
+                                borderColor: `transparent ${isCellChecked ? "oklch(0.55 0.2 290)" : "oklch(0.78 0 0 / 0.72)"} transparent transparent`,
+                              }}
+                            />
+                          </button>
                         )}
                         {/* 채점 시각화: 활성 셀 - 실시간 글자별 색상 표시 (isPartialMatch 기반) */}
                         {isActiveCell && !isCompleted && (
@@ -965,7 +976,7 @@ export function TableView({
                         {isCompleted && (
                           <div className="text-sm font-semibold text-foreground">{cell.content}</div>
                         )}
-                        {/* 미입력 셀 - 단일 클릭으로 셀 이동, 더블 클릭으로 집중 연습 토글 */}
+                        {/* 미입력 셀 - 단일 클릭으로 셀 이동 */}
                         {!isActiveCell && !isCompleted && (
                           <div
                             className={`text-sm cursor-pointer transition-colors ${
@@ -973,20 +984,10 @@ export function TableView({
                                 ? 'text-red-500 hover:text-red-600'
                                 : 'text-slate-300 hover:text-slate-400'
                             }`}
-                            onClick={(e) => {
-                              if (e.detail === 2) {
-                                // 더블 클릭: 집중 연습 토글
-                                onCellCheck?.(cellKey);
-                              } else {
-                                // 단일 클릭: 해당 셀로 이동
-                                onCellActivate?.(cellKey);
-                              }
+                            onClick={() => {
+                              onCellActivate?.(cellKey);
                             }}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              onCellCheck?.(cellKey);
-                            }}
-                            title="클릭: 이 셀 연습 / 더블클릭: 집중 연습 토글"
+                            title="클릭: 이 셀 연습"
                           >
                             {shouldMaskBlank ? renderMaskedCellContent(cell.content) : cell.content}
                           </div>

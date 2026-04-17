@@ -257,6 +257,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     fallbackAnswer: string;
     fallbackImageUrl?: string;
     fallbackImageLabels?: string;
+    forceQuestionText?: boolean;
     forceFallbackMedia?: boolean;
     displayOrder: number;
     difficulty: "easy" | "medium" | "hard";
@@ -286,8 +287,9 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
       return;
     }
 
-    const canonicalQuestionText =
-      source?.question && source.question.trim().length > 0
+    const canonicalQuestionText = input.forceQuestionText
+      ? (questionTextCandidates[0] ?? input.questionText)
+      : source?.question && source.question.trim().length > 0
         ? source.question
         : matchedQuestion?.question && matchedQuestion.question.trim().length > 0
           ? matchedQuestion.question
@@ -333,6 +335,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
   await upsertShowcaseDemoQuestion({
     questionText: HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT,
     fallbackAnswer: HARD_CODED_TOOTH_BOX7_DEMO_ANSWER,
+    forceQuestionText: true,
     displayOrder: 7,
     difficulty: "easy",
     fallbackAutoNumbering: 1,
@@ -340,6 +343,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
   await upsertShowcaseDemoQuestion({
     questionText: TOOTH_MOLAR_CUSP_RIDGE_DEMO_QUESTION_TEXT,
     fallbackAnswer: TOOTH_MOLAR_CUSP_RIDGE_DEMO_FALLBACK_ANSWER,
+    forceQuestionText: true,
     displayOrder: 8,
     difficulty: "easy",
     fallbackAutoNumbering: 0,
@@ -350,6 +354,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     fallbackAnswer: TOOTH_DIRECTION_BLANK_DEMO_FALLBACK_ANSWER,
     fallbackImageUrl: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_URL,
     fallbackImageLabels: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_LABELS,
+    forceQuestionText: true,
     forceFallbackMedia: true,
     displayOrder: 9,
     difficulty: "medium",
