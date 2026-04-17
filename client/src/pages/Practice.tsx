@@ -4811,11 +4811,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                               <span className="text-white font-bold text-2xl">{index + 1}</span>
                             </div>
                           )}
-                          {isMatched && (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <span className="text-emerald-700 dark:text-emerald-300 font-bold text-xs">완료</span>
-                            </div>
-                          )}
                         </div>
                       );
                     })}
