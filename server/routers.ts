@@ -1026,6 +1026,11 @@ const TOOTH_MOLAR_CUSP_RIDGE_DEMO_FALLBACK_ANSWER = [
   "1. 교두",
   "2. 융선",
 ].join("\n");
+const TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT = "치아의 방향 중 빈칸을 채우시오.";
+const TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT_CANDIDATES = [
+  TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT,
+  "치아의 방향 중 빈칸을 채우시오",
+];
 const PARTIAL_DENTURE_DEMO_TARGET_QUESTION_COUNT = 9;
 
 function normalizeSubjectNameValue(value: string | null | undefined): string {
@@ -1440,13 +1445,34 @@ type DemoQuestionPreview = {
   isExample: true;
 };
 
-type DemoShowcaseKey = "box1" | "box7" | "cusp_ridge" | "box9" | "table_i3";
+type DemoShowcaseKey =
+  | "box1"
+  | "box7"
+  | "cusp_ridge"
+  | "direction_blank"
+  | "box9"
+  | "table_i3";
 
-const DEMO_SHOWCASE_KEYS_IN_ORDER: DemoShowcaseKey[] = ["box1", "box7", "cusp_ridge", "box9", "table_i3"];
+const DEMO_SHOWCASE_KEYS_IN_ORDER: DemoShowcaseKey[] = [
+  "box1",
+  "box7",
+  "cusp_ridge",
+  "direction_blank",
+  "box9",
+  "table_i3",
+];
+const DEMO_PUBLIC_TOOTH_SHOWCASE_KEYS_IN_ORDER: DemoShowcaseKey[] = [
+  "box7",
+  "cusp_ridge",
+  "direction_blank",
+  "box9",
+  "table_i3",
+];
 const DEMO_SHOWCASE_TITLE_CANDIDATES: Record<DemoShowcaseKey, string[]> = {
   box1: ["Box-1 절치들의 근원심구별"],
   box7: [HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT],
   cusp_ridge: [TOOTH_MOLAR_CUSP_RIDGE_DEMO_QUESTION_TEXT],
+  direction_blank: TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT_CANDIDATES,
   box9: ["Box-9 하악 제1소구치와 제2소구치의 차이점"],
   table_i3: ["표 I-3 상악 치아 크기"],
 };
@@ -1459,9 +1485,62 @@ const DEMO_SHOWCASE_TITLE_LOOKUP: Record<DemoShowcaseKey, string[]> = {
   box1: DEMO_SHOWCASE_TITLE_CANDIDATES.box1.map((title) => normalizeDemoShowcaseLookupValue(title)),
   box7: DEMO_SHOWCASE_TITLE_CANDIDATES.box7.map((title) => normalizeDemoShowcaseLookupValue(title)),
   cusp_ridge: DEMO_SHOWCASE_TITLE_CANDIDATES.cusp_ridge.map((title) => normalizeDemoShowcaseLookupValue(title)),
+  direction_blank: DEMO_SHOWCASE_TITLE_CANDIDATES.direction_blank.map((title) => normalizeDemoShowcaseLookupValue(title)),
   box9: DEMO_SHOWCASE_TITLE_CANDIDATES.box9.map((title) => normalizeDemoShowcaseLookupValue(title)),
   table_i3: DEMO_SHOWCASE_TITLE_CANDIDATES.table_i3.map((title) => normalizeDemoShowcaseLookupValue(title)),
 };
+
+const BOX9_DEMO_FOCUSED_PRACTICE_CELLS = ["1개", "1개 또는 2개", "3:1", "2:1"];
+const BOX9_DEMO_FOCUSED_PRACTICE_CELL_LOOKUP = new Set(
+  BOX9_DEMO_FOCUSED_PRACTICE_CELLS.map((value) =>
+    value.toLowerCase().replace(/\s+/g, "")
+  )
+);
+
+function normalizeBox9DemoTableData(
+  tableData: string | null | undefined
+): { nextTableData: string | null; changed: boolean; focusedCellCount: number } {
+  if (!tableData) {
+    return { nextTableData: tableData ?? null, changed: false, focusedCellCount: 0 };
+  }
+
+  try {
+    const parsed = JSON.parse(tableData);
+    const rows: any[][] = Array.isArray(parsed?.cells) ? parsed.cells : [];
+    if (rows.length === 0) {
+      return { nextTableData: tableData, changed: false, focusedCellCount: 0 };
+    }
+
+    let changed = false;
+    let focusedCellCount = 0;
+    for (const row of rows) {
+      if (!Array.isArray(row)) continue;
+      for (const cell of row) {
+        if (!cell || typeof cell !== "object") continue;
+        if (cell.isMerged) continue;
+
+        const rawContent = typeof cell.content === "string" ? cell.content : "";
+        const normalized = rawContent.toLowerCase().replace(/\s+/g, "");
+        const shouldBlank = BOX9_DEMO_FOCUSED_PRACTICE_CELL_LOOKUP.has(normalized);
+        if (shouldBlank) focusedCellCount += 1;
+
+        const currentBlank = cell.isBlank === true;
+        if (currentBlank !== shouldBlank) {
+          cell.isBlank = shouldBlank;
+          changed = true;
+        }
+      }
+    }
+
+    return {
+      nextTableData: changed ? JSON.stringify(parsed) : tableData,
+      changed,
+      focusedCellCount,
+    };
+  } catch {
+    return { nextTableData: tableData, changed: false, focusedCellCount: 0 };
+  }
+}
 
 function resolveDemoShowcaseKeyByQuestionTitle(questionTitle: string | null | undefined): DemoShowcaseKey | null {
   const normalizedQuestionTitle = normalizeDemoShowcaseLookupValue(questionTitle);
@@ -1522,7 +1601,7 @@ function selectPublicDemoShowcaseQuestions<T extends { question?: string | null;
     pickedByKey.set(key, question);
   }
 
-  return DEMO_SHOWCASE_KEYS_IN_ORDER.flatMap((key) => {
+  return DEMO_PUBLIC_TOOTH_SHOWCASE_KEYS_IN_ORDER.flatMap((key) => {
     const row = pickedByKey.get(key);
     return row ? [row] : [];
   });
@@ -2244,18 +2323,33 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
 
   const upsertShowcaseDemoQuestion = async (input: {
     questionText: string;
+    questionTextCandidates?: string[];
     fallbackAnswer: string;
     displayOrder: number;
     difficulty: "easy" | "medium" | "hard";
     fallbackAutoNumbering: number;
+    requireSource?: boolean;
   }) => {
     const existingDemoQuestions = await db.getDemoQuestions(toothDemoSubject.id);
-    const targetNormalized = normalizeQuestionTextValue(input.questionText);
+    const questionTextCandidates = Array.from(
+      new Set(
+        [input.questionText, ...(input.questionTextCandidates ?? [])]
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+      )
+    );
+    const targetNormalizedSet = new Set(
+      questionTextCandidates.map((value) => normalizeQuestionTextValue(value))
+    );
     const matchedQuestion = existingDemoQuestions.find(
-      (question) => normalizeQuestionTextValue(question.question) === targetNormalized
+      (question) => targetNormalizedSet.has(normalizeQuestionTextValue(question.question))
     );
 
-    const sourceCandidates = await db.getQuestionsByExactQuestionText(input.questionText);
+    const sourceCandidates = (
+      await Promise.all(
+        questionTextCandidates.map((candidate) => db.getQuestionsByExactQuestionText(candidate))
+      )
+    ).flat();
     const source = [...sourceCandidates].sort((a, b) => {
       const score = (row: typeof sourceCandidates[number]) => {
         let value = 0;
@@ -2268,9 +2362,19 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
       };
       return score(b) - score(a);
     })[0];
+    if (!source && input.requireSource) {
+      console.warn(
+        `[StarterData] Missing source question for demo promotion: ${questionTextCandidates.join(" | ")}`
+      );
+      return false;
+    }
 
+    const canonicalQuestionText =
+      source?.question && source.question.trim().length > 0
+        ? source.question
+        : questionTextCandidates[0] ?? input.questionText;
     const payload = {
-      question: input.questionText,
+      question: canonicalQuestionText,
       answer: source?.answer && source.answer.trim().length > 0 ? source.answer : input.fallbackAnswer,
       difficulty: source?.difficulty ?? input.difficulty,
       imageUrl: source?.imageUrl ?? null,
@@ -2321,6 +2425,43 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     console.log(
       `[StarterData] Promoted demo question "${TOOTH_MOLAR_CUSP_RIDGE_DEMO_QUESTION_TEXT}" into "${TOOTH_MORPHOLOGY_SUBJECT_NAME}".`
     );
+  }
+
+  const createdDirectionBlank = await upsertShowcaseDemoQuestion({
+    questionText: TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT,
+    questionTextCandidates: TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT_CANDIDATES,
+    fallbackAnswer: "",
+    displayOrder: 9,
+    difficulty: "medium",
+    fallbackAutoNumbering: 1,
+    requireSource: true,
+  });
+  if (createdDirectionBlank) {
+    console.log(
+      `[StarterData] Promoted demo question "${TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT}" into "${TOOTH_MORPHOLOGY_SUBJECT_NAME}".`
+    );
+  }
+
+  const latestDemoQuestions = await db.getDemoQuestions(toothDemoSubject.id);
+  let deletedBox1 = false;
+  for (const demoQuestion of latestDemoQuestions) {
+    const showcaseKey = resolveDemoShowcaseKeyByQuestionTitle(demoQuestion.question);
+    if (showcaseKey === "box1") {
+      await db.deleteDemoQuestion(demoQuestion.id);
+      deletedBox1 = true;
+      continue;
+    }
+    if (showcaseKey === "box9") {
+      const normalized = normalizeBox9DemoTableData(demoQuestion.tableData ?? null);
+      if (normalized.changed) {
+        await db.updateDemoQuestion(demoQuestion.id, {
+          tableData: normalized.nextTableData ?? undefined,
+        });
+      }
+    }
+  }
+  if (deletedBox1) {
+    await db.normalizeQuestionDisplayOrderForSubject(toothDemoSubject.id);
   }
 }
 

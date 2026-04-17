@@ -303,9 +303,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [notepadLines, setNotepadLines] = useState(50); // 메모장 줄 수
   const [imageScale, setImageScaleRaw] = useState(() => {
     const saved = localStorage.getItem('imageScale');
-    if (!saved) return 60;
+    if (!saved) return 100;
     const parsed = parseInt(saved, 10);
-    if (!Number.isFinite(parsed)) return 60;
+    if (!Number.isFinite(parsed)) return 100;
     return Math.max(30, Math.min(100, parsed));
   }); // 이미지 크기 비율 (%)
   const imageLayoutRowRef = useRef<HTMLDivElement>(null);
@@ -959,26 +959,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   const applyImageFitScale = useCallback(() => {
     if (!isImageQuestion) return;
-
-    const naturalWidth = imageNaturalSizeRef.current.width;
-    const naturalHeight = imageNaturalSizeRef.current.height;
-    if (!naturalWidth || !naturalHeight) return;
-
-    const rowEl = imageLayoutRowRef.current;
-    const answerEl = imageAnswerPanelRef.current;
-    if (!rowEl) return;
-
-    const rowRect = rowEl.getBoundingClientRect();
-    const answerRect = answerEl?.getBoundingClientRect();
-    const gapPx = 10;
-    const reserved = useHorizontalImageLayout ? Math.max(0, answerRect?.width ?? rowRect.width * 0.42) : 0;
-    const availableWidth = Math.max(240, rowRect.width - reserved - gapPx);
-    const panelHeight = window.innerHeight * (isDemo ? 0.72 : 0.64);
-    const targetScaleByWidth = Math.min(100, (availableWidth / naturalWidth) * 100);
-    const targetScaleByHeight = Math.min(100, (panelHeight / naturalHeight) * 100);
-    const candidate = Math.floor(Math.max(30, Math.min(targetScaleByWidth, targetScaleByHeight)));
-    setImageScale(Math.max(30, Math.min(100, candidate)));
-  }, [isDemo, isImageQuestion, useHorizontalImageLayout]);
+    setImageScale(100);
+  }, [isImageQuestion]);
 
   useEffect(() => {
     if (!isImageQuestion) return;
@@ -1914,8 +1896,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const tableNorm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
   const tableBlankCells = tableData ? getBlankCells(tableData) : [];
   const tableActiveCellKey = tableBlankCells[tableActiveCellIdx] ?? null;
-  const demoFixedTableCellIndexes = useMemo<number[]>(() => {
-    if (!question?.question) return [];
+  const demoFixedTableCellConfig = useMemo<
+    | { mode: "index"; indexes: number[] }
+    | { mode: "content"; contents: string[] }
+    | null
+  >(() => {
+    if (!question?.question) return null;
     const normalizedQuestion = question.question
       .replace(/\s+/g, "")
       .replace(/[·•]/g, "")
@@ -1924,15 +1910,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       normalizedQuestion.includes("box-9하악제1소구치와제2소구치의차이점") ||
       normalizedQuestion.includes("box9하악제1소구치와제2소구치의차이점")
     ) {
-      return [3, 4, 7, 8];
+      return { mode: "content", contents: ["1개", "1개 또는 2개", "3:1", "2:1"] };
     }
     if (
       normalizedQuestion.includes("표i-3상악치아크기") ||
       normalizedQuestion.includes("표i3상악치아크기")
     ) {
-      return [1, 17, 33, 49];
+      return { mode: "index", indexes: [1, 17, 33, 49] };
     }
-    return [];
+    return null;
   }, [question?.question]);
   const isDemoGuestFixedCellContext = useMemo(() => {
     const demoSourceQuestionId =
@@ -1947,17 +1933,43 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     );
   }, [isDemo, isDemoLinkedMode, question]);
   const fixedDemoTableCellKeys = useMemo(() => {
-    if (!isDemoGuestFixedCellContext || demoFixedTableCellIndexes.length === 0) return [];
-    const mappedKeys = demoFixedTableCellIndexes
-      .map((oneBasedIdx) => tableBlankCells[oneBasedIdx - 1] ?? null)
-      .filter((key): key is string => Boolean(key));
-    // 표 구조/빈칸 개수가 변경되어 하드코딩 인덱스가 일부만 매칭되면
-    // 강제 셀 모드를 끄고 현재 빈칸 설정(예: 4개 빈칸)을 그대로 사용한다.
-    if (mappedKeys.length !== demoFixedTableCellIndexes.length) {
+    if (!isDemoGuestFixedCellContext || !demoFixedTableCellConfig) return [];
+    if (demoFixedTableCellConfig.mode === "index") {
+      const mappedKeys = demoFixedTableCellConfig.indexes
+        .map((oneBasedIdx) => tableBlankCells[oneBasedIdx - 1] ?? null)
+        .filter((key): key is string => Boolean(key));
+      // 표 구조/빈칸 개수가 변경되어 하드코딩 인덱스가 일부만 매칭되면
+      // 강제 셀 모드를 끄고 현재 빈칸 설정을 그대로 사용한다.
+      if (mappedKeys.length !== demoFixedTableCellConfig.indexes.length) {
+        return [];
+      }
+      return mappedKeys;
+    }
+    if (!tableData) return [];
+    const targetNorms = demoFixedTableCellConfig.contents.map((value) => tableNorm(value));
+    const usedKeys = new Set<string>();
+    const mappedKeys: string[] = [];
+    for (const targetNorm of targetNorms) {
+      const matchedKey = tableBlankCells.find((key) => {
+        if (usedKeys.has(key)) return false;
+        const [rowRaw, colRaw] = key.split("-");
+        const row = Number(rowRaw);
+        const col = Number(colRaw);
+        if (!Number.isFinite(row) || !Number.isFinite(col)) return false;
+        const cell = tableData.cells[row]?.[col];
+        if (!cell || cell.isMerged) return false;
+        return tableNorm(cell.content ?? "") === targetNorm;
+      });
+      if (!matchedKey) continue;
+      usedKeys.add(matchedKey);
+      mappedKeys.push(matchedKey);
+    }
+    // 데모 Box-9는 지정한 4개 값이 전부 매칭될 때만 강제 모드를 사용한다.
+    if (mappedKeys.length !== targetNorms.length) {
       return [];
     }
     return mappedKeys;
-  }, [demoFixedTableCellIndexes, isDemoGuestFixedCellContext, tableBlankCells]);
+  }, [demoFixedTableCellConfig, isDemoGuestFixedCellContext, tableBlankCells, tableData]);
   const isFixedDemoTableCellMode = fixedDemoTableCellKeys.length > 0;
   const effectiveTableCheckedCells = useMemo(() => {
     if (isFixedDemoTableCellMode) {
