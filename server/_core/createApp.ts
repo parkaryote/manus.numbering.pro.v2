@@ -178,7 +178,7 @@ export function createApp() {
       : forwardedHost || req.headers.host || "";
     const host = String(rawHost).split(",")[0]?.trim().toLowerCase().split(":")[0];
 
-    if (host === "www.numbering.pro" || host.endsWith(".up.railway.app")) {
+    if (host === "www.numbering.pro") {
       const targetUrl = `https://numbering.pro${req.originalUrl || req.url || "/"}`;
       return res.redirect(308, targetUrl);
     }

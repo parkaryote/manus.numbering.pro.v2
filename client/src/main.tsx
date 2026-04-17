@@ -12,7 +12,7 @@ import "./index.css";
 
 if (typeof window !== "undefined") {
   const host = window.location.hostname.toLowerCase();
-  if (host === "www.numbering.pro" || host.endsWith(".up.railway.app")) {
+  if (host === "www.numbering.pro") {
     const target = `https://numbering.pro${window.location.pathname}${window.location.search}${window.location.hash}`;
     window.location.replace(target);
   }
