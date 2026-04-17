@@ -39,6 +39,7 @@ import {
   getLengthBucket,
   type TypingAttemptInput,
 } from "./typingSpeed.js";
+import { mirrorTelemetryRowsToCsv, recordLearningEvent } from "./internalLearningAnalytics.js";
 
 // 글자 단위 유사도 계산 (대소문자 무시, 띄어쓰기 무시)
 function calcCharSimilarity(userText: string, correctText: string): number {
@@ -68,6 +69,16 @@ const AUTO_NUMBER_PREFIX_REGEX = /^\s*\d{1,3}\s*[.)]\s*/;
 const BULLET_PREFIX_REGEX = /^\s*(?:[-–—−*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
 const WORD_TOKEN_PATTERN = "[a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ]+(?:['’\\-][a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ]+)*";
 const MAX_OCR_FILE_BYTES = 25 * 1024 * 1024;
+const LEARNING_LOG_META_SCHEMA = z.object({
+  clientSessionId: z.string().min(1).max(96).optional(),
+  pagePath: z.string().min(1).max(512).optional(),
+  batchId: z.string().min(1).max(96).optional(),
+  source: z.string().min(1).max(64).optional(),
+  testMode: z.enum(["single", "mock"]).optional(),
+  completionRatio: z.number().min(0).max(1).optional(),
+  blindMode: z.boolean().optional(),
+  typedLength: z.number().int().min(0).max(200000).optional(),
+}).optional();
 
 function stripAutoNumberPrefix(line: string): string {
   return line.replace(AUTO_NUMBER_PREFIX_REGEX, "").trim();
@@ -725,6 +736,15 @@ function safeSerializeTelemetryPayload(payload: unknown): string | null {
       truncated: true,
       message: "payload_serialization_failed",
     });
+  }
+}
+
+async function getSubjectForLogging(question: { subjectId?: number | null }) {
+  if (!question.subjectId) return null;
+  try {
+    return await db.getSubjectById(question.subjectId);
+  } catch {
+    return null;
   }
 }
 
@@ -5455,13 +5475,14 @@ export const appRouter = router({
         typingSpeed: z.number(),
         accuracy: z.number(),
         errorCount: z.number(),
+        analytics: LEARNING_LOG_META_SCHEMA,
       }))
       .mutation(async ({ ctx, input }) => {
         const question = await db.getQuestionById(input.questionId);
         if (!question || question.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 기록할 수 있습니다" });
         }
-        return db.createPracticeSession({
+        const createdSession = await db.createPracticeSession({
           userId: ctx.user.id,
           questionId: input.questionId,
           duration: input.duration,
@@ -5470,6 +5491,34 @@ export const appRouter = router({
           errorCount: input.errorCount,
           completedAt: new Date(),
         });
+        const subject = await getSubjectForLogging(question);
+        await recordLearningEvent({
+          eventCategory: "learning",
+          eventType: "practice_session",
+          user: ctx.user,
+          question,
+          subject,
+          requestMeta: {
+            req: ctx.req,
+            clientSessionId: input.analytics?.clientSessionId,
+            pagePath: input.analytics?.pagePath,
+            batchId: input.analytics?.batchId,
+          },
+          metrics: {
+            source: input.analytics?.source ?? "practice",
+            practiceSessionId: createdSession.id,
+            durationSec: input.duration,
+            typingSpeedCpm: input.typingSpeed,
+            accuracy: input.accuracy,
+            errorCount: input.errorCount,
+            completionRatio: input.analytics?.completionRatio ?? input.accuracy / 100,
+            blindMode: input.analytics?.blindMode ?? null,
+          },
+          payload: {
+            typedLength: input.analytics?.typedLength ?? null,
+          },
+        });
+        return createdSession;
       }),
     
     deleteAll: protectedProcedure
@@ -5539,13 +5588,14 @@ export const appRouter = router({
         similarityScore: z.number().optional(),
         mistakeHighlights: z.string().optional(),
         llmFeedback: z.string().optional(),
+        analytics: LEARNING_LOG_META_SCHEMA,
       }))
       .mutation(async ({ ctx, input }) => {
         const question = await db.getQuestionById(input.questionId);
         if (!question || question.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 기록할 수 있습니다" });
         }
-        return db.createTestSession({
+        const createdSession = await db.createTestSession({
           userId: ctx.user.id,
           questionId: input.questionId,
           userAnswer: input.userAnswer,
@@ -5556,6 +5606,35 @@ export const appRouter = router({
           llmFeedback: input.llmFeedback,
           completedAt: new Date(),
         });
+        const subject = await getSubjectForLogging(question);
+        await recordLearningEvent({
+          eventCategory: "evaluation",
+          eventType: "test_session",
+          user: ctx.user,
+          question,
+          subject,
+          requestMeta: {
+            req: ctx.req,
+            clientSessionId: input.analytics?.clientSessionId,
+            pagePath: input.analytics?.pagePath,
+            batchId: input.analytics?.batchId,
+          },
+          metrics: {
+            source: input.analytics?.source ?? "test_create",
+            testMode: input.analytics?.testMode ?? "single",
+            testSessionId: createdSession.id,
+            isCorrect: input.isCorrect === 1,
+            similarityScore: input.similarityScore ?? null,
+            accuracy: input.similarityScore ?? null,
+            recallTimeSec: input.recallTime,
+          },
+          payload: {
+            userAnswerLength: input.userAnswer.length,
+            hasMistakeHighlights: Boolean(input.mistakeHighlights),
+            hasLlmFeedback: Boolean(input.llmFeedback),
+          },
+        });
+        return createdSession;
       }),
     
     evaluate: protectedProcedure
@@ -5563,6 +5642,7 @@ export const appRouter = router({
         questionId: z.number(),
         userAnswer: z.string(),
         recallTime: z.number(),
+        analytics: LEARNING_LOG_META_SCHEMA,
       }))
       .mutation(async ({ ctx, input }) => {
         const question = await db.getQuestionById(input.questionId);
@@ -5572,6 +5652,46 @@ export const appRouter = router({
         if (question.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 시험 채점할 수 있습니다" });
         }
+        const subject = await getSubjectForLogging(question);
+        const logTestEvaluation = async (params: {
+          createdSessionId?: number | null;
+          isCorrect: boolean;
+          similarityScore: number;
+          accuracy: number;
+          correctCount?: number | null;
+          totalCount?: number | null;
+          source: string;
+          payload?: unknown;
+        }) => {
+          await recordLearningEvent({
+            eventCategory: "evaluation",
+            eventType: "test_evaluation",
+            user: ctx.user,
+            question,
+            subject,
+            requestMeta: {
+              req: ctx.req,
+              clientSessionId: input.analytics?.clientSessionId,
+              pagePath: input.analytics?.pagePath,
+              batchId: input.analytics?.batchId,
+            },
+            metrics: {
+              source: input.analytics?.source ?? params.source,
+              testMode: input.analytics?.testMode ?? "single",
+              testSessionId: params.createdSessionId ?? null,
+              isCorrect: params.isCorrect,
+              similarityScore: params.similarityScore,
+              accuracy: params.accuracy,
+              correctCount: params.correctCount ?? null,
+              totalCount: params.totalCount ?? null,
+              recallTimeSec: input.recallTime,
+            },
+            payload: {
+              userAnswerLength: input.userAnswer.length,
+              ...((params.payload as Record<string, unknown> | undefined) ?? {}),
+            },
+          });
+        };
 
         // 이미지 문제인 경우 imageLabels에서 정답 추출
         const isImageQuestion = question.imageUrl && question.imageLabels;
@@ -5634,6 +5754,18 @@ export const appRouter = router({
                 llmFeedback: null,
                 completedAt: new Date(),
               });
+              await logTestEvaluation({
+                createdSessionId: createdSession.id,
+                isCorrect,
+                similarityScore: accuracyRate,
+                accuracy: accuracyRate,
+                correctCount,
+                totalCount,
+                source: "image_evaluate",
+                payload: {
+                  gradingMode: "image_labels",
+                },
+              });
               
               return {
                 isCorrect,
@@ -5663,6 +5795,19 @@ export const appRouter = router({
             mistakeHighlights: JSON.stringify(graded.mistakes),
             llmFeedback: null,
             completedAt: new Date(),
+          });
+          await logTestEvaluation({
+            createdSessionId: createdSession.id,
+            isCorrect: graded.isCorrect,
+            similarityScore: graded.similarityScore,
+            accuracy: graded.accuracyRate,
+            correctCount: graded.correctLineCount,
+            totalCount: graded.totalLines,
+            source: "text_evaluate",
+            payload: {
+              gradingMode: "best_line_match",
+              compareModes: graded.mistakes?.map((mistake: any) => mistake.compareMode) ?? [],
+            },
           });
 
           return {
@@ -5770,6 +5915,18 @@ ${input.userAnswer}
             llmFeedback,
             completedAt: new Date(),
           });
+          await logTestEvaluation({
+            createdSessionId: createdSession.id,
+            isCorrect: isCorrect === 1,
+            similarityScore,
+            accuracy: similarityScore,
+            source: "llm_evaluate",
+            payload: {
+              gradingMode: "llm",
+              missingKeywordsCount: Array.isArray(evaluation.missingKeywords) ? evaluation.missingKeywords.length : 0,
+              mistakeCount: Array.isArray(evaluation.mistakes) ? evaluation.mistakes.length : 0,
+            },
+          });
 
           return {
             isCorrect,
@@ -5801,6 +5958,16 @@ ${input.userAnswer}
             mistakeHighlights: null,
             llmFeedback: null,
             completedAt: new Date(),
+          });
+          await logTestEvaluation({
+            createdSessionId: createdSession.id,
+            isCorrect: isCorrect === 1,
+            similarityScore,
+            accuracy: similarityScore,
+            source: "fallback_evaluate",
+            payload: {
+              gradingMode: "fallback_similarity",
+            },
           });
 
           return {
@@ -5857,6 +6024,7 @@ ${input.userAnswer}
         backspaceCount: z.number(),
         pasteDetected: z.boolean(),
         mode: z.enum(["practice", "exam"]),
+        analytics: LEARNING_LOG_META_SCHEMA,
       }))
       .mutation(async ({ ctx, input }) => {
         const question = await db.getQuestionById(input.questionId);
@@ -5905,6 +6073,38 @@ ${input.userAnswer}
 
         // exam 모드일 때만 보너스 계산
         if (input.mode !== "exam") {
+          const subject = await getSubjectForLogging(question);
+          await recordLearningEvent({
+            eventCategory: "typing",
+            eventType: "typing_attempt",
+            user: ctx.user,
+            question,
+            subject,
+            requestMeta: {
+              req: ctx.req,
+              clientSessionId: input.analytics?.clientSessionId,
+              pagePath: input.analytics?.pagePath,
+              batchId: input.analytics?.batchId,
+            },
+            metrics: {
+              source: input.analytics?.source ?? "typing_record",
+              answerLength: input.answerLength,
+              inputChars: input.inputChars,
+              timeToFirstKeyMs: input.timeToFirstKey,
+              typingDurationMs: typingDuration,
+              backspaceCount: input.backspaceCount,
+              pasteDetected: input.pasteDetected,
+              effectiveSpeed,
+            },
+            payload: {
+              mode: input.mode,
+              lengthBucket,
+              expectedSpeed: 0,
+              bonus: 0,
+              bonusLabel: "normal",
+              bonusRatio: 1,
+            },
+          });
           return { bonus: 0, ratio: 1, effectiveSpeed, expectedSpeed: 0, label: "normal" as const };
         }
 
@@ -5926,6 +6126,42 @@ ${input.userAnswer}
 
         const expectedSpeed = computeExpectedSpeed(examSpeed, practiceSpeed);
         const bonusResult = calculateSpeedBonus(effectiveSpeed, expectedSpeed);
+
+        const subject = await getSubjectForLogging(question);
+        await recordLearningEvent({
+          eventCategory: "typing",
+          eventType: "typing_attempt",
+          user: ctx.user,
+          question,
+          subject,
+          requestMeta: {
+            req: ctx.req,
+            clientSessionId: input.analytics?.clientSessionId,
+            pagePath: input.analytics?.pagePath,
+            batchId: input.analytics?.batchId,
+          },
+          metrics: {
+            source: input.analytics?.source ?? "typing_record",
+            testMode: input.analytics?.testMode ?? "single",
+            answerLength: input.answerLength,
+            inputChars: input.inputChars,
+            timeToFirstKeyMs: input.timeToFirstKey,
+            typingDurationMs: typingDuration,
+            backspaceCount: input.backspaceCount,
+            pasteDetected: input.pasteDetected,
+            effectiveSpeed,
+          },
+          payload: {
+            mode: input.mode,
+            lengthBucket,
+            expectedSpeed,
+            examBaseline: examSpeed,
+            practiceBaseline: practiceSpeed,
+            bonus: bonusResult.bonus,
+            bonusLabel: bonusResult.label,
+            bonusRatio: bonusResult.ratio,
+          },
+        });
 
         return bonusResult;
       }),
@@ -6610,6 +6846,11 @@ ${input.userAnswer}
         });
 
         const saved = await db.createTelemetryEvents(rows);
+        await mirrorTelemetryRowsToCsv({
+          user: ctx.user,
+          rows,
+          req: ctx.req,
+        });
         return { success: true, saved };
       }),
 

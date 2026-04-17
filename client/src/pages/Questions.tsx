@@ -1975,7 +1975,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
             블록 일괄 입력만 사용합니다. 각 블록은 `첫 줄=질문`, `아래=답안` 형태이며 블록 사이는 `---` 로 구분합니다.
           </p>
           <p className="text-xs text-muted-foreground">
-            답안 줄 끝에 `(암기: 직효)`처럼 적으면, 연습 화면에서 해당 글자를 밑줄 힌트로 표시합니다.
+            답안 줄 끝에 `{직효}`처럼 적으면, 연습 화면에서 해당 글자를 밑줄 힌트로 표시합니다.
           </p>
           <p className="text-xs text-muted-foreground">
             감지 결과: 총 {inlineBulkSummary.total}개 (텍스트 {inlineBulkSummary.text} / 표 {inlineBulkSummary.table})
@@ -1995,7 +1995,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
             ref={questionTextareaRef}
             value={formData.question}
             onChange={(e) => handleBulkInputChange(e.target.value)}
-            placeholder={"문제제목\n1. 직접유지장치의 효과 (암기: 직효)\n2. 지점선으로의 거리 (암기: 지거)\n---\n다음문제제목\n답안/본문"}
+            placeholder={"문제제목\n1. 직접유지장치의 효과 {직효}\n2. 지점선으로의 거리 {지거}\n---\n다음문제제목\n답안/본문"}
             rows={12}
           />
         </div>

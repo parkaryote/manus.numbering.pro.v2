@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ClipboardCheck, BookOpen } from "lucide-react";
 import { isPartialMatch, splitGraphemes } from "@/lib/hangul";
+import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { toast } from "sonner";
 
 interface SubjectPracticeProps {
@@ -534,6 +535,13 @@ export default function SubjectPractice({ subjectId }: SubjectPracticeProps) {
           typingSpeed,
           accuracy,
           errorCount,
+          analytics: {
+            ...getAnalyticsRequestMeta(),
+            source: "subject_practice",
+            completionRatio: ratio,
+            blindMode: false,
+            typedLength: typedChars,
+          },
         });
 
         setPracticeCounts((prev) => ({ ...prev, [questionId]: (prev[questionId] || 0) + 1 }));

@@ -12,7 +12,8 @@ export type ParsedMnemonicAnswer = {
   summaryHints: string[];
 };
 
-const TRAILING_MNEMONIC_REGEX = /\s*[（(]\s*(?:암기|힌트)\s*[:：]\s*([^()（）\n\r]+?)\s*[)）]\s*$/;
+const TRAILING_MNEMONIC_BRACE_REGEX = /\s*\{\s*([^{}\n\r]+?)\s*\}\s*$/;
+const TRAILING_MNEMONIC_LEGACY_REGEX = /\s*[（(]\s*(?:암기|힌트)\s*[:：]\s*([^()（）\n\r]+?)\s*[)）]\s*$/;
 const LINE_PREFIX_REGEX = /^(\s*(?:\d+[.)]\s*|[-*•·●○◦▪▫▸▹►▶‣⁃※]\s*))/;
 
 function normalizeComparableChar(value: string): string {
@@ -53,9 +54,15 @@ function getHighlightedIndexes(cleanLine: string, hint: string | null): number[]
 
 export function parseMnemonicAnswerLine(rawLine: string): ParsedMnemonicAnswerLine {
   const normalizedLine = typeof rawLine === "string" ? rawLine : "";
-  const mnemonicMatch = normalizedLine.match(TRAILING_MNEMONIC_REGEX);
-  const hint = mnemonicMatch?.[1]?.trim() || null;
-  const cleanLine = hint ? normalizedLine.replace(TRAILING_MNEMONIC_REGEX, "").trimEnd() : normalizedLine;
+  const braceMatch = normalizedLine.match(TRAILING_MNEMONIC_BRACE_REGEX);
+  const legacyMatch = braceMatch ? null : normalizedLine.match(TRAILING_MNEMONIC_LEGACY_REGEX);
+  const hint = braceMatch?.[1]?.trim() || legacyMatch?.[1]?.trim() || null;
+  const cleanLine = hint
+    ? normalizedLine
+        .replace(TRAILING_MNEMONIC_BRACE_REGEX, "")
+        .replace(TRAILING_MNEMONIC_LEGACY_REGEX, "")
+        .trimEnd()
+    : normalizedLine;
 
   return {
     rawLine: normalizedLine,

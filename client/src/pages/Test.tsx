@@ -15,6 +15,7 @@ import { ConfidencePopup } from "@/components/ConfidencePopup";
 import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
 import { getImageAttribution } from "@/lib/imageAttribution";
+import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { useIsMobile } from "@/hooks/useMobile";
 import { stripMnemonicHintsFromAnswer } from "@shared/answerMnemonics";
 
@@ -641,6 +642,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
               isCorrect: !!results[key],
             }))
           ),
+          analytics: {
+            ...getAnalyticsRequestMeta(),
+            source: "single_test_table",
+            testMode: "single",
+          },
         });
         setSubmittedSessionIds(typeof createdSession?.id === "number" ? [createdSession.id] : []);
         await updateReviewMutation.mutateAsync({
@@ -674,6 +680,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
           questionId: question.id,
           userAnswer: combinedAnswer,
           recallTime,
+          analytics: {
+            ...getAnalyticsRequestMeta(),
+            source: "single_test_image",
+            testMode: "single",
+          },
         });
       }
     } else {
@@ -693,6 +704,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
           questionId: question.id,
           userAnswer: userAnswer.trim(),
           recallTime,
+          analytics: {
+            ...getAnalyticsRequestMeta(),
+            source: "single_test_text",
+            testMode: "single",
+          },
         });
         // 타이핑 속도 데이터 기록
         if (typingStartTimeRef.current !== null) {
@@ -707,6 +723,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
             backspaceCount: backspaceCountRef.current,
             pasteDetected: pasteDetectedRef.current,
             mode: "exam",
+            analytics: {
+              ...getAnalyticsRequestMeta(),
+              source: "single_test_text",
+              testMode: "single",
+            },
           });
         }
       }

@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
 import { SubjectConfidenceHistoryModal } from "@/components/SubjectConfidenceHistoryModal";
+import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
 
 interface SubjectExamProps {
@@ -119,6 +120,13 @@ function getConfidenceSignalDotClass(state?: string) {
   return "bg-rose-500";
 }
 
+function createExamBatchId() {
+  if (typeof window !== "undefined" && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `exam-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamProps) {
   const [location, setLocation] = useLocation();
   const searchParams = useMemo(() => {
@@ -157,6 +165,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
   const [timeLimitMinutes, setTimeLimitMinutes] = useState<number | null>(null);
   const [timeLimitInput, setTimeLimitInput] = useState("");
   const timeoutSubmitTriggeredRef = useRef(false);
+  const examBatchIdRef = useRef<string>(createExamBatchId());
   const [examQuestions, setExamQuestions] = useState<ExamQuestion[]>([]);
 
   const { data: subject } = trpc.subjects.getById.useQuery({ id: subjectId });
@@ -338,6 +347,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
     setStartTime(now);
     setElapsedTime(0);
     timeoutSubmitTriggeredRef.current = false;
+    examBatchIdRef.current = createExamBatchId();
   }, [questions, commitQuestionCountInput, commitTimeLimitInput, isRandom]);
 
   const handleFinishExam = useCallback(async (options?: { skipConfirm?: boolean; timeout?: boolean }) => {
@@ -417,6 +427,12 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
               isCorrect: 0,
               recallTime: recallTimeForExam,
               similarityScore: 0,
+              analytics: {
+                ...getAnalyticsRequestMeta(),
+                source: "mock_exam_blank",
+                testMode: "mock",
+                batchId: examBatchIdRef.current,
+              },
             });
             await updateReviewMutation.mutateAsync({
               questionId: q.id,
@@ -469,6 +485,12 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
               recallTime: recallTimeForExam,
               similarityScore,
               mistakeHighlights: JSON.stringify(tableMistakes),
+              analytics: {
+                ...getAnalyticsRequestMeta(),
+                source: "mock_exam_table",
+                testMode: "mock",
+                batchId: examBatchIdRef.current,
+              },
             });
             await updateReviewMutation.mutateAsync({
               questionId: q.id,
@@ -503,9 +525,19 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
           questionId: q.id,
           userAnswer: ans,
           recallTime: recallTimeForExam,
+          analytics: {
+            ...getAnalyticsRequestMeta(),
+            source: "mock_exam_evaluate",
+            testMode: "mock" as const,
+            batchId: examBatchIdRef.current,
+          },
         };
         const evalRaw = isDemo
-          ? await demoEvaluateMutation.mutateAsync(evalInput)
+          ? await demoEvaluateMutation.mutateAsync({
+              questionId: q.id,
+              userAnswer: ans,
+              recallTime: recallTimeForExam,
+            })
           : await evaluateMutation.mutateAsync(evalInput);
 
         const isCorrect = toBool((evalRaw as any)?.isCorrect);

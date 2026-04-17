@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { splitGraphemes, isPartialMatch, isHangul, isJamo, decomposeHangul } from "@/lib/hangul";
 import { TableEditor, TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
+import { ImageLabelEditor, ImageLabel } from "@/components/ImageLabelEditor";
 import { trackQuestionAttempt, trackPracticeComplete } from "@/lib/ga4Events";
 import { DamageNumber } from "@/components/DamageNumber";
 import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
@@ -15,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { CONFIDENCE_THRESHOLDS, estimatePracticeConfidenceDelta } from "@shared/examConfidence";
 import { buildNextAutoNumberingValue, getForcedPrefixByTemplateProgress, getLinePrefixHint } from "@/lib/autoNumbering";
 import { getImageAttribution } from "@/lib/imageAttribution";
+import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { useIsMobile } from "@/hooks/useMobile";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { parseMnemonicAnswer } from "@shared/answerMnemonics";
@@ -383,6 +385,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [editAnswer, setEditAnswer] = useState('');
   const [editAutoNumbering, setEditAutoNumbering] = useState(true);
   const [editTableData, setEditTableData] = useState<TableData | null>(null);
+  const [editImageUrl, setEditImageUrl] = useState('');
+  const [editImageLabels, setEditImageLabels] = useState<ImageLabel[]>([]);
   // 이미지 컨테이너 높이 추적 (메모장 높이 동기화)
   useEffect(() => {
     if (!imageContainerRef.current) return;
@@ -1081,6 +1085,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setEditQuestion(question.question);
     setEditAnswer(question.answer || '');
     setEditAutoNumbering((question.autoNumbering ?? 1) === 1);
+    setEditImageUrl(question.imageUrl || '');
+    if (question.imageLabels) {
+      try {
+        const parsed = JSON.parse(question.imageLabels) as ImageLabel[];
+        setEditImageLabels(Array.isArray(parsed) ? parsed : []);
+      } catch {
+        setEditImageLabels([]);
+      }
+    } else {
+      setEditImageLabels([]);
+    }
     if (question.tableData) {
       try {
         const parsed = JSON.parse(question.tableData) as TableData;
@@ -1099,6 +1114,43 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (!question) return;
     const shouldUseDemoAdminMutation = isAdmin && question.isDemo === 1;
     if (isDemo && !shouldUseDemoAdminMutation) return;
+    if (isImageQuestion) {
+      if (!editQuestion.trim()) {
+        toast.error("질문을 입력하세요");
+        return;
+      }
+      if (!editImageUrl.trim()) {
+        toast.error("이미지를 불러오지 못했습니다");
+        return;
+      }
+      if (editImageLabels.length === 0) {
+        toast.error("정답 영역을 1개 이상 지정하세요");
+        return;
+      }
+      if (editImageLabels.some((label) => !label.answer.trim())) {
+        toast.error("모든 영역의 정답을 입력하세요");
+        return;
+      }
+      const payload = {
+        question: editQuestion,
+        answer: "",
+        imageUrl: editImageUrl,
+        imageLabels: JSON.stringify(editImageLabels),
+        autoNumbering: 0,
+      };
+      if (shouldUseDemoAdminMutation) {
+        updateDemoQuestionMutation.mutate({
+          questionId: question.id,
+          ...payload,
+        });
+      } else {
+        updateQuestionMutation.mutate({
+          id: question.id,
+          ...payload,
+        });
+      }
+      return;
+    }
     if (isTableQuestion) {
       if (!editTableData) {
         toast.error("표를 작성하세요");
@@ -1701,6 +1753,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             typingSpeed,
             accuracy: wasBlind ? 100 : 84,
             errorCount: wasBlind ? 0 : 1,
+            analytics: {
+              ...getAnalyticsRequestMeta(),
+              source: "practice_line_completion",
+              completionRatio,
+              blindMode: wasBlind,
+              typedLength,
+            },
           });
           await invalidateQuestionWorkspaceCaches();
           const [latestConfidence] = await Promise.all([
@@ -2254,6 +2313,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         typingSpeed,
         accuracy,
         errorCount,
+        analytics: {
+          ...getAnalyticsRequestMeta(),
+          source: "practice_table_partial",
+          completionRatio: ratio,
+          blindMode: hideMode === "all",
+          typedLength: typedChars,
+        },
       });
       hasBeenSaved.current = true;
       tablePartialSavedRatioRef.current = ratio;
@@ -3232,6 +3298,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             typingSpeed: speed,
             accuracy: 100,
             errorCount: 0,
+            analytics: {
+              ...getAnalyticsRequestMeta(),
+              source: "practice_cycle_completion",
+              completionRatio: 1,
+              blindMode: hideMode === "all",
+              typedLength: userInput.length,
+            },
           });
           await invalidateQuestionWorkspaceCaches();
 
@@ -4183,14 +4256,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       size="sm"
                       className={`h-7 sm:h-8 gap-1.5 text-[11px] sm:text-xs ${editMode ? 'bg-orange-500/10 text-orange-600' : ''}`}
                       onClick={() => {
-                        if (isImageQuestion) {
-                          setLocation(
-                            isAdminDemoQuestion
-                              ? `/demo/questions/${question.subjectId}`
-                              : `/questions/${question.subjectId}`
-                          );
-                          return;
-                        }
                         editMode ? setEditMode(false) : startEditMode();
                       }}
                     >
@@ -4207,8 +4272,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           {/* 메모 패널 - 정답 표시 영역과 2단 레이아웃으로 표시됨 (memoOpen 시) */}
 
           {/* 인라인 문제 편집 모드 */}
-          {editMode && !isImageQuestion && (
-            <div className="rounded-lg border-2 border-orange-300 bg-orange-50/50 dark:bg-orange-950/20 dark:border-orange-700 p-4 space-y-3">
+          {editMode && (
+            <div className={`rounded-lg border-2 border-orange-300 bg-orange-50/50 dark:bg-orange-950/20 dark:border-orange-700 p-4 space-y-3 ${isImageQuestion ? 'mx-3 sm:mx-4 mt-3' : ''}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Pencil className="h-4 w-4 text-orange-600" />
@@ -4235,7 +4300,36 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   </Button>
                 </div>
               </div>
-              {isTableQuestion ? (
+              {isImageQuestion ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">질문</label>
+                    <Textarea
+                      value={editQuestion}
+                      onChange={(e) => setEditQuestion(e.target.value)}
+                      rows={3}
+                      className="border-orange-200 dark:border-orange-700 bg-white dark:bg-orange-950/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">이미지 URL</label>
+                    <Textarea
+                      value={editImageUrl}
+                      onChange={(e) => setEditImageUrl(e.target.value)}
+                      rows={2}
+                      className="border-orange-200 dark:border-orange-700 bg-white dark:bg-orange-950/30 font-mono text-[11px]"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-orange-700 dark:text-orange-400 block">영역과 정답</label>
+                    <ImageLabelEditor
+                      imageUrl={editImageUrl}
+                      initialLabels={editImageLabels}
+                      onChange={setEditImageLabels}
+                    />
+                  </div>
+                </div>
+              ) : isTableQuestion ? (
                 <div className="space-y-3">
                   <div>
                     <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">질문</label>
