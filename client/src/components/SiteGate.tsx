@@ -44,8 +44,9 @@ export function SiteGate({ onGranted }: SiteGateProps) {
         onSuccess: () => {
           onGranted();
         },
-        onError: () => {
-          setError("비밀번호가 올바르지 않습니다");
+        onError: (error) => {
+          const message = (error?.message ?? "").trim();
+          setError(message || "비밀번호가 올바르지 않습니다");
           setShaking(true);
           setPassword("");
           setTimeout(() => setShaking(false), 500);
