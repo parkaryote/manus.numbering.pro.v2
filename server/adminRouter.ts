@@ -257,6 +257,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     fallbackAnswer: string;
     fallbackImageUrl?: string;
     fallbackImageLabels?: string;
+    forceFallbackMedia?: boolean;
     displayOrder: number;
     difficulty: "easy" | "medium" | "hard";
     fallbackAutoNumbering: number;
@@ -291,6 +292,12 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
         : matchedQuestion?.question && matchedQuestion.question.trim().length > 0
           ? matchedQuestion.question
           : questionTextCandidates[0] ?? input.questionText;
+    const imageUrl = input.forceFallbackMedia
+      ? input.fallbackImageUrl ?? source?.imageUrl ?? matchedQuestion?.imageUrl ?? undefined
+      : source?.imageUrl ?? matchedQuestion?.imageUrl ?? input.fallbackImageUrl ?? undefined;
+    const imageLabels = input.forceFallbackMedia
+      ? input.fallbackImageLabels ?? source?.imageLabels ?? matchedQuestion?.imageLabels ?? undefined
+      : source?.imageLabels ?? matchedQuestion?.imageLabels ?? input.fallbackImageLabels ?? undefined;
     const payload = {
       question: canonicalQuestionText,
       answer:
@@ -302,9 +309,8 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
       autoNumbering: source?.autoNumbering ?? matchedQuestion?.autoNumbering ?? input.fallbackAutoNumbering,
       difficulty: source?.difficulty ?? matchedQuestion?.difficulty ?? input.difficulty,
       tableData: source?.tableData ?? matchedQuestion?.tableData ?? undefined,
-      imageUrl: source?.imageUrl ?? matchedQuestion?.imageUrl ?? input.fallbackImageUrl ?? undefined,
-      imageLabels:
-        source?.imageLabels ?? matchedQuestion?.imageLabels ?? input.fallbackImageLabels ?? undefined,
+      imageUrl,
+      imageLabels,
       useAIGrading: source?.useAIGrading ?? matchedQuestion?.useAIGrading ?? 0,
       isStarred: matchedQuestion?.isStarred ?? source?.isStarred ?? 0,
       displayOrder: input.displayOrder,
@@ -344,6 +350,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     fallbackAnswer: TOOTH_DIRECTION_BLANK_DEMO_FALLBACK_ANSWER,
     fallbackImageUrl: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_URL,
     fallbackImageLabels: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_LABELS,
+    forceFallbackMedia: true,
     displayOrder: 9,
     difficulty: "medium",
     fallbackAutoNumbering: 0,

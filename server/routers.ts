@@ -2426,6 +2426,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     fallbackAnswer: string;
     fallbackImageUrl?: string;
     fallbackImageLabels?: string;
+    forceFallbackMedia?: boolean;
     displayOrder: number;
     difficulty: "easy" | "medium" | "hard";
     fallbackAutoNumbering: number;
@@ -2460,6 +2461,12 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
         : matchedQuestion?.question && matchedQuestion.question.trim().length > 0
           ? matchedQuestion.question
           : questionTextCandidates[0] ?? input.questionText;
+    const imageUrl = input.forceFallbackMedia
+      ? input.fallbackImageUrl ?? source?.imageUrl ?? matchedQuestion?.imageUrl ?? null
+      : source?.imageUrl ?? matchedQuestion?.imageUrl ?? input.fallbackImageUrl ?? null;
+    const imageLabels = input.forceFallbackMedia
+      ? input.fallbackImageLabels ?? source?.imageLabels ?? matchedQuestion?.imageLabels ?? null
+      : source?.imageLabels ?? matchedQuestion?.imageLabels ?? input.fallbackImageLabels ?? null;
     const payload = {
       question: canonicalQuestionText,
       answer:
@@ -2469,9 +2476,8 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
             ? matchedQuestion.answer
             : input.fallbackAnswer,
       difficulty: source?.difficulty ?? matchedQuestion?.difficulty ?? input.difficulty,
-      imageUrl: source?.imageUrl ?? matchedQuestion?.imageUrl ?? input.fallbackImageUrl ?? null,
-      imageLabels:
-        source?.imageLabels ?? matchedQuestion?.imageLabels ?? input.fallbackImageLabels ?? null,
+      imageUrl,
+      imageLabels,
       autoNumbering: source?.autoNumbering ?? matchedQuestion?.autoNumbering ?? input.fallbackAutoNumbering,
       tableData: source?.tableData ?? matchedQuestion?.tableData ?? null,
       displayOrder: input.displayOrder,
@@ -2526,6 +2532,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     fallbackAnswer: TOOTH_DIRECTION_BLANK_DEMO_FALLBACK_ANSWER,
     fallbackImageUrl: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_URL,
     fallbackImageLabels: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_LABELS,
+    forceFallbackMedia: true,
     displayOrder: 9,
     difficulty: "medium",
     fallbackAutoNumbering: 0,
