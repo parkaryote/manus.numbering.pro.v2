@@ -3370,6 +3370,32 @@ async function awaitStarterSyncCompletion(
   }
 }
 
+async function ensureAuthReadyDataForUser(
+  userId: number,
+  sourceGuestUserId?: number | null
+) {
+  if (
+    typeof sourceGuestUserId === "number" &&
+    Number.isFinite(sourceGuestUserId) &&
+    sourceGuestUserId > 0 &&
+    sourceGuestUserId !== userId
+  ) {
+    try {
+      await runGuestMergeOnce(sourceGuestUserId, userId);
+    } catch (error) {
+      console.warn("[Auth] Guest merge during auth was delayed:", error);
+      void runGuestMergeOnce(sourceGuestUserId, userId);
+    }
+  }
+
+  try {
+    await awaitStarterSyncCompletion(userId, { force: true });
+  } catch (error) {
+    console.warn("[Auth] Starter sync during auth was delayed:", error);
+    triggerStarterSyncInBackground(userId, { force: true });
+  }
+}
+
 function makePracticeSignature(s: {
   questionId: number;
   completedAt: Date;
@@ -4189,13 +4215,12 @@ export const appRouter = router({
         // 아이디/비밀번호 저장
         await db.setUserCredentials(user.id, input.username, passwordHash);
 
-        // 게스트 데이터 병합은 로그인 응답을 막지 않도록 짧게 대기 후 백그라운드로 이어간다.
-        if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
-          await triggerGuestMergeWithBudget(ctx.user.id, user.id);
-        }
-
-        // 로그인 응답 지연을 줄이기 위해 스타터 동기화는 백그라운드로 처리
-        triggerStarterSyncInBackground(user.id, { force: true });
+        // 가입 직후 첫 화면에서 데모 과목/문제가 부분 노출되지 않도록
+        // 게스트 병합 + 스타터 동기화를 가입 응답 전에 최대한 완료한다.
+        await ensureAuthReadyDataForUser(
+          user.id,
+          ctx.user?.loginMethod === "guest" ? ctx.user.id : null
+        );
 
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(simpleOpenId, {
@@ -4275,13 +4300,11 @@ export const appRouter = router({
           user = { ...user, loginMethod: "simple" };
         }
 
-        // 게스트 데이터 병합은 로그인 응답을 막지 않도록 짧게 대기 후 백그라운드로 이어간다.
         if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
-          await triggerGuestMergeWithBudget(ctx.user.id, user.id);
+          await ensureAuthReadyDataForUser(user.id, ctx.user.id);
+        } else {
+          triggerStarterSyncInBackground(user.id, { force: true });
         }
-
-        // 로그인 응답 지연을 줄이기 위해 스타터 동기화는 백그라운드로 처리
-        triggerStarterSyncInBackground(user.id, { force: true });
 
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(user.openId, {
@@ -4407,11 +4430,10 @@ export const appRouter = router({
         }
 
         if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
-          await triggerGuestMergeWithBudget(ctx.user.id, user.id);
+          await ensureAuthReadyDataForUser(user.id, ctx.user.id);
+        } else {
+          triggerStarterSyncInBackground(user.id, { force: true });
         }
-
-        // 로그인 응답 지연을 줄이기 위해 스타터 동기화는 백그라운드로 처리
-        triggerStarterSyncInBackground(user.id, { force: true });
 
         const sessionToken = await sdk.createSessionToken(user.openId, {
           name: preferredName || user.name || "Google 사용자",
