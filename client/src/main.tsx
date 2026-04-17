@@ -70,6 +70,7 @@ initAnalytics();
 const TRPC_FETCH_TIMEOUT_MS = 12000;
 const TRPC_AUTH_FETCH_TIMEOUT_MS = 10000;
 const TRPC_OCR_FETCH_TIMEOUT_MS = 180000;
+const TRPC_ADMIN_DEMO_FETCH_TIMEOUT_MS = 120000;
 
 function resolveTrpcTimeoutMs(input: RequestInfo | URL): number {
   const rawUrl =
@@ -86,6 +87,11 @@ function resolveTrpcTimeoutMs(input: RequestInfo | URL): number {
     rawUrl.includes("/api/trpc/ocr.getResult")
   ) {
     return TRPC_OCR_FETCH_TIMEOUT_MS;
+  }
+
+  // 데모 관리자 작업은 생성/수정 직후 개인 작업공간 동기화를 수행해 시간이 더 걸릴 수 있다.
+  if (rawUrl.includes("/api/trpc/admin.demo.")) {
+    return TRPC_ADMIN_DEMO_FETCH_TIMEOUT_MS;
   }
 
   // 로그인/세션 확인은 외부 OAuth + DB round trip으로 지연될 수 있다.

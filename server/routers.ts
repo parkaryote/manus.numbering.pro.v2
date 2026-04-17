@@ -1020,6 +1020,12 @@ const HARD_CODED_TOOTH_BOX7_DEMO_ANSWER = [
   "2. 교합면이 있어 가는 기능 보조",
   "3. 상악 제1 소구치는 2개의 치근",
 ].join("\n");
+const TOOTH_MOLAR_CUSP_RIDGE_DEMO_QUESTION_TEXT =
+  "[]는 구치들의 교합면에서 작은 산봉우리처럼 튀어나온 부분이고, []은 선 모양으로 솟아있는 부분이다.";
+const TOOTH_MOLAR_CUSP_RIDGE_DEMO_FALLBACK_ANSWER = [
+  "1. 교두",
+  "2. 융선",
+].join("\n");
 const PARTIAL_DENTURE_DEMO_TARGET_QUESTION_COUNT = 9;
 
 function normalizeSubjectNameValue(value: string | null | undefined): string {
@@ -1116,6 +1122,11 @@ function getStarterTitleScoreOverride(input: {
   if (isToothMorphologySubjectName(subjectName)) {
     if (normalizedTitle.includes("box1절치들의근원심구별")) return 91;
     if (normalizedTitle.includes("box7소구치의견치대구치의중간단계로서의특징중대구치의특징")) return 88;
+    if (
+      normalizedTitle.includes("구치들의교합면에서작은산봉우리처럼튀어나온부분이고은선모양으로솟아있는부분이다")
+    ) {
+      return 87;
+    }
     if (normalizedTitle.includes("box9하악제1소구치와제2소구치의차이점")) return 54;
     if (normalizedTitle.includes("표i3상악치아크기")) return 22;
   }
@@ -1429,12 +1440,13 @@ type DemoQuestionPreview = {
   isExample: true;
 };
 
-type DemoShowcaseKey = "box1" | "box7" | "box9" | "table_i3";
+type DemoShowcaseKey = "box1" | "box7" | "cusp_ridge" | "box9" | "table_i3";
 
-const DEMO_SHOWCASE_KEYS_IN_ORDER: DemoShowcaseKey[] = ["box1", "box7", "box9", "table_i3"];
+const DEMO_SHOWCASE_KEYS_IN_ORDER: DemoShowcaseKey[] = ["box1", "box7", "cusp_ridge", "box9", "table_i3"];
 const DEMO_SHOWCASE_TITLE_CANDIDATES: Record<DemoShowcaseKey, string[]> = {
   box1: ["Box-1 절치들의 근원심구별"],
   box7: [HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT],
+  cusp_ridge: [TOOTH_MOLAR_CUSP_RIDGE_DEMO_QUESTION_TEXT],
   box9: ["Box-9 하악 제1소구치와 제2소구치의 차이점"],
   table_i3: ["표 I-3 상악 치아 크기"],
 };
@@ -1446,6 +1458,7 @@ function normalizeDemoShowcaseLookupValue(value: string | null | undefined): str
 const DEMO_SHOWCASE_TITLE_LOOKUP: Record<DemoShowcaseKey, string[]> = {
   box1: DEMO_SHOWCASE_TITLE_CANDIDATES.box1.map((title) => normalizeDemoShowcaseLookupValue(title)),
   box7: DEMO_SHOWCASE_TITLE_CANDIDATES.box7.map((title) => normalizeDemoShowcaseLookupValue(title)),
+  cusp_ridge: DEMO_SHOWCASE_TITLE_CANDIDATES.cusp_ridge.map((title) => normalizeDemoShowcaseLookupValue(title)),
   box9: DEMO_SHOWCASE_TITLE_CANDIDATES.box9.map((title) => normalizeDemoShowcaseLookupValue(title)),
   table_i3: DEMO_SHOWCASE_TITLE_CANDIDATES.table_i3.map((title) => normalizeDemoShowcaseLookupValue(title)),
 };
@@ -1559,6 +1572,17 @@ const DEMO_SCENARIO_OVERRIDES_BY_SHOWCASE_KEY: Partial<Record<DemoShowcaseKey, D
     { minutesAgo: 3 * 24 * 60 + 10 * 60 + 14, eventType: "test", score: 92, accuracyRate: 97, isCorrect: true },
     { minutesAgo: 18 * 60, eventType: "forgetting", score: 85 },
     { minutesAgo: 0, eventType: "now", score: 88 },
+  ],
+  cusp_ridge: [
+    { minutesAgo: 8 * 24 * 60 + 7 * 60, eventType: "practice", score: 13, practiceSessionCount: 1, practiceDelta: 13 },
+    { minutesAgo: 8 * 24 * 60 + 6 * 60 + 18, eventType: "practice", score: 31, practiceSessionCount: 2, practiceDelta: 18 },
+    { minutesAgo: 8 * 24 * 60 + 5 * 60 + 30, eventType: "practice", score: 52, practiceSessionCount: 3, practiceDelta: 21 },
+    { minutesAgo: 8 * 24 * 60 + 4 * 60 + 42, eventType: "test", score: 90, accuracyRate: 95, isCorrect: true },
+    { minutesAgo: 6 * 24 * 60 + 20 * 60, eventType: "forgetting", score: 74 },
+    { minutesAgo: 4 * 24 * 60 + 17 * 60, eventType: "practice", score: 82, practiceSessionCount: 4, practiceDelta: 8 },
+    { minutesAgo: 4 * 24 * 60 + 16 * 60 + 16, eventType: "test", score: 92, accuracyRate: 97, isCorrect: true },
+    { minutesAgo: 1 * 24 * 60 + 12 * 60, eventType: "forgetting", score: 84 },
+    { minutesAgo: 0, eventType: "now", score: 87 },
   ],
   box9: [
     { minutesAgo: 9 * 24 * 60 + 7 * 60, eventType: "practice", score: 11, practiceSessionCount: 1, practiceDelta: 11 },
@@ -2215,41 +2239,89 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
   const toothDemoSubject = demoSubjects.find((subject) => isToothMorphologySubjectName(subject.name));
   if (!toothDemoSubject) return;
 
-  const existingDemoQuestions = await db.getDemoQuestions(toothDemoSubject.id);
-  const targetNormalized = normalizeQuestionTextValue(HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT);
-  const matchedQuestion = existingDemoQuestions.find(
-    (question) => normalizeQuestionTextValue(question.question) === targetNormalized
-  );
+  const ownerUser = ENV.ownerEmail ? await db.getUserByEmail(ENV.ownerEmail) : undefined;
+  const preferredOwnerId = ownerUser?.id ?? null;
 
-  const payload = {
-    question: HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT,
-    answer: HARD_CODED_TOOTH_BOX7_DEMO_ANSWER,
-    difficulty: "easy" as const,
-    imageUrl: null,
-    imageLabels: null,
-    autoNumbering: 1,
-    tableData: null,
-    displayOrder: 7,
-    isStarred: matchedQuestion?.isStarred ?? 0,
-    useAIGrading: 0,
-    memo: matchedQuestion?.memo ?? undefined,
+  const upsertShowcaseDemoQuestion = async (input: {
+    questionText: string;
+    fallbackAnswer: string;
+    displayOrder: number;
+    difficulty: "easy" | "medium" | "hard";
+    fallbackAutoNumbering: number;
+  }) => {
+    const existingDemoQuestions = await db.getDemoQuestions(toothDemoSubject.id);
+    const targetNormalized = normalizeQuestionTextValue(input.questionText);
+    const matchedQuestion = existingDemoQuestions.find(
+      (question) => normalizeQuestionTextValue(question.question) === targetNormalized
+    );
+
+    const sourceCandidates = await db.getQuestionsByExactQuestionText(input.questionText);
+    const source = [...sourceCandidates].sort((a, b) => {
+      const score = (row: typeof sourceCandidates[number]) => {
+        let value = 0;
+        if (preferredOwnerId && row.userId === preferredOwnerId) value += 1000;
+        if (row.isDemo === 0) value += 100;
+        if (row.answer && row.answer.trim().length > 0) value += 20;
+        if (row.tableData) value += 10;
+        if (typeof row.displayOrder === "number") value += Math.max(0, row.displayOrder);
+        return value;
+      };
+      return score(b) - score(a);
+    })[0];
+
+    const payload = {
+      question: input.questionText,
+      answer: source?.answer && source.answer.trim().length > 0 ? source.answer : input.fallbackAnswer,
+      difficulty: source?.difficulty ?? input.difficulty,
+      imageUrl: source?.imageUrl ?? null,
+      imageLabels: source?.imageLabels ?? null,
+      autoNumbering: source?.autoNumbering ?? input.fallbackAutoNumbering,
+      tableData: source?.tableData ?? null,
+      displayOrder: input.displayOrder,
+      isStarred: matchedQuestion?.isStarred ?? source?.isStarred ?? 0,
+      useAIGrading: source?.useAIGrading ?? 0,
+      memo: source?.memo ?? matchedQuestion?.memo ?? undefined,
+    } as const;
+
+    if (matchedQuestion) {
+      await db.updateDemoQuestion(matchedQuestion.id, payload);
+      return false;
+    }
+
+    await db.createDemoQuestion({
+      subjectId: toothDemoSubject.id,
+      userId: toothDemoSubject.userId,
+      isDemo: 1,
+      ...payload,
+    });
+    return true;
   };
 
-  if (matchedQuestion) {
-    await db.updateDemoQuestion(matchedQuestion.id, payload);
-    return;
+  const createdBox7 = await upsertShowcaseDemoQuestion({
+    questionText: HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT,
+    fallbackAnswer: HARD_CODED_TOOTH_BOX7_DEMO_ANSWER,
+    displayOrder: 7,
+    difficulty: "easy",
+    fallbackAutoNumbering: 1,
+  });
+  if (createdBox7) {
+    console.log(
+      `[StarterData] Hardcoded demo question "${HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT}" into "${TOOTH_MORPHOLOGY_SUBJECT_NAME}".`
+    );
   }
 
-  await db.createDemoQuestion({
-    subjectId: toothDemoSubject.id,
-    userId: toothDemoSubject.userId,
-    isDemo: 1,
-    ...payload,
+  const createdCuspRidge = await upsertShowcaseDemoQuestion({
+    questionText: TOOTH_MOLAR_CUSP_RIDGE_DEMO_QUESTION_TEXT,
+    fallbackAnswer: TOOTH_MOLAR_CUSP_RIDGE_DEMO_FALLBACK_ANSWER,
+    displayOrder: 8,
+    difficulty: "easy",
+    fallbackAutoNumbering: 0,
   });
-
-  console.log(
-    `[StarterData] Hardcoded demo question "${HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT}" into "${TOOTH_MORPHOLOGY_SUBJECT_NAME}".`
-  );
+  if (createdCuspRidge) {
+    console.log(
+      `[StarterData] Promoted demo question "${TOOTH_MOLAR_CUSP_RIDGE_DEMO_QUESTION_TEXT}" into "${TOOTH_MORPHOLOGY_SUBJECT_NAME}".`
+    );
+  }
 }
 
 async function ensurePartialDentureDemoSubjectExists() {

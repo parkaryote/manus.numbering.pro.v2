@@ -1,21 +1,29 @@
 // Preconfigured storage helpers for Manus WebDev templates
 // Uses the Biz-provided storage proxy (Authorization: Bearer <token>)
 
+import fs from "fs/promises";
+import path from "path";
 import { ENV } from "./_core/env.js";
 
-type StorageConfig = { baseUrl: string; apiKey: string };
+type RemoteStorageConfig = { kind: "remote"; baseUrl: string; apiKey: string };
+type LocalStorageConfig = { kind: "local"; uploadsDir: string };
+type StorageConfig = RemoteStorageConfig | LocalStorageConfig;
 
 function getStorageConfig(): StorageConfig {
-  const baseUrl = ENV.forgeApiUrl;
-  const apiKey = ENV.forgeApiKey;
+  const baseUrl = ENV.forgeApiUrl?.trim() ?? "";
+  const apiKey = ENV.forgeApiKey?.trim() ?? "";
 
-  if (!baseUrl || !apiKey) {
-    throw new Error(
-      "Storage proxy credentials missing: set BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY"
-    );
+  if (baseUrl && apiKey) {
+    return { kind: "remote", baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
   }
 
-  return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
+  const uploadsDir =
+    process.env.LOCAL_UPLOAD_DIR?.trim() ||
+    path.resolve(process.cwd(), "var", "uploads");
+  return {
+    kind: "local",
+    uploadsDir,
+  };
 }
 
 function buildUploadUrl(baseUrl: string, relKey: string): URL {
@@ -46,7 +54,11 @@ function ensureTrailingSlash(value: string): string {
 }
 
 function normalizeKey(relKey: string): string {
-  return relKey.replace(/^\/+/, "");
+  const normalized = relKey.replace(/^\/+/, "").replace(/\\/g, "/");
+  if (!normalized || normalized.split("/").some((segment) => segment === "..")) {
+    throw new Error("Invalid storage key");
+  }
+  return normalized;
 }
 
 function toFormData(
@@ -72,13 +84,36 @@ export async function storagePut(
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream"
 ): Promise<{ key: string; url: string }> {
-  const { baseUrl, apiKey } = getStorageConfig();
   const key = normalizeKey(relKey);
-  const uploadUrl = buildUploadUrl(baseUrl, key);
+  const config = getStorageConfig();
+
+  if (config.kind === "local") {
+    const absolutePath = path.resolve(config.uploadsDir, key);
+    const uploadsRoot = path.resolve(config.uploadsDir);
+    if (!absolutePath.startsWith(`${uploadsRoot}${path.sep}`) && absolutePath !== uploadsRoot) {
+      throw new Error("Refusing to write outside LOCAL_UPLOAD_DIR");
+    }
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+
+    const payload =
+      typeof data === "string"
+        ? Buffer.from(data, "utf8")
+        : Buffer.from(data);
+    await fs.writeFile(absolutePath, payload);
+
+    const encodedPath = key
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+    return { key, url: `/uploads/${encodedPath}` };
+  }
+
+  const uploadUrl = buildUploadUrl(config.baseUrl, key);
   const formData = toFormData(data, contentType, key.split("/").pop() ?? key);
   const response = await fetch(uploadUrl, {
     method: "POST",
-    headers: buildAuthHeaders(apiKey),
+    headers: buildAuthHeaders(config.apiKey),
     body: formData,
   });
 
@@ -93,10 +128,23 @@ export async function storagePut(
 }
 
 export async function storageGet(relKey: string): Promise<{ key: string; url: string; }> {
-  const { baseUrl, apiKey } = getStorageConfig();
   const key = normalizeKey(relKey);
+  const config = getStorageConfig();
+
+  if (config.kind === "local") {
+    const encodedPath = key
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+    return {
+      key,
+      url: `/uploads/${encodedPath}`,
+    };
+  }
+
   return {
     key,
-    url: await buildDownloadUrl(baseUrl, key, apiKey),
+    url: await buildDownloadUrl(config.baseUrl, key, config.apiKey),
   };
 }

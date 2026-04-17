@@ -5,6 +5,8 @@ import uploadAudioRouter from "../uploadAudio.js";
 import uploadImageRouter from "../uploadImage.js";
 import { createContext } from "./context.js";
 import { registerOAuthRoutes } from "./oauth.js";
+import fs from "fs";
+import path from "path";
 
 function resolveHeaderValue(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? "";
@@ -26,10 +28,17 @@ function resolveRequestOrigin(req: {
 
 export function createApp() {
   const app = express();
+  const localUploadsDir =
+    process.env.LOCAL_UPLOAD_DIR?.trim() ||
+    path.resolve(process.cwd(), "var", "uploads");
+  if (!fs.existsSync(localUploadsDir)) {
+    fs.mkdirSync(localUploadsDir, { recursive: true });
+  }
 
   app.disable("x-powered-by");
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use("/uploads", express.static(localUploadsDir));
 
   app.use((req, res, next) => {
     const isProd = process.env.NODE_ENV === "production";

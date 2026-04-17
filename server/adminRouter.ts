@@ -36,12 +36,19 @@ const HARD_CODED_TOOTH_BOX7_DEMO_ANSWER = [
   "2. 교합면이 있어 가는 기능 보조",
   "3. 상악 제1 소구치는 2개의 치근",
 ].join("\n");
-const TOOTH_SHOWCASE_KEYS_IN_ORDER = ["box1", "box7", "box9", "table_i3"] as const;
+const TOOTH_MOLAR_CUSP_RIDGE_DEMO_QUESTION_TEXT =
+  "[]는 구치들의 교합면에서 작은 산봉우리처럼 튀어나온 부분이고, []은 선 모양으로 솟아있는 부분이다.";
+const TOOTH_MOLAR_CUSP_RIDGE_DEMO_FALLBACK_ANSWER = [
+  "1. 교두",
+  "2. 융선",
+].join("\n");
+const TOOTH_SHOWCASE_KEYS_IN_ORDER = ["box1", "box7", "cusp_ridge", "box9", "table_i3"] as const;
 type ToothShowcaseKey = (typeof TOOTH_SHOWCASE_KEYS_IN_ORDER)[number];
 
 const TOOTH_SHOWCASE_TITLE_CANDIDATES: Record<ToothShowcaseKey, string[]> = {
   box1: ["Box-1 절치들의 근원심구별"],
   box7: [HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT],
+  cusp_ridge: [TOOTH_MOLAR_CUSP_RIDGE_DEMO_QUESTION_TEXT],
   box9: ["Box-9 하악 제1소구치와 제2소구치의 차이점"],
   table_i3: ["표 I-3 상악 치아 크기"],
 };
@@ -58,6 +65,7 @@ const TOOTH_MORPHOLOGY_SUBJECT_KEY = normalizeSubjectNameValue(TOOTH_MORPHOLOGY_
 const TOOTH_SHOWCASE_TITLE_LOOKUP: Record<ToothShowcaseKey, string[]> = {
   box1: TOOTH_SHOWCASE_TITLE_CANDIDATES.box1.map((title) => normalizeLookupValue(title)),
   box7: TOOTH_SHOWCASE_TITLE_CANDIDATES.box7.map((title) => normalizeLookupValue(title)),
+  cusp_ridge: TOOTH_SHOWCASE_TITLE_CANDIDATES.cusp_ridge.map((title) => normalizeLookupValue(title)),
   box9: TOOTH_SHOWCASE_TITLE_CANDIDATES.box9.map((title) => normalizeLookupValue(title)),
   table_i3: TOOTH_SHOWCASE_TITLE_CANDIDATES.table_i3.map((title) => normalizeLookupValue(title)),
 };
@@ -97,35 +105,76 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
   const toothDemoSubject = demoSubjects.find((subject) => isToothMorphologySubjectName(subject.name));
   if (!toothDemoSubject) return;
 
-  const demoQuestions = await db.getDemoQuestionsBySubjectId(toothDemoSubject.id);
-  const targetNormalized = normalizeLookupValue(HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT);
-  const matchedQuestion = demoQuestions.find(
-    (question) => normalizeLookupValue(question.question) === targetNormalized
-  );
+  const ownerUser = ENV.ownerEmail ? await db.getUserByEmail(ENV.ownerEmail) : undefined;
+  const preferredOwnerId = ownerUser?.id ?? null;
 
-  const payload = {
-    question: HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT,
-    answer: HARD_CODED_TOOTH_BOX7_DEMO_ANSWER,
-    autoNumbering: 1,
-    difficulty: "easy" as const,
-    tableData: undefined,
-    imageUrl: undefined,
-    imageLabels: undefined,
-    useAIGrading: 0,
-    isStarred: matchedQuestion?.isStarred ?? 0,
-    displayOrder: 7,
+  const upsertShowcaseDemoQuestion = async (input: {
+    questionText: string;
+    fallbackAnswer: string;
+    displayOrder: number;
+    difficulty: "easy" | "medium" | "hard";
+    fallbackAutoNumbering: number;
+  }) => {
+    const demoQuestions = await db.getDemoQuestionsBySubjectId(toothDemoSubject.id);
+    const targetNormalized = normalizeLookupValue(input.questionText);
+    const matchedQuestion = demoQuestions.find(
+      (question) => normalizeLookupValue(question.question) === targetNormalized
+    );
+
+    const sourceCandidates = await db.getQuestionsByExactQuestionText(input.questionText);
+    const source = [...sourceCandidates].sort((a, b) => {
+      const score = (row: typeof sourceCandidates[number]) => {
+        let value = 0;
+        if (preferredOwnerId && row.userId === preferredOwnerId) value += 1000;
+        if (row.isDemo === 0) value += 100;
+        if (row.answer && row.answer.trim().length > 0) value += 20;
+        if (row.tableData) value += 10;
+        if (typeof row.displayOrder === "number") value += Math.max(0, row.displayOrder);
+        return value;
+      };
+      return score(b) - score(a);
+    })[0];
+
+    const payload = {
+      question: input.questionText,
+      answer: source?.answer && source.answer.trim().length > 0 ? source.answer : input.fallbackAnswer,
+      autoNumbering: source?.autoNumbering ?? input.fallbackAutoNumbering,
+      difficulty: source?.difficulty ?? input.difficulty,
+      tableData: source?.tableData ?? undefined,
+      imageUrl: source?.imageUrl ?? undefined,
+      imageLabels: source?.imageLabels ?? undefined,
+      useAIGrading: source?.useAIGrading ?? 0,
+      isStarred: matchedQuestion?.isStarred ?? source?.isStarred ?? 0,
+      displayOrder: input.displayOrder,
+      memo: source?.memo ?? matchedQuestion?.memo ?? undefined,
+    } as const;
+
+    if (matchedQuestion) {
+      await db.updateDemoQuestion(matchedQuestion.id, payload);
+      return;
+    }
+
+    await db.createDemoQuestion({
+      subjectId: toothDemoSubject.id,
+      userId: toothDemoSubject.userId,
+      isDemo: 1,
+      ...payload,
+    });
   };
 
-  if (matchedQuestion) {
-    await db.updateDemoQuestion(matchedQuestion.id, payload);
-    return;
-  }
-
-  await db.createDemoQuestion({
-    subjectId: toothDemoSubject.id,
-    userId: toothDemoSubject.userId,
-    isDemo: 1,
-    ...payload,
+  await upsertShowcaseDemoQuestion({
+    questionText: HARD_CODED_TOOTH_BOX7_DEMO_QUESTION_TEXT,
+    fallbackAnswer: HARD_CODED_TOOTH_BOX7_DEMO_ANSWER,
+    displayOrder: 7,
+    difficulty: "easy",
+    fallbackAutoNumbering: 1,
+  });
+  await upsertShowcaseDemoQuestion({
+    questionText: TOOTH_MOLAR_CUSP_RIDGE_DEMO_QUESTION_TEXT,
+    fallbackAnswer: TOOTH_MOLAR_CUSP_RIDGE_DEMO_FALLBACK_ANSWER,
+    displayOrder: 8,
+    difficulty: "easy",
+    fallbackAutoNumbering: 0,
   });
 }
 
