@@ -48,6 +48,27 @@ const TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT_CANDIDATES = [
   "치아의 방향 중 빈칸을 채우시오",
   "치아의 방향",
 ];
+const TOOTH_DIRECTION_BLANK_DEMO_IMAGE_URL = "/demo-assets/tooth-direction.png";
+const TOOTH_DIRECTION_BLANK_DEMO_IMAGE_LABELS = JSON.stringify([
+  { x: 6.9, y: 20.2, width: 6.4, height: 10.1, answer: "crown" },
+  { x: 6.9, y: 51.6, width: 5.3, height: 10.1, answer: "root" },
+  { x: 28.3, y: 10.7, width: 13.3, height: 7.6, answer: "MEDIAN LINE" },
+  { x: 42.6, y: 16.4, width: 7.5, height: 7.6, answer: "incisal" },
+  { x: 67.2, y: 16.4, width: 8.5, height: 7.6, answer: "occlusal" },
+  { x: 38.9, y: 61.7, width: 10.7, height: 8.2, answer: "mesial" },
+  { x: 80.5, y: 61.7, width: 9.6, height: 8.2, answer: "distal" },
+  { x: 54.9, y: 74.9, width: 16.0, height: 10.1, answer: "cervical or gingival" },
+]);
+const TOOTH_DIRECTION_BLANK_DEMO_FALLBACK_ANSWER = [
+  "1. crown",
+  "2. root",
+  "3. MEDIAN LINE",
+  "4. incisal",
+  "5. occlusal",
+  "6. mesial",
+  "7. distal",
+  "8. cervical or gingival",
+].join("\n");
 const TOOTH_SHOWCASE_KEYS_IN_ORDER = [
   "box1",
   "box7",
@@ -234,6 +255,8 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     questionText: string;
     questionTextCandidates?: string[];
     fallbackAnswer: string;
+    fallbackImageUrl?: string;
+    fallbackImageLabels?: string;
     displayOrder: number;
     difficulty: "easy" | "medium" | "hard";
     fallbackAutoNumbering: number;
@@ -279,8 +302,9 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
       autoNumbering: source?.autoNumbering ?? matchedQuestion?.autoNumbering ?? input.fallbackAutoNumbering,
       difficulty: source?.difficulty ?? matchedQuestion?.difficulty ?? input.difficulty,
       tableData: source?.tableData ?? matchedQuestion?.tableData ?? undefined,
-      imageUrl: source?.imageUrl ?? matchedQuestion?.imageUrl ?? undefined,
-      imageLabels: source?.imageLabels ?? matchedQuestion?.imageLabels ?? undefined,
+      imageUrl: source?.imageUrl ?? matchedQuestion?.imageUrl ?? input.fallbackImageUrl ?? undefined,
+      imageLabels:
+        source?.imageLabels ?? matchedQuestion?.imageLabels ?? input.fallbackImageLabels ?? undefined,
       useAIGrading: source?.useAIGrading ?? matchedQuestion?.useAIGrading ?? 0,
       isStarred: matchedQuestion?.isStarred ?? source?.isStarred ?? 0,
       displayOrder: input.displayOrder,
@@ -317,11 +341,12 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
   await upsertShowcaseDemoQuestion({
     questionText: TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT,
     questionTextCandidates: TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT_CANDIDATES,
-    fallbackAnswer: "",
+    fallbackAnswer: TOOTH_DIRECTION_BLANK_DEMO_FALLBACK_ANSWER,
+    fallbackImageUrl: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_URL,
+    fallbackImageLabels: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_LABELS,
     displayOrder: 9,
     difficulty: "medium",
-    fallbackAutoNumbering: 1,
-    requireSource: true,
+    fallbackAutoNumbering: 0,
   });
 
   const latestDemoQuestions = await db.getDemoQuestionsBySubjectId(toothDemoSubject.id);
