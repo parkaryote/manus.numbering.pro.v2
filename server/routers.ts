@@ -2342,6 +2342,60 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
   const ownerUser = ENV.ownerEmail ? await db.getUserByEmail(ENV.ownerEmail) : undefined;
   const preferredOwnerId = ownerUser?.id ?? null;
 
+  const scorePromotionSourceQuestion = (row: Awaited<ReturnType<typeof db.getQuestionsByExactQuestionText>>[number]) => {
+    let value = 0;
+    if (preferredOwnerId && row.userId === preferredOwnerId) value += 1000;
+    if (row.isDemo === 0) value += 100;
+    if (row.answer && row.answer.trim().length > 0) value += 20;
+    if (row.tableData) value += 10;
+    if (typeof row.displayOrder === "number") value += Math.max(0, row.displayOrder);
+    return value;
+  };
+
+  const findPromotionSourceQuestion = async (questionTextCandidates: string[]) => {
+    const normalizedCandidates = Array.from(
+      new Set(
+        questionTextCandidates
+          .map((value) => normalizeStarterTitleLookupValue(value))
+          .filter((value) => value.length > 0)
+      )
+    );
+
+    const exactCandidates = (
+      await Promise.all(
+        questionTextCandidates.map((candidate) => db.getQuestionsByExactQuestionText(candidate))
+      )
+    ).flat();
+
+    const fallbackCandidates: typeof exactCandidates = [];
+    if (normalizedCandidates.length > 0) {
+      const sourceSubject =
+        (await db.findLatestSubjectByName(TOOTH_MORPHOLOGY_SUBJECT_NAME, { isDemo: 0 })) ??
+        (await db.findLatestSubjectByName(TOOTH_MORPHOLOGY_SUBJECT_NAME));
+      if (sourceSubject) {
+        const sourceSubjectQuestions = await db.getQuestionsBySubjectId(sourceSubject.id);
+        for (const row of sourceSubjectQuestions) {
+          const normalizedTitle = normalizeStarterTitleLookupValue(row.question);
+          if (!normalizedTitle) continue;
+          if (
+            normalizedCandidates.some(
+              (candidate) =>
+                normalizedTitle.includes(candidate) || candidate.includes(normalizedTitle)
+            )
+          ) {
+            fallbackCandidates.push(row as typeof exactCandidates[number]);
+          }
+        }
+      }
+    }
+
+    const mergedCandidates = [...exactCandidates, ...fallbackCandidates];
+    const dedupedCandidates = Array.from(
+      new Map(mergedCandidates.map((row) => [row.id, row])).values()
+    );
+    return dedupedCandidates.sort((a, b) => scorePromotionSourceQuestion(b) - scorePromotionSourceQuestion(a))[0];
+  };
+
   const upsertShowcaseDemoQuestion = async (input: {
     questionText: string;
     questionTextCandidates?: string[];
@@ -2366,24 +2420,8 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
       (question) => targetNormalizedSet.has(normalizeQuestionTextValue(question.question))
     );
 
-    const sourceCandidates = (
-      await Promise.all(
-        questionTextCandidates.map((candidate) => db.getQuestionsByExactQuestionText(candidate))
-      )
-    ).flat();
-    const source = [...sourceCandidates].sort((a, b) => {
-      const score = (row: typeof sourceCandidates[number]) => {
-        let value = 0;
-        if (preferredOwnerId && row.userId === preferredOwnerId) value += 1000;
-        if (row.isDemo === 0) value += 100;
-        if (row.answer && row.answer.trim().length > 0) value += 20;
-        if (row.tableData) value += 10;
-        if (typeof row.displayOrder === "number") value += Math.max(0, row.displayOrder);
-        return value;
-      };
-      return score(b) - score(a);
-    })[0];
-    if (!source && input.requireSource) {
+    const source = await findPromotionSourceQuestion(questionTextCandidates);
+    if (!source && input.requireSource && !matchedQuestion) {
       console.warn(
         `[StarterData] Missing source question for demo promotion: ${questionTextCandidates.join(" | ")}`
       );
@@ -2393,18 +2431,25 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     const canonicalQuestionText =
       source?.question && source.question.trim().length > 0
         ? source.question
-        : questionTextCandidates[0] ?? input.questionText;
+        : matchedQuestion?.question && matchedQuestion.question.trim().length > 0
+          ? matchedQuestion.question
+          : questionTextCandidates[0] ?? input.questionText;
     const payload = {
       question: canonicalQuestionText,
-      answer: source?.answer && source.answer.trim().length > 0 ? source.answer : input.fallbackAnswer,
-      difficulty: source?.difficulty ?? input.difficulty,
-      imageUrl: source?.imageUrl ?? null,
-      imageLabels: source?.imageLabels ?? null,
-      autoNumbering: source?.autoNumbering ?? input.fallbackAutoNumbering,
-      tableData: source?.tableData ?? null,
+      answer:
+        source?.answer && source.answer.trim().length > 0
+          ? source.answer
+          : matchedQuestion?.answer && matchedQuestion.answer.trim().length > 0
+            ? matchedQuestion.answer
+            : input.fallbackAnswer,
+      difficulty: source?.difficulty ?? matchedQuestion?.difficulty ?? input.difficulty,
+      imageUrl: source?.imageUrl ?? matchedQuestion?.imageUrl ?? null,
+      imageLabels: source?.imageLabels ?? matchedQuestion?.imageLabels ?? null,
+      autoNumbering: source?.autoNumbering ?? matchedQuestion?.autoNumbering ?? input.fallbackAutoNumbering,
+      tableData: source?.tableData ?? matchedQuestion?.tableData ?? null,
       displayOrder: input.displayOrder,
       isStarred: matchedQuestion?.isStarred ?? source?.isStarred ?? 0,
-      useAIGrading: source?.useAIGrading ?? 0,
+      useAIGrading: source?.useAIGrading ?? matchedQuestion?.useAIGrading ?? 0,
       memo: source?.memo ?? matchedQuestion?.memo ?? undefined,
     } as const;
 

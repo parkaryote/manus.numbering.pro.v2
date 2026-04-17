@@ -259,6 +259,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       : null;
   const INPUT_DRAFT_KEY_PREFIX = "practice_input_draft_";
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollRestoreTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const scrollNavCooldownRef = useRef(0);
   const scrollNavDeltaRef = useRef(0);
   const scrollNavDeltaResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -338,6 +339,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [damageValue, setDamageValue] = useState(0);
   const confidenceScoreForAnimationRef = useRef<number | null>(null);
   const [optimisticDisplayScore, setOptimisticDisplayScore] = useState<number | null>(null);
+  const mobileAutoNumberingGuardRef = useRef<{
+    expectedValue: string;
+    nextCursor: number;
+    expiresAt: number;
+  } | null>(null);
   // 답 가리기 상태: 'none' | 'all'
   // hiddenLines: 개별 줄 가리기/보이기 토글 (hideMode와 독립적으로 동작)
   const [hideMode, setHideMode] = useState<'none' | 'all'>('none');
@@ -668,35 +674,54 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       window.scrollTo(0, snapshot.windowTop);
     };
 
+    scrollRestoreTimersRef.current.forEach((timer) => clearTimeout(timer));
+    scrollRestoreTimersRef.current = [];
+
     apply();
     requestAnimationFrame(() => {
       apply();
-      setTimeout(apply, 60);
+      [32, 96, 180, 320].forEach((delay) => {
+        const timer = setTimeout(apply, delay);
+        scrollRestoreTimersRef.current.push(timer);
+      });
     });
   }, []);
 
-  const focusPracticeTextareaPreservingScroll = useCallback((cursor: number) => {
+  useEffect(() => {
+    return () => {
+      scrollRestoreTimersRef.current.forEach((timer) => clearTimeout(timer));
+      scrollRestoreTimersRef.current = [];
+    };
+  }, []);
+
+  const focusTextareaWithoutScroll = useCallback((cursor: number) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
-
-    const snapshot = resetScrollSnapshotRef.current;
-    if (snapshot) {
-      restorePracticeScrollSnapshot(snapshot);
-    }
 
     try {
       textarea.focus({ preventScroll: true });
     } catch {
       textarea.focus();
     }
-
     textarea.setSelectionRange(cursor, cursor);
+  }, []);
+
+  const focusPracticeTextareaPreservingScroll = useCallback((cursor: number, snapshotOverride?: PracticeScrollSnapshot | null) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const snapshot = snapshotOverride ?? resetScrollSnapshotRef.current;
+    if (snapshot) {
+      restorePracticeScrollSnapshot(snapshot);
+    }
+
+    focusTextareaWithoutScroll(cursor);
 
     if (snapshot) {
       restorePracticeScrollSnapshot(snapshot);
       setTimeout(() => restorePracticeScrollSnapshot(snapshot), 120);
     }
-  }, [restorePracticeScrollSnapshot]);
+  }, [focusTextareaWithoutScroll, restorePracticeScrollSnapshot]);
 
   const appendOptimisticConfidenceHistoryPoint = useCallback((params: {
     score: number;
@@ -1386,10 +1411,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     requestAnimationFrame(() => {
       if (!textareaRef.current) return;
       textareaRef.current.value = seeded;
-      textareaRef.current.focus();
-      textareaRef.current.setSelectionRange(seeded.length, seeded.length);
+      focusTextareaWithoutScroll(seeded.length);
     });
-  }, [getPracticeInputSeed, isListPrefixOnlyDraft, question?.id, shouldAutoSeedPracticeNumbering, userInput]);
+  }, [focusTextareaWithoutScroll, getPracticeInputSeed, isListPrefixOnlyDraft, question?.id, shouldAutoSeedPracticeNumbering, userInput]);
   
 
 
@@ -1667,6 +1691,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   };
 
   const seedPracticeInput = (seeded: string) => {
+    const snapshot = capturePracticeScrollSnapshot();
+    resetScrollSnapshotRef.current = snapshot;
     isResettingRef.current = true;
     setIsComposing(false);
     setUserInput(seeded);
@@ -1682,16 +1708,19 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
     if (textareaRef.current) {
       textareaRef.current.value = seeded;
-      textareaRef.current.focus();
-      textareaRef.current.setSelectionRange(seeded.length, seeded.length);
+      focusPracticeTextareaPreservingScroll(seeded.length, snapshot);
     }
 
     requestAnimationFrame(() => {
       isResettingRef.current = false;
       if (textareaRef.current) {
-        textareaRef.current.focus();
-        textareaRef.current.setSelectionRange(seeded.length, seeded.length);
+        focusPracticeTextareaPreservingScroll(seeded.length, snapshot);
       }
+      setTimeout(() => {
+        if (resetScrollSnapshotRef.current === snapshot) {
+          resetScrollSnapshotRef.current = null;
+        }
+      }, 340);
     });
   };
 
@@ -1826,8 +1855,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       if (nextValue !== baseInputValue) {
         textareaRef.current.value = nextValue;
       }
-      textareaRef.current.focus();
-      textareaRef.current.setSelectionRange(nextCursor, nextCursor);
+      focusTextareaWithoutScroll(nextCursor);
     });
   };
 
@@ -2344,11 +2372,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       setStartTime(now);
       setCurrentContinuousStartAt(now);
       if (textareaRef.current) {
-        textareaRef.current.setSelectionRange(0, 0);
-        textareaRef.current.focus();
+        focusTextareaWithoutScroll(0);
       }
     }
-  }, [question]);
+  }, [focusTextareaWithoutScroll, question]);
 
   // Timer effect
   useEffect(() => {
@@ -2520,12 +2547,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const nextRepeatLineIdx = rls[newIdx] ?? lineIdx;
         const nextRepeatLineText = tt.split('\n')[nextRepeatLineIdx] || "";
         const seeded = getPracticeInputSeed(nextRepeatLineText);
-        setUserInput(seeded);
-        lastInputRef.current = seeded;
-        if (textareaRef.current) {
-          textareaRef.current.value = seeded;
-          textareaRef.current.setSelectionRange(seeded.length, seeded.length);
-        }
+        seedPracticeInput(seeded);
         return;
       }
       return;
@@ -2582,6 +2604,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
     const cursorPos = e.target.selectionStart;
+
+    const mobileGuard = mobileAutoNumberingGuardRef.current;
+    if (mobileGuard) {
+      if (Date.now() <= mobileGuard.expiresAt && newValue.startsWith(mobileGuard.expectedValue) && newValue !== mobileGuard.expectedValue) {
+        requestAnimationFrame(() => {
+          const textarea = textareaRef.current ?? e.target;
+          textarea.value = mobileGuard.expectedValue;
+          textarea.setSelectionRange(mobileGuard.nextCursor, mobileGuard.nextCursor);
+        });
+        return;
+      }
+      if (newValue === mobileGuard.expectedValue || Date.now() > mobileGuard.expiresAt) {
+        mobileAutoNumberingGuardRef.current = null;
+      }
+    }
     
     // 현재 커서 위치의 줄 인덱스 계산
     const lineIndex = newValue.substring(0, cursorPos).split('\n').length - 1;
@@ -2656,12 +2693,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const nextRepeatLineIdx2 = rls2[newIdx2] ?? lineIdx2;
         const nextRepeatLineText2 = tt2.split('\n')[nextRepeatLineIdx2] || "";
         const seeded = getPracticeInputSeed(nextRepeatLineText2);
-        setUserInput(seeded);
-        lastInputRef.current = seeded;
-        if (textareaRef.current) {
-          textareaRef.current.value = seeded;
-          textareaRef.current.setSelectionRange(seeded.length, seeded.length);
-        }
+        seedPracticeInput(seeded);
         return;
       }
       return;
@@ -2897,6 +2929,108 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     toggleHideAll,
   ]);
 
+  const applyTextAutoNumbering = useCallback(
+    (textarea: HTMLTextAreaElement) => {
+      const selectionStart = textarea.selectionStart ?? 0;
+      const selectionEnd = textarea.selectionEnd ?? selectionStart;
+      const rawValue = textarea.value;
+      const cursorLineIndex = rawValue.slice(0, selectionStart).split('\n').length - 1;
+      const targetLines = targetText.split('\n');
+      const templateNextLine = targetLines[Math.min(cursorLineIndex + 1, Math.max(0, targetLines.length - 1))] ?? "";
+      const templateForcedPrefix =
+        getForcedPrefixByTemplateProgress(rawValue, selectionStart, targetText) ??
+        getLinePrefixHint(templateNextLine)?.prefix;
+      const autoNumberingOptions = {
+        preserveEmptyListLine: true,
+        ...(typeof templateForcedPrefix === "string" ? { forcedPrefix: templateForcedPrefix } : {}),
+      };
+
+      const { nextValue, nextCursor } = buildNextAutoNumberingValue(
+        rawValue,
+        selectionStart,
+        selectionEnd,
+        autoNumberingOptions
+      );
+
+      mobileAutoNumberingGuardRef.current = isMobile
+        ? {
+            expectedValue: nextValue,
+            nextCursor,
+            expiresAt: Date.now() + 220,
+          }
+        : null;
+
+      setUserInput(nextValue);
+      setLastInputTime(Date.now());
+      lastInputRef.current = nextValue;
+
+      const lineIndex = nextValue.slice(0, nextCursor).split('\n').length - 1;
+      setCurrentCursorLineIndex(Math.max(0, lineIndex));
+
+      setInputHistory(prev => {
+        const newHistory = prev.slice(0, historyIndex + 1);
+        if (newHistory[newHistory.length - 1] !== nextValue) {
+          newHistory.push(nextValue);
+          if (newHistory.length > 50) {
+            newHistory.shift();
+          }
+        }
+        return newHistory;
+      });
+      setHistoryIndex(prev => Math.min(prev + 1, 49));
+
+      if (!isActive) {
+        const now = Date.now();
+        setIsActive(true);
+        setCurrentContinuousStartAt(now);
+        if (!startTime) {
+          setStartTime(now);
+        }
+      }
+
+      if (showInactiveAlert) {
+        setShowInactiveAlert(false);
+      }
+
+      if (answerDisplayRef.current) {
+        const lineHeight = 28;
+        answerDisplayRef.current.scrollTo({
+          top: Math.max(0, lineIndex) * lineHeight,
+          behavior: 'smooth'
+        });
+      }
+
+      requestAnimationFrame(() => {
+        textarea.value = nextValue;
+        textarea.setSelectionRange(nextCursor, nextCursor);
+      });
+    },
+    [
+      historyIndex,
+      isActive,
+      isMobile,
+      setCurrentContinuousStartAt,
+      showInactiveAlert,
+      startTime,
+      targetText,
+    ]
+  );
+
+  const handlePracticeBeforeInput = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
+    if (!isMobile) return;
+    if (isTableQuestion || isImageQuestion) return;
+    if (hideMode === "all") return;
+    if (question?.autoNumbering !== 1) return;
+
+    const nativeEvent = e.nativeEvent as InputEvent & { isComposing?: boolean };
+    if (nativeEvent.inputType !== "insertLineBreak") return;
+    if (nativeEvent.isComposing || isComposing) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    applyTextAutoNumbering(e.currentTarget);
+  }, [applyTextAutoNumbering, hideMode, isComposing, isImageQuestion, isMobile, isTableQuestion, question?.autoNumbering]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const keyLower = e.key.toLowerCase();
     const hasPrimaryModifier = e.ctrlKey || e.metaKey;
@@ -2932,8 +3066,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         setUserInput(inputHistory[newIndex]);
         setTimeout(() => {
           if (textareaRef.current) {
-            textareaRef.current.focus();
-            textareaRef.current.setSelectionRange(inputHistory[newIndex].length, inputHistory[newIndex].length);
+            focusTextareaWithoutScroll(inputHistory[newIndex].length);
           }
         }, 0);
       }
@@ -2956,8 +3089,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         setUserInput(inputHistory[newIndex]);
         setTimeout(() => {
           if (textareaRef.current) {
-            textareaRef.current.focus();
-            textareaRef.current.setSelectionRange(inputHistory[newIndex].length, inputHistory[newIndex].length);
+            focusTextareaWithoutScroll(inputHistory[newIndex].length);
           }
         }, 0);
       }
@@ -2999,78 +3131,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
       if (
         isTextAutoNumbering &&
+        !isMobile &&
         !(e.nativeEvent as any).isComposing &&
         !isComposing
       ) {
         e.preventDefault();
         e.stopPropagation();
-
-        const textarea = e.currentTarget;
-        const selectionStart = textarea.selectionStart ?? 0;
-        const selectionEnd = textarea.selectionEnd ?? selectionStart;
-        const rawValue = textarea.value;
-        const cursorLineIndex = rawValue.slice(0, selectionStart).split('\n').length - 1;
-        const targetLines = targetText.split('\n');
-        const templateNextLine = targetLines[Math.min(cursorLineIndex + 1, Math.max(0, targetLines.length - 1))] ?? "";
-        const templateForcedPrefix =
-          getForcedPrefixByTemplateProgress(rawValue, selectionStart, targetText) ??
-          getLinePrefixHint(templateNextLine)?.prefix;
-        const autoNumberingOptions = {
-          preserveEmptyListLine: true,
-          ...(typeof templateForcedPrefix === "string" ? { forcedPrefix: templateForcedPrefix } : {}),
-        };
-
-        const { nextValue, nextCursor } = buildNextAutoNumberingValue(
-          rawValue,
-          selectionStart,
-          selectionEnd,
-          autoNumberingOptions
-        );
-
-        setUserInput(nextValue);
-        setLastInputTime(Date.now());
-        lastInputRef.current = nextValue;
-
-        const lineIndex = nextValue.slice(0, nextCursor).split('\n').length - 1;
-        setCurrentCursorLineIndex(Math.max(0, lineIndex));
-
-        setInputHistory(prev => {
-          const newHistory = prev.slice(0, historyIndex + 1);
-          if (newHistory[newHistory.length - 1] !== nextValue) {
-            newHistory.push(nextValue);
-            if (newHistory.length > 50) {
-              newHistory.shift();
-            }
-          }
-          return newHistory;
-        });
-        setHistoryIndex(prev => Math.min(prev + 1, 49));
-
-        if (!isActive) {
-          const now = Date.now();
-          setIsActive(true);
-          setCurrentContinuousStartAt(now);
-          if (!startTime) {
-            setStartTime(now);
-          }
-        }
-
-        if (showInactiveAlert) {
-          setShowInactiveAlert(false);
-        }
-
-        if (answerDisplayRef.current) {
-          const lineHeight = 28;
-          answerDisplayRef.current.scrollTo({
-            top: Math.max(0, lineIndex) * lineHeight,
-            behavior: 'smooth'
-          });
-        }
-
-        requestAnimationFrame(() => {
-          textarea.value = nextValue;
-          textarea.setSelectionRange(nextCursor, nextCursor);
-        });
+        applyTextAutoNumbering(e.currentTarget);
         return;
       }
 
@@ -3206,7 +3273,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
   const handleCorrectAnswer = (currentInputLength?: number) => {
     if (isResettingRef.current || isFadingOut) return;
-    resetScrollSnapshotRef.current = isMobile ? capturePracticeScrollSnapshot() : null;
+    const scrollSnapshot = capturePracticeScrollSnapshot();
+    resetScrollSnapshotRef.current = scrollSnapshot;
     setPracticeCount(prev => prev + 1);
     const nextSessionCount = sessionCompleteCount + 1;
     const shouldKeepAutoHide = nextSessionCount >= 3;
@@ -3232,6 +3300,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // 0.4초 후 입력창 초기화 및 fade out 해제 + 증감 애니메이션 즉시 표시
     setTimeout(() => {
       isResettingRef.current = true; // 초기화 시작 플래그
+      const wasComposing = isComposing;
       setIsComposing(false); // 한글 조합 강제 종료
       const seeded = getPracticeInputSeed();
       setUserInput(seeded);
@@ -3240,8 +3309,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       setStartTime(null);
       setCurrentContinuousStartAt(null);
       if (textareaRef.current) {
-        // blur → value 초기화 → focus: 조합 중인 IME 세션을 완전히 종료
-        textareaRef.current.blur();
+        // 실제 조합 중일 때만 blur해서 불필요한 viewport 점프를 막는다.
+        if (wasComposing) {
+          textareaRef.current.blur();
+        }
         textareaRef.current.value = seeded;
         textareaRef.current.setSelectionRange(seeded.length, seeded.length);
       }
@@ -3250,9 +3321,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         setIsFadingOut(false);
         isResettingRef.current = false; // 초기화 완료
         if (textareaRef.current) {
-          focusPracticeTextareaPreservingScroll(seeded.length);
+          focusPracticeTextareaPreservingScroll(seeded.length, scrollSnapshot);
         }
-        resetScrollSnapshotRef.current = null;
+        setTimeout(() => {
+          if (resetScrollSnapshotRef.current === scrollSnapshot) {
+            resetScrollSnapshotRef.current = null;
+          }
+        }, 340);
       }, 50);
     }, 400);
     
@@ -3800,7 +3875,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         onComplete={() => setShowDamageNumber(false)}
       />
       {/* 스크롤 가능한 콘텐츠 영역 */}
-      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto overflow-x-hidden sm:overflow-x-visible overscroll-x-none ${isImageQuestion ? 'space-y-2' : 'space-y-4'} ${contentBottomPaddingClass} px-2 py-4 sm:px-3 lg:px-4`}>
+      <div
+        ref={scrollContainerRef}
+        className={`flex-1 overflow-y-auto overflow-x-hidden sm:overflow-x-visible overscroll-x-none ${isImageQuestion ? 'space-y-2' : 'space-y-4'} ${contentBottomPaddingClass} px-2 py-4 sm:px-3 lg:px-4`}
+        style={{ overflowAnchor: "none" }}
+      >
       <div className="relative mx-auto w-full max-w-[1360px]">
       <div className="relative z-20 mx-auto w-full max-w-[1360px]">
       {isImageQuestion ? (
@@ -4793,6 +4872,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                         onCompositionStart={handleCompositionStart}
                         onCompositionEnd={handleCompositionEnd}
                         onChange={handleInputChange}
+                        onBeforeInput={handlePracticeBeforeInput}
                         onKeyDown={handleKeyDown}
                         onKeyUp={handleKeyUp}
                         className="w-full flex-1 rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-base lg:text-lg font-semibold leading-relaxed tracking-tight px-1 sm:px-3 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
@@ -4991,6 +5071,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   onCompositionStart={handleCompositionStart}
                   onCompositionEnd={handleCompositionEnd}
                   onChange={handleInputChange}
+                  onBeforeInput={handlePracticeBeforeInput}
                   onKeyDown={handleKeyDown}
                   onKeyUp={handleKeyUp}
                   className="w-full rounded-xl border-2 border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring caret-foreground text-base lg:text-lg font-semibold leading-relaxed tracking-tight px-3 sm:px-5 py-3 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal"
