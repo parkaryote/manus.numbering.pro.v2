@@ -183,10 +183,8 @@ export default function Login() {
   useEffect(() => {
     if (!meQuery.data) return;
     if (blockingMessage) return;
-    if (isGuestUser(meQuery.data)) {
-      setLocation(requestedReturnTo);
-      return;
-    }
+    // 게스트는 로그인 화면에 머물러야 실제 로그인/가입 버튼을 사용할 수 있다.
+    if (isGuestUser(meQuery.data)) return;
     setLocation(requestedReturnTo);
   }, [blockingMessage, meQuery.data, requestedReturnTo, setLocation]);
 

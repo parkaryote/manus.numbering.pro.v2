@@ -4011,17 +4011,21 @@ export const appRouter = router({
       .mutation(({ input, ctx }) => {
         const rateLimitKey = buildAuthRateLimitKey(ctx.req as any, "site-gate", "site-gate");
         assertAuthRateLimitAllowedWithMessage(rateLimitKey, "비밀번호 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.");
-        const expected = ENV.siteGatePassword;
-        if (!expected) {
-          // If no gate password is configured in env, do not block access.
-          return { success: true };
+        const configuredPasswords = [ENV.siteGatePassword, ENV.signupAccessPassword]
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0);
+
+        if (configuredPasswords.length === 0) {
+          if (!ENV.isProduction) {
+            return { success: true };
+          }
+          throw new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message: "접속 비밀번호가 설정되지 않았습니다. 관리자에게 문의하세요.",
+          });
         }
-        const allowedSitePasswords = [
-          expected,
-          "박진혁85",
-          "우파교수",
-        ];
-        if (!isSecretMatch(input.password, allowedSitePasswords)) {
+
+        if (!isSecretMatch(input.password, configuredPasswords)) {
           registerAuthFailureWithThreshold(rateLimitKey, VERIFY_GATE_RATE_LIMIT_MAX_FAILS);
           throw new TRPCError({
             code: "UNAUTHORIZED",
