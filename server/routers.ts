@@ -1051,6 +1051,7 @@ const TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT = "치아의 방향 중 빈칸을
 const TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT_CANDIDATES = [
   TOOTH_DIRECTION_BLANK_DEMO_QUESTION_TEXT,
   "치아의 방향 중 빈칸을 채우시오",
+  "치아의 방향",
 ];
 const PARTIAL_DENTURE_DEMO_TARGET_QUESTION_COUNT = 9;
 
@@ -2346,6 +2347,8 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     let value = 0;
     if (preferredOwnerId && row.userId === preferredOwnerId) value += 1000;
     if (row.isDemo === 0) value += 100;
+    if (row.imageUrl && row.imageUrl.trim().length > 0) value += 80;
+    if (row.imageLabels && row.imageLabels.trim().length > 0) value += 60;
     if (row.answer && row.answer.trim().length > 0) value += 20;
     if (row.tableData) value += 10;
     if (typeof row.displayOrder === "number") value += Math.max(0, row.displayOrder);
@@ -2614,6 +2617,56 @@ async function ensurePartialDentureDemoSubjectExists() {
   }
 
   await db.normalizeQuestionDisplayOrderForSubject(partialDemoSubject.id);
+}
+
+const DEMO_CATALOG_SYNC_MIN_INTERVAL_MS = 60 * 1000;
+let demoCatalogSyncInFlight: Promise<void> | null = null;
+let demoCatalogSyncLastRunAt = 0;
+
+function triggerDemoCatalogSyncInBackground(options?: { force?: boolean }): Promise<void> | null {
+  if (!options?.force) {
+    const lastRunAt = demoCatalogSyncLastRunAt;
+    if (Date.now() - lastRunAt < DEMO_CATALOG_SYNC_MIN_INTERVAL_MS) {
+      return demoCatalogSyncInFlight;
+    }
+  }
+
+  if (demoCatalogSyncInFlight) return demoCatalogSyncInFlight;
+
+  const task = (async () => {
+    try {
+      await ensureHardcodedToothBox7DemoQuestionExists();
+      await ensurePartialDentureDemoSubjectExists();
+    } catch (error) {
+      console.warn("[DemoCatalog] sync skipped due to transient error:", error);
+    } finally {
+      demoCatalogSyncLastRunAt = Date.now();
+    }
+  })();
+
+  demoCatalogSyncInFlight = task;
+  void task.finally(() => {
+    if (demoCatalogSyncInFlight === task) {
+      demoCatalogSyncInFlight = null;
+    }
+  });
+  return task;
+}
+
+async function waitForDemoCatalogSyncWithBudget(
+  waitBudgetMs: number,
+  options?: { force?: boolean }
+) {
+  const task = triggerDemoCatalogSyncInBackground(options);
+  if (!task || waitBudgetMs <= 0) return false;
+  let completed = false;
+  await Promise.race([
+    task.then(() => {
+      completed = true;
+    }),
+    new Promise<void>((resolve) => setTimeout(resolve, waitBudgetMs)),
+  ]);
+  return completed;
 }
 
 async function syncDemoQuestionsToSubject(
@@ -2965,9 +3018,19 @@ async function syncStarterDataSafely(userId: number) {
 }
 
 async function ensureDemoWorkspaceSubjectForUser(userId: number, demoSubjectId: number) {
-  await ensureHardcodedToothBox7DemoQuestionExists();
-  await ensurePartialDentureDemoSubjectExists();
-  const demoSubject = await db.getSubjectById(demoSubjectId);
+  const catalogSynced = await waitForDemoCatalogSyncWithBudget(180);
+  if (!catalogSynced) {
+    triggerDemoCatalogSyncInBackground();
+  }
+
+  let demoSubject = await db.getSubjectById(demoSubjectId);
+  if (!demoSubject || demoSubject.isDemo !== 1) {
+    const forcedCatalogSync = await waitForDemoCatalogSyncWithBudget(320, { force: true });
+    if (!forcedCatalogSync) {
+      triggerDemoCatalogSyncInBackground({ force: true });
+    }
+    demoSubject = await db.getSubjectById(demoSubjectId);
+  }
   if (!demoSubject || demoSubject.isDemo !== 1) return null;
 
   const userSubjects = await db.getSubjectsByUserId(userId);
@@ -4308,9 +4371,14 @@ export const appRouter = router({
   // Demo mode - public access
   demo: router({
     subjects: publicProcedure.query(async () => {
-      await ensureHardcodedToothBox7DemoQuestionExists();
-      await ensurePartialDentureDemoSubjectExists();
-      const demoSubjects = await db.getDemoSubjects();
+      const synced = await waitForDemoCatalogSyncWithBudget(220);
+      if (!synced) triggerDemoCatalogSyncInBackground();
+      let demoSubjects = await db.getDemoSubjects();
+      if (demoSubjects.length === 0) {
+        const forcedSync = await waitForDemoCatalogSyncWithBudget(400, { force: true });
+        if (!forcedSync) triggerDemoCatalogSyncInBackground({ force: true });
+        demoSubjects = await db.getDemoSubjects();
+      }
       return demoSubjects.map((subject) => applySubjectExamDateOverride(subject));
     }),
 
@@ -4362,7 +4430,8 @@ export const appRouter = router({
       .input(z.object({ demoSubjectId: z.number(), guestId: GUEST_ID_SCHEMA.optional() }))
       .query(async ({ input, ctx }) => {
         try {
-          await ensureHardcodedToothBox7DemoQuestionExists();
+          const synced = await waitForDemoCatalogSyncWithBudget(180);
+          if (!synced) triggerDemoCatalogSyncInBackground();
           const actor = await resolveOrBootstrapGuestUser(ctx, input.guestId ?? null);
           if (!actor) {
             return { mappedSubjectId: null as number | null, pending: true };
@@ -4490,8 +4559,8 @@ export const appRouter = router({
       }),
 
     dashboard: publicProcedure.query(async ({ ctx }) => {
-      await ensureHardcodedToothBox7DemoQuestionExists();
-      await ensurePartialDentureDemoSubjectExists();
+      const synced = await waitForDemoCatalogSyncWithBudget(220);
+      if (!synced) triggerDemoCatalogSyncInBackground();
       const now = new Date();
       const demoSubjects = (await db.getDemoSubjects()).map((subject) =>
         applySubjectExamDateOverride(subject)
@@ -4805,7 +4874,8 @@ export const appRouter = router({
     questions: publicProcedure
       .input(z.object({ subjectId: z.number() }))
       .query(async ({ input }) => {
-        await ensureHardcodedToothBox7DemoQuestionExists();
+        const synced = await waitForDemoCatalogSyncWithBudget(140);
+        if (!synced) triggerDemoCatalogSyncInBackground();
         const subject = await db.getSubjectById(input.subjectId);
         if (!subject || subject.isDemo !== 1) {
           return [];
@@ -4817,7 +4887,8 @@ export const appRouter = router({
     confidenceByQuestion: publicProcedure
       .input(z.object({ questionId: z.number() }))
       .query(async ({ input }) => {
-        await ensureHardcodedToothBox7DemoQuestionExists();
+        const synced = await waitForDemoCatalogSyncWithBudget(140);
+        if (!synced) triggerDemoCatalogSyncInBackground();
         const question = await db.getQuestionById(input.questionId);
         if (!question || question.isDemo !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 문제를 찾을 수 없습니다" });
@@ -4837,7 +4908,8 @@ export const appRouter = router({
     confidenceHistory: publicProcedure
       .input(z.object({ questionId: z.number() }))
       .query(async ({ input }) => {
-        await ensureHardcodedToothBox7DemoQuestionExists();
+        const synced = await waitForDemoCatalogSyncWithBudget(140);
+        if (!synced) triggerDemoCatalogSyncInBackground();
         const question = await db.getQuestionById(input.questionId);
         if (!question || question.isDemo !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 문제를 찾을 수 없습니다" });
@@ -4858,7 +4930,8 @@ export const appRouter = router({
     confidenceBySubject: publicProcedure
       .input(z.object({ subjectId: z.number() }))
       .query(async ({ input }) => {
-        await ensureHardcodedToothBox7DemoQuestionExists();
+        const synced = await waitForDemoCatalogSyncWithBudget(140);
+        if (!synced) triggerDemoCatalogSyncInBackground();
         const subject = await db.getSubjectById(input.subjectId);
         if (!subject || subject.isDemo !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다" });

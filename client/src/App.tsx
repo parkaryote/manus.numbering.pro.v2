@@ -36,8 +36,9 @@ const AUTH_ME_FETCH_TIMEOUT_MS = 2_000;
 const GUEST_BOOTSTRAP_BLOCK_MAX_MS = 900;
 const RECENT_AUTH_GRACE_MS = 10 * 60 * 1000;
 const AUTH_RESOLVE_MAX_WAIT_MS = 8_000;
-const DEMO_BRIDGE_RETRY_DELAY_MS = 450;
-const DEMO_BRIDGE_MAX_ERROR_RETRIES = 8;
+const DEMO_BRIDGE_RETRY_DELAY_MS = 250;
+const DEMO_BRIDGE_MAX_ERROR_RETRIES = 4;
+const DEMO_BRIDGE_MAX_PENDING_RETRIES = 12;
 
 async function fetchAuthMeWithTimeout(timeoutMs: number) {
   const controller = new AbortController();
@@ -227,6 +228,7 @@ function DemoSubjectRouteBridge({
   const [, setLocation] = useLocation();
   const guestId = useMemo(() => getOrCreateGuestId(), []);
   const [errorRetryCount, setErrorRetryCount] = useState(0);
+  const [pendingRetryCount, setPendingRetryCount] = useState(0);
   const resolveQuery = trpc.demo.resolveSubjectWorkspace.useQuery(
     { demoSubjectId, guestId },
     {
@@ -238,14 +240,28 @@ function DemoSubjectRouteBridge({
   const isPending = resolveQuery.data?.pending === true;
 
   useEffect(() => {
-    if (mappedSubjectId || !isPending || resolveQuery.isLoading) {
+    if (mappedSubjectId) {
+      if (pendingRetryCount !== 0) setPendingRetryCount(0);
       return;
     }
+    if (!isPending) {
+      if (pendingRetryCount !== 0) setPendingRetryCount(0);
+      return;
+    }
+    if (resolveQuery.isLoading) return;
+    if (pendingRetryCount >= DEMO_BRIDGE_MAX_PENDING_RETRIES) return;
     const timer = window.setTimeout(() => {
+      setPendingRetryCount((count) => count + 1);
       void resolveQuery.refetch();
     }, DEMO_BRIDGE_RETRY_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [isPending, mappedSubjectId, resolveQuery.isLoading, resolveQuery.refetch]);
+  }, [
+    isPending,
+    mappedSubjectId,
+    pendingRetryCount,
+    resolveQuery.isLoading,
+    resolveQuery.refetch,
+  ]);
 
   useEffect(() => {
     if (!resolveQuery.isError || mappedSubjectId) {
@@ -276,9 +292,10 @@ function DemoSubjectRouteBridge({
   }, [demoSubjectId, mappedSubjectId, setLocation, target]);
 
   const isAutoRetryingError = resolveQuery.isError && errorRetryCount < DEMO_BRIDGE_MAX_ERROR_RETRIES;
+  const isAutoRetryingPending = isPending && pendingRetryCount < DEMO_BRIDGE_MAX_PENDING_RETRIES;
   const isLoading =
     resolveQuery.isLoading ||
-    (!mappedSubjectId && (isPending || isAutoRetryingError));
+    (!mappedSubjectId && (isAutoRetryingPending || isAutoRetryingError));
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -336,6 +353,7 @@ function DemoQuestionRouteBridge({
   const [, setLocation] = useLocation();
   const guestId = useMemo(() => getOrCreateGuestId(), []);
   const [errorRetryCount, setErrorRetryCount] = useState(0);
+  const [pendingRetryCount, setPendingRetryCount] = useState(0);
   const resolveQuery = trpc.demo.resolveQuestionWorkspace.useQuery(
     { demoQuestionId, guestId },
     {
@@ -348,14 +366,28 @@ function DemoQuestionRouteBridge({
   const isPending = resolveQuery.data?.pending === true;
 
   useEffect(() => {
-    if (mappedQuestionId || !isPending || resolveQuery.isLoading) {
+    if (mappedQuestionId) {
+      if (pendingRetryCount !== 0) setPendingRetryCount(0);
       return;
     }
+    if (!isPending) {
+      if (pendingRetryCount !== 0) setPendingRetryCount(0);
+      return;
+    }
+    if (resolveQuery.isLoading) return;
+    if (pendingRetryCount >= DEMO_BRIDGE_MAX_PENDING_RETRIES) return;
     const timer = window.setTimeout(() => {
+      setPendingRetryCount((count) => count + 1);
       void resolveQuery.refetch();
     }, DEMO_BRIDGE_RETRY_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [isPending, mappedQuestionId, resolveQuery.isLoading, resolveQuery.refetch]);
+  }, [
+    isPending,
+    mappedQuestionId,
+    pendingRetryCount,
+    resolveQuery.isLoading,
+    resolveQuery.refetch,
+  ]);
 
   useEffect(() => {
     if (!resolveQuery.isError || mappedQuestionId) {
@@ -392,9 +424,10 @@ function DemoQuestionRouteBridge({
   }, [mappedDemoSubjectId, mappedQuestionId, setLocation, target]);
 
   const isAutoRetryingError = resolveQuery.isError && errorRetryCount < DEMO_BRIDGE_MAX_ERROR_RETRIES;
+  const isAutoRetryingPending = isPending && pendingRetryCount < DEMO_BRIDGE_MAX_PENDING_RETRIES;
   const isLoading =
     resolveQuery.isLoading ||
-    (!mappedQuestionId && (isPending || isAutoRetryingError));
+    (!mappedQuestionId && (isAutoRetryingPending || isAutoRetryingError));
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">

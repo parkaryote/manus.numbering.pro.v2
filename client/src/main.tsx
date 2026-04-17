@@ -69,6 +69,7 @@ initAnalytics();
 
 const TRPC_FETCH_TIMEOUT_MS = 12000;
 const TRPC_AUTH_FETCH_TIMEOUT_MS = 10000;
+const TRPC_AUTH_ME_FETCH_TIMEOUT_MS = 2200;
 const TRPC_OCR_FETCH_TIMEOUT_MS = 180000;
 const TRPC_ADMIN_DEMO_FETCH_TIMEOUT_MS = 120000;
 
@@ -94,7 +95,12 @@ function resolveTrpcTimeoutMs(input: RequestInfo | URL): number {
     return TRPC_ADMIN_DEMO_FETCH_TIMEOUT_MS;
   }
 
-  // 로그인/세션 확인은 외부 OAuth + DB round trip으로 지연될 수 있다.
+  // 앱 초기 진입의 체감 속도를 위해 auth.me는 짧게 타임아웃한다.
+  if (rawUrl.includes("/api/trpc/auth.me")) {
+    return TRPC_AUTH_ME_FETCH_TIMEOUT_MS;
+  }
+
+  // 나머지 auth 요청은 외부 OAuth + DB round trip으로 지연될 수 있다.
   if (rawUrl.includes("/api/trpc/auth.")) {
     return TRPC_AUTH_FETCH_TIMEOUT_MS;
   }

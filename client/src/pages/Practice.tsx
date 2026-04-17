@@ -20,7 +20,7 @@ import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { useIsMobile } from "@/hooks/useMobile";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { parseMnemonicAnswer } from "@shared/answerMnemonics";
-import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
+import { getRenderableImageCandidates } from "@/lib/renderableImageUrl";
 
 interface PracticeProps {
   questionId: number;
@@ -291,6 +291,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [userInput, setUserInput] = useState("");
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [imageSourceIndex, setImageSourceIndex] = useState(0);
   const [revealedLabels, setRevealedLabels] = useState<Set<number>>(new Set()); // 클릭하여 공개된 라벨
   const [imageMatchedLabelIndices, setImageMatchedLabelIndices] = useState<Set<number>>(new Set());
   const lastLabelActionRef = useRef<'reveal' | 'hide' | null>(null);
@@ -332,6 +334,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [inputHistory, setInputHistory] = useState<string[]>([""]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [showInactiveAlert, setShowInactiveAlert] = useState(false); // 입력 시간 알림
+  const [showPasteDetectedAlert, setShowPasteDetectedAlert] = useState(false);
   const [currentCursorLineIndex, setCurrentCursorLineIndex] = useState(0); // 현재 커서 위치의 줄 인덱스
   const [lineIndicatorPulse, setLineIndicatorPulse] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -391,6 +394,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [editQuestion, setEditQuestion] = useState('');
   const [editAnswer, setEditAnswer] = useState('');
   const [editAutoNumbering, setEditAutoNumbering] = useState(true);
+  const [editDragLineIndex, setEditDragLineIndex] = useState<number | null>(null);
+  const [editDropLineIndex, setEditDropLineIndex] = useState<number | null>(null);
   const [editTableData, setEditTableData] = useState<TableData | null>(null);
   const [editImageUrl, setEditImageUrl] = useState('');
   const [editImageLabels, setEditImageLabels] = useState<ImageLabel[]>([]);
@@ -413,7 +418,24 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const answerDisplayRef = useRef<HTMLDivElement>(null); // 정답 표시 영역 ref
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const inactiveAlertTimerRef = useRef<NodeJS.Timeout | null>(null); // 입력 시간 알림 타이머
+  const pasteAlertTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastInputRef = useRef<string>(""); // 마지막 입력값 추적 (모바일용)
+
+  const handlePasteDetectedAlert = useCallback(() => {
+    setShowPasteDetectedAlert(true);
+    if (pasteAlertTimerRef.current) clearTimeout(pasteAlertTimerRef.current);
+    pasteAlertTimerRef.current = setTimeout(() => {
+      setShowPasteDetectedAlert(false);
+    }, 2500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pasteAlertTimerRef.current) {
+        clearTimeout(pasteAlertTimerRef.current);
+      }
+    };
+  }, []);
 
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const { data: subject } = trpc.subjects.getById.useQuery(
@@ -979,6 +1001,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }, [targetVisualLineCount, isMobile, isShortViewport]);
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+  const imageSourceCandidates = useMemo(
+    () => getRenderableImageCandidates(question?.imageUrl),
+    [question?.imageUrl]
+  );
+  const activeImageSrc = imageSourceCandidates[imageSourceIndex] ?? "";
   const imageAnswerEntries = useMemo(() => {
     if (!isImageQuestion) return [] as Array<{ index: number; answer: string }>;
     return imageLabels
@@ -1018,6 +1045,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if (isImageQuestion && questionId) {
       imageNaturalSizeRef.current = { width: 0, height: 0 };
       setImageLoaded(false);
+      setImageLoadFailed(false);
+      setImageSourceIndex(0);
       setImageMatchedLabelIndices(new Set());
     }
   }, [questionId, isImageQuestion]);
@@ -1115,6 +1144,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setEditQuestion(question.question);
     setEditAnswer(question.answer || '');
     setEditAutoNumbering((question.autoNumbering ?? 1) === 1);
+    setEditDragLineIndex(null);
+    setEditDropLineIndex(null);
     setEditImageUrl(question.imageUrl || '');
     if (question.imageLabels) {
       try {
@@ -1138,6 +1169,58 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
     setEditMode(true);
   };
+
+  const editAnswerLines = useMemo(() => editAnswer.split("\n"), [editAnswer]);
+
+  const renumberEditAnswerLines = useCallback((lines: string[]): string[] => {
+    const AUTO_NUMBER_PREFIX_REGEX = /^\s*\d{1,3}\s*([.)])\s*/;
+    const BULLET_PREFIX_REGEX = /^\s*(?:[-*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
+    let nextIndex = 1;
+
+    return lines.map((line) => {
+      if (!line.trim()) return line;
+      if (BULLET_PREFIX_REGEX.test(line)) return line;
+
+      const leadingSpaces = line.match(/^\s*/)?.[0] ?? "";
+      const delimiter = line.match(AUTO_NUMBER_PREFIX_REGEX)?.[1] ?? ".";
+      const body = line.replace(AUTO_NUMBER_PREFIX_REGEX, "").trim();
+      if (!body) return line;
+
+      const normalized = `${leadingSpaces}${nextIndex}${delimiter} ${body}`;
+      nextIndex += 1;
+      return normalized;
+    });
+  }, []);
+
+  const reorderEditAnswerLine = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) {
+      setEditDragLineIndex(null);
+      setEditDropLineIndex(null);
+      return;
+    }
+
+    setEditAnswer((prev) => {
+      const lines = prev.split("\n");
+      if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= lines.length ||
+        toIndex >= lines.length
+      ) {
+        return prev;
+      }
+
+      const [moved] = lines.splice(fromIndex, 1);
+      if (typeof moved !== "string") return prev;
+      lines.splice(toIndex, 0, moved);
+
+      const nextLines = editAutoNumbering ? renumberEditAnswerLines(lines) : lines;
+      return nextLines.join("\n");
+    });
+
+    setEditDragLineIndex(null);
+    setEditDropLineIndex(null);
+  }, [editAutoNumbering, renumberEditAnswerLines]);
 
   // 문제 수정 저장
   const handleSaveEdit = () => {
@@ -3865,11 +3948,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }
 
   return (
-    <div className={`relative flex flex-col flex-1 min-h-0 h-full w-full overflow-y-hidden overflow-x-hidden sm:overflow-x-visible overscroll-x-none transition-all duration-300 ease-out ${
+    <div
+      onPasteCapture={handlePasteDetectedAlert}
+      className={`relative flex flex-col flex-1 min-h-0 h-full w-full overflow-y-hidden overflow-x-hidden sm:overflow-x-visible overscroll-x-none transition-all duration-300 ease-out ${
       isLeaving
         ? `opacity-0 ${scrollNavDirection === "next" ? "-translate-x-8 -rotate-[0.2deg]" : scrollNavDirection === "prev" ? "translate-x-8 rotate-[0.2deg]" : "translate-x-2"} scale-[0.988] blur-[1px] pointer-events-none`
         : "opacity-100"
-    }`}>
+    }`}
+    >
       <DamageNumber
         value={damageValue}
         show={showDamageNumber}
@@ -4130,10 +4216,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </div>
       )}
 
-      {/* 비활성 안내 배너 (오버레이 대신 인라인 표시) */}
-      {showInactiveAlert && (
+      {/* 비활성/복붙 감지 안내 배너 (오버레이 대신 인라인 표시) */}
+      {(showPasteDetectedAlert || showInactiveAlert) && (
         <div className="rounded-lg border border-slate-300 bg-slate-100 px-4 py-2.5 text-sm text-slate-700">
-          입력이 없어 연습 시간 기록이 일시 정지되었습니다. 입력을 시작하면 자동으로 다시 기록됩니다.
+          {showPasteDetectedAlert
+            ? "복사 붙여넣기가 감지되었습니다"
+            : "입력이 없어 연습 시간 기록이 일시 정지되었습니다. 입력을 시작하면 자동으로 다시 기록됩니다."}
         </div>
       )}
 
@@ -4452,6 +4540,56 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       className="border-orange-200 dark:border-orange-700 bg-white dark:bg-orange-950/30 font-mono"
                     />
                   </div>
+                  <div>
+                    <label className="text-xs font-medium text-orange-700 dark:text-orange-400 mb-1 block">
+                      문장 순서 변경 (드래그)
+                    </label>
+                    <div className="max-h-44 overflow-y-auto rounded-md border border-orange-200 dark:border-orange-700 bg-white/70 dark:bg-orange-950/20 p-1.5 space-y-1">
+                      {editAnswerLines.length === 0 ? (
+                        <div className="px-2 py-1.5 text-[11px] text-muted-foreground">문장이 없습니다</div>
+                      ) : (
+                        editAnswerLines.map((line, index) => (
+                          <div
+                            key={`edit-line-${index}`}
+                            draggable
+                            onDragStart={() => {
+                              setEditDragLineIndex(index);
+                              setEditDropLineIndex(index);
+                            }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              if (editDropLineIndex !== index) setEditDropLineIndex(index);
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              if (editDragLineIndex === null) return;
+                              reorderEditAnswerLine(editDragLineIndex, index);
+                            }}
+                            onDragEnd={() => {
+                              setEditDragLineIndex(null);
+                              setEditDropLineIndex(null);
+                            }}
+                            className={`flex items-center gap-2 rounded border px-2 py-1.5 text-[12px] cursor-grab select-none ${
+                              editDropLineIndex === index
+                                ? "border-orange-400 bg-orange-100/80 dark:bg-orange-900/40"
+                                : "border-orange-100 dark:border-orange-900/50 bg-white/90 dark:bg-orange-950/35"
+                            }`}
+                          >
+                            <span className="text-[11px] text-orange-500 dark:text-orange-400">⋮⋮</span>
+                            <span className="w-6 shrink-0 text-[11px] text-orange-600 dark:text-orange-300 tabular-nums">
+                              {index + 1}
+                            </span>
+                            <span className="truncate text-orange-900 dark:text-orange-100">
+                              {line.trim() ? line : "(빈 줄)"}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <p className="mt-1 text-[10px] text-orange-600/90 dark:text-orange-300/90">
+                      자동 번호 생성 문제는 드롭 시 번호가 새 순서대로 재정렬됩니다.
+                    </p>
+                  </div>
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
@@ -4589,26 +4727,41 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     >맞춤</button>
                   </div>
                     <div className="relative w-full rounded-lg border-2 border-border overflow-hidden" ref={imageContainerRef}>
-                      {!imageLoaded && (
+                      {!imageLoaded && !imageLoadFailed && (
                         <div className="flex items-center justify-center min-h-[300px] md:min-h-[400px] bg-muted/30 rounded-lg border-2 border-border">
                           <p className="text-muted-foreground">이미지 로딩 중...</p>
                       </div>
                     )}
+                    {imageLoadFailed && (
+                      <div className="flex items-center justify-center min-h-[300px] md:min-h-[400px] bg-muted/30 rounded-lg border-2 border-dashed border-border text-sm text-muted-foreground">
+                        이미지를 불러오지 못했습니다
+                      </div>
+                    )}
                     <img
                       ref={imageElementRef}
-                      src={resolveRenderableImageUrl(question.imageUrl)}
+                      src={activeImageSrc}
                       alt="Question image"
-                      className={`w-full h-auto block ${!imageLoaded ? 'hidden' : ''}`}
+                      className={`w-full h-auto block ${!imageLoaded || imageLoadFailed ? 'hidden' : ''}`}
                       onLoad={(e) => {
                         const target = e.currentTarget;
                         imageNaturalSizeRef.current = {
                           width: target.naturalWidth,
                           height: target.naturalHeight,
                         };
+                        setImageLoadFailed(false);
                         setImageLoaded(true);
                         window.requestAnimationFrame(() => {
                           applyImageFitScale();
                         });
+                      }}
+                      onError={() => {
+                        if (imageSourceIndex + 1 < imageSourceCandidates.length) {
+                          setImageSourceIndex((prev) => prev + 1);
+                          setImageLoaded(false);
+                          return;
+                        }
+                        setImageLoadFailed(true);
+                        setImageLoaded(false);
                       }}
                       loading="eager"
                       fetchPriority="high"

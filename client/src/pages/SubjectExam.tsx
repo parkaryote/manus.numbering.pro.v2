@@ -165,7 +165,9 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
   const [questionCountInput, setQuestionCountInput] = useState("");
   const [timeLimitMinutes, setTimeLimitMinutes] = useState<number | null>(null);
   const [timeLimitInput, setTimeLimitInput] = useState("");
+  const [showPasteDetectedAlert, setShowPasteDetectedAlert] = useState(false);
   const timeoutSubmitTriggeredRef = useRef(false);
+  const pasteAlertTimerRef = useRef<NodeJS.Timeout | null>(null);
   const examBatchIdRef = useRef<string>(createExamBatchId());
   const [examQuestions, setExamQuestions] = useState<ExamQuestion[]>([]);
 
@@ -258,6 +260,20 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
     }
     return () => clearInterval(interval);
   }, [phase, startTime]);
+
+  const handlePasteDetectedAlert = useCallback(() => {
+    setShowPasteDetectedAlert(true);
+    if (pasteAlertTimerRef.current) clearTimeout(pasteAlertTimerRef.current);
+    pasteAlertTimerRef.current = setTimeout(() => {
+      setShowPasteDetectedAlert(false);
+    }, 2500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pasteAlertTimerRef.current) clearTimeout(pasteAlertTimerRef.current);
+    };
+  }, []);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -898,7 +914,10 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
 
   if (phase === "exam") {
     return (
-      <div className="max-w-4xl mx-auto px-4 pb-8 space-y-4">
+      <div
+        onPasteCapture={handlePasteDetectedAlert}
+        className="max-w-4xl mx-auto px-4 pb-8 space-y-4"
+      >
         <div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border -mx-4 px-4 py-3">
           <div className="flex items-center gap-3">
             <Button
@@ -947,6 +966,12 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
             </Button>
           </div>
         </div>
+
+        {showPasteDetectedAlert && (
+          <div className="rounded-lg border border-slate-300 bg-slate-100 px-4 py-2.5 text-sm text-slate-700">
+            복사 붙여넣기가 감지되었습니다
+          </div>
+        )}
 
         {examQuestions.map((q, idx) => {
           const tableData: TableData | null = q.tableData ? JSON.parse(q.tableData) : null;

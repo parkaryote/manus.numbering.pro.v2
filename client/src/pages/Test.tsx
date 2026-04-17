@@ -18,7 +18,7 @@ import { getImageAttribution } from "@/lib/imageAttribution";
 import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { useIsMobile } from "@/hooks/useMobile";
 import { stripMnemonicHintsFromAnswer } from "@shared/answerMnemonics";
-import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
+import { getRenderableImageCandidates } from "@/lib/renderableImageUrl";
 
 interface TestProps {
   questionId: number;
@@ -311,6 +311,8 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [userAnswer, setUserAnswer] = useState("");
   const [imageLabelAnswers, setImageLabelAnswers] = useState<Record<number, string>>({});
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [imageSourceIndex, setImageSourceIndex] = useState(0);
   const [isStarted, setIsStarted] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -330,6 +332,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [confidenceImpact, setConfidenceImpact] = useState<ConfidenceImpact | null>(null);
   const [submittedSessionIds, setSubmittedSessionIds] = useState<number[]>([]);
   const [isResultExcluded, setIsResultExcluded] = useState(false);
+  const [showPasteDetectedAlert, setShowPasteDetectedAlert] = useState(false);
 
   // 타이핑 속도 보너스 수집 상태
   const typingStartTimeRef = useRef<number | null>(null);
@@ -337,6 +340,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const backspaceCountRef = useRef(0);
   const pasteDetectedRef = useRef(false);
   const inputCharsRef = useRef(0);
+  const pasteAlertTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [speedBonus, setSpeedBonus] = useState<{ bonus: number; label: string; ratio: number } | null>(null);
   const isMacPlatform = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
   const utils = trpc.useUtils();
@@ -359,6 +363,23 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     ((viewportSize.height > 0 && viewportSize.height <= 980) ||
       (viewportSize.width > 0 && viewportSize.width <= 1480));
 
+  const handlePasteDetectedAlert = useCallback(() => {
+    pasteDetectedRef.current = true;
+    setShowPasteDetectedAlert(true);
+    if (pasteAlertTimerRef.current) clearTimeout(pasteAlertTimerRef.current);
+    pasteAlertTimerRef.current = setTimeout(() => {
+      setShowPasteDetectedAlert(false);
+    }, 2500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pasteAlertTimerRef.current) {
+        clearTimeout(pasteAlertTimerRef.current);
+      }
+    };
+  }, []);
+
   const { data: question, isLoading } = trpc.questions.getById.useQuery({ id: questionId });
   const { data: confidenceData, refetch: refetchConfidence } = trpc.confidence.getByQuestion.useQuery(
     { questionId },
@@ -377,6 +398,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   }, [confidenceData, isSubmitted]);
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+  const imageSourceCandidates = useMemo(
+    () => getRenderableImageCandidates(question?.imageUrl),
+    [question?.imageUrl]
+  );
+  const activeImageSrc = imageSourceCandidates[imageSourceIndex] ?? "";
   const textCorrectAnswer = useMemo(
     () => stripMnemonicHintsFromAnswer(question?.answer || ""),
     [question?.answer]
@@ -385,6 +411,13 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     () => getImageAttribution(question?.id, question?.imageUrl),
     [question?.id, question?.imageUrl]
   );
+
+  useEffect(() => {
+    if (!isImageQuestion) return;
+    setImageLoaded(false);
+    setImageLoadFailed(false);
+    setImageSourceIndex(0);
+  }, [isImageQuestion, question?.id, question?.imageUrl]);
   const tableData: TableData | null = question?.tableData ? JSON.parse(question.tableData) : null;
   const isTableQuestion = !!tableData;
   const [tableAnswers, setTableAnswers] = useState<Record<string, string>>({});
@@ -1126,7 +1159,10 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       : `/questions/${question?.subjectId ?? 1}`;
 
   return (
-    <div className={`relative ${useCompactExamLayout ? "space-y-4" : "space-y-6"}`}>
+    <div
+      onPasteCapture={handlePasteDetectedAlert}
+      className={`relative ${useCompactExamLayout ? "space-y-4" : "space-y-6"}`}
+    >
       <ConfidencePopup
         show={showConfidencePopup}
         previousScore={confidenceBefore}
@@ -1150,6 +1186,12 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
           <p className="text-muted-foreground mt-1">문제를 보고 답안을 작성하세요</p>
         </div>
       </div>
+
+      {isStarted && !isSubmitted && showPasteDetectedAlert && (
+        <div className="rounded-lg border border-slate-300 bg-slate-100 px-4 py-2.5 text-sm text-slate-700">
+          복사 붙여넣기가 감지되었습니다
+        </div>
+      )}
 
       {/* Question - 시험 시작 전에만 표시 */}
       {!isStarted && (
@@ -1177,16 +1219,33 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   useCompactExamLayout ? "max-h-[46svh] overflow-auto rounded-lg" : ""
                 }`}
               >
-                {!imageLoaded && (
+                {!imageLoaded && !imageLoadFailed && (
                   <div className="w-full min-h-[220px] md:min-h-[300px] bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
                     <p className="text-muted-foreground">이미지 로딩 중...</p>
                   </div>
                 )}
+                {imageLoadFailed && (
+                  <div className="w-full min-h-[220px] md:min-h-[300px] bg-muted/40 rounded-lg border-2 border-dashed border-border flex items-center justify-center">
+                    <p className="text-muted-foreground">이미지를 불러오지 못했습니다</p>
+                  </div>
+                )}
                 <img
-                  src={resolveRenderableImageUrl(question.imageUrl)}
+                  src={activeImageSrc}
                   alt="Question image"
-                  className={`w-full h-auto rounded-lg border-2 border-border ${!imageLoaded ? 'hidden' : ''}`}
-                  onLoad={() => setImageLoaded(true)}
+                  className={`w-full h-auto rounded-lg border-2 border-border ${!imageLoaded || imageLoadFailed ? 'hidden' : ''}`}
+                  onLoad={() => {
+                    setImageLoadFailed(false);
+                    setImageLoaded(true);
+                  }}
+                  onError={() => {
+                    if (imageSourceIndex + 1 < imageSourceCandidates.length) {
+                      setImageSourceIndex((prev) => prev + 1);
+                      setImageLoaded(false);
+                      return;
+                    }
+                    setImageLoadFailed(true);
+                    setImageLoaded(false);
+                  }}
                   loading="eager"
                   fetchPriority="high"
                 />
@@ -1297,9 +1356,17 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                       }`}
                     >
                       <img
-                        src={resolveRenderableImageUrl(question.imageUrl)}
+                        src={activeImageSrc}
                         alt="Question image"
                         className="w-full h-auto rounded-lg border border-border/70"
+                        onError={() => {
+                          if (imageSourceIndex + 1 < imageSourceCandidates.length) {
+                            setImageSourceIndex((prev) => prev + 1);
+                            setImageLoaded(false);
+                            return;
+                          }
+                          setImageLoadFailed(true);
+                        }}
                         loading="eager"
                         fetchPriority="high"
                       />
@@ -1372,7 +1439,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                       setAnswerHistory(newHistory);
                       setAnswerHistoryIndex(newHistory.length - 1);
                     }}
-                    onPaste={() => { pasteDetectedRef.current = true; }}
+                    onPaste={handlePasteDetectedAlert}
                     onKeyDown={(e) => {
                       if (e.key === 'Backspace') backspaceCountRef.current++;
                       handleKeyDown(e);
