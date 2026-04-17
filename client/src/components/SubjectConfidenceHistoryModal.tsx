@@ -87,6 +87,43 @@ function forgettingCurveProgress(progress: number): number {
   return 1 - Math.pow(1 - progress, 1.8);
 }
 
+function splitForgettingSeriesByNow<
+  T extends {
+    at: string;
+    forgettingScore?: number | null;
+  },
+>(
+  rows: T[],
+  nowMs: number
+): Array<T & { forgettingScorePast: number | null; forgettingScoreFuture: number | null }> {
+  const output = rows.map((row) => {
+    const forgettingScore = typeof row.forgettingScore === "number" ? row.forgettingScore : null;
+    const atMs = new Date(row.at).getTime();
+    const isFuture = Number.isFinite(atMs) && atMs > nowMs;
+    return {
+      ...row,
+      forgettingScorePast: isFuture ? null : forgettingScore,
+      forgettingScoreFuture: isFuture ? forgettingScore : null,
+    };
+  });
+
+  // 점선이 끊기지 않도록 경계 직전 점을 앵커로 포함한다.
+  for (let index = 1; index < output.length; index += 1) {
+    const previous = output[index - 1];
+    const current = output[index];
+    if (
+      previous.forgettingScorePast !== null &&
+      current.forgettingScoreFuture !== null &&
+      previous.forgettingScoreFuture === null &&
+      typeof previous.forgettingScore === "number"
+    ) {
+      previous.forgettingScoreFuture = previous.forgettingScore;
+    }
+  }
+
+  return output;
+}
+
 function addSegmentLineScores<
   T extends {
     at: string;
@@ -404,16 +441,19 @@ export function SubjectConfidenceHistoryModal({
     points.map((p) => ({ at: p.at, eventType: p.eventType }))
   );
 
-  const chartData = addSegmentLineScores(
-    points.map((p, i) => {
-      return {
-        ...p,
-        score: p.score,
-        idx: i,
-        xPos: timeScale.nodes[i]?.x ?? i * 24,
-        isLatest: p.at === latestTestAt && p.eventType === "test",
-      };
-    })
+  const chartData = splitForgettingSeriesByNow(
+    addSegmentLineScores(
+      points.map((p, i) => {
+        return {
+          ...p,
+          score: p.score,
+          idx: i,
+          xPos: timeScale.nodes[i]?.x ?? i * 24,
+          isLatest: p.at === latestTestAt && p.eventType === "test",
+        };
+      })
+    ),
+    normalizedNowMs
   );
 
   const hasData = chartData.length > 0;
@@ -536,6 +576,10 @@ export function SubjectConfidenceHistoryModal({
                 망각 구간 (실선)
               </span>
               <span className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-0" style={{ borderTop: "2px dashed #64748b" }} />
+                예측 망각 구간 (점선)
+              </span>
+              <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
                 시험 성공 (≥80%)
               </span>
@@ -621,10 +665,23 @@ export function SubjectConfidenceHistoryModal({
                   />
                   <Line
                     type="linear"
-                    dataKey="forgettingScore"
+                    dataKey="forgettingScorePast"
                     stroke="#64748b"
                     strokeOpacity={0.82}
                     strokeWidth={3}
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={true}
+                    animationDuration={600}
+                    connectNulls={false}
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="forgettingScoreFuture"
+                    stroke="#64748b"
+                    strokeOpacity={0.82}
+                    strokeWidth={3}
+                    strokeDasharray="6 4"
                     dot={false}
                     activeDot={false}
                     isAnimationActive={true}

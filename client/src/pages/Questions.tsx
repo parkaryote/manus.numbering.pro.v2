@@ -193,7 +193,7 @@ type BulkParseResult = {
 };
 
 function countInlineBlankPlaceholders(question: string): number {
-  const matches = question.match(/\[\]/g);
+  const matches = question.match(/\[[^\]\n\r]*\]/g);
   return matches ? matches.length : 0;
 }
 
@@ -206,10 +206,74 @@ function normalizeBlankAnswerLines(raw: string): string[] {
 }
 
 function isLikelyBlankQuestion(question: string, answer: string): boolean {
-  const blankCount = countInlineBlankPlaceholders(question);
+  const blankCount = (question.match(/\[\]/g) ?? []).length;
   if (blankCount <= 0) return false;
   const answerLines = normalizeBlankAnswerLines(answer);
   return answerLines.length > 0;
+}
+
+function buildInlineBlankQuestionBlock(question: string, answer: string): string {
+  const normalizedQuestion = normalizeTextInput(question).replace(/\r\n/g, "\n").trim();
+  if (!normalizedQuestion) return "";
+  const answerLines = normalizeBlankAnswerLines(answer);
+  let answerIndex = 0;
+  return normalizedQuestion.replace(/\[\]/g, () => {
+    const nextAnswer = answerLines[answerIndex] ?? "";
+    answerIndex += 1;
+    return nextAnswer ? `[${nextAnswer}]` : "[]";
+  });
+}
+
+function parseInlineBlankQuestionBlock(rawBlock: string): {
+  question: string;
+  answer: string;
+  blankCount: number;
+  error?: string;
+} {
+  const normalizedBlock = rawBlock.replace(/\r\n/g, "\n").trim();
+  if (!normalizedBlock) {
+    return {
+      question: "",
+      answer: "",
+      blankCount: 0,
+      error: "빈칸 문제 블록이 비어 있습니다.",
+    };
+  }
+
+  let blankCount = 0;
+  let hasEmptyBlank = false;
+  const answers: string[] = [];
+  const normalizedQuestion = normalizedBlock.replace(/\[([^\]\n\r]*)\]/g, (_, rawAnswer: string) => {
+    blankCount += 1;
+    const cleaned = String(rawAnswer ?? "").trim();
+    if (!cleaned) hasEmptyBlank = true;
+    else answers.push(cleaned);
+    return "[]";
+  });
+
+  if (blankCount <= 0) {
+    return {
+      question: "",
+      answer: "",
+      blankCount: 0,
+      error: "질문 안에 최소 1개의 `[정답]` 형식이 필요합니다.",
+    };
+  }
+
+  if (hasEmptyBlank || answers.length !== blankCount) {
+    return {
+      question: "",
+      answer: "",
+      blankCount,
+      error: `모든 빈칸에 정답을 채워주세요. (감지된 빈칸 ${blankCount}개)`,
+    };
+  }
+
+  return {
+    question: normalizedQuestion,
+    answer: answers.join("\n"),
+    blankCount,
+  };
 }
 
 function buildQuestionAnswerBlock(question: string, answer: string): string {
@@ -380,13 +444,28 @@ function parseBulkImportInput(
 
   for (let index = 0; index < blocks.length; index++) {
     const block = blocks[index];
+    const blockOrder = index + 1;
+
+    if (preferredMode === "blank") {
+      const parsedBlank = parseInlineBlankQuestionBlock(block);
+      if (parsedBlank.error) {
+        errors.push(`${blockOrder}번 블록: ${parsedBlank.error}`);
+        continue;
+      }
+      items.push({
+        question: parsedBlank.question,
+        answer: parsedBlank.answer,
+        autoNumbering: 0,
+      });
+      continue;
+    }
+
     const lines = block.split("\n");
     const firstLineIndex = lines.findIndex((line) => line.trim().length > 0);
     if (firstLineIndex < 0) continue;
 
     const question = lines[firstLineIndex].trim();
     const answerBody = lines.slice(firstLineIndex + 1).join("\n").trim();
-    const blockOrder = index + 1;
 
     if (!question) {
       errors.push(`${blockOrder}번 블록: 첫 줄 문제 제목이 비어 있습니다.`);
@@ -397,7 +476,7 @@ function parseBulkImportInput(
       continue;
     }
 
-    const blankCount = countInlineBlankPlaceholders(question);
+    const blankCount = (question.match(/\[\]/g) ?? []).length;
     const blankAnswerLines = normalizeBlankAnswerLines(answerBody);
     const shouldParseAsBlank = preferredMode === "blank" || blankCount > 0;
 
@@ -1325,11 +1404,11 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   const inlineBulkRaw = useMemo(
     () => {
       if (activeTab === "blank") {
-        return buildQuestionAnswerBlock(formData.question, formData.answer);
+        return normalizeTextInput(formData.question).replace(/\r\n/g, "\n").trim();
       }
       return normalizeTextInput(formData.question).replace(/\r\n/g, "\n").trim();
     },
-    [activeTab, formData.answer, formData.question]
+    [activeTab, formData.question]
   );
   const hasInlineBulkDelimiter = useMemo(
     () => hasBulkDelimiter(inlineBulkRaw),
@@ -1356,36 +1435,6 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     () => countInlineBlankPlaceholders(formData.question),
     [formData.question]
   );
-  const blankAnswerLines = useMemo(
-    () => normalizeTextInput(formData.answer).replace(/\r\n/g, "\n").split("\n"),
-    [formData.answer]
-  );
-  const handleBlankAnswerLineChange = useCallback((index: number, value: string) => {
-    setFormData((prev) => {
-      const targetCount = Math.max(1, countInlineBlankPlaceholders(prev.question));
-      const nextLines = normalizeTextInput(prev.answer).replace(/\r\n/g, "\n").split("\n");
-      while (nextLines.length < targetCount) nextLines.push("");
-      nextLines[index] = value;
-      return {
-        ...prev,
-        answer: nextLines.join("\n"),
-      };
-    });
-  }, []);
-
-  useEffect(() => {
-    if (activeTab !== "blank") return;
-    setFormData((prev) => {
-      const blankCount = countInlineBlankPlaceholders(prev.question);
-      if (blankCount <= 0) return prev;
-      const nextLines = normalizeTextInput(prev.answer).replace(/\r\n/g, "\n").split("\n");
-      while (nextLines.length < blankCount) nextLines.push("");
-      if (nextLines.length > blankCount) nextLines.length = blankCount;
-      const nextAnswer = nextLines.join("\n");
-      if (nextAnswer === prev.answer) return prev;
-      return { ...prev, answer: nextAnswer };
-    });
-  }, [activeTab, formData.question]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1700,9 +1749,15 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     const parsedTableData = question.tableData ? JSON.parse(question.tableData) : null;
     const detectedBlankQuestion = isLikelyBlankQuestion(question.question || "", question.answer || "");
     const textBlockValue = buildQuestionAnswerBlock(question.question || "", question.answer || "");
+    const blankBlockValue = buildInlineBlankQuestionBlock(question.question || "", question.answer || "");
     setFormData({
-      question: parsedTableData || question.imageUrl || detectedBlankQuestion ? (question.question || "") : textBlockValue,
-      answer: detectedBlankQuestion ? (question.answer || "") : (parsedTableData || question.imageUrl ? (question.answer || "") : ""),
+      question:
+        parsedTableData || question.imageUrl
+          ? (question.question || "")
+          : detectedBlankQuestion
+            ? blankBlockValue
+            : textBlockValue,
+      answer: parsedTableData || question.imageUrl ? (question.answer || "") : "",
       imageUrl: question.imageUrl || "",
       imageLabels: question.imageLabels ? JSON.parse(question.imageLabels) : [],
       autoNumbering: question.autoNumbering !== 0,
@@ -1957,10 +2012,10 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       <TabsContent value="blank" className="space-y-4 mt-4">
         <div className="rounded-md border bg-muted/20 px-3 py-2 space-y-1">
           <p className="text-xs font-medium text-muted-foreground">
-            질문에 `[]` 빈칸을 넣으면, 아래 답안 칸이 빈칸 개수만큼 자동 대응됩니다.
+            질문/답안을 나누지 않고, 블록 안에서 빈칸을 `[정답]`으로 감싸 입력하세요.
           </p>
           <p className="text-xs text-muted-foreground">
-            저장 시에는 `첫 줄=질문`, `아래 줄들=각 빈칸 답` 블록 1개로 처리됩니다.
+            저장 시 자동으로 질문은 `[]`로 치환되고, 괄호 안 텍스트는 답안 줄로 정리됩니다.
           </p>
           {inlineBulkParseResult.errors.length > 0 && (
             <p className="text-xs text-red-600 dark:text-red-400">
@@ -1969,28 +2024,15 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
           )}
         </div>
         <div className="space-y-2">
-          <Label htmlFor="blank-question">질문(빈칸 포함) *</Label>
+          <Label htmlFor="blank-question">빈칸 문제 블록 *</Label>
           <Textarea
             id="blank-question"
             value={formData.question}
             onChange={(e) => handleQuestionChange(e.target.value)}
-            placeholder="예: 상악 중절치의 절단연은 []이고, 치근단은 []이다."
-            rows={3}
+            placeholder={"예: 상악 중절치의 절단연은 [평평]이고, 치근단은 [예리]하다.\n---\nBox-7 대구치의 특징\n1. [설측교두] 존재\n2. [교합면]이 있어 가는 기능 보조"}
+            rows={8}
           />
           <p className="text-xs text-muted-foreground">감지된 빈칸: {blankPlaceholderCount}개</p>
-        </div>
-        <div className="space-y-2">
-          <Label>빈칸 답안 *</Label>
-          <div className="space-y-2">
-            {Array.from({ length: Math.max(1, blankPlaceholderCount) }).map((_, index) => (
-              <Input
-                key={index}
-                value={blankAnswerLines[index] ?? ""}
-                onChange={(e) => handleBlankAnswerLineChange(index, e.target.value)}
-                placeholder={`${index + 1}번 빈칸 답안`}
-              />
-            ))}
-          </div>
         </div>
       </TabsContent>
 

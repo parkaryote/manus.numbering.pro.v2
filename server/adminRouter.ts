@@ -3,6 +3,8 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db.js";
 import { ENV } from "./_core/env.js";
+import { and, eq, or } from "drizzle-orm";
+import { subjects } from "../drizzle/schema.js";
 
 // 관리자 권한 확인 미들웨어
 const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
@@ -127,6 +129,107 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
   });
 }
 
+async function syncDemoSubjectToLinkedWorkspaces(demoSubjectId: number) {
+  const database = await db.getDb();
+  if (!database) return;
+
+  const demoSubject = await db.getSubjectById(demoSubjectId);
+  if (!demoSubject || demoSubject.isDemo !== 1) return;
+
+  const rawDemoQuestions = await db.getDemoQuestionsBySubjectId(demoSubjectId);
+  const demoQuestions = isToothMorphologySubjectName(demoSubject.name)
+    ? pickToothShowcaseQuestions(rawDemoQuestions)
+    : rawDemoQuestions;
+
+  const candidateSubjects = await database
+    .select()
+    .from(subjects)
+    .where(
+      and(
+        eq(subjects.isDemo, 0),
+        or(
+          eq(subjects.demoSourceSubjectId, demoSubjectId),
+          eq(subjects.name, demoSubject.name)
+        )
+      )
+    );
+
+  for (const linkedSubject of candidateSubjects) {
+    const existingQuestions = await db.getQuestionsBySubjectId(linkedSubject.id);
+    const hasExplicitLink = linkedSubject.demoSourceSubjectId === demoSubjectId;
+    const linkedQuestionCount = existingQuestions.filter(
+      (question) =>
+        typeof question.demoSourceQuestionId === "number" &&
+        question.demoSourceQuestionId > 0
+    ).length;
+
+    if (!hasExplicitLink && existingQuestions.length > 0 && linkedQuestionCount === 0) {
+      continue;
+    }
+
+    await db.updateSubject(linkedSubject.id, {
+      demoSourceSubjectId: demoSubjectId,
+      name: demoSubject.name,
+      description: demoSubject.description ?? null,
+      color: demoSubject.color ?? "#3B82F6",
+      displayOrder: demoSubject.displayOrder ?? 0,
+      examEndDate: demoSubject.examEndDate ?? null,
+      isDemo: 0,
+    });
+
+    const questionBySourceId = new Map(
+      existingQuestions
+        .filter(
+          (question) =>
+            typeof question.demoSourceQuestionId === "number" &&
+            question.demoSourceQuestionId > 0
+        )
+        .map((question) => [question.demoSourceQuestionId as number, question] as const)
+    );
+
+    const questionByNormalizedTitle = new Map<string, (typeof existingQuestions)[number]>();
+    for (const question of existingQuestions) {
+      const key = normalizeLookupValue(question.question);
+      if (!key || questionByNormalizedTitle.has(key)) continue;
+      questionByNormalizedTitle.set(key, question);
+    }
+
+    for (const demoQuestion of demoQuestions) {
+      const normalizedTitle = normalizeLookupValue(demoQuestion.question);
+      const targetQuestion =
+        questionBySourceId.get(demoQuestion.id) ??
+        (normalizedTitle ? questionByNormalizedTitle.get(normalizedTitle) : undefined);
+
+      const syncedData = {
+        question: demoQuestion.question,
+        answer: demoQuestion.answer ?? "",
+        difficulty: demoQuestion.difficulty ?? "medium",
+        imageUrl: demoQuestion.imageUrl ?? null,
+        imageLabels: demoQuestion.imageLabels ?? null,
+        autoNumbering: demoQuestion.autoNumbering ?? 1,
+        tableData: demoQuestion.tableData ?? null,
+        displayOrder: demoQuestion.displayOrder ?? 0,
+        isDemo: 0,
+        isStarred: demoQuestion.isStarred ?? 0,
+        useAIGrading: demoQuestion.useAIGrading ?? 0,
+        demoSourceQuestionId: demoQuestion.id,
+      } as const;
+
+      if (targetQuestion) {
+        await db.updateQuestion(targetQuestion.id, syncedData);
+      } else {
+        await db.createQuestion({
+          subjectId: linkedSubject.id,
+          userId: linkedSubject.userId,
+          ...syncedData,
+        });
+      }
+    }
+
+    await db.normalizeQuestionDisplayOrderForSubject(linkedSubject.id);
+  }
+}
+
 export const adminRouter = router({
   // 데모 과목 관리
   demo: router({
@@ -190,6 +293,10 @@ export const adminRouter = router({
             isStarred: input.isStarred,
           }
         );
+
+        if (target.subjectId) {
+          await syncDemoSubjectToLinkedWorkspaces(target.subjectId);
+        }
         
         // 캐시 무효화 신호 (클라이언트가 데이터 새로고침하도록)
         return {
@@ -211,6 +318,9 @@ export const adminRouter = router({
           });
         }
         await db.deleteDemoQuestion(input.questionId);
+        if (target.subjectId) {
+          await syncDemoSubjectToLinkedWorkspaces(target.subjectId);
+        }
         return {
           success: true,
           cacheInvalidated: true,
@@ -247,6 +357,8 @@ export const adminRouter = router({
           isStarred: input.isStarred ?? 0,
           isDemo: 1,
         });
+
+        await syncDemoSubjectToLinkedWorkspaces(input.subjectId);
         
         return {
           success: true,
@@ -300,6 +412,7 @@ export const adminRouter = router({
           description: input.description,
           color: input.color,
         });
+        await syncDemoSubjectToLinkedWorkspaces(input.subjectId);
         return { success: true, data: updated };
       }),
 
@@ -326,6 +439,9 @@ export const adminRouter = router({
           assertDemoPublishingEnabled(ctx.user.role);
         }
         await db.updateSubjectIsDemo(input.subjectId, input.isDemo);
+        if (input.isDemo === 1) {
+          await syncDemoSubjectToLinkedWorkspaces(input.subjectId);
+        }
         return { success: true };
       }),
 
@@ -333,10 +449,20 @@ export const adminRouter = router({
     toggleQuestionDemo: adminProcedure
       .input(z.object({ questionId: z.number(), isDemo: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        const target = await db.getQuestionById(input.questionId);
+        if (!target) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "문제를 찾을 수 없습니다",
+          });
+        }
         if (input.isDemo === 1) {
           assertDemoPublishingEnabled(ctx.user.role);
         }
         await db.updateQuestionIsDemo(input.questionId, input.isDemo);
+        if (input.isDemo === 1 && target.subjectId) {
+          await syncDemoSubjectToLinkedWorkspaces(target.subjectId);
+        }
         return { success: true };
       }),
 
@@ -354,6 +480,9 @@ export const adminRouter = router({
         await db.updateDemoQuestion(input.questionId, {
           isStarred: question.isStarred ? 0 : 1,
         });
+        if (question.subjectId) {
+          await syncDemoSubjectToLinkedWorkspaces(question.subjectId);
+        }
         return { success: true };
       }),
   }),

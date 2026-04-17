@@ -218,6 +218,43 @@ function buildForgettingCurveRows<
   return output;
 }
 
+function splitForgettingSeriesByNow<
+  T extends {
+    at: string;
+    forgettingScore?: number | null;
+  },
+>(
+  rows: T[],
+  nowMs: number
+): Array<T & { forgettingScorePast: number | null; forgettingScoreFuture: number | null }> {
+  const output = rows.map((row) => {
+    const forgettingScore = typeof row.forgettingScore === "number" ? row.forgettingScore : null;
+    const atMs = new Date(row.at).getTime();
+    const isFuture = Number.isFinite(atMs) && atMs > nowMs;
+    return {
+      ...row,
+      forgettingScorePast: isFuture ? null : forgettingScore,
+      forgettingScoreFuture: isFuture ? forgettingScore : null,
+    };
+  });
+
+  // 미래 점선이 자연스럽게 시작되도록 마지막 과거 점을 앵커로 공유한다.
+  for (let index = 1; index < output.length; index += 1) {
+    const previous = output[index - 1];
+    const current = output[index];
+    if (
+      previous.forgettingScorePast !== null &&
+      current.forgettingScoreFuture !== null &&
+      previous.forgettingScoreFuture === null &&
+      typeof previous.forgettingScore === "number"
+    ) {
+      previous.forgettingScoreFuture = previous.forgettingScore;
+    }
+  }
+
+  return output;
+}
+
 function addSegmentLineScores<
   T extends {
     eventType?: string;
@@ -610,9 +647,10 @@ export function ConfidenceHistoryModal({
     projectionStartAtISO ? (timeScaleNodeByAt.get(projectionStartAtISO)?.x ?? null) : null;
   const projectionExamX =
     projectionExamAtISO ? (timeScaleNodeByAt.get(projectionExamAtISO)?.x ?? null) : null;
-  const chartData = buildForgettingCurveRows(
-    addSegmentLineScores(
-      allPoints.map((p, i) => {
+  const chartData = splitForgettingSeriesByNow(
+    buildForgettingCurveRows(
+      addSegmentLineScores(
+        allPoints.map((p, i) => {
       const isPredict = (p as any).eventType === "exam_predict";
       const isPredictMid = (p as any).eventType === "exam_predict_mid";
       const isProjectionPoint = isPredict || isPredictMid;
@@ -643,9 +681,11 @@ export function ConfidenceHistoryModal({
               minutesUntilExam: projectionExamDatePrediction.minutesUntilExam,
             }
           : {}),
-      };
-      })
-    )
+        };
+        })
+      )
+    ),
+    normalizedNowMs
   );
 
   const hasData = solidData.length > 0;
@@ -800,6 +840,10 @@ export function ConfidenceHistoryModal({
                 망각 구간 (실선)
               </span>
               <span className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-0" style={{ borderTop: "2px dashed #64748b" }} />
+                예측 망각 구간 (점선)
+              </span>
+              <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
                 시험 성공 (≥80%)
               </span>
@@ -883,10 +927,22 @@ export function ConfidenceHistoryModal({
                   />
                   <Line
                     type="linear"
-                    dataKey="forgettingScore"
+                    dataKey="forgettingScorePast"
                     stroke="#64748b"
                     strokeOpacity={0.82}
                     strokeWidth={3}
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={false}
+                    connectNulls={false}
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="forgettingScoreFuture"
+                    stroke="#64748b"
+                    strokeOpacity={0.82}
+                    strokeWidth={3}
+                    strokeDasharray="6 4"
                     dot={(props: any) =>
                       props?.payload?.eventType === "exam_predict"
                         ? <CustomDot {...props} onSelectPoint={handleSelectTestPoint} />
