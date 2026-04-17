@@ -30,7 +30,7 @@ import { toast } from "sonner";
 const GUEST_ID_KEY = "numbering_guest_id";
 const RECENT_AUTH_AT_KEY = "numbering_recent_auth_at";
 const PARTIAL_DENTURE_SUBJECT_NAME = "국소의치학";
-const PARTIAL_DENTURE_DEMO_UNLOCK_KEY = "numbering_demo_unlock_partial_denture_v2";
+const PARTIAL_DENTURE_DEMO_UNLOCK_KEY = "numbering_demo_unlock_partial_denture_v3";
 const INIT_MAX_WAIT_MS = 2_500;
 const AUTH_ME_FETCH_TIMEOUT_MS = 2_000;
 const GUEST_BOOTSTRAP_BLOCK_MAX_MS = 900;
