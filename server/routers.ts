@@ -4134,10 +4134,15 @@ export const appRouter = router({
         if (ENV.signupAccessPassword) {
           const provided = input.accessPassword ?? "";
           const hasVerifiedGate = hasVerifiedSiteGate(ctx.req as any);
+          const siteAndSignupPasswordSame = (() => {
+            const signupValue = normalizeSecretInput(ENV.signupAccessPassword);
+            const siteValue = normalizeSecretInput(ENV.siteGatePassword);
+            return signupValue.length > 0 && signupValue === siteValue;
+          })();
           const allowedPasswords = [ENV.signupAccessPassword, ENV.siteGatePassword]
             .map((value) => value.trim())
             .filter((value) => value.length > 0);
-          if (!hasVerifiedGate && !isSecretMatch(provided, allowedPasswords)) {
+          if (!siteAndSignupPasswordSame && !hasVerifiedGate && !isSecretMatch(provided, allowedPasswords)) {
             registerAuthFailure(authRateLimitKey);
             throw new TRPCError({
               code: "UNAUTHORIZED",
