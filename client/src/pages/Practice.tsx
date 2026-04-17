@@ -17,6 +17,7 @@ import { buildNextAutoNumberingValue, getForcedPrefixByTemplateProgress, getLine
 import { getImageAttribution } from "@/lib/imageAttribution";
 import { useIsMobile } from "@/hooks/useMobile";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { parseMnemonicAnswer } from "@shared/answerMnemonics";
 
 interface PracticeProps {
   questionId: number;
@@ -912,7 +913,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     } catch {}
   }, [questionId, userInput]);
 
-  const targetText = (question?.answer || "").replace(/\s+$/g, "");
+  const parsedMnemonicAnswer = useMemo(() => parseMnemonicAnswer(question?.answer || ""), [question?.answer]);
+  const mnemonicSummaryHints = parsedMnemonicAnswer.summaryHints;
+  const mnemonicLineData = parsedMnemonicAnswer.lines;
+  const targetText = parsedMnemonicAnswer.cleanAnswer.replace(/\s+$/g, "");
   const targetVisualLineCount = useMemo(() => {
     const lines = targetText.split("\n");
     while (lines.length > 1 && lines[lines.length - 1]?.trim() === "") {
@@ -1198,6 +1202,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }, [isDemo, isImageQuestion, notepadLines, practiceNote]);
   const tableData: TableData | null = question?.tableData ? JSON.parse(question.tableData) : null;
   const isTableQuestion = !!tableData;
+  const shouldShowMnemonicGuide = useMemo(
+    () =>
+      !isTableQuestion &&
+      !isImageQuestion &&
+      hideMode === "all" &&
+      sessionCompleteCount >= 3 &&
+      mnemonicSummaryHints.length > 0,
+    [hideMode, isImageQuestion, isTableQuestion, mnemonicSummaryHints.length, sessionCompleteCount]
+  );
   const shouldAutoSeedPracticeNumbering =
     !isTableQuestion &&
     !isImageQuestion &&
@@ -3444,6 +3457,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const lineResult = lineResults[lineIdx];
       const lineOpacity = calculateLineOpacity[lineIdx] || 1;
       const isActiveLine = lineIdx === activeLineIdx;
+      const lineMnemonic = mnemonicLineData[lineIdx]?.hintDisplay ?? null;
+      const lineMnemonicIndexes = new Set<number>(mnemonicLineData[lineIdx]?.highlightedIndexes ?? []);
       
       // 이미 올바르게 완주한 문장은 Tab 전체 가리기/해제와 무관하게 계속 보이도록 유지
       const isLineCompleted =
@@ -3492,10 +3507,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             >
               <EyeOff className="h-3 w-3" />
               {isPracticeWrongLine
-                ? `${lineIdx + 1}번째 줄 (오답)`
+                ? `${lineIdx + 1}번째 줄${lineMnemonic ? ` · ${lineMnemonic}` : ""} (오답)`
                 : isActiveLine
-                  ? `${lineIdx + 1}번째 줄 (현재 연습 중)`
-                  : `${lineIdx + 1}번째 줄 (클릭하여 보기)`}
+                  ? `${lineIdx + 1}번째 줄${lineMnemonic ? ` · ${lineMnemonic}` : ""} (현재 연습 중)`
+                  : `${lineIdx + 1}번째 줄${lineMnemonic ? ` · ${lineMnemonic}` : ""} (클릭하여 보기)`}
             </span>
           </div>
         );
@@ -3516,11 +3531,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         
         const currentCharIdx = charIdx;
         charIdx++;
-        
+        const mnemonicClass = lineMnemonicIndexes.has(charIndex)
+          ? "underline decoration-amber-500/70 underline-offset-[0.22em]"
+          : "";
+
         if (!lineResult) {
           // 이 줄에 대한 입력이 없음
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-[15px] sm:text-base lg:text-lg" style={{ opacity: lineOpacity }}>
+            <span key={`${lineIdx}-${charIndex}`} className={`text-gray-400 relative font-semibold text-[15px] sm:text-base lg:text-lg ${mnemonicClass}`} style={{ opacity: lineOpacity }}>
               {char}
             </span>
           );
@@ -3530,13 +3548,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
         if (charState === 'complete') {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-foreground relative font-semibold text-[15px] sm:text-base lg:text-lg" style={{ opacity: 1 }}>
+            <span key={`${lineIdx}-${charIndex}`} className={`text-foreground relative font-semibold text-[15px] sm:text-base lg:text-lg ${mnemonicClass}`} style={{ opacity: 1 }}>
               {char}
             </span>
           );
         } else if (charState === 'partial') {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-gray-600 relative font-semibold text-[15px] sm:text-base lg:text-lg" style={{ opacity: 1 }}>
+            <span key={`${lineIdx}-${charIndex}`} className={`text-gray-600 relative font-semibold text-[15px] sm:text-base lg:text-lg ${mnemonicClass}`} style={{ opacity: 1 }}>
               {char}
             </span>
           );
@@ -3544,7 +3562,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           return (
             <span
               key={`${lineIdx}-${charIndex}`}
-              className="relative font-semibold text-[15px] sm:text-base lg:text-lg"
+              className={`relative font-semibold text-[15px] sm:text-base lg:text-lg ${mnemonicClass}`}
               style={{ opacity: 1, color: "var(--status-danger)" }}
             >
               {char}
@@ -3552,7 +3570,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           );
         } else {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-gray-400 relative font-semibold text-[15px] sm:text-base lg:text-lg" style={{ opacity: lineOpacity }}>
+            <span key={`${lineIdx}-${charIndex}`} className={`text-gray-400 relative font-semibold text-[15px] sm:text-base lg:text-lg ${mnemonicClass}`} style={{ opacity: lineOpacity }}>
               {char}
             </span>
           );
@@ -3659,7 +3677,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </span>
       );
     });
-  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines, repeatCheckedLines, currentRepeatTarget, isRepeatMode, toggleRepeatLine, confidenceData, autoHideWrongLines]);
+  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines, repeatCheckedLines, currentRepeatTarget, isRepeatMode, toggleRepeatLine, confidenceData, autoHideWrongLines, mnemonicLineData]);
 
   if (isLoading) {
     return (
@@ -4072,6 +4090,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     </div>
                   )}
                 </div>
+                {shouldShowMnemonicGuide && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="font-medium">암기 힌트</span>
+                    <span className="break-words font-mono text-[11px] tracking-normal text-foreground/70">
+                      {mnemonicSummaryHints.join(" · ")}
+                    </span>
+                  </div>
+                )}
                 {isTableQuestion && (
                   <CardDescription>
                     셀 클릭으로 이동

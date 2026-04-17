@@ -16,6 +16,7 @@ import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
 import { getImageAttribution } from "@/lib/imageAttribution";
 import { useIsMobile } from "@/hooks/useMobile";
+import { stripMnemonicHintsFromAnswer } from "@shared/answerMnemonics";
 
 interface TestProps {
   questionId: number;
@@ -374,6 +375,10 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   }, [confidenceData, isSubmitted]);
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
+  const textCorrectAnswer = useMemo(
+    () => stripMnemonicHintsFromAnswer(question?.answer || ""),
+    [question?.answer]
+  );
   const imageAttribution = useMemo(
     () => getImageAttribution(question?.id, question?.imageUrl),
     [question?.id, question?.imageUrl]
@@ -694,7 +699,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
           const typingEndTime = Date.now();
           recordAttemptMutation.mutate({
             questionId: question.id,
-            answerLength: question.answer?.length ?? 0,
+            answerLength: textCorrectAnswer.length,
             inputChars: inputCharsRef.current,
             timeToFirstKey: timeToFirstKeyRef.current ?? 0,
             typingStartTime: typingStartTimeRef.current,
@@ -1631,23 +1636,23 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                       <>
                         {(() => {
                           const { correctMatched, answerMatched } = getMatchedPositions(
-                            question?.answer || "",
+                            textCorrectAnswer,
                             userAnswer || ""
                           );
                           return (
                             <>
-                        <div className="rounded-lg border border-green-300 bg-green-50 p-3 dark:border-green-800/60 dark:bg-green-950/30">
-                          <p className="text-xs font-semibold text-muted-foreground mb-1">정답</p>
-                          <p className="text-sm font-medium whitespace-pre-wrap">
-                            {renderComparedText(question?.answer || "", correctMatched, "correct")}
-                          </p>
-                        </div>
-                        <div className={`rounded-lg border p-3 ${result?.isCorrect ? 'border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30' : 'border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20'}`}>
-                          <p className="text-xs font-semibold text-muted-foreground mb-1">내 답</p>
-                          <p className={`text-sm font-medium whitespace-pre-wrap ${result?.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}`}>
-                            {renderComparedText(userAnswer || "", answerMatched, "answer")}
-                          </p>
-                        </div>
+                              <div className="rounded-lg border border-green-300 bg-green-50 p-3 dark:border-green-800/60 dark:bg-green-950/30">
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">정답</p>
+                                <p className="text-sm font-medium whitespace-pre-wrap">
+                                  {renderComparedText(textCorrectAnswer, correctMatched, "correct")}
+                                </p>
+                              </div>
+                              <div className={`rounded-lg border p-3 ${result?.isCorrect ? 'border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30' : 'border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20'}`}>
+                                <p className="text-xs font-semibold text-muted-foreground mb-1">내 답</p>
+                                <p className={`text-sm font-medium whitespace-pre-wrap ${result?.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}`}>
+                                  {renderComparedText(userAnswer || "", answerMatched, "answer")}
+                                </p>
+                              </div>
                             </>
                           );
                         })()}

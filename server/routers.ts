@@ -26,6 +26,7 @@ import {
   type TestSignal,
   type ConfidenceResult,
 } from "../shared/examConfidence.js";
+import { stripMnemonicHintsFromAnswer } from "../shared/answerMnemonics.js";
 import {
   calculateEffectiveSpeed,
   calculateSpeedBonus,
@@ -4857,7 +4858,7 @@ export const appRouter = router({
 
         // 이미지 문제인 경우 imageLabels에서 정답 추출
         const isImageQuestion = question.imageUrl && question.imageLabels;
-        let correctAnswer = question.answer || "";
+        let correctAnswer = stripMnemonicHintsFromAnswer(question.answer || "");
 
         if (isImageQuestion) {
           try {
@@ -5574,7 +5575,7 @@ export const appRouter = router({
 
         // 이미지 문제인 경우 imageLabels에서 정답 추출
         const isImageQuestion = question.imageUrl && question.imageLabels;
-        let correctAnswer = question.answer || "";
+        let correctAnswer = stripMnemonicHintsFromAnswer(question.answer || "");
         
         if (isImageQuestion) {
           try {
