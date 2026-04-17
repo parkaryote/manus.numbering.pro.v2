@@ -16,6 +16,7 @@ import { nanoid } from "nanoid";
 import * as ocrModule from "./ocr.js";
 import { PDFDocument } from "pdf-lib";
 import { timingSafeEqual } from "crypto";
+import { parse as parseCookieHeader } from "cookie";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import {
   computeExamConfidence,
@@ -578,6 +579,8 @@ const AUTH_RATE_LIMIT_MAX_FAILS = 8;
 const SHARE_ACCESS_RATE_LIMIT_MAX_FAILS = 10;
 const VERIFY_GATE_RATE_LIMIT_MAX_FAILS = 10;
 const TELEMETRY_PAYLOAD_MAX_BYTES = 8 * 1024;
+const SITE_GATE_VERIFIED_COOKIE = "numbering_site_gate_verified";
+const SITE_GATE_VERIFIED_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 type AuthRateLimitBucket = {
   failCount: number;
@@ -642,6 +645,43 @@ function buildAuthRateLimitKey(
   const ip = resolveClientIp(req);
   const principalKey = (principal ?? "").trim().toLowerCase();
   return `${scope}:${ip}:${principalKey}`;
+}
+
+function getRawCookieHeader(req: {
+  headers?: Record<string, string | string[] | undefined>;
+  get?: (name: string) => string | string[] | undefined;
+}): string {
+  const headerValue = req.headers?.cookie ?? req.get?.("cookie");
+  if (!headerValue) return "";
+  return Array.isArray(headerValue) ? headerValue.join("; ") : headerValue;
+}
+
+function getCookieValue(req: {
+  headers?: Record<string, string | string[] | undefined>;
+  get?: (name: string) => string | string[] | undefined;
+}, name: string): string | null {
+  const cookieHeader = getRawCookieHeader(req);
+  if (!cookieHeader) return null;
+  try {
+    const parsed = parseCookieHeader(cookieHeader);
+    const value = parsed[name];
+    return typeof value === "string" ? value : null;
+  } catch {
+    const prefix = `${name}=`;
+    const segment = cookieHeader
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(prefix));
+    if (!segment) return null;
+    return segment.slice(prefix.length);
+  }
+}
+
+function hasVerifiedSiteGate(req: {
+  headers?: Record<string, string | string[] | undefined>;
+  get?: (name: string) => string | string[] | undefined;
+}): boolean {
+  return getCookieValue(req, SITE_GATE_VERIFIED_COOKIE) === "1";
 }
 
 function pruneAuthRateLimitBuckets(now: number) {
@@ -4066,6 +4106,11 @@ export const appRouter = router({
           });
         }
         clearAuthFailures(rateLimitKey);
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        cookieResponse(ctx.res).cookie(SITE_GATE_VERIFIED_COOKIE, "1", {
+          ...cookieOptions,
+          maxAge: SITE_GATE_VERIFIED_COOKIE_MAX_AGE_MS,
+        });
         return { success: true };
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -4088,7 +4133,11 @@ export const appRouter = router({
 
         if (ENV.signupAccessPassword) {
           const provided = input.accessPassword ?? "";
-          if (!isSecretMatch(provided, [ENV.signupAccessPassword])) {
+          const hasVerifiedGate = hasVerifiedSiteGate(ctx.req as any);
+          const allowedPasswords = [ENV.signupAccessPassword, ENV.siteGatePassword]
+            .map((value) => value.trim())
+            .filter((value) => value.length > 0);
+          if (!hasVerifiedGate && !isSecretMatch(provided, allowedPasswords)) {
             registerAuthFailure(authRateLimitKey);
             throw new TRPCError({
               code: "UNAUTHORIZED",
