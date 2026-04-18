@@ -53,11 +53,11 @@ function SubjectMiniGrid({
 
   const getBorderColor = (isStarred: boolean) => {
     if (!isStarred) return "border border-neutral-200 dark:border-neutral-700";
-    return "border-2 border-indigo-600 dark:border-indigo-500";
+    return "border-2 border-neutral-900 dark:border-neutral-200";
   };
 
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap gap-1.5">
       {sorted.map((q) => {
         const starred = q.isStarred === 1;
         const fillColor = getFillColor(q.id);
@@ -65,7 +65,7 @@ function SubjectMiniGrid({
         return (
           <div
             key={q.id}
-            className={`rounded-md w-3 h-3 ${fillColor} ${borderColor}`}
+            className={`rounded-full w-2.5 h-2.5 ${fillColor} ${borderColor}`}
             title={`문제 ${q.displayOrder}${confidenceMap.get(q.id) ? ` — ${Math.round(confidenceMap.get(q.id)!.displayScore)}점` : ""}${starred ? " (중요)" : ""}`}
           />
         );
@@ -83,12 +83,16 @@ function SubjectStudyCard({
   nowMs: number;
 }) {
   const [, setLocation] = useLocation();
-  const { data: questions } = trpc.questions.listBySubject.useQuery({
-    subjectId: subject.id,
-  });
-  const { data: confidenceData } = trpc.confidence.getBySubject.useQuery({
-    subjectId: subject.id,
-  });
+  const questionsQuery = trpc.questions.listBySubject.useQuery(
+    { subjectId: subject.id },
+    { placeholderData: (previous) => previous }
+  );
+  const confidenceDataQuery = trpc.confidence.getBySubject.useQuery(
+    { subjectId: subject.id },
+    { placeholderData: (previous) => previous }
+  );
+  const questions = questionsQuery.data;
+  const confidenceData = confidenceDataQuery.data;
 
   const confidenceMap = useMemo(() => {
     const map = new Map<number, { state: string; displayScore: number }>();
@@ -102,6 +106,8 @@ function SubjectStudyCard({
 
   const agg = confidenceData?.aggregate;
   const totalQ = questions?.length || 0;
+  const totalQLabel =
+    questionsQuery.isLoading && totalQ === 0 ? "불러오는 중..." : `${totalQ}문제`;
   const redCount = agg?.redCount || 0;
   const yellowCount = agg?.yellowCount || 0;
   const greenCount = agg?.greenCount || 0;
@@ -130,6 +136,8 @@ function SubjectStudyCard({
         ? "bg-amber-50 dark:bg-amber-950/30"
         : "bg-red-50 dark:bg-red-950/30";
 
+  const subjectGrade = agg?.state === "green" ? "A" : agg?.state === "yellow" ? "B" : agg?.state === "red" ? "C" : null;
+
   return (
     <Card className="shadow-sm hover:shadow-md transition-all">
       <CardContent className="p-4">
@@ -141,8 +149,41 @@ function SubjectStudyCard({
               style={{ backgroundColor: subject.color || "#3B82F6" }}
             />
             <span className="font-semibold text-sm truncate">{subject.name}</span>
-            {totalQ > 0 && (
-              <span className="text-xs text-muted-foreground">{totalQ}문제</span>
+            {(questionsQuery.isLoading || totalQ > 0) && (
+              <span className="text-xs text-muted-foreground">{totalQLabel}</span>
+            )}
+            {subjectGrade && (
+              <span className={`inline-flex items-center justify-center min-w-6 h-5 px-1.5 rounded text-[11px] font-bold ${stateBg} ${stateColor}`}>
+                {subjectGrade}
+              </span>
+            )}
+            {(greenCount + yellowCount + redCount + coldCount) > 0 && (
+              <div className="inline-flex items-center gap-2 text-[11px] text-muted-foreground ml-0.5">
+                {greenCount > 0 && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2.5 h-[3px] rounded-[2px] bg-emerald-500 inline-block" />
+                    {greenCount}
+                  </span>
+                )}
+                {yellowCount > 0 && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2.5 h-[3px] rounded-[2px] bg-amber-400 inline-block" />
+                    {yellowCount}
+                  </span>
+                )}
+                {redCount > 0 && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2.5 h-[3px] rounded-[2px] bg-red-500 inline-block" />
+                    {redCount}
+                  </span>
+                )}
+                {coldCount > 0 && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2.5 h-[3px] rounded-[2px] bg-neutral-300 dark:bg-neutral-600 inline-block" />
+                    {coldCount}
+                  </span>
+                )}
+              </div>
             )}
           </div>
           {daysLeft !== null && (
@@ -169,27 +210,12 @@ function SubjectStudyCard({
         {/* 안정도 요약 + 미니 그리드 */}
         {totalQ > 0 && (
           <>
-            <div className="flex items-center gap-3 mb-2">
-              {agg && agg.totalQuestions > 0 ? (
-                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium ${stateBg} ${stateColor}`}>
-                  <span className="text-base font-bold">{agg.averageScore}점</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-muted text-muted-foreground">
-                  <span>미측정</span>
-                </div>
-              )}
-              <div className="flex items-center gap-2.5 text-[10px] text-muted-foreground">
-                {redCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-red-500 inline-block" />{redCount}</span>}
-                {yellowCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-amber-400 inline-block" />{yellowCount}</span>}
-                {greenCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-emerald-500 inline-block" />{greenCount}</span>}
-                {coldCount > 0 && <span className="flex items-center gap-1"><span className="w-2.5 h-[3px] rounded-full bg-neutral-200 dark:bg-neutral-700 inline-block" />{coldCount}</span>}
-              </div>
+            <div className="mb-1">
+              <SubjectMiniGrid
+                questions={questions || []}
+                confidenceMap={confidenceMap}
+              />
             </div>
-            <SubjectMiniGrid
-              questions={questions || []}
-              confidenceMap={confidenceMap}
-            />
           </>
         )}
 
@@ -413,10 +439,10 @@ export default function Home() {
 
       {/* 별표 문제 */}
       {starredQuestions.length > 0 && (
-        <div className="rounded-lg border border-amber-200 dark:border-amber-800/50 bg-amber-50/30 dark:bg-amber-950/10 p-3">
+        <div className="rounded-lg border border-neutral-300 dark:border-neutral-700 bg-neutral-50/70 dark:bg-neutral-900/30 p-3">
           <div className="flex items-center gap-2 mb-2">
-            <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-            <span className="text-sm font-semibold">
+            <Star className="w-4 h-4 fill-neutral-900 text-neutral-900 dark:fill-neutral-100 dark:text-neutral-100" />
+            <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
               별표 문제 {starredQuestions.length}개
             </span>
           </div>
@@ -427,7 +453,7 @@ export default function Home() {
                 <Badge
                   key={q.id}
                   variant="outline"
-                  className="cursor-pointer hover:bg-accent transition-colors text-xs gap-1 py-0.5"
+                  className="cursor-pointer border-neutral-400/80 text-neutral-900 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-xs gap-1 py-0.5"
                   onClick={() => setLocation(`/practice/${q.id}?scrollNav=1`)}
                 >
                   {subj && (

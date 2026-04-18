@@ -907,6 +907,51 @@ function computeExamConfidenceInternal(
     }
   }
 
+  // 최신 시험이 "완전 정답(100%)"이면 직전 대비 안정도가 내려가지 않도록 보장한다.
+  if (
+    applyPracticeProgressGuard &&
+    sortedHistory.length > 0
+  ) {
+    const latestTest = sortedHistory[0];
+    const latestPerfect = !!latestTest.isCorrect;
+
+    if (latestPerfect) {
+      const remainingHistory = sortedHistory.slice(1);
+      const prevTestCount = Math.max(0, test.testCount - 1);
+      const prevCorrectCount = Math.max(0, test.correctCount - 1);
+      const prevWrongCount = Math.max(0, test.wrongCount);
+      const prevAverageSimilarity = remainingHistory.length > 0
+        ? remainingHistory.reduce((sum, item) => sum + item.similarityScore, 0) / remainingHistory.length
+        : 0;
+      const prevMostRecent = remainingHistory[0]?.completedAt ?? null;
+
+      const previousResult = computeExamConfidenceInternal(
+        {
+          ...input,
+          test: {
+            ...test,
+            testCount: prevTestCount,
+            correctCount: prevCorrectCount,
+            wrongCount: prevWrongCount,
+            averageSimilarityScore: prevAverageSimilarity,
+            mostRecentTestAt: prevMostRecent,
+            recentCorrectStreak: computeRecentPassStreak(remainingHistory),
+            mostRecentTestWasPoor: remainingHistory[0]
+              ? (remainingHistory[0].similarityScore ?? 0) < 50
+              : false,
+            recentTestHistory: remainingHistory,
+          },
+        },
+        false
+      );
+
+      if (displayScore < previousResult.displayScore) {
+        displayScore = Math.min(displayCap, previousResult.displayScore);
+        rawScore = Math.max(rawScore, displayScore);
+      }
+    }
+  }
+
   let state: "green" | "yellow" | "red";
   if (displayScore >= CONFIDENCE_THRESHOLDS.green) state = "green";
   else if (displayScore >= CONFIDENCE_THRESHOLDS.yellow) state = "yellow";

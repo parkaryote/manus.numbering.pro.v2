@@ -879,12 +879,15 @@ export function TableView({
                 if (!practiceMode && isBlank && !showAnswers) bgColor = "bg-yellow-50";
                 if (isCorrect === true) bgColor = "bg-green-50";
                 if (isCorrect === false) bgColor = "bg-red-50";
+                if (isWrongCell && isBlank && !isCompleted) bgColor = "bg-rose-50/70";
                 // 하단 입력창 모드: 집중 연습 선택된 셀은 연한 보라 배경 tint (인라인 스타일로 적용)
                 const isFocusCell = activeCellKey !== null && isBlank && isCellChecked && !isActiveCell;
 
                 // 하단 입력창 모드에서 활성 셀 테두리 강조 (active: 두꺼운 보라 + glow)
                 const cellBorderClass = isActiveCell
                   ? 'border-2 border-purple-500 shadow-[0_0_0_2px_oklch(0.55_0.2_290_/_0.2)]'
+                  : isWrongCell
+                    ? 'border border-rose-300'
                   : 'border border-slate-300';
 
                 return (

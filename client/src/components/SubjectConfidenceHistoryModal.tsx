@@ -28,6 +28,7 @@ interface Props {
   onClose: () => void;
   isDemo?: boolean;
   previewLabel?: string;
+  currentScoreOverride?: number | null;
 }
 
 type SubjectHistoryPoint = {
@@ -394,6 +395,7 @@ export function SubjectConfidenceHistoryModal({
   onClose,
   isDemo = false,
   previewLabel,
+  currentScoreOverride = null,
 }: Props) {
   const [isEventLayerFocused, setIsEventLayerFocused] = useState(false);
   const [isTooltipNearPoint, setIsTooltipNearPoint] = useState(false);
@@ -457,9 +459,22 @@ export function SubjectConfidenceHistoryModal({
   );
 
   const hasData = chartData.length > 0;
-  const currentScore = hasData
-    ? Math.round(Number(chartData[chartData.length - 1].score))
-    : null;
+  const latestCurrentChartPoint = chartData
+    .filter((p) => {
+      const atMs = new Date(p.at).getTime();
+      return !Number.isFinite(atMs) || atMs <= normalizedNowMs;
+    })
+    .at(-1);
+  const latestAnyChartPoint = chartData.at(-1);
+  const resolvedCurrentScore = latestCurrentChartPoint?.score ?? latestAnyChartPoint?.score ?? null;
+  const graphCurrentScore =
+    hasData && typeof resolvedCurrentScore === "number"
+      ? Math.round(Number(resolvedCurrentScore))
+      : null;
+  const currentScore =
+    typeof currentScoreOverride === "number" && Number.isFinite(currentScoreOverride)
+      ? Math.round(currentScoreOverride)
+      : graphCurrentScore;
   const currentStateColor = currentScore !== null ? getStateColor(currentScore) : "#6b7280";
   const handleChartMouseMove = (state: any) => {
     const activePayload = state?.activePayload ?? [];

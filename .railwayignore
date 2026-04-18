@@ -1,0 +1,16 @@
+.git
+.github
+.manus
+.manus-logs
+.vercel
+dist
+build
+coverage
+backups
+data
+todo.md
+*.log
+*.traineddata
+node_modules
+tmp
+temp

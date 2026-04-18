@@ -44,6 +44,7 @@ import { trackQuestionCreate, trackQuestionUpdate, trackQuestionDelete } from "@
 import { CONFIDENCE_THRESHOLDS } from "@shared/examConfidence";
 import { stripMnemonicHintsFromAnswer } from "@shared/answerMnemonics";
 import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
+import { formatQuestionTextForDisplay, isBlankQuestionText } from "@/lib/questionDisplay";
 
 interface QuestionsProps {
   subjectId: number;
@@ -118,6 +119,10 @@ const NUMBERED_LINE_REGEX = /^\s*(\d+)\.\s*(.*)$/;
 const BULLET_LINE_REGEX = /^\s*[-*•]\s+.+$/;
 const BLANK_MARKER_REGEX = /^\s*(?:\{\{([\s\S]*?)\}\}|\[\[([\s\S]*?)\]\]|\[([\s\S]*?)\])\s*$/;
 const BULK_DELIMITER_REGEX = /(?:^|\n)\s*---+\s*(?:\n|$)/;
+const OCR_IMAGE_LINE_PREFIX_REGEX = /^\s*(?:\d{1,3}[.)]|[①-⑳]|[-–—*•·▪◦])\s*/;
+const OCR_IMAGE_QA_PREFIX_REGEX = /^\s*(?:q|a)\s*[.:：]\s*/i;
+const OCR_IMAGE_PAGE_HINT_REGEX = /^(?:page|p)\s*\d+$/i;
+const OCR_IMAGE_MAX_LABELS = 12;
 const DEMO_PUBLISHING_ENABLED = import.meta.env.VITE_ALLOW_DEMO_PUBLISHING === "true";
 
 function normalizeQuestionSignature(value: string | null | undefined): string {
@@ -187,7 +192,7 @@ function buildUnlearnedConfidenceFallback(
   };
 }
 
-type BulkTableDelimiter = "\t" | "|" | ",";
+type BulkTableDelimiter = "\t" | "|";
 
 type ParsedBulkQuestion = {
   question: string;
@@ -200,6 +205,44 @@ type BulkParseResult = {
   items: ParsedBulkQuestion[];
   errors: string[];
 };
+
+const CREATE_DRAFT_STORAGE_PREFIX = "numbering_questions_create_draft_v1";
+type QuestionEditorTab = "text" | "blank" | "image" | "table" | "ocr";
+
+function isQuestionEditorTab(value: unknown): value is QuestionEditorTab {
+  return value === "text" || value === "blank" || value === "image" || value === "table" || value === "ocr";
+}
+
+function sanitizeDraftImageLabels(value: unknown): ImageLabel[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => item && typeof item === "object")
+    .map((item: any, index: number) => ({
+      id: typeof item.id === "string" && item.id.trim().length > 0 ? item.id : `label-${index + 1}`,
+      x: Number.isFinite(Number(item.x)) ? Number(item.x) : 0,
+      y: Number.isFinite(Number(item.y)) ? Number(item.y) : 0,
+      width: Number.isFinite(Number(item.width)) ? Number(item.width) : 10,
+      height: Number.isFinite(Number(item.height)) ? Number(item.height) : 10,
+      answer: typeof item.answer === "string" ? item.answer : "",
+    }));
+}
+
+function sanitizeCreateDraftFormData(value: unknown) {
+  const draft = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const tableDataCandidate = draft.tableData;
+  const tableData =
+    tableDataCandidate && typeof tableDataCandidate === "object" ? (tableDataCandidate as TableData) : null;
+  return {
+    question: typeof draft.question === "string" ? draft.question : "",
+    answer: typeof draft.answer === "string" ? draft.answer : "",
+    imageUrl: typeof draft.imageUrl === "string" ? draft.imageUrl : "",
+    imageLabels: sanitizeDraftImageLabels(draft.imageLabels),
+    autoNumbering: typeof draft.autoNumbering === "boolean" ? draft.autoNumbering : true,
+    tableData,
+    isDemo: typeof draft.isDemo === "boolean" ? draft.isDemo : false,
+    isStarred: typeof draft.isStarred === "boolean" ? draft.isStarred : false,
+  };
+}
 
 function countInlineBlankPlaceholders(question: string): number {
   const matches = question.match(/\[[^\]\n\r]*\]/g);
@@ -329,6 +372,73 @@ function normalizeTextInput(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function cleanOcrImageAnswerLine(rawLine: string): string {
+  let line = rawLine.replace(/\u00a0/g, " ").trim();
+  if (!line) return "";
+  line = line.replace(OCR_IMAGE_LINE_PREFIX_REGEX, "").trim();
+  line = line.replace(/^[-–—*•·▪◦]+\s*/, "").trim();
+  line = line.replace(/^[\[(【<{「『]\s*/, "").replace(/\s*[\])】>}」』]$/, "");
+  line = line.replace(/\s{2,}/g, " ").trim();
+  return line;
+}
+
+function extractImageAnswersFromOcrText(rawText: string): string[] {
+  const lines = rawText
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const unique = new Set<string>();
+  const shortCandidates: string[] = [];
+  const longCandidates: string[] = [];
+
+  for (const rawLine of lines) {
+    if (OCR_IMAGE_QA_PREFIX_REGEX.test(rawLine)) continue;
+    const cleaned = cleanOcrImageAnswerLine(rawLine);
+    if (!cleaned) continue;
+    if (OCR_IMAGE_PAGE_HINT_REGEX.test(cleaned)) continue;
+    if (cleaned.length < 2 || cleaned.length > 90) continue;
+    const dedupeKey = cleaned.toLowerCase();
+    if (unique.has(dedupeKey)) continue;
+    unique.add(dedupeKey);
+    if (cleaned.length <= 32) shortCandidates.push(cleaned);
+    else longCandidates.push(cleaned);
+  }
+
+  return [...shortCandidates, ...longCandidates].slice(0, OCR_IMAGE_MAX_LABELS);
+}
+
+function buildAutoImageLabelsFromAnswers(answers: string[]): ImageLabel[] {
+  if (answers.length === 0) return [];
+  const count = answers.length;
+  const cols = count <= 4 ? 2 : count <= 9 ? 3 : 4;
+  const rows = Math.ceil(count / cols);
+  const marginX = 3;
+  const marginY = 5;
+  const gapX = 2;
+  const gapY = 2;
+  const width = Math.max(12, (100 - marginX * 2 - gapX * (cols - 1)) / cols);
+  const rawHeight = (100 - marginY * 2 - gapY * (rows - 1)) / rows;
+  const height = Math.max(8, Math.min(20, rawHeight));
+  const seed = Date.now();
+
+  return answers.map((answer, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    const x = marginX + col * (width + gapX);
+    const y = marginY + row * (height + gapY);
+    return {
+      id: `ocr-label-${seed}-${index + 1}`,
+      x: Math.max(0, Math.min(100 - width, x)),
+      y: Math.max(0, Math.min(100 - height, y)),
+      width,
+      height,
+      answer,
+    };
+  });
+}
+
 function splitBulkBlocks(raw: string): string[] {
   const normalized = raw.replace(/\r\n/g, "\n").trim();
   if (!normalized) return [];
@@ -352,7 +462,9 @@ function splitTableRow(line: string, delimiter: BulkTableDelimiter): string[] {
 }
 
 function detectBulkTableDelimiter(lines: string[]): BulkTableDelimiter | null {
-  const candidates: BulkTableDelimiter[] = ["\t", "|", ","];
+  // 텍스트 문제(쉼표/콜론 포함 문장)가 표로 오인식되는 케이스를 막기 위해
+  // 일괄 입력의 자동 표 감지는 탭/파이프 기반 포맷에서만 동작시킨다.
+  const candidates: BulkTableDelimiter[] = ["\t", "|"];
   let best: { delimiter: BulkTableDelimiter; rows: number; cols: number } | null = null;
 
   for (const delimiter of candidates) {
@@ -576,6 +688,8 @@ function SortableQuestionCard({
     }
   }
   const hasTable = !!question.tableData;
+  const isBlankQuestion = isBlankQuestionText(question.question);
+  const displayQuestionText = formatQuestionTextForDisplay(question.question, question.answer);
 
   return (
     <div
@@ -620,14 +734,34 @@ function SortableQuestionCard({
             {hasTable && (
               <Table2 className="h-3 w-3 text-purple-500 flex-shrink-0" />
             )}
+            {!hasImage && !hasTable && !isBlankQuestion && (
+              <ScrollText
+                className="h-3 w-3 text-slate-500 dark:text-slate-400 flex-shrink-0"
+                aria-label="텍스트 문제"
+                title="텍스트 문제"
+              />
+            )}
+            {!hasImage && !hasTable && isBlankQuestion && (
+              <span
+                className="inline-flex h-4 min-w-4 items-center justify-center text-[11px] leading-none text-emerald-600 dark:text-emerald-400 flex-shrink-0"
+                aria-label="빈칸 문제"
+                title="빈칸 문제"
+              >
+                ()
+              </span>
+            )}
             {question.isDemo === 1 && (
               <span className="text-xs text-amber-600 font-medium flex-shrink-0">데모</span>
             )}
             <p
-              className="text-base font-medium leading-tight flex-1 whitespace-pre-line break-words [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden"
-              title={question.question}
+              className={`text-base font-medium leading-tight flex-1 whitespace-pre-line break-words ${
+                isBlankQuestion
+                  ? "block"
+                  : "[display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden"
+              }`}
+              title={displayQuestionText}
             >
-              {question.question}
+              {displayQuestionText}
             </p>
             {!readOnly && !disableStarToggle && (
               <button
@@ -857,8 +991,18 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   const [selectedQuestion, setSelectedQuestion] = useState<any>(null);
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isImageDropActive, setIsImageDropActive] = useState(false);
+  const [isAutoImageOcrEnabled, setIsAutoImageOcrEnabled] = useState(true);
+  const [isAutoImageLabelGenerating, setIsAutoImageLabelGenerating] = useState(false);
+  const [lastImageUploadFile, setLastImageUploadFile] = useState<File | null>(null);
+  const [ocrPrefillFile, setOcrPrefillFile] = useState<File | null>(null);
   const [activeTab, setActiveTab] = useState<"text" | "blank" | "image" | "table" | "ocr">("text");
   const [isBulkCreating, setIsBulkCreating] = useState(false);
+  const createDraftRestoredRef = useRef(false);
+  const createDraftStorageKey = useMemo(
+    () => `${CREATE_DRAFT_STORAGE_PREFIX}:${subjectId}`,
+    [subjectId]
+  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const questionTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -876,6 +1020,58 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     isDemo: false,
     isStarred: false,
   });
+
+  useEffect(() => {
+    createDraftRestoredRef.current = false;
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.sessionStorage.getItem(createDraftStorageKey);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw) as {
+        isCreateOpen?: boolean;
+        activeTab?: unknown;
+        formData?: unknown;
+      };
+      if (!parsed?.isCreateOpen) {
+        window.sessionStorage.removeItem(createDraftStorageKey);
+        return;
+      }
+      const restoredTab = isQuestionEditorTab(parsed.activeTab) ? parsed.activeTab : "text";
+      const restoredFormData = sanitizeCreateDraftFormData(parsed.formData);
+      setFormData(restoredFormData);
+      setActiveTab(restoredTab);
+      setIsCreateOpen(true);
+      toast.message("작성 중이던 문제 등록 창을 복구했습니다.");
+    } catch {
+      // ignore draft restore failure
+    } finally {
+      createDraftRestoredRef.current = true;
+    }
+  }, [createDraftStorageKey]);
+
+  useEffect(() => {
+    if (!createDraftRestoredRef.current) return;
+    if (typeof window === "undefined") return;
+    try {
+      if (!isCreateOpen) {
+        window.sessionStorage.removeItem(createDraftStorageKey);
+        return;
+      }
+      window.sessionStorage.setItem(
+        createDraftStorageKey,
+        JSON.stringify({
+          savedAt: Date.now(),
+          isCreateOpen: true,
+          activeTab,
+          formData,
+        })
+      );
+    } catch {
+      // ignore draft persist failure
+    }
+  }, [activeTab, createDraftStorageKey, formData, isCreateOpen]);
 
   const { data: subject } = trpc.subjects.getById.useQuery(
     { id: subjectId },
@@ -903,6 +1099,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     {
       enabled: isDemoLinkedMode && !!demoLinkedSubjectId,
       refetchOnWindowFocus: false,
+      placeholderData: (previous) => previous,
     }
   );
   const demoWorkspacePreviewQuery = trpc.demo.questions.useQuery(
@@ -910,6 +1107,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     {
       enabled: Number.isFinite(subjectId) && isDemoWorkspace,
       refetchOnWindowFocus: false,
+      placeholderData: (previous) => previous,
     }
   );
   const { data: shareInfo } = trpc.share.getMineBySubject.useQuery(
@@ -918,15 +1116,24 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   );
   const demoReadOnlyQuestionsQuery = trpc.demo.questions.useQuery(
     { subjectId },
-    { enabled: Number.isFinite(subjectId) && isReadOnlyDemo }
+    {
+      enabled: Number.isFinite(subjectId) && isReadOnlyDemo,
+      placeholderData: (previous) => previous,
+    }
   );
   const userQuestionsQuery = trpc.questions.listBySubject.useQuery(
     { subjectId },
-    { enabled: Number.isFinite(subjectId) && !isDemoWorkspace && !isReadOnlyDemo }
+    {
+      enabled: Number.isFinite(subjectId) && !isDemoWorkspace && !isReadOnlyDemo,
+      placeholderData: (previous) => previous,
+    }
   );
   const demoWorkspaceQuestionsQuery = trpc.admin.demo.questions.useQuery(
     { subjectId },
-    { enabled: Number.isFinite(subjectId) && isDemoWorkspace }
+    {
+      enabled: Number.isFinite(subjectId) && isDemoWorkspace,
+      placeholderData: (previous) => previous,
+    }
   );
   const sourceQuestions = (
     isDemoWorkspace
@@ -989,6 +1196,8 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     : isReadOnlyDemo
       ? demoReadOnlyQuestionsQuery.isLoading
       : userQuestionsQuery.isLoading || (isDemoLinkedMode && !!demoLinkedSubjectId && demoLinkedPreviewQuery.isLoading);
+  const questionCountLabel =
+    isLoading && questions.length === 0 ? "불러오는 중..." : `${questions.length}문제`;
   const withDemoContext = useCallback(
     (path: string, extras?: Record<string, string>) => {
       if (!isDemoLinkedMode || !demoLinkedSubjectId) {
@@ -1236,6 +1445,16 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     };
   }, [confidenceData?.aggregate, displayConfidenceMap, isDemoLinkedMode, isReadOnlyDemo]);
 
+  const displayAggregateGrade = useMemo(() => {
+    if (!displayAggregate) return null;
+    if (displayAggregate.state === "green") return "A";
+    if (displayAggregate.state === "yellow") return "B";
+    if (displayAggregate.state === "red") return "C";
+    return null;
+  }, [displayAggregate]);
+
+  const ocrStartJobMutation = trpc.ocr.startJob.useMutation();
+
   const createMutation = trpc.questions.create.useMutation({
     onSuccess: (data: any) => {
       const questionType = data.imageUrl && data.imageLabels ? 'image' : (data.tableData ? 'table' : 'text');
@@ -1419,6 +1638,10 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       isDemo: false,
       isStarred: false,
     });
+    setOcrPrefillFile(null);
+    setIsImageDropActive(false);
+    setLastImageUploadFile(null);
+    setIsAutoImageLabelGenerating(false);
     setActiveTab("text");
     // 포커스를 질문 입력 필드의 첫 줄로 리셋
     setTimeout(() => {
@@ -1464,33 +1687,80 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     [formData.question]
   );
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const isPdfUploadFile = (file: File) =>
+    file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 
-    if (!file.type.startsWith("image/")) {
+  const isImageUploadFile = (file: File) => {
+    if (file.type.startsWith("image/")) return true;
+    const lowerName = file.name.toLowerCase();
+    return [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"].some((ext) =>
+      lowerName.endsWith(ext)
+    );
+  };
+
+  const runAutoImageLabelGeneration = useCallback(
+    async (file: File) => {
+      if (!isAutoImageOcrEnabled) return;
+
+      setIsAutoImageLabelGenerating(true);
+      try {
+        const fileBuffer = new Uint8Array(await file.arrayBuffer());
+        const result = await ocrStartJobMutation.mutateAsync({
+          fileBuffer,
+          fileName: file.name,
+          mimeType: file.type || undefined,
+        });
+        const extractedText = normalizeTextInput((result as any)?.extractedText).trim();
+        if (!extractedText) {
+          toast.message("OCR 텍스트가 감지되지 않아 자동 가림막 생성을 건너뛰었습니다.");
+          return;
+        }
+
+        const answers = extractImageAnswersFromOcrText(extractedText);
+        if (answers.length === 0) {
+          toast.message("OCR 결과에서 정답 후보를 찾지 못했습니다. 직접 영역을 지정해주세요.");
+          return;
+        }
+
+        const autoLabels = buildAutoImageLabelsFromAnswers(answers);
+        setFormData((prev) => ({
+          ...prev,
+          question: prev.question.trim() ? prev.question : "다음 이미지의 표시된 항목 명칭을 쓰시오",
+          imageLabels: autoLabels,
+        }));
+        toast.success(`OCR로 가림막/정답 ${autoLabels.length}개를 자동 생성했습니다.`);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "알 수 없는 오류";
+        toast.message(`자동 OCR 생성 실패: ${message}`);
+      } finally {
+        setIsAutoImageLabelGenerating(false);
+      }
+    },
+    [isAutoImageOcrEnabled, ocrStartJobMutation]
+  );
+
+  const uploadImageFile = useCallback(async (file: File) => {
+    if (!isImageUploadFile(file)) {
       toast.error("이미지 파일만 업로드할 수 있습니다");
       return;
     }
 
-    // 파일 크기 체크 (16MB 제한)
     if (file.size > 16 * 1024 * 1024) {
       toast.error("파일 크기는 16MB 이하여야 합니다");
       return;
     }
 
     setIsUploading(true);
-    
+
     try {
-      // 이미지 압축 (2MB 이하로)
       const options = {
         maxSizeMB: 2,
         maxWidthOrHeight: 1920,
         useWebWorker: true,
       };
-      
+
       const compressedFile = await imageCompression(file, options);
-      
       const uploadFormData = new FormData();
       uploadFormData.append("file", compressedFile);
 
@@ -1504,14 +1774,58 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
       }
 
       const data = await response.json();
-      setFormData((prev) => ({ ...prev, imageUrl: data.url }));
+      setFormData((prev) => ({ ...prev, imageUrl: data.url, imageLabels: [] }));
+      setLastImageUploadFile(file);
       toast.success("이미지가 업로드되었습니다");
+      await runAutoImageLabelGeneration(file);
     } catch (error) {
       toast.error("이미지 업로드 실패");
       console.error(error);
     } finally {
       setIsUploading(false);
     }
+  }, [runAutoImageLabelGeneration]);
+
+  const handleQuestionImageFile = useCallback(
+    async (file: File) => {
+      if (isPdfUploadFile(file)) {
+        setOcrPrefillFile(file);
+        setActiveTab("ocr");
+        toast.success("PDF를 OCR 탭으로 불러왔습니다. 바로 인식해보세요.");
+        return;
+      }
+      await uploadImageFile(file);
+    },
+    [uploadImageFile]
+  );
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleQuestionImageFile(file);
+    e.currentTarget.value = "";
+  };
+
+  const handleQuestionImageDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsImageDropActive(true);
+  };
+
+  const handleQuestionImageDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) return;
+    setIsImageDropActive(false);
+  };
+
+  const handleQuestionImageDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsImageDropActive(false);
+    const droppedFile = e.dataTransfer.files?.[0];
+    if (!droppedFile) return;
+    await handleQuestionImageFile(droppedFile);
   };
 
   const handleQuestionChange = useCallback((value: string) => {
@@ -2005,6 +2319,9 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
             답안 줄 끝에 <code>{"{직효}"}</code>처럼 적으면, 연습 화면에서 해당 글자를 밑줄 힌트로 표시합니다.
           </p>
           <p className="text-xs text-muted-foreground">
+            참고: <code>,</code> / <code>:</code> 문장은 텍스트로 유지됩니다. 자동 표 인식은 <code>|</code> 또는 탭 구분 포맷에서만 동작합니다.
+          </p>
+          <p className="text-xs text-muted-foreground">
             감지 결과: 총 {inlineBulkSummary.total}개 (텍스트 {inlineBulkSummary.text} / 표 {inlineBulkSummary.table})
             {hasInlineBulkDelimiter ? " · 구분자 감지됨" : " · 단일 블록"}
           </p>
@@ -2082,11 +2399,19 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
         {!formData.imageUrl ? (
           <div className="space-y-2">
             <Label>이미지 업로드</Label>
-            <div className="border-2 border-dashed rounded-lg p-8 text-center">
+            <div
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                isImageDropActive ? "border-primary bg-primary/5" : ""
+              }`}
+              onDragOver={handleQuestionImageDragOver}
+              onDragEnter={handleQuestionImageDragOver}
+              onDragLeave={handleQuestionImageDragLeave}
+              onDrop={handleQuestionImageDrop}
+            >
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,.pdf"
                 onChange={handleImageUpload}
                 className="hidden"
               />
@@ -2098,26 +2423,54 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                 className="gap-2"
               >
                 <Upload className="h-4 w-4" />
-                {isUploading ? "업로드 중..." : "이미지 선택"}
+                {isUploading ? "업로드 중..." : "이미지/PDF 선택"}
               </Button>
               <p className="text-xs text-muted-foreground mt-2">
-                PNG, JPG, GIF (최대 16MB)
+                이미지는 바로 업로드되고, PDF는 OCR 탭으로 자동 이동합니다. (최대 16MB)
               </p>
             </div>
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Label>정답 영역 지정</Label>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setFormData({ ...formData, imageUrl: "", imageLabels: [] })}
-              >
-                이미지 제거
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 rounded-md border border-border/70 px-2 py-1 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={isAutoImageOcrEnabled}
+                    onChange={(e) => setIsAutoImageOcrEnabled(e.target.checked)}
+                    className="h-3.5 w-3.5"
+                  />
+                  업로드 시 자동 OCR/가림막 생성
+                </label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!lastImageUploadFile || isAutoImageLabelGenerating}
+                  onClick={() => {
+                    if (!lastImageUploadFile) return;
+                    void runAutoImageLabelGeneration(lastImageUploadFile);
+                  }}
+                >
+                  {isAutoImageLabelGenerating ? "자동 생성 중..." : "OCR로 자동 생성"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setFormData({ ...formData, imageUrl: "", imageLabels: [] })}
+                >
+                  이미지 제거
+                </Button>
+              </div>
             </div>
+            {isAutoImageLabelGenerating && (
+              <p className="text-xs text-muted-foreground">
+                OCR 인식 후 가림막/정답 후보를 자동 생성 중입니다...
+              </p>
+            )}
             <ImageLabelEditor
               imageUrl={formData.imageUrl}
               initialLabels={formData.imageLabels}
@@ -2164,6 +2517,8 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
 
       <TabsContent value="ocr" className="space-y-4 mt-4">
         <OCRUploader
+          prefillFile={ocrPrefillFile}
+          onPrefillConsumed={() => setOcrPrefillFile(null)}
           onExtractedText={({ blockText, fullText }) => {
             const bulkRaw = blockText.trim() || fullText.trim();
             setFormData((prev) => ({
@@ -2228,7 +2583,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
               )}
               <h1 className="text-xl sm:text-2xl font-semibold tracking-tight truncate">{subject?.name || "문제 관리"}</h1>
               <span className="text-sm sm:text-base text-muted-foreground whitespace-nowrap flex-shrink-0">
-                {questions?.length || 0}문제
+                {questionCountLabel}
               </span>
               {displayAggregate && displayAggregate.totalQuestions > 0 && (
                 <button
@@ -2248,7 +2603,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
                   }`}
                   title="클릭하여 과목 안정도 추이 보기"
                 >
-                  과목 안정도 {displayAggregate.averageScore}점
+                  과목 안정도 {displayAggregateGrade ?? "-"}
                 </button>
               )}
               {displayAggregate?.isColdStart && (
@@ -2724,6 +3079,7 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
         onClose={() => setSubjectConfidenceOpen(false)}
         isDemo={isReadOnlyDemo || isDemoWorkspace}
         previewLabel={(confidenceData as any)?.previewLabel}
+        currentScoreOverride={displayAggregate?.averageScore ?? null}
       />
     </div>
   );

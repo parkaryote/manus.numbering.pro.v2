@@ -92,13 +92,6 @@ function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function getAggregateBadgeClass(state?: string) {
-  if (state === "green") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
-  if (state === "yellow") return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400";
-  if (state === "red") return "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400";
-  return "bg-muted text-muted-foreground";
-}
-
 function normalizeSubjectNameForFallback(value: string | null | undefined): string {
   return (value ?? "").toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
 }
@@ -156,11 +149,11 @@ function SubjectMiniGrid({ items }: { items?: SubjectMiniGridItem[] }) {
 
   const getBorderColor = (isStarred: boolean) => {
     if (!isStarred) return 'border border-neutral-200 dark:border-neutral-700';
-    return 'border-2 border-indigo-600 dark:border-indigo-500';
+    return 'border-2 border-neutral-900 dark:border-neutral-200';
   };
 
   return (
-    <div className="flex flex-wrap gap-1 mt-2">
+    <div className="flex flex-wrap gap-1.5 mt-2">
       {sorted.map((q) => {
         const starred = q.isStarred === 1;
         const fillColor = getFillColor(q.state);
@@ -168,11 +161,56 @@ function SubjectMiniGrid({ items }: { items?: SubjectMiniGridItem[] }) {
         return (
           <div
             key={q.questionId}
-            className={`rounded-md w-3 h-3 ${fillColor} ${borderColor}`}
+            className={`rounded-full w-2.5 h-2.5 ${fillColor} ${borderColor}`}
             title={`문제 ${q.displayOrder} — ${Math.round(q.displayScore)}점${starred ? " (중요)" : ""}`}
           />
         );
       })}
+    </div>
+  );
+}
+
+function SubjectSignalCountsInline({
+  greenCount,
+  yellowCount,
+  redCount,
+  coldCount,
+  className = "",
+}: {
+  greenCount: number;
+  yellowCount: number;
+  redCount: number;
+  coldCount: number;
+  className?: string;
+}) {
+  if (greenCount + yellowCount + redCount + coldCount <= 0) return null;
+
+  return (
+    <div className={`inline-flex items-center gap-2 text-[11px] text-muted-foreground ${className}`}>
+      {greenCount > 0 && (
+        <span className="inline-flex items-center gap-1" title="안정">
+          <span className="w-2.5 h-[3px] rounded-[2px] bg-emerald-500 inline-block" />
+          {greenCount}
+        </span>
+      )}
+      {yellowCount > 0 && (
+        <span className="inline-flex items-center gap-1" title="학습중">
+          <span className="w-2.5 h-[3px] rounded-[2px] bg-amber-400 inline-block" />
+          {yellowCount}
+        </span>
+      )}
+      {redCount > 0 && (
+        <span className="inline-flex items-center gap-1" title="취약">
+          <span className="w-2.5 h-[3px] rounded-[2px] bg-red-500 inline-block" />
+          {redCount}
+        </span>
+      )}
+      {coldCount > 0 && (
+        <span className="inline-flex items-center gap-1" title="미학습">
+          <span className="w-2.5 h-[3px] rounded-[2px] bg-neutral-300 dark:bg-neutral-600 inline-block" />
+          {coldCount}
+        </span>
+      )}
     </div>
   );
 }
@@ -219,12 +257,36 @@ function SortableSubjectCard({
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
+  const aggregate = subjectConfidence?.aggregate;
+  const totalQuestions = aggregate?.totalQuestions ?? subjectConfidence?.questions?.length ?? 0;
+  const greenCount = aggregate?.greenCount ?? 0;
+  const yellowCount = aggregate?.yellowCount ?? 0;
+  const redCount = aggregate?.redCount ?? 0;
+  const coldCount = Math.max(0, totalQuestions - greenCount - yellowCount - redCount);
+  const state = aggregate?.state;
+  const stateColor =
+    state === "green"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : state === "yellow"
+      ? "text-amber-600 dark:text-amber-400"
+      : state === "red"
+      ? "text-red-600 dark:text-red-400"
+      : "text-muted-foreground";
+  const stateBg =
+    state === "green"
+      ? "bg-emerald-50 dark:bg-emerald-950/30"
+      : state === "yellow"
+      ? "bg-amber-50 dark:bg-amber-950/30"
+      : state === "red"
+      ? "bg-red-50 dark:bg-red-950/30"
+      : "bg-muted";
+  const subjectGrade = state === "green" ? "A" : state === "yellow" ? "B" : state === "red" ? "C" : null;
 
   return (
     <Card
       ref={setNodeRef}
       style={style}
-      className="shadow-elegant hover:shadow-lg transition-all cursor-pointer"
+      className="shadow-sm hover:shadow-md transition-all cursor-pointer"
     >
       <CardHeader className="flex flex-row items-start gap-3 pb-3">
         <div
@@ -241,6 +303,21 @@ function SortableSubjectCard({
         <div className="flex-1 min-w-0" onClick={() => setLocation(`/questions/${subject.id}`)}>
           <div className="flex items-center gap-2 mb-0.5">
             <CardTitle className="text-lg">{subject.name}</CardTitle>
+            {totalQuestions > 0 && (
+              <span className="text-xs text-muted-foreground">{totalQuestions}문제</span>
+            )}
+            {subjectGrade && (
+              <span className={`inline-flex items-center justify-center min-w-6 h-5 px-1.5 rounded text-[11px] font-bold ${stateBg} ${stateColor}`}>
+                {subjectGrade}
+              </span>
+            )}
+            <SubjectSignalCountsInline
+              greenCount={greenCount}
+              yellowCount={yellowCount}
+              redCount={redCount}
+              coldCount={coldCount}
+              className="ml-0.5"
+            />
             {subject.isDemo === 1 && (
               <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
                 <Star className="w-2.5 h-2.5" />
@@ -251,34 +328,9 @@ function SortableSubjectCard({
           {subject.description && (
             <CardDescription className="line-clamp-1 mb-1">{subject.description}</CardDescription>
           )}
-          {/* 안정도 요약 */}
-          {subjectConfidence?.aggregate && subjectConfidence.aggregate.totalQuestions > 0 && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <span className="font-semibold">{subjectConfidence.aggregate.averageScore}점</span>
-              <div className="flex items-center gap-2">
-                {subjectConfidence.aggregate.redCount > 0 && (
-                  <span className="flex items-center gap-0.5" title="취약">
-                    <span className="w-2.5 h-[3px] rounded-full bg-red-500 inline-block" />
-                    {subjectConfidence.aggregate.redCount}
-                  </span>
-                )}
-                {subjectConfidence.aggregate.yellowCount > 0 && (
-                  <span className="flex items-center gap-0.5" title="학습중">
-                    <span className="w-2.5 h-[3px] rounded-full bg-amber-400 inline-block" />
-                    {subjectConfidence.aggregate.yellowCount}
-                  </span>
-                )}
-                {subjectConfidence.aggregate.greenCount > 0 && (
-                  <span className="flex items-center gap-0.5" title="안정">
-                    <span className="w-2.5 h-[3px] rounded-full bg-emerald-500 inline-block" />
-                    {subjectConfidence.aggregate.greenCount}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-          {/* 미니 그리드 */}
-          <SubjectMiniGrid items={subjectConfidence?.questions as SubjectMiniGridItem[] | undefined} />
+          <div className="mb-1">
+            <SubjectMiniGrid items={subjectConfidence?.questions as SubjectMiniGridItem[] | undefined} />
+          </div>
         </div>
         <div className="flex gap-1 flex-shrink-0">
           {isAdmin && canPublishDemo && (
@@ -331,9 +383,21 @@ function DemoWorkspaceSubjectCard({
   onDelete: (id: number, name: string) => void;
 }) {
   const [, setLocation] = useLocation();
-  const { data: demoQuestions = [] } = trpc.admin.demo.questions.useQuery({ subjectId: subject.id });
-  const { data: demoShowcaseQuestions = [] } = trpc.demo.questions.useQuery({ subjectId: subject.id });
-  const { data: confidencePreview } = trpc.demo.confidenceBySubject.useQuery({ subjectId: subject.id });
+  const demoQuestionsQuery = trpc.admin.demo.questions.useQuery(
+    { subjectId: subject.id },
+    { placeholderData: (previous) => previous }
+  );
+  const demoShowcaseQuestionsQuery = trpc.demo.questions.useQuery(
+    { subjectId: subject.id },
+    { placeholderData: (previous) => previous }
+  );
+  const confidencePreviewQuery = trpc.demo.confidenceBySubject.useQuery(
+    { subjectId: subject.id },
+    { placeholderData: (previous) => previous }
+  );
+  const demoQuestions = demoQuestionsQuery.data ?? [];
+  const demoShowcaseQuestions = demoShowcaseQuestionsQuery.data ?? [];
+  const confidencePreview = confidencePreviewQuery.data;
 
   const miniItems = useMemo<SubjectMiniGridItem[]>(() => {
     const sorted = [...demoShowcaseQuestions].sort((a, b) => {
@@ -370,17 +434,33 @@ function DemoWorkspaceSubjectCard({
   }, [confidencePreview?.questions, demoQuestions, demoShowcaseQuestions]);
 
   const questionCount = miniItems.length;
+  const isQuestionCountLoading =
+    demoQuestionsQuery.isLoading || demoShowcaseQuestionsQuery.isLoading || confidencePreviewQuery.isLoading;
+  const questionCountLabel = isQuestionCountLoading && questionCount === 0 ? "불러오는 중..." : `${questionCount}문제`;
   const averageScore = questionCount > 0
     ? Math.round(miniItems.reduce((sum, row) => sum + row.displayScore, 0) / questionCount)
     : 0;
   const greenCount = miniItems.filter((row) => row.state === "green").length;
   const yellowCount = miniItems.filter((row) => row.state === "yellow").length;
   const redCount = miniItems.filter((row) => row.state === "red").length;
+  const coldCount = Math.max(0, questionCount - greenCount - yellowCount - redCount);
   const aggregateState = averageScore >= 80 ? "green" : averageScore >= 40 ? "yellow" : "red";
-  const aggregateClass = getAggregateBadgeClass(aggregateState);
+  const subjectGrade = aggregateState === "green" ? "A" : aggregateState === "yellow" ? "B" : "C";
+  const stateColor =
+    aggregateState === "green"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : aggregateState === "yellow"
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-red-600 dark:text-red-400";
+  const stateBg =
+    aggregateState === "green"
+      ? "bg-emerald-50 dark:bg-emerald-950/30"
+      : aggregateState === "yellow"
+      ? "bg-amber-50 dark:bg-amber-950/30"
+      : "bg-red-50 dark:bg-red-950/30";
 
   return (
-    <Card className="shadow-elegant hover:shadow-lg transition-all cursor-pointer">
+    <Card className="shadow-sm hover:shadow-md transition-all cursor-pointer">
       <CardHeader className="flex flex-row items-start gap-3 pb-3">
         <div
           className="w-4 h-4 rounded-full flex-shrink-0 mt-1"
@@ -389,6 +469,19 @@ function DemoWorkspaceSubjectCard({
         <div className="flex-1 min-w-0" onClick={() => setLocation(`/demo/questions/${subject.id}`)}>
           <div className="flex items-center gap-2 mb-0.5">
             <CardTitle className="text-lg">{subject.name}</CardTitle>
+            <span className="text-xs text-muted-foreground">{questionCountLabel}</span>
+            {questionCount > 0 && (
+              <span className={`inline-flex items-center justify-center min-w-6 h-5 px-1.5 rounded text-[11px] font-bold ${stateBg} ${stateColor}`}>
+                {subjectGrade}
+              </span>
+            )}
+            <SubjectSignalCountsInline
+              greenCount={greenCount}
+              yellowCount={yellowCount}
+              redCount={redCount}
+              coldCount={coldCount}
+              className="ml-0.5"
+            />
             <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
               <Star className="w-2.5 h-2.5" />
               데모
@@ -397,33 +490,9 @@ function DemoWorkspaceSubjectCard({
           {subject.description && (
             <CardDescription className="line-clamp-1 mb-1">{subject.description}</CardDescription>
           )}
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-            <p>{questionCount}개 문제</p>
-            {questionCount > 0 && (
-              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${aggregateClass}`}>
-                안정도 {averageScore}점
-              </span>
-            )}
-            {redCount > 0 && (
-              <span className="flex items-center gap-0.5" title="취약">
-                <span className="w-2.5 h-[3px] rounded-full bg-red-500 inline-block" />
-                {redCount}
-              </span>
-            )}
-            {yellowCount > 0 && (
-              <span className="flex items-center gap-0.5" title="학습중">
-                <span className="w-2.5 h-[3px] rounded-full bg-amber-400 inline-block" />
-                {yellowCount}
-              </span>
-            )}
-            {greenCount > 0 && (
-              <span className="flex items-center gap-0.5" title="안정">
-                <span className="w-2.5 h-[3px] rounded-full bg-emerald-500 inline-block" />
-                {greenCount}
-              </span>
-            )}
+          <div className="mb-1">
+            <SubjectMiniGrid items={miniItems} />
           </div>
-          <SubjectMiniGrid items={miniItems} />
         </div>
         <div className="flex gap-1 flex-shrink-0">
           <Button
@@ -454,11 +523,77 @@ function DemoWorkspaceSubjectCard({
 
 function GuestDemoSubjectCard({ subject }: { subject: any }) {
   const [, setLocation] = useLocation();
-  const { data: demoQuestions = [] } = trpc.demo.questions.useQuery({ subjectId: subject.id });
+  const demoQuestionsQuery = trpc.demo.questions.useQuery(
+    { subjectId: subject.id },
+    { placeholderData: (previous) => previous }
+  );
+  const confidencePreviewQuery = trpc.demo.confidenceBySubject.useQuery(
+    { subjectId: subject.id },
+    { placeholderData: (previous) => previous }
+  );
+  const demoQuestions = demoQuestionsQuery.data ?? [];
+  const confidencePreview = confidencePreviewQuery.data;
+
+  const miniItems = useMemo<SubjectMiniGridItem[]>(() => {
+    const sorted = [...demoQuestions].sort((a, b) => {
+      const orderDiff = (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
+      if (orderDiff !== 0) return orderDiff;
+      return (a.id ?? 0) - (b.id ?? 0);
+    });
+    const previewMap = new Map(
+      (confidencePreview?.questions ?? []).map((row) => [row.questionId, row] as const)
+    );
+    return sorted.map((question, index) => {
+      const order = index + 1;
+      const previewRow = previewMap.get(question.id);
+      if (previewRow) {
+        return {
+          questionId: question.id,
+          displayOrder: order,
+          displayScore: clampScore(previewRow.displayScore),
+          state: previewRow.state,
+          isStarred: question.isStarred ?? previewRow.isStarred ?? 0,
+        };
+      }
+      const fallback = buildDemoWorkspaceFallbackScore(question, index, subject?.name);
+      return {
+        questionId: question.id,
+        displayOrder: order,
+        displayScore: fallback.displayScore,
+        state: fallback.state,
+        isStarred: question.isStarred ?? 0,
+      };
+    });
+  }, [confidencePreview?.questions, demoQuestions, subject?.name]);
+
+  const questionCount = miniItems.length;
+  const isQuestionCountLoading = demoQuestionsQuery.isLoading || confidencePreviewQuery.isLoading;
+  const questionCountLabel = isQuestionCountLoading && questionCount === 0 ? "불러오는 중..." : `${questionCount}문제`;
+  const averageScore = questionCount > 0
+    ? Math.round(miniItems.reduce((sum, row) => sum + row.displayScore, 0) / questionCount)
+    : 0;
+  const greenCount = miniItems.filter((row) => row.state === "green").length;
+  const yellowCount = miniItems.filter((row) => row.state === "yellow").length;
+  const redCount = miniItems.filter((row) => row.state === "red").length;
+  const coldCount = Math.max(0, questionCount - greenCount - yellowCount - redCount);
+  const aggregateState = averageScore >= 80 ? "green" : averageScore >= 40 ? "yellow" : "red";
+  const subjectGrade = aggregateState === "green" ? "A" : aggregateState === "yellow" ? "B" : "C";
+  const stateColor =
+    aggregateState === "green"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : aggregateState === "yellow"
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-red-600 dark:text-red-400";
+  const stateBg =
+    aggregateState === "green"
+      ? "bg-emerald-50 dark:bg-emerald-950/30"
+      : aggregateState === "yellow"
+      ? "bg-amber-50 dark:bg-amber-950/30"
+      : "bg-red-50 dark:bg-red-950/30";
 
   return (
     <Card
-      className="shadow-elegant hover:shadow-lg transition-all cursor-pointer"
+      className="shadow-sm hover:shadow-md transition-all cursor-pointer"
       onClick={() => setLocation(`/demo/questions/${subject.id}`)}
     >
       <CardHeader className="flex flex-row items-start gap-3 pb-3">
@@ -469,6 +604,19 @@ function GuestDemoSubjectCard({ subject }: { subject: any }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <CardTitle className="text-lg">{subject.name}</CardTitle>
+            <span className="text-xs text-muted-foreground">{questionCountLabel}</span>
+            {questionCount > 0 && (
+              <span className={`inline-flex items-center justify-center min-w-6 h-5 px-1.5 rounded text-[11px] font-bold ${stateBg} ${stateColor}`}>
+                {subjectGrade}
+              </span>
+            )}
+            <SubjectSignalCountsInline
+              greenCount={greenCount}
+              yellowCount={yellowCount}
+              redCount={redCount}
+              coldCount={coldCount}
+              className="ml-0.5"
+            />
             <Badge variant="secondary" className="gap-1 text-xs py-0 bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
               <Star className="w-2.5 h-2.5" />
               데모
@@ -477,7 +625,9 @@ function GuestDemoSubjectCard({ subject }: { subject: any }) {
           {subject.description && (
             <CardDescription className="line-clamp-1 mb-1">{subject.description}</CardDescription>
           )}
-          <p className="text-xs text-muted-foreground">{demoQuestions.length}개 문제</p>
+          <div className="mb-1">
+            <SubjectMiniGrid items={miniItems} />
+          </div>
         </div>
       </CardHeader>
     </Card>
@@ -896,11 +1046,11 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
               <p className="text-base font-semibold">8개</p>
             </CardContent>
           </Card>
-          <Card className="border-indigo-200/70 bg-indigo-50/50 dark:border-indigo-900/50 dark:bg-indigo-950/20">
+          <Card className="border-neutral-300/70 bg-neutral-50/70 dark:border-neutral-700/70 dark:bg-neutral-900/20">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-1.5">
-                <Star className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                <p className="text-xs font-medium text-indigo-700 dark:text-indigo-300">별표 문제</p>
+                <Star className="h-4 w-4 text-neutral-900 dark:text-neutral-100" />
+                <p className="text-xs font-medium text-neutral-900 dark:text-neutral-100">별표 문제</p>
               </div>
               <p className="text-base font-semibold">2개</p>
             </CardContent>

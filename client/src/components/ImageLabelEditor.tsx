@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, memo } from "react";
+import { useCallback, useEffect, useRef, useState, memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { X } from "lucide-react";
+import { GripHorizontal, Move, MoveDiagonal2, X } from "lucide-react";
 import { toast } from "sonner";
 import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
 
@@ -47,21 +47,67 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function normalizeLabels(input: ImageLabel[]) {
+  const used = new Set<string>();
+  let changed = false;
+  const labels = (input ?? []).map((label, index) => {
+    const rawId = typeof (label as any)?.id === "string" ? (label as any).id.trim() : "";
+    const base = rawId || `label-${index + 1}`;
+    let id = base;
+    let suffix = 2;
+    while (used.has(id)) {
+      id = `${base}-${suffix++}`;
+    }
+    used.add(id);
+    if (id !== rawId) changed = true;
+    return { ...label, id };
+  });
+  return { labels, changed };
+}
+
 function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: ImageLabelEditorProps) {
-  const [labels, setLabels] = useState<ImageLabel[]>(initialLabels);
+  const [labels, setLabels] = useState<ImageLabel[]>(() => normalizeLabels(initialLabels).labels);
   const [selectedLabelId, setSelectedLabelId] = useState<string | null>(null);
   const [interaction, setInteraction] = useState<InteractionState | null>(null);
+  const [inlineNotice, setInlineNotice] = useState<string>("");
   const imageRef = useRef<HTMLDivElement>(null);
-  const labelsRef = useRef<ImageLabel[]>(initialLabels);
+  const labelListRef = useRef<HTMLDivElement>(null);
+  const labelsRef = useRef<ImageLabel[]>(normalizeLabels(initialLabels).labels);
+  const quickAnswerInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingFocusLabelIdRef = useRef<string | null>(null);
+  const inlineNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    labelsRef.current = initialLabels;
-    setLabels(initialLabels);
+    const normalized = normalizeLabels(initialLabels);
+    labelsRef.current = normalized.labels;
+    setLabels(normalized.labels);
     setSelectedLabelId((prev) =>
-      prev && initialLabels.some((label) => label.id === prev) ? prev : null
+      prev && normalized.labels.some((label) => label.id === prev) ? prev : null
     );
     setInteraction(null);
-  }, [initialLabels, imageUrl]);
+    if (normalized.changed) {
+      onChange(normalized.labels);
+    }
+  }, [initialLabels, imageUrl, onChange]);
+
+  useEffect(() => {
+    return () => {
+      if (inlineNoticeTimerRef.current) {
+        clearTimeout(inlineNoticeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const showInlineNotice = useCallback((message: string) => {
+    if (inlineNoticeTimerRef.current) {
+      clearTimeout(inlineNoticeTimerRef.current);
+    }
+    setInlineNotice(message);
+    inlineNoticeTimerRef.current = setTimeout(() => {
+      setInlineNotice("");
+      inlineNoticeTimerRef.current = null;
+    }, 1800);
+  }, []);
 
   const getRelativePosition = (clientX: number, clientY: number): Point => {
     if (!imageRef.current) return { x: 0, y: 0 };
@@ -114,7 +160,7 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
     });
   };
 
-  const startMove = (e: React.PointerEvent<HTMLDivElement>, label: ImageLabel) => {
+  const startMove = (e: React.PointerEvent<HTMLElement>, label: ImageLabel) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -237,7 +283,8 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
       const next = [...labelsRef.current, newLabel];
       applyLabels(next, true);
       setSelectedLabelId(newLabel.id);
-      toast.success("영역이 추가되었습니다. 위치/크기는 드래그로 수정할 수 있습니다.");
+      pendingFocusLabelIdRef.current = newLabel.id;
+      showInlineNotice("새 영역이 추가되었습니다. 아래 입력칸에서 바로 답안을 입력하세요.");
     } else {
       onChange(labelsRef.current);
     }
@@ -262,7 +309,32 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
     if (selectedLabelId === id) {
       setSelectedLabelId(null);
     }
+    if (pendingFocusLabelIdRef.current === id) {
+      pendingFocusLabelIdRef.current = null;
+    }
   };
+
+  const focusAnswerInput = useCallback((labelId: string) => {
+    const targetCard = labelListRef.current?.querySelector(
+      `[data-label-card-id="${labelId}"]`
+    ) as HTMLElement | null;
+    targetCard?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    requestAnimationFrame(() => {
+      const input = quickAnswerInputRef.current;
+      if (!input) return;
+      input.focus();
+      const cursor = input.value.length;
+      input.setSelectionRange(cursor, cursor);
+    });
+  }, []);
+
+  useEffect(() => {
+    const pendingId = pendingFocusLabelIdRef.current;
+    if (!pendingId) return;
+    if (!labels.some((label) => label.id === pendingId)) return;
+    pendingFocusLabelIdRef.current = null;
+    requestAnimationFrame(() => focusAnswerInput(pendingId));
+  }, [focusAnswerInput, labels, selectedLabelId]);
 
   const dragPreview =
     interaction?.mode === "draw"
@@ -274,12 +346,23 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
         }
       : null;
 
+  const selectedLabelIndex =
+    selectedLabelId == null ? -1 : labels.findIndex((label) => label.id === selectedLabelId);
+  const selectedLabel = selectedLabelIndex >= 0 ? labels[selectedLabelIndex] : null;
+
   const resizeHandleConfigs: Array<{ key: ResizeHandle; className: string }> = [
-    { key: "nw", className: "-left-1.5 -top-1.5 cursor-nwse-resize" },
-    { key: "ne", className: "-right-1.5 -top-1.5 cursor-nesw-resize" },
-    { key: "sw", className: "-left-1.5 -bottom-1.5 cursor-nesw-resize" },
-    { key: "se", className: "-right-1.5 -bottom-1.5 cursor-nwse-resize" },
+    { key: "nw", className: "-left-2 -top-2 cursor-nwse-resize" },
+    { key: "ne", className: "-right-2 -top-2 cursor-nesw-resize" },
+    { key: "sw", className: "-left-2 -bottom-2 cursor-nesw-resize" },
+    { key: "se", className: "-right-2 -bottom-2 cursor-nwse-resize" },
   ];
+
+  const getResizeHandleIconClass = (key: ResizeHandle) => {
+    if (key === "nw") return "rotate-180";
+    if (key === "ne") return "-rotate-90";
+    if (key === "sw") return "rotate-90";
+    return "";
+  };
 
   return (
     <div className="grid grid-cols-2 gap-6">
@@ -306,10 +389,10 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
             <div
               key={label.id}
               data-label-interactive="true"
-              className={`absolute border-2 flex items-center justify-center transition-all ${
+              className={`group/label absolute rounded-lg border backdrop-blur-[1px] transition-all duration-150 ${
                 selectedLabelId === label.id
-                  ? "bg-primary/20 border-primary"
-                  : "bg-background/80 border-primary/50"
+                  ? "bg-primary/25 border-primary/90 ring-1 ring-white/30 shadow-[0_8px_24px_-12px_rgba(59,130,246,0.95)]"
+                  : "bg-black/20 border-white/75 shadow-[0_8px_16px_-12px_rgba(0,0,0,0.85)] hover:bg-primary/18 hover:border-primary/70"
               }`}
               style={{
                 left: `${label.x}%`,
@@ -317,33 +400,66 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
                 width: `${label.width}%`,
                 height: `${label.height}%`,
               }}
-              onPointerDown={(e) => startMove(e, label)}
               onClick={(e) => {
                 e.stopPropagation();
+                pendingFocusLabelIdRef.current = label.id;
                 setSelectedLabelId(label.id);
               }}
             >
-              <span className="text-xs font-bold bg-primary text-primary-foreground px-2 py-1 rounded">
+              <span className="absolute left-1.5 top-1.5 text-[10px] font-semibold bg-black/65 text-white px-1.5 py-0.5 rounded-md shadow">
                 {index + 1}
               </span>
-              {selectedLabelId === label.id &&
-                resizeHandleConfigs.map((handle) => (
-                  <button
-                    key={handle.key}
-                    type="button"
-                    data-label-interactive="true"
-                    aria-label={`영역 ${index + 1} 크기 조절 ${handle.key}`}
-                    className={`absolute h-3 w-3 rounded-sm border border-primary bg-background shadow ${handle.className}`}
-                    onPointerDown={(e) => startResize(e, label, handle.key)}
-                  />
-                ))}
+              <button
+                type="button"
+                data-label-interactive="true"
+                aria-label={`영역 ${index + 1} 드래그 바 이동`}
+                className={`absolute left-1.5 right-1.5 top-1.5 h-6 rounded-md border border-white/50 bg-black/45 text-white shadow-sm flex items-center justify-center transition-opacity ${
+                  selectedLabelId === label.id
+                    ? "opacity-100 cursor-grab active:cursor-grabbing"
+                    : "opacity-0 group-hover/label:opacity-100 cursor-grab active:cursor-grabbing"
+                }`}
+                onPointerDown={(e) => startMove(e, label)}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <GripHorizontal className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                data-label-interactive="true"
+                aria-label={`영역 ${index + 1} 이동`}
+                className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-5 w-5 rounded-full border border-white/60 bg-black/50 text-white shadow-sm flex items-center justify-center transition-opacity ${
+                  selectedLabelId === label.id
+                    ? "opacity-100 cursor-grab active:cursor-grabbing"
+                    : "opacity-0 group-hover/label:opacity-100 cursor-grab active:cursor-grabbing"
+                }`}
+                onPointerDown={(e) => startMove(e, label)}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Move className="h-2.5 w-2.5" />
+              </button>
+              {resizeHandleConfigs.map((handle) => (
+                <button
+                  key={handle.key}
+                  type="button"
+                  data-label-interactive="true"
+                  aria-label={`영역 ${index + 1} 크기 조절 ${handle.key}`}
+                  className={`absolute h-4 w-4 rounded-full border border-white/65 bg-black/55 text-white shadow flex items-center justify-center transition-opacity ${
+                    selectedLabelId === label.id
+                      ? "opacity-100 pointer-events-auto"
+                      : "opacity-0 group-hover/label:opacity-100 pointer-events-none group-hover/label:pointer-events-auto"
+                  } ${handle.className}`}
+                  onPointerDown={(e) => startResize(e, label, handle.key)}
+                >
+                  <MoveDiagonal2 className={`h-2.5 w-2.5 ${getResizeHandleIconClass(handle.key)}`} />
+                </button>
+              ))}
             </div>
           ))}
 
           {/* Drag preview */}
           {dragPreview && (
             <div
-              className="absolute border-2 border-dashed border-primary bg-primary/10"
+              className="absolute rounded-lg border-2 border-dashed border-primary/90 bg-primary/15 shadow-inner"
               style={{
                 left: `${dragPreview.x}%`,
                 top: `${dragPreview.y}%`,
@@ -356,6 +472,40 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
         <p className="text-xs text-muted-foreground">
           새 영역은 드래그로 추가, 기존 영역은 드래그 이동, 모서리 핸들로 확대/축소
         </p>
+        <div className="rounded-xl border bg-card/95 p-3 shadow-sm space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-sm">새 영역 답안 입력</Label>
+            {selectedLabel ? (
+              <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">
+                영역 {selectedLabelIndex + 1}
+              </span>
+            ) : null}
+          </div>
+          <Input
+            ref={quickAnswerInputRef}
+            value={selectedLabel?.answer ?? ""}
+            onChange={(e) => {
+              if (!selectedLabel) return;
+              handleLabelUpdate(selectedLabel.id, e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "Tab" || !selectedLabel) return;
+              e.preventDefault();
+              const nextIndex = e.shiftKey ? selectedLabelIndex - 1 : selectedLabelIndex + 1;
+              if (nextIndex >= 0 && nextIndex < labels.length) {
+                const nextLabel = labels[nextIndex];
+                pendingFocusLabelIdRef.current = nextLabel.id;
+                setSelectedLabelId(nextLabel.id);
+                requestAnimationFrame(() => focusAnswerInput(nextLabel.id));
+              }
+            }}
+            placeholder={selectedLabel ? "예: Cerebral cortex" : "영역을 먼저 추가하세요"}
+            disabled={!selectedLabel}
+          />
+          <p className="text-xs text-muted-foreground min-h-[1rem]">
+            {inlineNotice || "새 영역을 만들면 입력 포커스가 자동으로 여기로 이동합니다."}
+          </p>
+        </div>
       </div>
 
       {/* Label list and editor */}
@@ -366,14 +516,18 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
             이미지를 드래그하여 정답 영역을 추가하세요
           </div>
         ) : (
-          <div className="space-y-3 max-h-[500px] overflow-y-auto">
+          <div ref={labelListRef} className="space-y-3 max-h-[500px] overflow-y-auto">
             {labels.map((label, index) => (
               <div
                 key={label.id}
+                data-label-card-id={label.id}
                 className={`p-4 border rounded-lg space-y-3 cursor-pointer transition-all ${
                   selectedLabelId === label.id ? "border-primary bg-primary/5" : ""
                 }`}
-                onClick={() => setSelectedLabelId(label.id)}
+                onClick={() => {
+                  pendingFocusLabelIdRef.current = label.id;
+                  setSelectedLabelId(label.id);
+                }}
               >
                 <div className="flex items-center justify-between">
                   <span className="font-semibold">영역 {index + 1}</span>
@@ -390,35 +544,10 @@ function ImageLabelEditorComponent({ imageUrl, initialLabels = [], onChange }: I
                 </div>
                 <div className="space-y-2">
                   <div>
-                    <Label className="text-xs">정답 (이 영역에 가려진 텍스트)</Label>
-                    <Input
-                      value={label.answer}
-                      onChange={(e) => handleLabelUpdate(label.id, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Tab") {
-                          e.preventDefault();
-                          const currentIndex = labels.findIndex((l) => l.id === label.id);
-                          const nextIndex = e.shiftKey ? currentIndex - 1 : currentIndex + 1;
-                          if (nextIndex >= 0 && nextIndex < labels.length) {
-                            const nextLabel = labels[nextIndex];
-                            setSelectedLabelId(nextLabel.id);
-                            setTimeout(() => {
-                              const nextInput = document.querySelector(
-                                `input[data-label-id="${nextLabel.id}"]`
-                              ) as HTMLInputElement | null;
-                              nextInput?.focus();
-                            }, 0);
-                          }
-                        }
-                      }}
-                      data-label-id={label.id}
-                      placeholder="예: Cerebral cortex"
-                      className="mt-1"
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    위치: ({Math.round(label.x)}%, {Math.round(label.y)}%) | 크기: {Math.round(label.width)}% × {Math.round(label.height)}%
+                    <Label className="text-xs">정답 미리보기</Label>
+                    <div className="mt-1 min-h-9 rounded-md border bg-muted/40 px-2 py-1.5 text-sm break-words">
+                      {label.answer?.trim() || "아직 입력 전"}
+                    </div>
                   </div>
                 </div>
               </div>

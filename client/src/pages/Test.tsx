@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
-import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff, Table2, BarChart3 } from "lucide-react";
+import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff, Table2, BarChart3, Check } from "lucide-react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
@@ -19,6 +19,7 @@ import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { useIsMobile } from "@/hooks/useMobile";
 import { stripMnemonicHintsFromAnswer } from "@shared/answerMnemonics";
 import { getRenderableImageCandidates } from "@/lib/renderableImageUrl";
+import { formatQuestionTextForDisplay } from "@/lib/questionDisplay";
 
 interface TestProps {
   questionId: number;
@@ -198,6 +199,19 @@ function getConfidenceSignalDotClass(state: "green" | "yellow" | "red") {
   return "bg-rose-500";
 }
 
+function buildMistakeManualKey(mistake: any, index: number): string {
+  if (typeof mistake?.cellKey === "string" && mistake.cellKey.length > 0) {
+    return `cell:${mistake.cellKey}`;
+  }
+  if (typeof mistake?.lineIndex === "number") {
+    return `line:${mistake.lineIndex}`;
+  }
+  if (typeof mistake?.labelIndex === "number") {
+    return `label:${mistake.labelIndex}`;
+  }
+  return `idx:${index}`;
+}
+
 function renderComparedText(
   text: string,
   matchedPositions: Set<number>,
@@ -210,7 +224,8 @@ function renderComparedText(
         const isWhitespace = /^\s$/.test(ch);
         const isSymbolOrPunctuation = /[\p{P}\p{S}]/u.test(ch);
         const isMatched = !isWhitespace && matchedPositions.has(idx);
-        const className = isWhitespace
+        const isAnswerMismatch = tone === "answer" && !isMatched && !isWhitespace;
+        const baseClass = isWhitespace
           ? "text-current"
           : isMatched
             ? "rounded-sm bg-emerald-100 text-emerald-900 dark:bg-emerald-900/45 dark:text-emerald-100"
@@ -219,6 +234,9 @@ function renderComparedText(
             : tone === "correct"
               ? "text-foreground/85 dark:text-zinc-100/90"
               : "rounded-sm bg-rose-100 text-rose-800 dark:bg-rose-900/45 dark:text-rose-100";
+        const className = isAnswerMismatch
+          ? `${baseClass} underline decoration-rose-500 decoration-[1.5px] underline-offset-[0.14em]`
+          : baseClass;
         return (
           <span key={`${idx}-${ch}`} className={className}>
             {ch}
@@ -313,6 +331,13 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const [imageSourceIndex, setImageSourceIndex] = useState(0);
+  const [imageScale, setImageScaleRaw] = useState(() => {
+    const saved = localStorage.getItem("imageScale");
+    if (!saved) return 100;
+    const parsed = Number.parseInt(saved, 10);
+    if (!Number.isFinite(parsed)) return 100;
+    return Math.max(30, Math.min(100, parsed));
+  });
   const [isStarted, setIsStarted] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -333,6 +358,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [submittedSessionIds, setSubmittedSessionIds] = useState<number[]>([]);
   const [isResultExcluded, setIsResultExcluded] = useState(false);
   const [showPasteDetectedAlert, setShowPasteDetectedAlert] = useState(false);
+  const [manualAcceptedLineKeys, setManualAcceptedLineKeys] = useState<Record<string, true>>({});
 
   // 타이핑 속도 보너스 수집 상태
   const typingStartTimeRef = useRef<number | null>(null);
@@ -344,6 +370,14 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [speedBonus, setSpeedBonus] = useState<{ bonus: number; label: string; ratio: number } | null>(null);
   const isMacPlatform = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
   const utils = trpc.useUtils();
+  const setImageScale = useCallback((value: number) => {
+    const safeValue = Math.max(30, Math.min(100, Math.round(value)));
+    setImageScaleRaw(safeValue);
+    localStorage.setItem("imageScale", String(safeValue));
+  }, []);
+  const applyImageFitScale = useCallback(() => {
+    setImageScale(100);
+  }, [setImageScale]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -403,6 +437,10 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     [question?.imageUrl]
   );
   const activeImageSrc = imageSourceCandidates[imageSourceIndex] ?? "";
+  const displayQuestionText = useMemo(
+    () => formatQuestionTextForDisplay(question?.question, question?.answer),
+    [question?.answer, question?.question]
+  );
   const textCorrectAnswer = useMemo(
     () => stripMnemonicHintsFromAnswer(question?.answer || ""),
     [question?.answer]
@@ -588,6 +626,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     backspaceCountRef.current = 0;
     pasteDetectedRef.current = false;
     inputCharsRef.current = 0;
+    setManualAcceptedLineKeys({});
   };
 
   useEffect(() => {
@@ -630,6 +669,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     backspaceCountRef.current = 0;
     pasteDetectedRef.current = false;
     inputCharsRef.current = 0;
+    setManualAcceptedLineKeys({});
   };
 
   const handleSubmit = async () => {
@@ -853,6 +893,19 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     return userAnswer.trim().length > 0;
   };
 
+  const markLineAsAccepted = useCallback((lineKey: string) => {
+    if (!lineKey) return;
+    setManualAcceptedLineKeys((prev) => {
+      if (prev[lineKey]) return prev;
+      return { ...prev, [lineKey]: true };
+    });
+  }, []);
+
+  const manualAcceptedCount = useMemo(
+    () => Object.keys(manualAcceptedLineKeys).length,
+    [manualAcceptedLineKeys]
+  );
+
   const tableComparisonRows = useMemo(() => {
     if (!tableData) return [];
     return getBlankCells(tableData).map((key, idx) => {
@@ -862,7 +915,9 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       const cell = tableData.cells[row]?.[col];
       const correctAnswer = cell?.content ?? "";
       const userAnswer = tableAnswers[key] ?? "";
-      const isCorrect = tableResults?.[key] === true;
+      const manualKey = `table:${key}`;
+      const manuallyAccepted = !!manualAcceptedLineKeys[manualKey];
+      const isCorrect = tableResults?.[key] === true || manuallyAccepted;
       return {
         key,
         index: idx + 1,
@@ -871,10 +926,66 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
         correctAnswer,
         userAnswer,
         isCorrect,
+        manuallyAccepted,
+        manualKey,
         lineScore: isCorrect ? 100 : 0,
       };
     });
-  }, [tableAnswers, tableData, tableResults]);
+  }, [manualAcceptedLineKeys, tableAnswers, tableData, tableResults]);
+
+  const displayTableScore = useMemo(() => {
+    if (!tableScore) return null;
+    const total = tableComparisonRows.length || tableScore.total;
+    const score = tableComparisonRows.filter((row) => row.isCorrect).length;
+    return { score, total };
+  }, [tableComparisonRows, tableScore]);
+
+  const displayResult = useMemo(() => {
+    if (!result) return null;
+    if (!Array.isArray(result.mistakes) || result.mistakes.length === 0) return result;
+
+    const mistakes = result.mistakes.map((mistake: any, index: number) => {
+      const manualKey = `mistake:${buildMistakeManualKey(mistake, index)}`;
+      const manuallyAccepted = !!manualAcceptedLineKeys[manualKey];
+      const isCorrect = !!mistake.isCorrect || manuallyAccepted;
+      const fallbackScore = isCorrect ? 100 : 0;
+      const lineScore =
+        isCorrect
+          ? 100
+          : typeof mistake.lineScore === "number"
+            ? mistake.lineScore
+            : fallbackScore;
+      return {
+        ...mistake,
+        isCorrect,
+        lineScore,
+        __manualKey: manualKey,
+        __manuallyAccepted: manuallyAccepted,
+      };
+    });
+
+    const totalLines =
+      typeof result.totalLines === "number" && result.totalLines > 0
+        ? result.totalLines
+        : mistakes.length;
+    const scoreSum = mistakes.reduce((sum: number, mistake: any) => {
+      if (typeof mistake.lineScore === "number") return sum + mistake.lineScore;
+      return sum + (mistake.isCorrect ? 100 : 0);
+    }, 0);
+    const similarityScore =
+      totalLines > 0 ? Math.round(scoreSum / totalLines) : Math.round(result.similarityScore ?? 0);
+    const correctLineCount = mistakes.filter((mistake: any) => !!mistake.isCorrect).length;
+
+    return {
+      ...result,
+      mistakes,
+      totalLines,
+      correctLineCount,
+      similarityScore,
+      accuracyRate: similarityScore,
+      isCorrect: totalLines > 0 ? correctLineCount >= totalLines : !!result.isCorrect,
+    };
+  }, [manualAcceptedLineKeys, result]);
 
   const confidenceStateClasses = useMemo(() => {
     const score = confidenceImpact?.after ?? confidenceAfter;
@@ -1157,6 +1268,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     isDemoLinkedMode && demoLinkedSubjectId && question?.subjectId
       ? `/questions/${question.subjectId}?demo=1&demoSubjectId=${demoLinkedSubjectId}`
       : `/questions/${question?.subjectId ?? 1}`;
+  const resolvedResult = displayResult ?? result;
 
   return (
     <div
@@ -1171,7 +1283,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       />
       <ConfidenceHistoryModal
         questionId={question.id}
-        questionTitle={question.question}
+        questionTitle={displayQuestionText}
         open={showConfidenceHistory}
         onClose={() => setShowConfidenceHistory(false)}
         isDemo={isDemo}
@@ -1200,7 +1312,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
             <CardTitle>문제</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-lg whitespace-pre-wrap">{question.question}</p>
+            <p className="text-lg whitespace-pre-wrap">{displayQuestionText}</p>
             {isTableQuestion && tableData && (
               <div className="mt-4">
                 <TableView
@@ -1214,58 +1326,84 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
               </div>
             )}
             {isImageQuestion && (
-              <div
-                className={`relative mx-auto w-full max-w-[840px] ${
-                  useCompactExamLayout ? "max-h-[46svh] overflow-auto rounded-lg" : ""
-                }`}
-              >
-                {!imageLoaded && !imageLoadFailed && (
-                  <div className="w-full min-h-[220px] md:min-h-[300px] bg-muted animate-pulse rounded-lg border-2 border-border flex items-center justify-center">
-                    <p className="text-muted-foreground">이미지 로딩 중...</p>
+              <div className="mx-auto w-full max-w-[980px] space-y-2">
+                <div className="flex justify-end">
+                  <div className="flex items-center gap-1 bg-background/85 backdrop-blur-sm rounded px-1.5 py-0.5 border border-border/60">
+                    <button
+                      onClick={() => setImageScale(Math.max(30, imageScale - 10))}
+                      className="px-1.5 py-0.5 text-[10px] rounded hover:bg-muted transition-colors"
+                      title="줄이기"
+                    >
+                      −
+                    </button>
+                    <span className="text-[10px] font-mono w-8 text-center">{imageScale}%</span>
+                    <button
+                      onClick={() => setImageScale(Math.min(100, imageScale + 10))}
+                      className="px-1.5 py-0.5 text-[10px] rounded hover:bg-muted transition-colors"
+                      title="늘리기"
+                    >
+                      +
+                    </button>
+                    <button
+                      onClick={applyImageFitScale}
+                      className="px-1.5 py-0.5 text-[10px] rounded hover:bg-muted transition-colors"
+                    >
+                      맞춤
+                    </button>
                   </div>
-                )}
-                {imageLoadFailed && (
-                  <div className="w-full min-h-[220px] md:min-h-[300px] bg-muted/40 rounded-lg border-2 border-dashed border-border flex items-center justify-center">
-                    <p className="text-muted-foreground">이미지를 불러오지 못했습니다</p>
+                </div>
+                <div className="mx-auto min-w-0" style={{ width: `${imageScale}%`, maxWidth: "100%" }}>
+                  <div className="relative w-full rounded-lg border-2 border-border overflow-hidden bg-muted/10">
+                    {!imageLoaded && !imageLoadFailed && (
+                      <div className="w-full min-h-[260px] md:min-h-[340px] bg-muted animate-pulse flex items-center justify-center">
+                        <p className="text-muted-foreground">이미지 로딩 중...</p>
+                      </div>
+                    )}
+                    {imageLoadFailed && (
+                      <div className="w-full min-h-[260px] md:min-h-[340px] bg-muted/40 border-2 border-dashed border-border flex items-center justify-center">
+                        <p className="text-muted-foreground">이미지를 불러오지 못했습니다</p>
+                      </div>
+                    )}
+                    <img
+                      src={activeImageSrc}
+                      alt="Question image"
+                      className={`w-full h-auto block ${!imageLoaded || imageLoadFailed ? "hidden" : ""}`}
+                      onLoad={() => {
+                        setImageLoadFailed(false);
+                        setImageLoaded(true);
+                      }}
+                      onError={() => {
+                        if (imageSourceIndex + 1 < imageSourceCandidates.length) {
+                          setImageSourceIndex((prev) => prev + 1);
+                          setImageLoaded(false);
+                          return;
+                        }
+                        setImageLoadFailed(true);
+                        setImageLoaded(false);
+                      }}
+                      loading="eager"
+                      fetchPriority="high"
+                    />
+                    {imageLoaded &&
+                      !imageLoadFailed &&
+                      imageLabels.map((label: any, index: number) => (
+                        <div
+                          key={index}
+                          className="absolute bg-black border-2 border-primary flex items-center justify-center"
+                          style={{
+                            left: `${label.x}%`,
+                            top: `${label.y}%`,
+                            width: `${label.width}%`,
+                            height: `${label.height}%`,
+                          }}
+                        >
+                          <span className="text-white font-bold text-2xl">{index + 1}</span>
+                        </div>
+                      ))}
                   </div>
-                )}
-                <img
-                  src={activeImageSrc}
-                  alt="Question image"
-                  className={`w-full h-auto rounded-lg border-2 border-border ${!imageLoaded || imageLoadFailed ? 'hidden' : ''}`}
-                  onLoad={() => {
-                    setImageLoadFailed(false);
-                    setImageLoaded(true);
-                  }}
-                  onError={() => {
-                    if (imageSourceIndex + 1 < imageSourceCandidates.length) {
-                      setImageSourceIndex((prev) => prev + 1);
-                      setImageLoaded(false);
-                      return;
-                    }
-                    setImageLoadFailed(true);
-                    setImageLoaded(false);
-                  }}
-                  loading="eager"
-                  fetchPriority="high"
-                />
-                {/* 암기 시간에 라벨 영역 표시 (완전 불투명 박스로 가리기) */}
-                {imageLoaded && !isStarted && imageLabels.map((label: any, index: number) => (
-                  <div
-                    key={index}
-                    className="absolute bg-black border-2 border-primary flex items-center justify-center"
-                    style={{
-                      left: `${label.x}%`,
-                      top: `${label.y}%`,
-                      width: `${label.width}%`,
-                      height: `${label.height}%`,
-                    }}
-                  >
-                    <span className="text-white font-bold text-2xl">{index + 1}</span>
-                  </div>
-                ))}
+                </div>
                 {imageAttribution && (
-                  <div className="mt-3 text-[10px] text-muted-foreground/75 space-y-0.5 border-t border-border/50 pt-2 select-none">
+                  <div className="mt-2 text-[10px] text-muted-foreground/75 space-y-0.5 border-t border-border/50 pt-2 select-none">
                     {imageAttribution.lines.map((line, index) =>
                       line.href ? (
                         <p key={`${line.text}-${index}`}>
@@ -1327,7 +1465,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 }`}
               >
                 <p className="text-sm font-semibold text-muted-foreground mb-2">문제</p>
-                <p className="text-base whitespace-pre-wrap">{question.question}</p>
+                <p className="text-base whitespace-pre-wrap">{displayQuestionText}</p>
               </div>
 
               {isTableQuestion && tableData ? (
@@ -1350,41 +1488,80 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 >
                   {/* 왼쪽: 이미지 */}
                   <div className="rounded-lg border-2 border-border bg-muted/10 p-2">
-                    <div
-                      className={`relative mx-auto w-full max-w-[760px] ${
-                        useCompactExamLayout ? "max-h-[38svh] overflow-auto rounded-lg" : ""
-                      }`}
-                    >
-                      <img
-                        src={activeImageSrc}
-                        alt="Question image"
-                        className="w-full h-auto rounded-lg border border-border/70"
-                        onError={() => {
-                          if (imageSourceIndex + 1 < imageSourceCandidates.length) {
-                            setImageSourceIndex((prev) => prev + 1);
-                            setImageLoaded(false);
-                            return;
-                          }
-                          setImageLoadFailed(true);
-                        }}
-                        loading="eager"
-                        fetchPriority="high"
-                      />
-                      {/* 불투명 박스로 라벨 영역 표시 */}
-                      {imageLabels.map((label: any, index: number) => (
-                        <div
-                          key={index}
-                          className="absolute bg-black border-2 border-primary flex items-center justify-center"
-                          style={{
-                            left: `${label.x}%`,
-                            top: `${label.y}%`,
-                            width: `${label.width}%`,
-                            height: `${label.height}%`,
-                          }}
+                    <div className="mb-2 flex justify-end">
+                      <div className="flex items-center gap-1 bg-background/85 backdrop-blur-sm rounded px-1.5 py-0.5 border border-border/60">
+                        <button
+                          onClick={() => setImageScale(Math.max(30, imageScale - 10))}
+                          className="px-1.5 py-0.5 text-[10px] rounded hover:bg-muted transition-colors"
+                          title="줄이기"
                         >
-                          <span className="text-white font-bold text-2xl">{index + 1}</span>
-                        </div>
-                      ))}
+                          −
+                        </button>
+                        <span className="text-[10px] font-mono w-8 text-center">{imageScale}%</span>
+                        <button
+                          onClick={() => setImageScale(Math.min(100, imageScale + 10))}
+                          className="px-1.5 py-0.5 text-[10px] rounded hover:bg-muted transition-colors"
+                          title="늘리기"
+                        >
+                          +
+                        </button>
+                        <button
+                          onClick={applyImageFitScale}
+                          className="px-1.5 py-0.5 text-[10px] rounded hover:bg-muted transition-colors"
+                        >
+                          맞춤
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mx-auto min-w-0" style={{ width: `${imageScale}%`, maxWidth: "100%" }}>
+                      <div className="relative w-full rounded-lg border-2 border-border overflow-hidden bg-background">
+                        {!imageLoaded && !imageLoadFailed && (
+                          <div className="w-full min-h-[220px] md:min-h-[300px] bg-muted animate-pulse flex items-center justify-center">
+                            <p className="text-muted-foreground">이미지 로딩 중...</p>
+                          </div>
+                        )}
+                        {imageLoadFailed && (
+                          <div className="w-full min-h-[220px] md:min-h-[300px] bg-muted/40 border-2 border-dashed border-border flex items-center justify-center">
+                            <p className="text-muted-foreground">이미지를 불러오지 못했습니다</p>
+                          </div>
+                        )}
+                        <img
+                          src={activeImageSrc}
+                          alt="Question image"
+                          className={`w-full h-auto block ${!imageLoaded || imageLoadFailed ? "hidden" : ""}`}
+                          onLoad={() => {
+                            setImageLoadFailed(false);
+                            setImageLoaded(true);
+                          }}
+                          onError={() => {
+                            if (imageSourceIndex + 1 < imageSourceCandidates.length) {
+                              setImageSourceIndex((prev) => prev + 1);
+                              setImageLoaded(false);
+                              return;
+                            }
+                            setImageLoadFailed(true);
+                            setImageLoaded(false);
+                          }}
+                          loading="eager"
+                          fetchPriority="high"
+                        />
+                        {imageLoaded &&
+                          !imageLoadFailed &&
+                          imageLabels.map((label: any, index: number) => (
+                            <div
+                              key={index}
+                              className="absolute bg-black border-2 border-primary flex items-center justify-center"
+                              style={{
+                                left: `${label.x}%`,
+                                top: `${label.y}%`,
+                                width: `${label.width}%`,
+                                height: `${label.height}%`,
+                              }}
+                            >
+                              <span className="text-white font-bold text-2xl">{index + 1}</span>
+                            </div>
+                          ))}
+                      </div>
                     </div>
                   </div>
 
@@ -1530,12 +1707,12 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                   <div className="grid grid-cols-3 gap-4">
                     <div className="text-center p-4 bg-muted/30 rounded-lg">
                       <p className="text-3xl font-bold">
-                        {tableScore.score === tableScore.total ? "✓" : "✗"}
+                        {(displayTableScore?.score ?? tableScore.score) === (displayTableScore?.total ?? tableScore.total) ? "✓" : "✗"}
                       </p>
                       <p className="text-sm text-muted-foreground mt-1">정답 여부</p>
                     </div>
                     <div className="text-center p-4 bg-muted/30 rounded-lg">
-                      <p className="text-3xl font-bold">{tableScore.score}/{tableScore.total}</p>
+                      <p className="text-3xl font-bold">{displayTableScore?.score ?? tableScore.score}/{displayTableScore?.total ?? tableScore.total}</p>
                       <p className="text-sm text-muted-foreground mt-1">정답 수</p>
                     </div>
                     <div className="text-center p-4 bg-muted/30 rounded-lg">
@@ -1545,6 +1722,9 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                     </div>
                   </div>
                   {renderConfidenceImpactCard()}
+                  {manualAcceptedCount > 0 && (
+                    <p className="text-xs text-muted-foreground">수동 정답 인정 {manualAcceptedCount}개 반영됨</p>
+                  )}
                   <div className="space-y-3">
                     <h3 className="font-semibold">정답 비교</h3>
                     {tableData && (
@@ -1605,10 +1785,51 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                                   : "(입력 없음)"}
                               </div>
                             </div>
+                            <div className="mt-2 flex items-center gap-2">
+                              {!row.isCorrect ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 gap-1 text-[11px]"
+                                  onClick={() => markLineAsAccepted(row.manualKey)}
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                  정답 인정
+                                </Button>
+                              ) : row.manuallyAccepted ? (
+                                <Badge variant="outline" className="text-[10px]">수동 정답 인정</Badge>
+                              ) : null}
+                            </div>
                           </div>
                         );
                       })}
                     </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button onClick={handleReset} className="gap-2">
+                      <RotateCcw className="h-4 w-4" />
+                      다시 풀기
+                    </Button>
+                    {!isDemo && (
+                      <Button
+                        onClick={handleExcludeResult}
+                        variant="outline"
+                        disabled={!submittedSessionIds.length || deleteTestSessionsMutation.isPending || isResultExcluded}
+                      >
+                        {isResultExcluded
+                          ? "반영 취소됨"
+                          : deleteTestSessionsMutation.isPending
+                            ? "취소 중..."
+                            : "이번 결과 반영 취소"}
+                      </Button>
+                    )}
+                    <Button
+                      onClick={() => setLocation(questionListPath)}
+                      variant="outline"
+                    >
+                      문제 목록으로
+                    </Button>
                   </div>
                 </>
               ) : (
@@ -1616,16 +1837,16 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
               <div className="grid grid-cols-4 gap-3">
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-3xl font-bold">
-                    {result?.isCorrect ? "✓" : "✗"}
+                    {resolvedResult?.isCorrect ? "✓" : "✗"}
                   </p>
                   <p className="text-sm text-muted-foreground mt-1">정답 여부</p>
                 </div>
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
-                  <p className="text-3xl font-bold">{result?.correctLineCount ?? '?'}/{result?.totalLines ?? '?'}</p>
+                  <p className="text-3xl font-bold">{resolvedResult?.correctLineCount ?? '?'}/{resolvedResult?.totalLines ?? '?'}</p>
                   <p className="text-sm text-muted-foreground mt-1">정확도</p>
                 </div>
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
-                  <p className="text-3xl font-bold">{result?.similarityScore ?? 0}%</p>
+                  <p className="text-3xl font-bold">{resolvedResult?.similarityScore ?? 0}%</p>
                   <p className="text-sm text-muted-foreground mt-1">유사도</p>
                 </div>
                 <div className="text-center p-4 bg-muted/30 rounded-lg">
@@ -1637,6 +1858,9 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
 
               {renderConfidenceImpactCard()}
 
+              {manualAcceptedCount > 0 && (
+                <p className="text-xs text-muted-foreground">수동 정답 인정 {manualAcceptedCount}개 반영됨</p>
+              )}
               {result?.mistakeHighlights && (
                 <div className="space-y-2">
                   <h3 className="font-semibold">자주 틀린 부분</h3>
@@ -1659,8 +1883,8 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 <h3 className="font-semibold">정답 비교</h3>
                 {isImageQuestion ? (
                   <div className="space-y-2">
-                    {result?.mistakes && result.mistakes.map((mistake: any) => (
-                      <div key={mistake.labelIndex} className={`rounded-lg border p-3 ${mistake.isCorrect ? 'border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30' : 'border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20'}`}>
+                    {resolvedResult?.mistakes && resolvedResult.mistakes.map((mistake: any, index: number) => (
+                      <div key={`${mistake.labelIndex ?? index}`} className={`rounded-lg border p-3 ${mistake.isCorrect ? 'border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30' : 'border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20'}`}>
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm font-semibold">라벨 {mistake.labelIndex}</span>
                           <span className={`text-lg ${mistake.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}`}>{mistake.isCorrect ? '✓' : '✗'}</span>
@@ -1668,6 +1892,26 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                         <div className="text-xs space-y-1">
                           <div><span className="font-semibold">정답:</span> {mistake.correctAnswer}</div>
                           <div className={mistake.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}><span className="font-semibold">내 답:</span> {mistake.userAnswer || '(입력 없음)'}</div>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          {!mistake.isCorrect ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 gap-1 text-[11px]"
+                              onClick={() =>
+                                markLineAsAccepted(
+                                  mistake.__manualKey ?? `mistake:${buildMistakeManualKey(mistake, index)}`
+                                )
+                              }
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                              정답 인정
+                            </Button>
+                          ) : mistake.__manuallyAccepted ? (
+                            <Badge variant="outline" className="text-[10px]">수동 정답 인정</Badge>
+                          ) : null}
                         </div>
                       </div>
                     ))}
@@ -1684,9 +1928,9 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                         내 답에서 다른 부분
                       </span>
                     </div>
-                    {result?.mistakes && result.mistakes.length > 0 ? (
+                    {resolvedResult?.mistakes && resolvedResult.mistakes.length > 0 ? (
                       // Line-by-line comparison for multi-line text questions
-                      result.mistakes.map((mistake: any) => {
+                      resolvedResult.mistakes.map((mistake: any, index: number) => {
                         const { correctMatched, answerMatched } = getMatchedPositions(
                           mistake.correctAnswer || "",
                           mistake.userAnswer || "",
@@ -1717,6 +1961,26 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                                   : "(입력 없음)"}
                               </div>
                             </div>
+                            <div className="mt-2 flex items-center gap-2">
+                              {!mistake.isCorrect ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 gap-1 text-[11px]"
+                                  onClick={() =>
+                                    markLineAsAccepted(
+                                      mistake.__manualKey ?? `mistake:${buildMistakeManualKey(mistake, index)}`
+                                    )
+                                  }
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                  정답 인정
+                                </Button>
+                              ) : mistake.__manuallyAccepted ? (
+                                <Badge variant="outline" className="text-[10px]">수동 정답 인정</Badge>
+                              ) : null}
+                            </div>
                           </div>
                         );
                       })
@@ -1736,9 +2000,9 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                                   {renderComparedText(textCorrectAnswer, correctMatched, "correct")}
                                 </p>
                               </div>
-                              <div className={`rounded-lg border p-3 ${result?.isCorrect ? 'border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30' : 'border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20'}`}>
+                              <div className={`rounded-lg border p-3 ${resolvedResult?.isCorrect ? 'border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30' : 'border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20'}`}>
                                 <p className="text-xs font-semibold text-muted-foreground mb-1">내 답</p>
-                                <p className={`text-sm font-medium whitespace-pre-wrap ${result?.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}`}>
+                                <p className={`text-sm font-medium whitespace-pre-wrap ${resolvedResult?.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}`}>
                                   {renderComparedText(userAnswer || "", answerMatched, "answer")}
                                 </p>
                               </div>

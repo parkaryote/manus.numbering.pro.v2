@@ -55,7 +55,7 @@ function markRecentAuthAttempt() {
 export default function Login() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
-  const [tab, setTab] = useState<"social" | "account">("social");
+  const [tab, setTab] = useState<"social" | "account">("account");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [signupUsername, setSignupUsername] = useState("");
@@ -277,8 +277,8 @@ export default function Login() {
             }}
           >
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="social" disabled={isUiLocked}>소셜</TabsTrigger>
               <TabsTrigger value="account" disabled={isUiLocked}>아이디</TabsTrigger>
+              <TabsTrigger value="social" disabled={isUiLocked}>소셜</TabsTrigger>
             </TabsList>
 
             <TabsContent value="social" className="space-y-3 pt-3">

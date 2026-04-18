@@ -686,15 +686,36 @@ export function ConfidenceHistoryModal({
       )
     ),
     normalizedNowMs
-  );
+  ).map((row) => {
+    // 예측/미래 구간에서는 회상(보라 실선) 레이어를 제거한다.
+    const atMs = new Date(row.at).getTime();
+    const isFuture = Number.isFinite(atMs) && atMs > normalizedNowMs;
+    if (!isFuture) return row;
+    return {
+      ...row,
+      retentionScore: null,
+    };
+  });
 
   const hasData = solidData.length > 0;
-  const latestSolidChartPoint = chartData
+  const latestNonProjectionPoint = chartData
     .filter((p) => p.eventType !== "exam_predict" && p.eventType !== "exam_predict_mid")
     .at(-1);
-  const currentScore = hasData
-    ? Math.round(Number(latestSolidChartPoint?.score ?? solidData[solidData.length - 1].score))
-    : null;
+  const latestCurrentChartPoint = chartData
+    .filter((p) => {
+      if (p.eventType === "exam_predict" || p.eventType === "exam_predict_mid") return false;
+      const atMs = new Date(p.at).getTime();
+      return !Number.isFinite(atMs) || atMs <= normalizedNowMs;
+    })
+    .at(-1);
+  const resolvedCurrentScore =
+    latestCurrentChartPoint?.score ??
+    latestNonProjectionPoint?.score ??
+    (solidData.length > 0 ? solidData[solidData.length - 1].score : null);
+  const currentScore =
+    hasData && typeof resolvedCurrentScore === "number"
+      ? Math.round(Number(resolvedCurrentScore))
+      : null;
 
   // 현재 상태 색상 (점수 기반)
   const currentStateColor = currentScore === null

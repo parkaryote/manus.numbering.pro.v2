@@ -38,6 +38,12 @@ function injectOgRuntimeMeta(template: string, req: {
     .replaceAll("__OG_UPDATED_AT__", updatedAtISO);
 }
 
+function isUploadsRequestPath(rawUrl: string | undefined): boolean {
+  if (!rawUrl) return false;
+  const pathname = rawUrl.split("?")[0] || "";
+  return pathname.startsWith("/uploads/");
+}
+
 export async function setupVite(app: Express, server: Server) {
   const ogUpdatedAtISO = new Date().toISOString();
   const serverOptions = {
@@ -74,6 +80,9 @@ export async function setupVite(app: Express, server: Server) {
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
+    if (isUploadsRequestPath(url)) {
+      return res.status(404).set({ "Cache-Control": "no-store" }).send("Not Found");
+    }
 
     try {
       const clientTemplate = path.resolve(
@@ -134,6 +143,9 @@ export function serveStatic(app: Express) {
 
   // fall through to index.html if the file doesn't exist
   app.use("*", async (req, res, next) => {
+    if (isUploadsRequestPath(req.originalUrl || req.url)) {
+      return res.status(404).set({ "Cache-Control": "no-store" }).send("Not Found");
+    }
     try {
       const indexPath = path.resolve(distPath, "index.html");
       const template = await fs.promises.readFile(indexPath, "utf-8");

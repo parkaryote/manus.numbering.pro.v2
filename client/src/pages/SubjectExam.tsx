@@ -6,7 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Clock, Trophy, RotateCcw, ChevronRight, BarChart3 } from "lucide-react";
+import { ArrowLeft, Clock, Trophy, RotateCcw, ChevronRight, BarChart3, Check } from "lucide-react";
 import { toast } from "sonner";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
@@ -14,6 +14,7 @@ import { SubjectConfidenceHistoryModal } from "@/components/SubjectConfidenceHis
 import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { estimateTestConfidenceDelta } from "@shared/examConfidence";
 import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
+import { formatQuestionTextForDisplay } from "@/lib/questionDisplay";
 
 interface SubjectExamProps {
   subjectId: number;
@@ -43,6 +44,9 @@ type EvalResult = {
     correctAnswer?: string;
     userAnswer?: string;
     isCorrect?: boolean;
+    lineScore?: number;
+    compareMode?: string;
+    matchedUserLineIndex?: number;
   }>;
   feedback?: string;
   llmFeedback?: string | null;
@@ -128,6 +132,22 @@ function createExamBatchId() {
   return `exam-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function buildMistakeManualKey(
+  mistake: EvalResult["mistakes"] extends Array<infer T> ? T : never,
+  index: number
+): string {
+  if (typeof mistake?.cellKey === "string" && mistake.cellKey.length > 0) {
+    return `cell:${mistake.cellKey}`;
+  }
+  if (typeof mistake?.lineIndex === "number") {
+    return `line:${mistake.lineIndex}`;
+  }
+  if (typeof mistake?.labelIndex === "number") {
+    return `label:${mistake.labelIndex}`;
+  }
+  return `idx:${index}`;
+}
+
 export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamProps) {
   const [location, setLocation] = useLocation();
   const searchParams = useMemo(() => {
@@ -154,8 +174,11 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [outcomes, setOutcomes] = useState<Record<number, QuestionOutcome>>({});
+  const [manualAcceptedByQuestion, setManualAcceptedByQuestion] = useState<Record<number, Record<string, true>>>({});
   const [subjectScoreBefore, setSubjectScoreBefore] = useState<number | null>(null);
   const [subjectScoreAfter, setSubjectScoreAfter] = useState<number | null>(null);
+  const [submittedSessionIds, setSubmittedSessionIds] = useState<number[]>([]);
+  const [isResultExcluded, setIsResultExcluded] = useState(false);
   const [confidenceHistoryId, setConfidenceHistoryId] = useState<number | null>(null);
   const [confidenceHistoryTitle, setConfidenceHistoryTitle] = useState("");
   const [subjectHistoryOpen, setSubjectHistoryOpen] = useState(false);
@@ -234,6 +257,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
   const demoEvaluateMutation = trpc.demo.evaluate.useMutation();
   const createTestMutation = trpc.test.create.useMutation();
   const updateReviewMutation = trpc.review.updateAfterReview.useMutation();
+  const deleteTestSessionsMutation = trpc.test.deleteSessions.useMutation();
 
   useEffect(() => {
     if (!questions) return;
@@ -342,6 +366,81 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
     return examQuestions.filter((q) => hasAnswer(q)).length;
   }, [examQuestions, hasAnswer]);
 
+  const markLineAsAccepted = useCallback((questionId: number, lineKey: string) => {
+    if (!lineKey) return;
+    setManualAcceptedByQuestion((prev) => {
+      const questionMap = prev[questionId] ?? {};
+      if (questionMap[lineKey]) return prev;
+      return {
+        ...prev,
+        [questionId]: {
+          ...questionMap,
+          [lineKey]: true,
+        },
+      };
+    });
+  }, []);
+
+  const getAdjustedOutcome = useCallback(
+    (questionId: number, outcome?: QuestionOutcome): QuestionOutcome | undefined => {
+      if (!outcome) return outcome;
+      const acceptedMap = manualAcceptedByQuestion[questionId];
+      if (!acceptedMap || Object.keys(acceptedMap).length === 0) return outcome;
+      if (!Array.isArray(outcome.eval.mistakes) || outcome.eval.mistakes.length === 0) return outcome;
+
+      let hasManualAdjust = false;
+      const mistakes = outcome.eval.mistakes.map((mistake, idx) => {
+        const key = `mistake:${buildMistakeManualKey(mistake, idx)}`;
+        const manuallyAccepted = !!acceptedMap[key];
+        const wasCorrect = !!mistake.isCorrect;
+        const isCorrect = wasCorrect || manuallyAccepted;
+        if (manuallyAccepted && !wasCorrect) hasManualAdjust = true;
+        return {
+          ...mistake,
+          isCorrect,
+          lineScore: isCorrect ? 100 : typeof mistake.lineScore === "number" ? mistake.lineScore : 0,
+        };
+      });
+
+      if (!hasManualAdjust) return outcome;
+
+      const totalLines =
+        typeof outcome.eval.totalLines === "number" && outcome.eval.totalLines > 0
+          ? outcome.eval.totalLines
+          : mistakes.length;
+      const scoreSum = mistakes.reduce((sum, mistake) => {
+        if (typeof mistake.lineScore === "number") return sum + mistake.lineScore;
+        return sum + (mistake.isCorrect ? 100 : 0);
+      }, 0);
+      const similarityScore =
+        totalLines > 0 ? Math.round(scoreSum / totalLines) : Math.round(outcome.eval.similarityScore ?? 0);
+      const correctLineCount = mistakes.filter((mistake) => !!mistake.isCorrect).length;
+
+      return {
+        ...outcome,
+        eval: {
+          ...outcome.eval,
+          mistakes,
+          totalLines,
+          correctLineCount,
+          similarityScore,
+          accuracyRate: similarityScore,
+          isCorrect: totalLines > 0 ? correctLineCount >= totalLines : outcome.eval.isCorrect,
+        },
+      };
+    },
+    [manualAcceptedByQuestion]
+  );
+
+  const displayOutcomes = useMemo(() => {
+    const next: Record<number, QuestionOutcome> = {};
+    for (const q of examQuestions) {
+      const adjusted = getAdjustedOutcome(q.id, outcomes[q.id]);
+      if (adjusted) next[q.id] = adjusted;
+    }
+    return next;
+  }, [examQuestions, getAdjustedOutcome, outcomes]);
+
   const handleStart = useCallback(() => {
     if (!questions || questions.length === 0) {
       toast.error("문제가 없습니다.");
@@ -360,8 +459,11 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
     setTableAnswers({});
     setImageLabelAnswers({});
     setOutcomes({});
+    setManualAcceptedByQuestion({});
     setSubjectScoreBefore(null);
     setSubjectScoreAfter(null);
+    setSubmittedSessionIds([]);
+    setIsResultExcluded(false);
 
     const now = Date.now();
     setStartTime(now);
@@ -422,6 +524,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
       );
       const beforeQuestionMap = Object.fromEntries(beforeQuestionEntries) as Record<number, QuestionConfidencePoint>;
       const nextOutcomes: Record<number, QuestionOutcome> = {};
+      const createdSessionIds: number[] = [];
 
       for (const q of examQuestions) {
         const tableData: TableData | null = q.tableData ? JSON.parse(q.tableData) : null;
@@ -441,7 +544,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
 
         if (!ans.trim()) {
           if (!isDemo) {
-            await createTestMutation.mutateAsync({
+            const createdSession = await createTestMutation.mutateAsync({
               questionId: q.id,
               userAnswer: "",
               isCorrect: 0,
@@ -454,6 +557,9 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                 batchId: examBatchIdRef.current,
               },
             });
+            if (typeof createdSession?.id === "number") {
+              createdSessionIds.push(createdSession.id);
+            }
             await updateReviewMutation.mutateAsync({
               questionId: q.id,
               quality: 0,
@@ -498,7 +604,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
             ? (recallTimeForExam <= 15 ? 5 : 4)
             : (similarityScore >= 80 ? 2 : similarityScore >= 60 ? 1 : 0);
           if (!isDemo) {
-            await createTestMutation.mutateAsync({
+            const createdSession = await createTestMutation.mutateAsync({
               questionId: q.id,
               userAnswer: ans,
               isCorrect: tableGrade.score === tableGrade.total ? 1 : 0,
@@ -512,6 +618,9 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                 batchId: examBatchIdRef.current,
               },
             });
+            if (typeof createdSession?.id === "number") {
+              createdSessionIds.push(createdSession.id);
+            }
             await updateReviewMutation.mutateAsync({
               questionId: q.id,
               quality,
@@ -559,6 +668,10 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
               recallTime: recallTimeForExam,
             })
           : await evaluateMutation.mutateAsync(evalInput);
+
+        if (!isDemo && typeof (evalRaw as any)?.createdSessionId === "number") {
+          createdSessionIds.push((evalRaw as any).createdSessionId);
+        }
 
         const isCorrect = toBool((evalRaw as any)?.isCorrect);
         const similarityScore = Number((evalRaw as any)?.similarityScore ?? 0);
@@ -653,6 +766,8 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
       }
 
       setOutcomes(nextOutcomes);
+      setSubmittedSessionIds(Array.from(new Set(createdSessionIds)));
+      setIsResultExcluded(false);
       setSubjectScoreBefore(beforeSnapshot.aggregateScore);
       setSubjectScoreAfter(
         isDemo
@@ -690,6 +805,62 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
     utils.demo.confidenceByQuestion,
     subject,
     isDemo,
+  ]);
+
+  const handleExcludeExamResult = useCallback(async () => {
+    if (isDemo) return;
+    if (!submittedSessionIds.length) {
+      toast.info("되돌릴 시험 기록이 없습니다.");
+      return;
+    }
+    if (!window.confirm("이번 모의고사 결과를 통계와 안정도 반영에서 제외할까요?")) {
+      return;
+    }
+    try {
+      await deleteTestSessionsMutation.mutateAsync({ ids: submittedSessionIds });
+      await Promise.all([
+        utils.test.getByUser.invalidate(),
+        ...examQuestions.map((q) => utils.test.getByQuestion.invalidate({ questionId: q.id })),
+        ...examQuestions.map((q) => utils.confidence.getByQuestion.invalidate({ questionId: q.id })),
+        ...examQuestions.map((q) => utils.confidence.getHistory.invalidate({ questionId: q.id })),
+        utils.confidence.getBySubject.invalidate({ subjectId }),
+        utils.confidence.getHistoryBySubject.invalidate({ subjectId }),
+      ]);
+
+      setOutcomes((prev) => {
+        const next: Record<number, QuestionOutcome> = {};
+        for (const q of examQuestions) {
+          const item = prev[q.id];
+          if (!item) continue;
+          next[q.id] = {
+            ...item,
+            confidenceAfter: item.confidenceBefore,
+            confidenceDelta: 0,
+            confidenceDeltaEstimated: false,
+            stateAfter: item.stateBefore ?? stateFromScore(item.confidenceBefore),
+          };
+        }
+        return next;
+      });
+      setSubjectScoreAfter(subjectScoreBefore ?? 0);
+      setIsResultExcluded(true);
+      toast.success("이번 모의고사 결과를 통계/안정도 반영에서 제외했습니다.");
+    } catch (error: any) {
+      toast.error("시험 기록 삭제 실패: " + (error?.message || "알 수 없는 오류"));
+    }
+  }, [
+    deleteTestSessionsMutation,
+    examQuestions,
+    isDemo,
+    subjectId,
+    subjectScoreBefore,
+    submittedSessionIds,
+    utils.confidence.getByQuestion,
+    utils.confidence.getBySubject,
+    utils.confidence.getHistory,
+    utils.confidence.getHistoryBySubject,
+    utils.test.getByQuestion,
+    utils.test.getByUser,
   ]);
 
   useEffect(() => {
@@ -932,6 +1103,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                   setImageLabelAnswers({});
                   setExamQuestions([]);
                   setOutcomes({});
+                  setManualAcceptedByQuestion({});
                   setSubjectScoreBefore(null);
                   setSubjectScoreAfter(null);
                 }
@@ -978,6 +1150,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
           const imageLabels: any[] = q.imageLabels ? JSON.parse(q.imageLabels) : [];
           const isTableQuestion = !!tableData;
           const isImageQuestion = !!q.imageUrl && imageLabels.length > 0;
+          const displayQuestionText = formatQuestionTextForDisplay(q.question, q.answer);
           const answered = hasAnswer(q);
 
           return (
@@ -989,7 +1162,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                     {isTableQuestion && " 📊"}
                     {isImageQuestion && " 🖼"}
                   </Badge>
-                  <p className="text-base font-medium leading-relaxed whitespace-pre-wrap">{q.question}</p>
+                  <p className="text-base font-medium leading-relaxed whitespace-pre-wrap">{displayQuestionText}</p>
                 </div>
                 <Badge variant={answered ? "default" : "secondary"} className="text-xs flex-shrink-0">
                   {answered ? "작성됨" : "미작성"}
@@ -1074,13 +1247,13 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
   const subjectStateBefore = subjectScoreBefore === null ? null : stateFromScore(subjectScoreBefore);
   const subjectStateAfter = subjectScoreAfter === null ? null : stateFromScore(subjectScoreAfter);
   const gradedOutcomes = examQuestions
-    .map((q) => outcomes[q.id])
+    .map((q) => displayOutcomes[q.id])
     .filter((o): o is QuestionOutcome => !!o);
   const totalGradedCount = examQuestions.length;
   const correctCount = gradedOutcomes.filter((o) => o.eval.isCorrect).length;
   const avgSimilarity = totalGradedCount > 0
     ? Math.round(
-        examQuestions.reduce((sum, q) => sum + (outcomes[q.id]?.eval.similarityScore ?? 0), 0) /
+        examQuestions.reduce((sum, q) => sum + (displayOutcomes[q.id]?.eval.similarityScore ?? 0), 0) /
           totalGradedCount
       )
     : 0;
@@ -1135,6 +1308,24 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
             과목 그래프 보기
           </Button>
         </div>
+        {!isDemo && (
+          <div className="mt-2 flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={handleExcludeExamResult}
+              disabled={!submittedSessionIds.length || deleteTestSessionsMutation.isPending || isResultExcluded}
+            >
+              {isResultExcluded
+                ? "반영 취소됨"
+                : deleteTestSessionsMutation.isPending
+                  ? "취소 중..."
+                  : "이번 결과 반영 취소"}
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="space-y-3">
@@ -1143,7 +1334,9 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
           const tableData: TableData | null = q.tableData ? JSON.parse(q.tableData) : null;
           const imageLabels: any[] = q.imageLabels ? JSON.parse(q.imageLabels) : [];
           const isImageQuestion = !!q.imageUrl && imageLabels.length > 0;
-          const outcome = outcomes[q.id];
+          const displayQuestionText = formatQuestionTextForDisplay(q.question, q.answer);
+          const outcome = displayOutcomes[q.id] ?? outcomes[q.id];
+          const questionManualAcceptedCount = Object.keys(manualAcceptedByQuestion[q.id] ?? {}).length;
 
           let answerDisplay = "";
           if (tableData) {
@@ -1178,7 +1371,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                 </Badge>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-3 mb-2">
-                    <p className="text-sm font-medium leading-snug">{q.question}</p>
+                    <p className="text-sm font-medium leading-snug whitespace-pre-wrap">{displayQuestionText}</p>
                     {outcome ? (
                       <Badge
                         variant={
@@ -1229,7 +1422,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                           className="mt-2 h-6 px-2 text-[10px] gap-1"
                           onClick={() => {
                             setConfidenceHistoryId(q.id);
-                            setConfidenceHistoryTitle(q.question);
+                            setConfidenceHistoryTitle(displayQuestionText);
                           }}
                         >
                           <BarChart3 className="h-3 w-3" />
@@ -1241,6 +1434,11 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                       </div>
                     </div>
                   )}
+                  {questionManualAcceptedCount > 0 && (
+                    <p className="text-[11px] text-muted-foreground mt-2">
+                      수동 정답 인정 {questionManualAcceptedCount}개 반영됨
+                    </p>
+                  )}
                   {outcome?.eval.feedback && (
                     <p className="text-xs text-muted-foreground mt-2">{outcome.eval.feedback}</p>
                   )}
@@ -1250,33 +1448,53 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
                   {outcome?.eval.mistakes && outcome.eval.mistakes.length > 0 && (
                     <div className="mt-3 space-y-2">
                       <p className="text-xs font-semibold text-muted-foreground">정답 비교</p>
-                      {outcome.eval.mistakes.slice(0, 6).map((m, idx) => (
-                        <div
-                          key={`${q.id}-${idx}`}
-                          className={`p-3 rounded-lg border ${m.isCorrect ? "bg-green-50 border-green-300" : "bg-red-50 border-red-300"}`}
-                        >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-xs font-semibold">
-                              {m.lineIndex
-                                ? `${m.lineIndex}줄`
-                                : m.labelIndex
-                                  ? `${m.labelIndex}번 라벨`
-                                  : m.cellKey
-                                    ? `셀 ${m.cellKey}`
-                                    : `항목 ${idx + 1}`}
-                            </span>
-                            <span className={`text-base ${m.isCorrect ? "text-green-600" : "text-red-600"}`}>
-                              {m.isCorrect ? "✓" : "✗"}
-                            </span>
-                          </div>
-                          <div className="text-xs space-y-1">
-                            <div><span className="font-semibold">정답:</span> {m.correctAnswer || "(없음)"}</div>
-                            <div className={m.isCorrect ? "text-green-700" : "text-red-700"}>
-                              <span className="font-semibold">내 답:</span> {m.userAnswer || "(미입력)"}
+                      {outcome.eval.mistakes.slice(0, 6).map((m, idx) => {
+                        const manualKey = `mistake:${buildMistakeManualKey(m, idx)}`;
+                        const manuallyAccepted = !!manualAcceptedByQuestion[q.id]?.[manualKey];
+                        return (
+                          <div
+                            key={`${q.id}-${idx}`}
+                            className={`p-3 rounded-lg border ${m.isCorrect ? "bg-green-50 border-green-300" : "bg-red-50 border-red-300"}`}
+                          >
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-xs font-semibold">
+                                {m.lineIndex
+                                  ? `${m.lineIndex}줄`
+                                  : m.labelIndex
+                                    ? `${m.labelIndex}번 라벨`
+                                    : m.cellKey
+                                      ? `셀 ${m.cellKey}`
+                                      : `항목 ${idx + 1}`}
+                              </span>
+                              <span className={`text-base ${m.isCorrect ? "text-green-600" : "text-red-600"}`}>
+                                {m.isCorrect ? "✓" : "✗"}
+                              </span>
+                            </div>
+                            <div className="text-xs space-y-1">
+                              <div><span className="font-semibold">정답:</span> {m.correctAnswer || "(없음)"}</div>
+                              <div className={m.isCorrect ? "text-green-700" : "text-red-700"}>
+                                <span className="font-semibold">내 답:</span> {m.userAnswer || "(미입력)"}
+                              </div>
+                            </div>
+                            <div className="mt-2 flex items-center gap-2">
+                              {!m.isCorrect ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 gap-1 text-[11px]"
+                                  onClick={() => markLineAsAccepted(q.id, manualKey)}
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                  정답 인정
+                                </Button>
+                              ) : manuallyAccepted ? (
+                                <Badge variant="outline" className="text-[10px]">수동 정답 인정</Badge>
+                              ) : null}
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                   {!outcome?.eval.mistakes?.length && (
@@ -1306,13 +1524,31 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
             setImageLabelAnswers({});
             setExamQuestions([]);
             setOutcomes({});
+            setManualAcceptedByQuestion({});
             setSubjectScoreBefore(null);
             setSubjectScoreAfter(null);
+            setSubmittedSessionIds([]);
+            setIsResultExcluded(false);
           }}
         >
           <RotateCcw className="h-4 w-4" />
           다시 시험
         </Button>
+        {!isDemo && (
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1 gap-1.5"
+            onClick={handleExcludeExamResult}
+            disabled={!submittedSessionIds.length || deleteTestSessionsMutation.isPending || isResultExcluded}
+          >
+            {isResultExcluded
+              ? "반영 취소됨"
+              : deleteTestSessionsMutation.isPending
+                ? "취소 중..."
+                : "이번 결과 반영 취소"}
+          </Button>
+        )}
         <Button className="flex-1 gap-1.5" onClick={() => setLocation(subjectQuestionsPath)}>
           <Trophy className="h-4 w-4" />
           과목으로 돌아가기

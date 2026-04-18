@@ -7,6 +7,7 @@ import { ArrowLeft, ClipboardCheck, BookOpen } from "lucide-react";
 import { isPartialMatch, splitGraphemes } from "@/lib/hangul";
 import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
 import { toast } from "sonner";
+import { formatQuestionTextForDisplay } from "@/lib/questionDisplay";
 
 interface SubjectPracticeProps {
   subjectId: number;
@@ -190,6 +191,7 @@ function QuestionPracticeSection({
 }) {
   const qType = getQuestionType(question);
   const isText = qType === "text";
+  const displayQuestionText = formatQuestionTextForDisplay(question.question, question.answer);
 
   return (
     <div
@@ -207,7 +209,7 @@ function QuestionPracticeSection({
           {question.displayOrder}
         </span>
         <span className="text-sm font-medium text-foreground truncate flex-1">
-          {question.question.length > 60 ? question.question.slice(0, 60) + "…" : question.question}
+          {displayQuestionText.length > 60 ? displayQuestionText.slice(0, 60) + "…" : displayQuestionText}
         </span>
         <div className="flex items-center gap-2 flex-shrink-0">
           {confidenceInfo && !confidenceInfo.isColdStart && (
@@ -360,6 +362,7 @@ function StickyInputPanel({
 
   const isImageOrTable = qType === "image" || qType === "table";
   const localCompleteCount = localCompleteCountByQuestion[question.id] || 0;
+  const displayQuestionText = formatQuestionTextForDisplay(question.question, question.answer);
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 bg-background/98 backdrop-blur-md border-t border-border shadow-lg">
@@ -376,7 +379,7 @@ function StickyInputPanel({
         <div className="flex items-center gap-2 mb-2">
           <span className="text-xs font-bold text-primary">#{question.displayOrder}</span>
           <span className="text-xs text-muted-foreground truncate flex-1">
-            {question.question.length > 70 ? question.question.slice(0, 70) + "…" : question.question}
+            {displayQuestionText.length > 70 ? displayQuestionText.slice(0, 70) + "…" : displayQuestionText}
           </span>
           {localCompleteCount > 0 && (
             <Badge variant="secondary" className="text-xs h-5 px-1.5 flex-shrink-0">

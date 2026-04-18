@@ -10,6 +10,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { resolveRenderableImageUrl } from "@/lib/renderableImageUrl";
+import { formatQuestionTextForDisplay } from "@/lib/questionDisplay";
 
 function parseTableSummary(raw?: string | null): string {
   if (!raw) return "";
@@ -178,7 +179,7 @@ export default function SharedSubject({ token }: { token: string }) {
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-lg">{index + 1}. {current.question}</CardTitle>
+                  <CardTitle className="text-lg">{index + 1}. {formatQuestionTextForDisplay(current.question, current.answer)}</CardTitle>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -232,7 +233,7 @@ export default function SharedSubject({ token }: { token: string }) {
                     setIndex(i);
                   }}
                 >
-                  {i + 1}. {q.question}
+                  {i + 1}. {formatQuestionTextForDisplay(q.question, q.answer)}
                 </button>
               ))}
             </CardContent>

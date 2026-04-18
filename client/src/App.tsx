@@ -36,9 +36,6 @@ const AUTH_ME_FETCH_TIMEOUT_MS = 2_000;
 const GUEST_BOOTSTRAP_BLOCK_MAX_MS = 900;
 const RECENT_AUTH_GRACE_MS = 10 * 60 * 1000;
 const AUTH_RESOLVE_MAX_WAIT_MS = 8_000;
-const DEMO_BRIDGE_RETRY_DELAY_MS = 250;
-const DEMO_BRIDGE_MAX_ERROR_RETRIES = 4;
-const DEMO_BRIDGE_MAX_PENDING_RETRIES = 12;
 
 async function fetchAuthMeWithTimeout(timeoutMs: number) {
   const controller = new AbortController();
@@ -216,263 +213,6 @@ function SubjectPracticeRedirect({ subjectId }: { subjectId: number }) {
       <div className="text-muted-foreground text-sm">랜덤 연습 여는 중...</div>
     </div>
   );
-}
-
-function DemoSubjectRouteBridge({
-  demoSubjectId,
-  target,
-}: {
-  demoSubjectId: number;
-  target: "questions" | "subject-exam";
-}) {
-  const [, setLocation] = useLocation();
-  const guestId = useMemo(() => getOrCreateGuestId(), []);
-  const [errorRetryCount, setErrorRetryCount] = useState(0);
-  const [pendingRetryCount, setPendingRetryCount] = useState(0);
-  const resolveQuery = trpc.demo.resolveSubjectWorkspace.useQuery(
-    { demoSubjectId, guestId },
-    {
-      refetchOnWindowFocus: false,
-      retry: false,
-    }
-  );
-  const mappedSubjectId = resolveQuery.data?.mappedSubjectId ?? null;
-  const isPending = resolveQuery.data?.pending === true;
-
-  useEffect(() => {
-    if (mappedSubjectId) {
-      if (pendingRetryCount !== 0) setPendingRetryCount(0);
-      return;
-    }
-    if (!isPending) {
-      if (pendingRetryCount !== 0) setPendingRetryCount(0);
-      return;
-    }
-    if (resolveQuery.isLoading) return;
-    if (pendingRetryCount >= DEMO_BRIDGE_MAX_PENDING_RETRIES) return;
-    const timer = window.setTimeout(() => {
-      setPendingRetryCount((count) => count + 1);
-      void resolveQuery.refetch();
-    }, DEMO_BRIDGE_RETRY_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [
-    isPending,
-    mappedSubjectId,
-    pendingRetryCount,
-    resolveQuery.isLoading,
-    resolveQuery.refetch,
-  ]);
-
-  useEffect(() => {
-    if (!resolveQuery.isError || mappedSubjectId) {
-      if (errorRetryCount !== 0) setErrorRetryCount(0);
-      return;
-    }
-    if (resolveQuery.isLoading) return;
-    if (errorRetryCount >= DEMO_BRIDGE_MAX_ERROR_RETRIES) return;
-    const timer = window.setTimeout(() => {
-      setErrorRetryCount((count) => count + 1);
-      void resolveQuery.refetch();
-    }, DEMO_BRIDGE_RETRY_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [
-    errorRetryCount,
-    mappedSubjectId,
-    resolveQuery.isError,
-    resolveQuery.isLoading,
-    resolveQuery.refetch,
-  ]);
-
-  useEffect(() => {
-    if (!mappedSubjectId) return;
-    const params = new URLSearchParams();
-    params.set("demo", "1");
-    params.set("demoSubjectId", String(demoSubjectId));
-    setLocation(`/${target}/${mappedSubjectId}?${params.toString()}`);
-  }, [demoSubjectId, mappedSubjectId, setLocation, target]);
-
-  const isAutoRetryingError = resolveQuery.isError && errorRetryCount < DEMO_BRIDGE_MAX_ERROR_RETRIES;
-  const isAutoRetryingPending = isPending && pendingRetryCount < DEMO_BRIDGE_MAX_PENDING_RETRIES;
-  const isLoading =
-    resolveQuery.isLoading ||
-    (!mappedSubjectId && (isAutoRetryingPending || isAutoRetryingError));
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-muted-foreground text-sm">데모 작업공간 연결 중...</div>
-      </div>
-    );
-  }
-
-  if (resolveQuery.isError) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="space-y-2 text-center">
-          <div className="text-muted-foreground text-sm">데모 작업공간 연결이 지연되고 있습니다.</div>
-          <div className="flex items-center justify-center gap-2">
-            <Button size="sm" variant="secondary" onClick={() => void resolveQuery.refetch()}>
-              다시 시도
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setLocation("/demo")}>
-              데모 홈으로
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!mappedSubjectId) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="space-y-2 text-center">
-          <div className="text-muted-foreground text-sm">개인 데모 과목을 찾지 못했습니다.</div>
-          <div className="flex items-center justify-center gap-2">
-            <Button size="sm" variant="secondary" onClick={() => void resolveQuery.refetch()}>
-              다시 시도
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setLocation("/demo")}>
-              데모 홈으로
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return null;
-}
-
-function DemoQuestionRouteBridge({
-  demoQuestionId,
-  target,
-}: {
-  demoQuestionId: number;
-  target: "practice" | "test";
-}) {
-  const [, setLocation] = useLocation();
-  const guestId = useMemo(() => getOrCreateGuestId(), []);
-  const [errorRetryCount, setErrorRetryCount] = useState(0);
-  const [pendingRetryCount, setPendingRetryCount] = useState(0);
-  const resolveQuery = trpc.demo.resolveQuestionWorkspace.useQuery(
-    { demoQuestionId, guestId },
-    {
-      refetchOnWindowFocus: false,
-      retry: false,
-    }
-  );
-  const mappedQuestionId = resolveQuery.data?.mappedQuestionId ?? null;
-  const mappedDemoSubjectId = resolveQuery.data?.mappedDemoSubjectId ?? null;
-  const isPending = resolveQuery.data?.pending === true;
-
-  useEffect(() => {
-    if (mappedQuestionId) {
-      if (pendingRetryCount !== 0) setPendingRetryCount(0);
-      return;
-    }
-    if (!isPending) {
-      if (pendingRetryCount !== 0) setPendingRetryCount(0);
-      return;
-    }
-    if (resolveQuery.isLoading) return;
-    if (pendingRetryCount >= DEMO_BRIDGE_MAX_PENDING_RETRIES) return;
-    const timer = window.setTimeout(() => {
-      setPendingRetryCount((count) => count + 1);
-      void resolveQuery.refetch();
-    }, DEMO_BRIDGE_RETRY_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [
-    isPending,
-    mappedQuestionId,
-    pendingRetryCount,
-    resolveQuery.isLoading,
-    resolveQuery.refetch,
-  ]);
-
-  useEffect(() => {
-    if (!resolveQuery.isError || mappedQuestionId) {
-      if (errorRetryCount !== 0) setErrorRetryCount(0);
-      return;
-    }
-    if (resolveQuery.isLoading) return;
-    if (errorRetryCount >= DEMO_BRIDGE_MAX_ERROR_RETRIES) return;
-    const timer = window.setTimeout(() => {
-      setErrorRetryCount((count) => count + 1);
-      void resolveQuery.refetch();
-    }, DEMO_BRIDGE_RETRY_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [
-    errorRetryCount,
-    mappedQuestionId,
-    resolveQuery.isError,
-    resolveQuery.isLoading,
-    resolveQuery.refetch,
-  ]);
-
-  useEffect(() => {
-    if (!mappedQuestionId) return;
-    const params = new URLSearchParams();
-    params.set("demo", "1");
-    if (mappedDemoSubjectId) {
-      params.set("demoSubjectId", String(mappedDemoSubjectId));
-    }
-    if (target === "practice") {
-      params.set("scrollNav", "1");
-    }
-    const query = params.toString();
-    setLocation(`/${target}/${mappedQuestionId}${query ? `?${query}` : ""}`);
-  }, [mappedDemoSubjectId, mappedQuestionId, setLocation, target]);
-
-  const isAutoRetryingError = resolveQuery.isError && errorRetryCount < DEMO_BRIDGE_MAX_ERROR_RETRIES;
-  const isAutoRetryingPending = isPending && pendingRetryCount < DEMO_BRIDGE_MAX_PENDING_RETRIES;
-  const isLoading =
-    resolveQuery.isLoading ||
-    (!mappedQuestionId && (isAutoRetryingPending || isAutoRetryingError));
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-muted-foreground text-sm">데모 문제 연결 중...</div>
-      </div>
-    );
-  }
-
-  if (resolveQuery.isError) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="space-y-2 text-center">
-          <div className="text-muted-foreground text-sm">데모 문제 연결이 지연되고 있습니다.</div>
-          <div className="flex items-center justify-center gap-2">
-            <Button size="sm" variant="secondary" onClick={() => void resolveQuery.refetch()}>
-              다시 시도
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setLocation("/demo")}>
-              데모 홈으로
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!mappedQuestionId) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="space-y-2 text-center">
-          <div className="text-muted-foreground text-sm">개인 데모 문제를 찾지 못했습니다.</div>
-          <div className="flex items-center justify-center gap-2">
-            <Button size="sm" variant="secondary" onClick={() => void resolveQuery.refetch()}>
-              다시 시도
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setLocation("/demo")}>
-              데모 홈으로
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return null;
 }
 
 function DemoQuestionPasswordGate({
@@ -770,18 +510,9 @@ function Router({
         {(params) =>
           canAccessDemo ? (
             <Layout>
-              {isAdmin ? (
-                <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
-                  <Practice questionId={parseInt(params.questionId)} isDemo />
-                </DemoQuestionPasswordGate>
-              ) : (
-                <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
-                  <DemoQuestionRouteBridge
-                    demoQuestionId={parseInt(params.questionId)}
-                    target="practice"
-                  />
-                </DemoQuestionPasswordGate>
-              )}
+              <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
+                <Practice questionId={parseInt(params.questionId)} isDemo />
+              </DemoQuestionPasswordGate>
             </Layout>
           ) : (
             <RouteRedirect to={`/practice/${parseInt(params.questionId)}`} />
@@ -792,18 +523,9 @@ function Router({
         {(params) =>
           canAccessDemo ? (
             <Layout>
-              {isAdmin ? (
-                <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
-                  <Test questionId={parseInt(params.questionId)} isDemo />
-                </DemoQuestionPasswordGate>
-              ) : (
-                <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
-                  <DemoQuestionRouteBridge
-                    demoQuestionId={parseInt(params.questionId)}
-                    target="test"
-                  />
-                </DemoQuestionPasswordGate>
-              )}
+              <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
+                <Test questionId={parseInt(params.questionId)} isDemo />
+              </DemoQuestionPasswordGate>
             </Layout>
           ) : (
             <RouteRedirect to={`/test/${parseInt(params.questionId)}`} />
@@ -814,18 +536,9 @@ function Router({
         {(params) =>
           canAccessDemo ? (
             <Layout>
-              {isAdmin ? (
-                <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
-                  <SubjectExam subjectId={parseInt(params.subjectId)} isDemo />
-                </DemoSubjectPasswordGate>
-              ) : (
-                <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
-                  <DemoSubjectRouteBridge
-                    demoSubjectId={parseInt(params.subjectId)}
-                    target="subject-exam"
-                  />
-                </DemoSubjectPasswordGate>
-              )}
+              <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
+                <SubjectExam subjectId={parseInt(params.subjectId)} isDemo />
+              </DemoSubjectPasswordGate>
             </Layout>
           ) : (
             <RouteRedirect to={`/subject-exam/${parseInt(params.subjectId)}`} />
@@ -842,18 +555,13 @@ function Router({
         {(params) =>
           canAccessDemo ? (
             <Layout>
-              {isAdmin ? (
-                <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
+              <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
+                {isAdmin ? (
                   <Questions subjectId={parseInt(params.subjectId)} demoWorkspace />
-                </DemoSubjectPasswordGate>
-              ) : (
-                <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
-                  <DemoSubjectRouteBridge
-                    demoSubjectId={parseInt(params.subjectId)}
-                    target="questions"
-                  />
-                </DemoSubjectPasswordGate>
-              )}
+                ) : (
+                  <Questions subjectId={parseInt(params.subjectId)} isDemo />
+                )}
+              </DemoSubjectPasswordGate>
             </Layout>
           ) : (
             <RouteRedirect to="/subjects" />

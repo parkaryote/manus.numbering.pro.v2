@@ -69,6 +69,7 @@ initAnalytics();
 
 const TRPC_FETCH_TIMEOUT_MS = 12000;
 const TRPC_AUTH_FETCH_TIMEOUT_MS = 10000;
+const TRPC_GOOGLE_AUTH_FETCH_TIMEOUT_MS = 45000;
 const TRPC_AUTH_ME_FETCH_TIMEOUT_MS = 2200;
 const TRPC_OCR_FETCH_TIMEOUT_MS = 180000;
 const TRPC_ADMIN_DEMO_FETCH_TIMEOUT_MS = 120000;
@@ -98,6 +99,12 @@ function resolveTrpcTimeoutMs(input: RequestInfo | URL): number {
   // 앱 초기 진입의 체감 속도를 위해 auth.me는 짧게 타임아웃한다.
   if (rawUrl.includes("/api/trpc/auth.me")) {
     return TRPC_AUTH_ME_FETCH_TIMEOUT_MS;
+  }
+
+  // Google OAuth 코드 교환 + 계정/세션 처리 경로는 외부 round-trip 및 계정 병합으로
+  // 10초를 넘길 수 있어 별도 긴 타임아웃을 사용한다.
+  if (rawUrl.includes("/api/trpc/auth.googleLoginWithCode")) {
+    return TRPC_GOOGLE_AUTH_FETCH_TIMEOUT_MS;
   }
 
   // 나머지 auth 요청은 외부 OAuth + DB round trip으로 지연될 수 있다.

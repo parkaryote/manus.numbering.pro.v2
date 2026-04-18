@@ -96,32 +96,6 @@ function AuthModal({
           {/* 로그인 탭 */}
           <TabsContent value="login" className="space-y-4 pt-2">
             <div className="space-y-2">
-              <Button
-                onClick={() => {
-                  if (!GOOGLE_CLIENT_ID) {
-                    toast.error("Google OAuth 클라이언트 ID가 설정되지 않았습니다.");
-                    return;
-                  }
-                  try {
-                    startGoogleOAuthLogin({
-                      clientId: GOOGLE_CLIENT_ID,
-                      returnTo: `${window.location.pathname}${window.location.search}`,
-                    });
-                  } catch (error) {
-                    toast.error(error instanceof Error ? error.message : "Google 로그인 시작 실패");
-                  }
-                }}
-                className={`w-full justify-start gap-2 ${GOOGLE_SOCIAL_BUTTON_META.className}`}
-                disabled={isPending}
-              >
-                {GOOGLE_SOCIAL_BUTTON_META.icon}
-                {GOOGLE_SOCIAL_BUTTON_META.label}
-              </Button>
-            </div>
-
-            <div className="h-px bg-border" />
-
-            <div className="space-y-2">
               <Label htmlFor="login-identifier">아이디 또는 이메일</Label>
               <Input
                 id="login-identifier"
@@ -152,6 +126,32 @@ function AuthModal({
               <LogIn className="h-4 w-4" />
               {loginMutation.isPending ? "로그인 중..." : "로그인"}
             </Button>
+
+            <div className="h-px bg-border" />
+
+            <div className="space-y-2">
+              <Button
+                onClick={() => {
+                  if (!GOOGLE_CLIENT_ID) {
+                    toast.error("Google OAuth 클라이언트 ID가 설정되지 않았습니다.");
+                    return;
+                  }
+                  try {
+                    startGoogleOAuthLogin({
+                      clientId: GOOGLE_CLIENT_ID,
+                      returnTo: `${window.location.pathname}${window.location.search}`,
+                    });
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "Google 로그인 시작 실패");
+                  }
+                }}
+                className={`w-full justify-start gap-2 ${GOOGLE_SOCIAL_BUTTON_META.className}`}
+                disabled={isPending}
+              >
+                {GOOGLE_SOCIAL_BUTTON_META.icon}
+                {GOOGLE_SOCIAL_BUTTON_META.label}
+              </Button>
+            </div>
           </TabsContent>
 
           {/* 가입 탭 */}

@@ -4,6 +4,7 @@ import { appRouter } from "../routers.js";
 import uploadAudioRouter from "../uploadAudio.js";
 import uploadImageRouter from "../uploadImage.js";
 import imageProxyRouter from "../imageProxy.js";
+import { storageGet } from "../storage.js";
 import { createContext } from "./context.js";
 import { registerOAuthRoutes } from "./oauth.js";
 import fs from "fs";
@@ -62,6 +63,34 @@ function sanitizeUserAgent(value: string): string {
   return compact.slice(0, 256);
 }
 
+function decodeUploadRelativePathFromUrl(rawUrl: string): string {
+  const pathOnly = rawUrl.split("?")[0] || "";
+  const withoutPrefix = pathOnly.replace(/^\/uploads\/?/i, "");
+  const decoded = withoutPrefix
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
+  return decoded.replace(/^\/+/, "");
+}
+
+function resolveSafeUploadPath(rootDir: string, relPath: string): string | null {
+  const root = path.resolve(rootDir);
+  const absolute = path.resolve(root, relPath);
+  if (!absolute.startsWith(`${root}${path.sep}`) && absolute !== root) return null;
+  return absolute;
+}
+
+function isAbsoluteHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
 export function createApp() {
   const app = express();
   const localUploadsDir =
@@ -75,6 +104,34 @@ export function createApp() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   app.use("/uploads", express.static(localUploadsDir));
+  app.use("/uploads", async (req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+
+    const relPath = decodeUploadRelativePathFromUrl(req.originalUrl || req.url || "");
+    if (!relPath) return next();
+
+    // 1) 번들된 public 업로드 자산 폴백 (데모/하드코딩 이미지)
+    const publicUploadsDir =
+      process.env.NODE_ENV === "production"
+        ? path.resolve(process.cwd(), "dist", "public", "uploads")
+        : path.resolve(process.cwd(), "client", "public", "uploads");
+    const publicCandidate = resolveSafeUploadPath(publicUploadsDir, relPath);
+    if (publicCandidate && fs.existsSync(publicCandidate)) {
+      return res.sendFile(publicCandidate);
+    }
+
+    // 2) 원격 스토리지 연동 환경일 때는 서명 URL로 폴백
+    try {
+      const remote = await storageGet(relPath);
+      if (remote?.url && isAbsoluteHttpUrl(remote.url)) {
+        return res.redirect(307, remote.url);
+      }
+    } catch (error) {
+      console.warn("[uploads] fallback resolve failed:", error);
+    }
+
+    return next();
+  });
 
   const trafficLogEnabled = process.env.TRAFFIC_LOG_ENABLED !== "false";
   const trafficLogSampleRate = normalizeSampleRate(process.env.TRAFFIC_LOG_SAMPLE_RATE);

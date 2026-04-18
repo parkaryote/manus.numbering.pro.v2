@@ -287,14 +287,20 @@ function evaluateTextAnswerByBestLineMatch(
   const correctLines = trimTrailingEmptyLines(correctAnswer.split("\n").map((line) => line.trim()));
   const totalLines = correctLines.length;
   const LINE_CROSS_MATCH_MIN_SCORE = 80;
-  const LINE_CROSS_MATCH_MARGIN = 12;
 
   const userLinePool = userLines.map((raw, index) => ({
     raw,
     index,
-    consumed: false,
     normalized: normalizeLineForTextComparison(raw, ignoreAutoNumbering),
   }));
+
+  const comparisonMatrix: Array<
+    Array<{ isCorrect: boolean; score: number; compareMode: TextLineCompareMode }>
+  > = correctLines.map((correctLineRaw) =>
+    userLinePool.map((candidate) =>
+      compareTextLine(candidate.raw, correctLineRaw, ignoreAutoNumbering)
+    )
+  );
 
   const lineComparisons: Array<{
     lineIndex: number;
@@ -309,79 +315,128 @@ function evaluateTextAnswerByBestLineMatch(
   let correctLineCount = 0;
   let scoreSum = 0;
 
+  const assignedUserByCorrect = Array<number | null>(totalLines).fill(null);
+  const usedUserIndexes = new Set<number>();
+
+  const assignPair = (correctIndex: number, userIndex: number) => {
+    assignedUserByCorrect[correctIndex] = userIndex;
+    usedUserIndexes.add(userIndex);
+  };
+
+  // 1) 같은 줄이 완전 정답이면 먼저 고정 (정확 입력 우선)
+  for (let i = 0; i < totalLines; i++) {
+    const directCandidate = userLinePool[i];
+    if (!directCandidate) continue;
+    if (directCandidate.normalized.length === 0) continue;
+    const directCompared = comparisonMatrix[i]?.[i];
+    if (!directCompared) continue;
+    if (directCompared.isCorrect) {
+      assignPair(i, i);
+    }
+  }
+
+  // 2) 강한 재매칭(다른 줄 포함): 80점 이상 또는 완전 정답이면 재배치 허용
+  const strongCandidates: Array<{
+    correctIndex: number;
+    userIndex: number;
+    isCorrect: boolean;
+    score: number;
+    compareMode: TextLineCompareMode;
+    isDirect: boolean;
+  }> = [];
+
+  for (let i = 0; i < totalLines; i++) {
+    if (assignedUserByCorrect[i] !== null) continue;
+    for (let j = 0; j < userLinePool.length; j++) {
+      if (usedUserIndexes.has(j)) continue;
+      if (userLinePool[j].normalized.length === 0) continue;
+      const compared = comparisonMatrix[i]?.[j];
+      if (!compared) continue;
+      const strongEnough = compared.isCorrect || compared.score >= LINE_CROSS_MATCH_MIN_SCORE;
+      if (!strongEnough) continue;
+      strongCandidates.push({
+        correctIndex: i,
+        userIndex: j,
+        isCorrect: compared.isCorrect,
+        score: compared.score,
+        compareMode: compared.compareMode,
+        isDirect: i === j,
+      });
+    }
+  }
+
+  strongCandidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.isCorrect !== b.isCorrect) return a.isCorrect ? -1 : 1;
+    if (a.isDirect !== b.isDirect) return a.isDirect ? -1 : 1;
+    return Math.abs(a.correctIndex - a.userIndex) - Math.abs(b.correctIndex - b.userIndex);
+  });
+
+  for (const candidate of strongCandidates) {
+    if (assignedUserByCorrect[candidate.correctIndex] !== null) continue;
+    if (usedUserIndexes.has(candidate.userIndex)) continue;
+    assignPair(candidate.correctIndex, candidate.userIndex);
+  }
+
+  // 3) 남은 줄은 남은 입력 중 최적(직접 줄 우선)으로 채워 비교 정보 보존
+  for (let i = 0; i < totalLines; i++) {
+    if (assignedUserByCorrect[i] !== null) continue;
+    let chosenUserIndex: number | null = null;
+    let chosenScore = -1;
+    let chosenIsCorrect = false;
+
+    for (let j = 0; j < userLinePool.length; j++) {
+      if (usedUserIndexes.has(j)) continue;
+      if (userLinePool[j].normalized.length === 0) continue;
+      const compared = comparisonMatrix[i]?.[j];
+      if (!compared) continue;
+
+      const preferDirect = j === i && chosenUserIndex !== i;
+      if (preferDirect) {
+        chosenUserIndex = j;
+        chosenScore = compared.score;
+        chosenIsCorrect = compared.isCorrect;
+        continue;
+      }
+
+      if (
+        compared.score > chosenScore ||
+        (compared.score === chosenScore && compared.isCorrect && !chosenIsCorrect)
+      ) {
+        chosenUserIndex = j;
+        chosenScore = compared.score;
+        chosenIsCorrect = compared.isCorrect;
+      }
+    }
+
+    if (chosenUserIndex !== null) {
+      assignPair(i, chosenUserIndex);
+    }
+  }
+
   for (let i = 0; i < totalLines; i++) {
     const correctLineRaw = correctLines[i] ?? "";
     const defaultMode: TextLineCompareMode = isLikelyEnglishLine(correctLineRaw) ? "word" : "typing";
-    const directCandidate = userLinePool.find((candidate) => !candidate.consumed && candidate.index === i) ?? null;
-    const directCompared = directCandidate
-      ? compareTextLine(directCandidate.raw, correctLineRaw, ignoreAutoNumbering)
-      : null;
-
-    let bestCrossCandidate: (typeof userLinePool)[number] | null = null;
-    let bestCrossScore = -1;
-    let bestCrossIsCorrect = false;
-    let bestCrossMode: TextLineCompareMode = defaultMode;
-
-    for (const candidate of userLinePool) {
-      if (candidate.consumed) continue;
-      if (directCandidate && candidate.index === directCandidate.index) continue;
-
-      const compared = compareTextLine(candidate.raw, correctLineRaw, ignoreAutoNumbering);
-      if (
-        compared.score > bestCrossScore ||
-        (compared.score === bestCrossScore && compared.isCorrect && !bestCrossIsCorrect)
-      ) {
-        bestCrossCandidate = candidate;
-        bestCrossScore = compared.score;
-        bestCrossIsCorrect = compared.isCorrect;
-        bestCrossMode = compared.compareMode;
-      }
-    }
-
-    let chosenCandidate: (typeof userLinePool)[number] | null = null;
-    let chosenScore = 0;
-    let chosenIsCorrect = false;
-    let chosenMode: TextLineCompareMode = defaultMode;
-
-    if (directCandidate && directCompared) {
-      const directHasMeaningfulInput = directCandidate.normalized.length > 0;
-      chosenCandidate = directHasMeaningfulInput ? directCandidate : null;
-      chosenScore = directHasMeaningfulInput ? directCompared.score : 0;
-      chosenIsCorrect = directHasMeaningfulInput ? directCompared.isCorrect : false;
-      chosenMode = directCompared.compareMode;
-
-      if (bestCrossCandidate) {
-        const crossStrongEnough = bestCrossIsCorrect || bestCrossScore >= LINE_CROSS_MATCH_MIN_SCORE;
-        const crossClearlyBetter =
-          !directHasMeaningfulInput ||
-          bestCrossScore >= directCompared.score + LINE_CROSS_MATCH_MARGIN;
-        if (!directCompared.isCorrect && crossStrongEnough && crossClearlyBetter) {
-          chosenCandidate = bestCrossCandidate;
-          chosenScore = bestCrossScore;
-          chosenIsCorrect = bestCrossIsCorrect;
-          chosenMode = bestCrossMode;
-        }
-      }
-    } else if (bestCrossCandidate && (bestCrossIsCorrect || bestCrossScore >= LINE_CROSS_MATCH_MIN_SCORE)) {
-      chosenCandidate = bestCrossCandidate;
-      chosenScore = bestCrossScore;
-      chosenIsCorrect = bestCrossIsCorrect;
-      chosenMode = bestCrossMode;
-    }
+    const matchedUserIndex = assignedUserByCorrect[i];
 
     let matchedUserRaw = "";
     let matchedUserLineIndex: number | null = null;
     let lineScore = 0;
     let lineIsCorrect = false;
-    let lineMode = chosenMode;
+    let lineMode = defaultMode;
 
-    if (chosenCandidate) {
-      chosenCandidate.consumed = true;
-      matchedUserRaw = chosenCandidate.raw;
-      matchedUserLineIndex = chosenCandidate.index + 1;
-      lineScore = Math.max(0, chosenScore);
-      lineIsCorrect = chosenIsCorrect;
-      lineMode = chosenMode;
+    if (matchedUserIndex !== null) {
+      const compared = comparisonMatrix[i]?.[matchedUserIndex];
+      const matchedUser = userLinePool[matchedUserIndex];
+      if (compared && matchedUser) {
+        matchedUserRaw = matchedUser.raw;
+        matchedUserLineIndex = matchedUser.index + 1;
+        lineScore = Math.max(0, compared.score);
+        const isStrongCrossMatch =
+          matchedUser.index !== i && lineScore >= LINE_CROSS_MATCH_MIN_SCORE;
+        lineIsCorrect = compared.isCorrect || isStrongCrossMatch;
+        lineMode = compared.compareMode;
+      }
     }
 
     if (lineIsCorrect) correctLineCount++;
@@ -399,7 +454,7 @@ function evaluateTextAnswerByBestLineMatch(
   }
 
   const remainingMeaningfulUserLines = userLinePool.filter(
-    (item) => !item.consumed && item.normalized.length > 0
+    (item) => !usedUserIndexes.has(item.index) && item.normalized.length > 0
   ).length;
   const isCorrect =
     totalLines > 0
@@ -1535,6 +1590,8 @@ type DemoQuestionPreview = {
   };
   warnZoneLines: Array<{ lineIndex: number; wrongCount: number }>;
   lastTestWrongLines: number[];
+  lastTestWrongCellKeys?: string[];
+  lastTestWrongLabelIndices?: number[];
   lastTestAccuracyRate: number | null;
   examDatePrediction: {
     predictedScore: number;
@@ -1560,6 +1617,31 @@ type DemoQuestionPreview = {
   }>;
   isExample: true;
 };
+
+function extractBlankCellKeysFromTableData(
+  tableData: string | null | undefined
+): string[] {
+  if (!tableData) return [];
+  try {
+    const parsed = JSON.parse(tableData) as {
+      cells?: Array<Array<{ isBlank?: boolean; isMerged?: boolean }>>;
+    };
+    const rows = Array.isArray(parsed?.cells) ? parsed.cells : [];
+    const result: string[] = [];
+    for (let ri = 0; ri < rows.length; ri++) {
+      const row = rows[ri];
+      if (!Array.isArray(row)) continue;
+      for (let ci = 0; ci < row.length; ci++) {
+        const cell = row[ci];
+        if (!cell?.isBlank || cell?.isMerged) continue;
+        result.push(`${ri}-${ci}`);
+      }
+    }
+    return result;
+  } catch {
+    return [];
+  }
+}
 
 type DemoShowcaseKey =
   | "box1"
@@ -1752,8 +1834,8 @@ async function resolveDemoSequenceIndexForQuestion(
   const normalizedSubjectName = resolveDemoSequenceSubjectName(subject.name);
   if (!normalizedSubjectName) return null;
 
-  const filteredQuestions = await getStablePublicDemoShowcaseQuestions(subject);
-  const sortedQuestions = sortDemoQuestionsByDisplayOrderStable(filteredQuestions);
+  const demoQuestions = await db.getDemoQuestions(subject.id);
+  const sortedQuestions = sortDemoQuestionsByDisplayOrderStable(demoQuestions);
   const idx = sortedQuestions.findIndex((row) => row.id === questionId);
   return idx >= 0 ? idx : null;
 }
@@ -2269,8 +2351,16 @@ function buildDemoQuestionPreview(
         ]
       : [];
   const lastTestWrongLines = showcaseKey === "table_i3" ? [1, 3] : [];
+  const lastTestWrongCellKeys = (() => {
+    if (showcaseKey !== "table_i3") return [];
+    const blankKeys = extractBlankCellKeysFromTableData(question.tableData);
+    if (blankKeys.length === 0) return [];
+    return lastTestWrongLines
+      .map((lineIndex) => blankKeys[Math.max(0, lineIndex - 1)] ?? null)
+      .filter((key): key is string => Boolean(key));
+  })();
 
-    return {
+  return {
     displayScore,
     state,
     label: getDemoTrafficLabel(state),
@@ -2282,6 +2372,7 @@ function buildDemoQuestionPreview(
     },
     warnZoneLines,
     lastTestWrongLines,
+    lastTestWrongCellKeys,
     lastTestAccuracyRate,
     examDatePrediction: buildDemoExamPrediction(subject, displayScore, initialEstimate),
     historyPoints,
@@ -4735,33 +4826,18 @@ export const appRouter = router({
       const demoSubjects = (await db.getDemoSubjects()).map((subject) =>
         applySubjectExamDateOverride(subject)
       );
-      const normalizeSubjectName = (value: string) => value.trim().toLowerCase();
       const userRole: "user" | "admin" = ctx.user?.role === "admin" ? "admin" : "user";
 
-      const linkedSubjectByDemoSourceId = new Map<number, any>();
-      const linkedSubjectByName = new Map<string, any>();
       const practiceByQuestionId = new Map<number, any[]>();
       const testsByQuestionId = new Map<number, any[]>();
       let userProfile = buildUserAdaptiveProfile([], []);
 
       if (ctx.user) {
-        const starterSynced = await waitForStarterSyncWithBudget(ctx.user.id, 220, { force: true });
-        if (!starterSynced) {
-          triggerStarterSyncInBackground(ctx.user.id, { force: true });
-        }
-        const [userSubjects, allPractice, allTests] = await Promise.all([
-          db.getSubjectsByUserId(ctx.user.id),
+        const [allPractice, allTests] = await Promise.all([
           db.getPracticeSessionsByUserId(ctx.user.id),
           db.getTestSessionsByUserId(ctx.user.id),
         ]);
         userProfile = buildUserAdaptiveProfile(allPractice, allTests);
-
-        for (const subject of userSubjects) {
-          if (typeof subject.demoSourceSubjectId === "number" && subject.demoSourceSubjectId > 0) {
-            linkedSubjectByDemoSourceId.set(subject.demoSourceSubjectId, subject);
-          }
-          linkedSubjectByName.set(normalizeSubjectName(subject.name), subject);
-        }
 
         for (const practice of allPractice) {
           const rows = practiceByQuestionId.get(practice.questionId) ?? [];
@@ -4777,40 +4853,13 @@ export const appRouter = router({
 
       const subjects = await Promise.all(
         demoSubjects.map(async (subject) => {
-          const questions = (await getStablePublicDemoShowcaseQuestions(subject)).sort(
-            (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
-          );
-          const linkedSubject =
-            linkedSubjectByDemoSourceId.get(subject.id) ??
-            linkedSubjectByName.get(normalizeSubjectName(subject.name)) ??
-            null;
-          const linkedQuestionsByDemoSourceId = new Map<number, any>();
-          const linkedQuestionsBySignature = new Map<string, any>();
-          if (linkedSubject) {
-            const linkedQuestions = await db.getQuestionsBySubjectId(linkedSubject.id);
-            for (const linkedQuestion of linkedQuestions) {
-              if (
-                typeof linkedQuestion.demoSourceQuestionId === "number" &&
-                linkedQuestion.demoSourceQuestionId > 0
-              ) {
-                linkedQuestionsByDemoSourceId.set(linkedQuestion.demoSourceQuestionId, linkedQuestion);
-              }
-              const signature = normalizeQuestionTextValue(linkedQuestion.question);
-              if (signature && !linkedQuestionsBySignature.has(signature)) {
-                linkedQuestionsBySignature.set(signature, linkedQuestion);
-              }
-            }
-          }
-          const examDate = resolveSubjectExamDate(linkedSubject ?? subject);
+          const questions = await getStablePublicDemoShowcaseQuestions(subject);
+          const examDate = resolveSubjectExamDate(subject);
 
           const previewRows = questions.map((question, sequenceIndex) => {
-            const signature = normalizeQuestionTextValue(question.question);
-            const linkedQuestion =
-              linkedQuestionsByDemoSourceId.get(question.id) ??
-              (signature ? linkedQuestionsBySignature.get(signature) : undefined);
-            if (linkedQuestion && ctx.user) {
-              const qPractice = practiceByQuestionId.get(linkedQuestion.id) ?? [];
-              const qTests = testsByQuestionId.get(linkedQuestion.id) ?? [];
+            if (ctx.user) {
+              const qPractice = practiceByQuestionId.get(question.id) ?? [];
+              const qTests = testsByQuestionId.get(question.id) ?? [];
 
               const practiceSignal: PracticeSignal = {
                 practiceCount: qPractice.length,
@@ -4866,11 +4915,11 @@ export const appRouter = router({
                 now,
                 examDate,
                 userProfile,
-                initialEstimate: buildInitialConfidenceEstimate(linkedQuestion),
+                initialEstimate: buildInitialConfidenceEstimate(question),
               });
               const starterInitialScoreOverride = getStarterInitialScoreOverride({
-                subjectName: linkedSubject?.name ?? subject.name,
-                question: linkedQuestion,
+                subjectName: subject.name,
+                question,
                 practiceCount: qPractice.length,
                 testCount: qTests.length,
                 userRole,
@@ -4880,8 +4929,8 @@ export const appRouter = router({
                   ? confidenceBase
                   : applyDisplayScoreOverride(confidenceBase, starterInitialScoreOverride);
               const starterBaseScore = getStarterBaseScoreOverride({
-                subjectName: linkedSubject?.name ?? subject.name,
-                question: linkedQuestion,
+                subjectName: subject.name,
+                question,
                 userRole,
               });
               if (starterBaseScore !== null && qTests.length === 0 && qPractice.length > 0) {
@@ -4899,13 +4948,13 @@ export const appRouter = router({
                 subjectId: subject.id,
                 subjectName: subject.name,
                 subjectColor: subject.color ?? "#3B82F6",
-                question: linkedQuestion.question ?? question.question,
+                question: question.question,
                 displayOrder: question.displayOrder ?? 0,
                 displayScore: confidence.displayScore,
                 state: confidence.state,
                 label: confidence.label,
                 isColdStart: confidence.isColdStart,
-                isStarred: linkedQuestion.isStarred ?? question.isStarred ?? 0,
+                isStarred: question.isStarred ?? 0,
                 badges: { lastTestWrong, frequentlyWrong, hasWarnZone },
               };
             }
@@ -5062,9 +5111,6 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 문제를 찾을 수 없습니다" });
         }
         const subject = question.subjectId ? await db.getSubjectById(question.subjectId) : null;
-        if (!isPublicDemoShowcaseQuestion(question, subject)) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "선택한 데모 문제를 찾을 수 없습니다" });
-        }
         const sequenceIndex = await resolveDemoSequenceIndexForQuestion(question.id, subject);
         const preview = buildDemoQuestionPreview(question, subject ?? null, { sequenceIndex });
         return {
@@ -5083,9 +5129,6 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 문제를 찾을 수 없습니다" });
         }
         const subject = question.subjectId ? await db.getSubjectById(question.subjectId) : null;
-        if (!isPublicDemoShowcaseQuestion(question, subject)) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "선택한 데모 문제를 찾을 수 없습니다" });
-        }
         const sequenceIndex = await resolveDemoSequenceIndexForQuestion(question.id, subject);
         const preview = buildDemoQuestionPreview(question, subject ?? null, { sequenceIndex });
         return {
@@ -5104,10 +5147,7 @@ export const appRouter = router({
         if (!subject || subject.isDemo !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다" });
         }
-        const questions = await getStablePublicDemoShowcaseQuestions(subject);
-        const sortedQuestions = [...questions].sort(
-          (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
-        );
+        const sortedQuestions = await getStablePublicDemoShowcaseQuestions(subject);
 
         const previewRows = sortedQuestions.map((question, sequenceIndex) => {
           const preview = buildDemoQuestionPreview(question, subject, { sequenceIndex });
@@ -5140,9 +5180,7 @@ export const appRouter = router({
         if (!subject || subject.isDemo !== 1) {
           throw new TRPCError({ code: "NOT_FOUND", message: "데모 과목을 찾을 수 없습니다" });
         }
-        const questions = (await getStablePublicDemoShowcaseQuestions(subject)).sort(
-          (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
-        );
+        const questions = await getStablePublicDemoShowcaseQuestions(subject);
         const previews = questions.map((question, sequenceIndex) =>
           buildDemoQuestionPreview(question, subject, { sequenceIndex })
         );
@@ -5167,9 +5205,6 @@ export const appRouter = router({
         const subject = question.subjectId ? await db.getSubjectById(question.subjectId) : null;
         const isExplicitDemoQuestion = question.isDemo === 1 || subject?.isDemo === 1;
         if (isExplicitDemoQuestion) {
-          if (!isPublicDemoShowcaseQuestion(question, subject)) {
-            throw new TRPCError({ code: "NOT_FOUND", message: "선택한 데모 문제를 찾을 수 없습니다" });
-          }
         } else if (process.env.NODE_ENV !== "test") {
           throw new TRPCError({ code: "NOT_FOUND", message: "선택한 데모 문제를 찾을 수 없습니다" });
         }
@@ -5568,7 +5603,7 @@ export const appRouter = router({
         // Check if subject is demo - allow without auth
         const subject = await db.getSubjectById(input.subjectId);
         if (subject?.isDemo) {
-          return db.getDemoQuestions(input.subjectId);
+          return getStablePublicDemoShowcaseQuestions(subject);
         }
         if (!ctx.user) throw new TRPCError({ code: 'UNAUTHORIZED' });
         if (!subject || subject.userId !== ctx.user.id) {
@@ -7652,13 +7687,39 @@ ${input.userAnswer}
 
         // 마지막 시험의 오답 줄 정보 파싱
         let lastTestWrongLines: number[] = [];
+        let lastTestWrongCellKeys: string[] = [];
+        let lastTestWrongLabelIndices: number[] = [];
         if (lastTest?.mistakeHighlights) {
           try {
             const highlights = JSON.parse(lastTest.mistakeHighlights as string);
             if (Array.isArray(highlights)) {
-              lastTestWrongLines = highlights
-                .filter((h: any) => h.isCorrect === false)
-                .map((h: any) => (h.lineIndex ?? h.labelIndex ?? 1) - 1);
+              const wrongLineSet = new Set<number>();
+              const wrongCellKeySet = new Set<string>();
+              const wrongLabelIndexSet = new Set<number>();
+
+              highlights
+                .filter((h: any) => h?.isCorrect === false)
+                .forEach((h: any) => {
+                  const rawLineIndex = Number(h?.lineIndex);
+                  if (Number.isFinite(rawLineIndex) && rawLineIndex >= 1) {
+                    wrongLineSet.add(rawLineIndex - 1);
+                  }
+
+                  const rawLabelIndex = Number(h?.labelIndex);
+                  if (Number.isFinite(rawLabelIndex) && rawLabelIndex >= 1) {
+                    wrongLabelIndexSet.add(rawLabelIndex - 1);
+                    // 이미지 문제도 기존 텍스트 로직과 호환되도록 라인 배열에도 유지
+                    wrongLineSet.add(rawLabelIndex - 1);
+                  }
+
+                  const cellKey =
+                    typeof h?.cellKey === "string" ? h.cellKey.trim() : "";
+                  if (cellKey) wrongCellKeySet.add(cellKey);
+                });
+
+              lastTestWrongLines = Array.from(wrongLineSet).sort((a, b) => a - b);
+              lastTestWrongCellKeys = Array.from(wrongCellKeySet);
+              lastTestWrongLabelIndices = Array.from(wrongLabelIndexSet).sort((a, b) => a - b);
             }
           } catch {}
         }
@@ -7671,6 +7732,8 @@ ${input.userAnswer}
           breakdown: effectiveConfidence.breakdown,
           badges: { lastTestWrong, frequentlyWrong, hasWarnZone },
           lastTestWrongLines,
+          lastTestWrongCellKeys,
+          lastTestWrongLabelIndices,
           lastTestAccuracyRate: lastTest ? (lastTest.similarityScore ?? null) : null,
           examDatePrediction,
           warnZoneLines,

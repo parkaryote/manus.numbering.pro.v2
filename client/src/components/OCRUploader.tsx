@@ -34,6 +34,8 @@ export interface OCRExtractedPayload {
 
 interface OCRUploaderProps {
   onExtractedText?: (payload: OCRExtractedPayload) => void;
+  prefillFile?: File | null;
+  onPrefillConsumed?: () => void;
 }
 
 type ProcessedOcrText = {
@@ -330,7 +332,7 @@ async function readPdfPageCount(file: File): Promise<number> {
   return pdf.getPageCount();
 }
 
-export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
+export function OCRUploader({ onExtractedText, prefillFile = null, onPrefillConsumed }: OCRUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
   const [jobId, setJobId] = useState<number | null>(null);
   const [status, setStatus] = useState<OCRJobStatus>("idle");
@@ -343,6 +345,7 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
   const [selectedPdfPages, setSelectedPdfPages] = useState<number[]>([]);
   const [pageSelectionInput, setPageSelectionInput] = useState("");
   const [isPreparingPdf, setIsPreparingPdf] = useState(false);
+  const [isDropActive, setIsDropActive] = useState(false);
 
   const isPdf = useMemo(() => (file ? isPdfFile(file) : false), [file]);
   const selectedPdfPageCount = selectedPdfPages.length;
@@ -414,10 +417,24 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
     setFullTextDraft(processed.fullText);
   }, [rawExtractedText, includeMemoLines]);
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (!selectedFile) return;
+  const isSupportedOcrFile = (selectedFile: File) => {
+    if (isPdfFile(selectedFile)) return true;
+    const mime = (selectedFile.type || "").toLowerCase();
+    if (mime.startsWith("image/")) return true;
+    const lowerName = selectedFile.name.toLowerCase();
+    return [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".gif"].some((ext) =>
+      lowerName.endsWith(ext)
+    );
+  };
 
+  const applySelectedFile = async (selectedFile: File) => {
+    if (!isSupportedOcrFile(selectedFile)) {
+      setStatus("failed");
+      setErrorMessage("지원하지 않는 파일 형식입니다. PDF 또는 이미지 파일만 가능합니다.");
+      return;
+    }
+
+    setIsDropActive(false);
     setFile(selectedFile);
     setStatus("idle");
     setRawExtractedText("");
@@ -447,6 +464,13 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
     } finally {
       setIsPreparingPdf(false);
     }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+    await applySelectedFile(selectedFile);
+    e.currentTarget.value = "";
   };
 
   const applyParsedSelection = (parsedPages: number[]) => {
@@ -527,6 +551,38 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
     setSelectedPdfPages([]);
     setPageSelectionInput("");
     setIsPreparingPdf(false);
+    setIsDropActive(false);
+  };
+
+  useEffect(() => {
+    if (!prefillFile) return;
+    void applySelectedFile(prefillFile).finally(() => {
+      onPrefillConsumed?.();
+    });
+  }, [onPrefillConsumed, prefillFile]);
+
+  const handleDropAreaDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (file || status !== "idle") return;
+    setIsDropActive(true);
+  };
+
+  const handleDropAreaDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) return;
+    setIsDropActive(false);
+  };
+
+  const handleDropAreaDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDropActive(false);
+    if (file || status !== "idle") return;
+    const droppedFile = e.dataTransfer.files?.[0];
+    if (!droppedFile) return;
+    void applySelectedFile(droppedFile);
   };
 
   return (
@@ -539,7 +595,15 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         {status === "idle" && !file && (
-          <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
+          <div
+            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+              isDropActive ? "border-primary bg-primary/5" : "border-border"
+            }`}
+            onDragOver={handleDropAreaDragOver}
+            onDragEnter={handleDropAreaDragOver}
+            onDragLeave={handleDropAreaDragLeave}
+            onDrop={handleDropAreaDrop}
+          >
             <input
               type="file"
               accept=".pdf,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.gif"
@@ -550,7 +614,7 @@ export function OCRUploader({ onExtractedText }: OCRUploaderProps) {
             <label htmlFor="ocr-file-input" className="cursor-pointer">
               <div className="space-y-2">
                 <Upload className="w-8 h-8 mx-auto text-muted-foreground" />
-                <p className="text-sm font-medium">PDF 또는 이미지 파일을 선택하세요</p>
+                <p className="text-sm font-medium">PDF 또는 이미지 파일을 선택하거나 드래그하세요</p>
                 <p className="text-xs text-muted-foreground">PDF, JPG, PNG, WEBP, BMP, TIFF, GIF 지원</p>
               </div>
             </label>

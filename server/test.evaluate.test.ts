@@ -34,7 +34,19 @@ describe("test.evaluate - Line-by-line grading with similarity", () => {
       updatedAt: new Date(),
     });
 
-    vi.spyOn(db, "createTestSession").mockResolvedValue(undefined as any);
+    vi.spyOn(db, "createTestSession").mockResolvedValue({
+      id: 999,
+      userId: testUserId,
+      questionId: testQuestionId,
+      userAnswer: "",
+      isCorrect: 0,
+      similarityScore: 0,
+      feedback: null,
+      createdAt: new Date(),
+      recallTime: 30,
+      scoreDelta: 0,
+      updatedConfidence: 0,
+    } as any);
     vi.spyOn(db, "getTestSessionsByQuestionId").mockResolvedValue([]);
 
     // Create tRPC caller with test user context
@@ -210,6 +222,38 @@ describe("test.evaluate - Line-by-line grading with similarity", () => {
 
     expect(result.mistakes?.[3]?.matchedUserLineIndex).toBe(4);
     expect(result.mistakes?.[3]?.userAnswer).toContain("4. 지지 치면의 효율");
+  });
+
+  it("should rematch to another line when cross-line similarity is 80+ in exam grading", async () => {
+    vi.spyOn(db, "getQuestionById").mockResolvedValueOnce({
+      id: testQuestionId,
+      userId: testUserId,
+      subjectId: testSubjectId,
+      question: "간접유지장치의 효과에 영향을 주는 요소",
+      answer: "1. 직접유지장치의 효과\n2. 지점선으로의 거리\n3. 주연결장치의 견고성",
+      questionType: "text",
+      imageUrl: null,
+      imageLabels: null,
+      tableData: null,
+      useAIGrading: false,
+      displayOrder: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any);
+
+    const result = await caller.test.evaluate({
+      questionId: testQuestionId,
+      userAnswer: "1. 직접유지장치의 효과\n2. 주연결장치의 견고성\n3. 몰라",
+      recallTime: 30,
+    });
+
+    // 3번째 정답줄은 2번째 입력줄(다른 줄)과 80% 이상으로 재매칭되어 정답 처리
+    expect(result.mistakes?.[2]?.matchedUserLineIndex).toBe(2);
+    expect(result.mistakes?.[2]?.isCorrect).toBe(true);
+
+    // 그 결과, 2번째 줄은 남은 입력("3. 몰라")과 비교되어 오답 처리
+    expect(result.mistakes?.[1]?.matchedUserLineIndex).toBe(3);
+    expect(result.mistakes?.[1]?.isCorrect).toBe(false);
   });
 
   it("should save test session with similarityScore (character-level)", async () => {
