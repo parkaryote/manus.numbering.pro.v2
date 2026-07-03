@@ -160,6 +160,11 @@ export function getForcedPrefixByTemplateProgress(
     .split("\n")
     .map((line) => normalizeLineForProgressMapping(line))
     .filter((line) => line.length > 0).length;
+  const typedProgress = beforeCursor
+    .split("\n")
+    .map((line) => normalizeLineForProgressMapping(line))
+    .filter((line) => line.length > 0)
+    .join("");
 
   const templateCandidates = templateText
     .replace(/\r\n/g, "\n")
@@ -168,8 +173,20 @@ export function getForcedPrefixByTemplateProgress(
     .filter((entry) => entry.normalized.length > 0);
 
   if (templateCandidates.length === 0) return undefined;
-  if (typedMeaningfulCount >= templateCandidates.length) return undefined;
+  let contentProgressIndex = 0;
+  let expectedProgress = "";
+  for (let i = 0; i < templateCandidates.length; i++) {
+    expectedProgress += templateCandidates[i].normalized;
+    if (typedProgress.length > 0 && typedProgress.startsWith(expectedProgress)) {
+      contentProgressIndex = i + 1;
+    } else {
+      break;
+    }
+  }
 
-  const nextLine = templateCandidates[typedMeaningfulCount]?.line ?? "";
-  return getLinePrefixHint(nextLine)?.prefix;
+  const nextTemplateIndex = Math.max(typedMeaningfulCount, contentProgressIndex);
+  if (nextTemplateIndex >= templateCandidates.length) return undefined;
+
+  const nextLine = templateCandidates[nextTemplateIndex]?.line ?? "";
+  return getLinePrefixHint(nextLine)?.prefix ?? "";
 }

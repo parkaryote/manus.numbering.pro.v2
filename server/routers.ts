@@ -8,7 +8,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db.js";
 import { ENV } from "./_core/env.js";
-import type { User } from "../drizzle/schema";
+import type { PracticeSession, Question, Subject, TestSession, User } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm.js";
 import { transcribeAudio } from "./_core/voiceTranscription.js";
 import { storagePut } from "./storage.js";
@@ -18,6 +18,7 @@ import { PDFDocument } from "pdf-lib";
 import { timingSafeEqual } from "crypto";
 import { parse as parseCookieHeader } from "cookie";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { isTelemetryExcludedRequest } from "./_core/telemetryExclusions.js";
 import {
   computeExamConfidence,
   aggregateConfidence,
@@ -26,6 +27,7 @@ import {
   type PracticeSignal,
   type TestSignal,
   type ConfidenceResult,
+  type ScoreBreakdown,
 } from "../shared/examConfidence.js";
 import { stripMnemonicHintsFromAnswer } from "../shared/answerMnemonics.js";
 import {
@@ -70,6 +72,7 @@ const AUTO_NUMBER_PREFIX_REGEX = /^\s*\d{1,3}\s*[.)]\s*/;
 const BULLET_PREFIX_REGEX = /^\s*(?:[-–—−*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
 const WORD_TOKEN_PATTERN = "[a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ]+(?:['’\\-][a-z0-9가-힣ㄱ-ㅎㅏ-ㅣ]+)*";
 const MAX_OCR_FILE_BYTES = 25 * 1024 * 1024;
+const CONFIDENCE_ALGORITHM_VERSION = "exam-confidence-v2026-06-18-self-study-log-v1";
 const LEARNING_LOG_META_SCHEMA = z.object({
   clientSessionId: z.string().min(1).max(96).optional(),
   pagePath: z.string().min(1).max(512).optional(),
@@ -87,6 +90,10 @@ function stripAutoNumberPrefix(line: string): string {
 
 function stripBulletPrefix(line: string): string {
   return line.replace(BULLET_PREFIX_REGEX, "").trim();
+}
+
+function stripNonSemanticMarks(line: string): string {
+  return line.replace(/[\p{P}\p{S}]/gu, "");
 }
 
 function trimTrailingEmptyLines(lines: string[]): string[] {
@@ -107,7 +114,7 @@ function sanitizeUploadedFileName(fileName: string): string {
 function normalizeLineForTextComparison(line: string, ignoreAutoNumbering: boolean): string {
   const lineWithoutNumber = ignoreAutoNumbering ? stripAutoNumberPrefix(line) : line.trim();
   const base = stripBulletPrefix(lineWithoutNumber);
-  return base.toLowerCase().replace(/\s+/g, "");
+  return stripNonSemanticMarks(base).toLowerCase().replace(/\s+/g, "");
 }
 
 const HANGUL_START = 0xac00;
@@ -192,7 +199,7 @@ function normalizeTextForSimilarity(text: string, ignoreAutoNumbering: boolean):
       .split("\n")
       .map((line) => {
         const lineWithoutNumber = ignoreAutoNumbering ? stripAutoNumberPrefix(line) : line.trim();
-        return stripBulletPrefix(lineWithoutNumber);
+        return stripNonSemanticMarks(stripBulletPrefix(lineWithoutNumber));
       })
   ).join("\n");
 }
@@ -203,7 +210,7 @@ function normalizeTextForTypingSimilarity(text: string, ignoreAutoNumbering: boo
       .split("\n")
       .map((line) => {
         const lineWithoutNumber = ignoreAutoNumbering ? stripAutoNumberPrefix(line) : line.trim();
-        const base = stripBulletPrefix(lineWithoutNumber).toLowerCase().replace(/\s+/g, "");
+        const base = stripNonSemanticMarks(stripBulletPrefix(lineWithoutNumber)).toLowerCase().replace(/\s+/g, "");
         return toTypingKeySequence(base);
       })
   ).join("\n");
@@ -211,7 +218,7 @@ function normalizeTextForTypingSimilarity(text: string, ignoreAutoNumbering: boo
 
 function normalizeLineForWordComparison(line: string, ignoreAutoNumbering: boolean): string {
   const lineWithoutNumber = ignoreAutoNumbering ? stripAutoNumberPrefix(line) : line.trim();
-  return stripBulletPrefix(lineWithoutNumber).toLowerCase().replace(/\s+/g, " ").trim();
+  return stripNonSemanticMarks(stripBulletPrefix(lineWithoutNumber)).toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function isLikelyEnglishLine(text: string): boolean {
@@ -284,26 +291,50 @@ function evaluateTextAnswerByBestLineMatch(
   ignoreAutoNumbering: boolean
 ) {
   const userLines = trimTrailingEmptyLines(userAnswer.split("\n").map((line) => line.trim()));
-  const correctLines = trimTrailingEmptyLines(correctAnswer.split("\n").map((line) => line.trim()));
-  const totalLines = correctLines.length;
+  const rawCorrectLines = trimTrailingEmptyLines(correctAnswer.split("\n").map((line) => line.trim()));
+  const correctLineEntries = rawCorrectLines
+    .map((raw, originalIndex) => ({
+      raw,
+      originalIndex,
+      normalized: normalizeLineForTextComparison(raw, ignoreAutoNumbering),
+    }))
+    .filter((entry) => entry.normalized.length > 0)
+    .map((entry, displayIndex) => ({
+      ...entry,
+      displayIndex,
+    }));
+  const totalLines = correctLineEntries.length;
   const LINE_CROSS_MATCH_MIN_SCORE = 80;
 
-  const userLinePool = userLines.map((raw, index) => ({
-    raw,
-    index,
-    normalized: normalizeLineForTextComparison(raw, ignoreAutoNumbering),
-  }));
+  let meaningfulUserLineIndex = 0;
+  const userLinePool = userLines.map((raw, index) => {
+    const normalized = normalizeLineForTextComparison(raw, ignoreAutoNumbering);
+    const displayIndex = normalized.length > 0 ? meaningfulUserLineIndex++ : null;
+    return {
+      raw,
+      index,
+      displayIndex,
+      normalized,
+    };
+  });
+
+  const isDisplayDirect = (correctIndex: number, userIndex: number) =>
+    userLinePool[userIndex]?.displayIndex === correctLineEntries[correctIndex]?.displayIndex;
+
+  const findUserPoolIndexByDisplayIndex = (displayIndex: number) =>
+    userLinePool.findIndex((candidate) => candidate.displayIndex === displayIndex);
 
   const comparisonMatrix: Array<
     Array<{ isCorrect: boolean; score: number; compareMode: TextLineCompareMode }>
-  > = correctLines.map((correctLineRaw) =>
+  > = correctLineEntries.map((entry) =>
     userLinePool.map((candidate) =>
-      compareTextLine(candidate.raw, correctLineRaw, ignoreAutoNumbering)
+      compareTextLine(candidate.raw, entry.raw, ignoreAutoNumbering)
     )
   );
 
   const lineComparisons: Array<{
     lineIndex: number;
+    targetLineIndex: number;
     correctAnswer: string;
     userAnswer: string;
     isCorrect: boolean;
@@ -325,13 +356,15 @@ function evaluateTextAnswerByBestLineMatch(
 
   // 1) 같은 줄이 완전 정답이면 먼저 고정 (정확 입력 우선)
   for (let i = 0; i < totalLines; i++) {
-    const directCandidate = userLinePool[i];
+    const directUserPoolIndex = findUserPoolIndexByDisplayIndex(correctLineEntries[i]?.displayIndex ?? i);
+    if (directUserPoolIndex < 0) continue;
+    const directCandidate = userLinePool[directUserPoolIndex];
     if (!directCandidate) continue;
     if (directCandidate.normalized.length === 0) continue;
-    const directCompared = comparisonMatrix[i]?.[i];
+    const directCompared = comparisonMatrix[i]?.[directUserPoolIndex];
     if (!directCompared) continue;
     if (directCompared.isCorrect) {
-      assignPair(i, i);
+      assignPair(i, directUserPoolIndex);
     }
   }
 
@@ -360,7 +393,7 @@ function evaluateTextAnswerByBestLineMatch(
         isCorrect: compared.isCorrect,
         score: compared.score,
         compareMode: compared.compareMode,
-        isDirect: i === j,
+        isDirect: isDisplayDirect(i, j),
       });
     }
   }
@@ -384,6 +417,7 @@ function evaluateTextAnswerByBestLineMatch(
     let chosenUserIndex: number | null = null;
     let chosenScore = -1;
     let chosenIsCorrect = false;
+    let chosenIsDirect = false;
 
     for (let j = 0; j < userLinePool.length; j++) {
       if (usedUserIndexes.has(j)) continue;
@@ -391,21 +425,32 @@ function evaluateTextAnswerByBestLineMatch(
       const compared = comparisonMatrix[i]?.[j];
       if (!compared) continue;
 
-      const preferDirect = j === i && chosenUserIndex !== i;
+      const candidateIsDirect = isDisplayDirect(i, j);
+      const preferDirect = candidateIsDirect && !chosenIsDirect;
       if (preferDirect) {
         chosenUserIndex = j;
         chosenScore = compared.score;
         chosenIsCorrect = compared.isCorrect;
+        chosenIsDirect = true;
+        continue;
+      }
+
+      const wouldStealFromDirect =
+        chosenIsDirect &&
+        !candidateIsDirect &&
+        compared.score < LINE_CROSS_MATCH_MIN_SCORE;
+      if (wouldStealFromDirect) {
         continue;
       }
 
       if (
-        compared.score > chosenScore ||
+        (!chosenIsDirect && compared.score > chosenScore) ||
         (compared.score === chosenScore && compared.isCorrect && !chosenIsCorrect)
       ) {
         chosenUserIndex = j;
         chosenScore = compared.score;
         chosenIsCorrect = compared.isCorrect;
+        chosenIsDirect = candidateIsDirect;
       }
     }
 
@@ -415,7 +460,8 @@ function evaluateTextAnswerByBestLineMatch(
   }
 
   for (let i = 0; i < totalLines; i++) {
-    const correctLineRaw = correctLines[i] ?? "";
+    const correctEntry = correctLineEntries[i];
+    const correctLineRaw = correctEntry?.raw ?? "";
     const defaultMode: TextLineCompareMode = isLikelyEnglishLine(correctLineRaw) ? "word" : "typing";
     const matchedUserIndex = assignedUserByCorrect[i];
 
@@ -430,10 +476,13 @@ function evaluateTextAnswerByBestLineMatch(
       const matchedUser = userLinePool[matchedUserIndex];
       if (compared && matchedUser) {
         matchedUserRaw = matchedUser.raw;
-        matchedUserLineIndex = matchedUser.index + 1;
+        matchedUserLineIndex =
+          typeof matchedUser.displayIndex === "number"
+            ? matchedUser.displayIndex + 1
+            : matchedUser.index + 1;
         lineScore = Math.max(0, compared.score);
         const isStrongCrossMatch =
-          matchedUser.index !== i && lineScore >= LINE_CROSS_MATCH_MIN_SCORE;
+          !isDisplayDirect(i, matchedUserIndex) && lineScore >= LINE_CROSS_MATCH_MIN_SCORE;
         lineIsCorrect = compared.isCorrect || isStrongCrossMatch;
         lineMode = compared.compareMode;
       }
@@ -443,7 +492,8 @@ function evaluateTextAnswerByBestLineMatch(
     scoreSum += lineScore;
 
     lineComparisons.push({
-      lineIndex: i + 1,
+      lineIndex: (correctEntry?.displayIndex ?? i) + 1,
+      targetLineIndex: (correctEntry?.originalIndex ?? i) + 1,
       correctAnswer: correctLineRaw,
       userAnswer: matchedUserRaw,
       isCorrect: lineIsCorrect,
@@ -454,7 +504,7 @@ function evaluateTextAnswerByBestLineMatch(
   }
 
   const remainingMeaningfulUserLines = userLinePool.filter(
-    (item) => !usedUserIndexes.has(item.index) && item.normalized.length > 0
+    (item, poolIndex) => !usedUserIndexes.has(poolIndex) && item.normalized.length > 0
   ).length;
   const isCorrect =
     totalLines > 0
@@ -916,9 +966,16 @@ function resolveGoogleRedirectUri(
     });
   }
 
-  const defaultRedirectUri = allowed.has("https://numbering.pro/login")
-    ? "https://numbering.pro/login"
-    : Array.from(allowed)[0]!;
+  let defaultRedirectUri = Array.from(allowed)[0]!;
+  if (configured) {
+    try {
+      defaultRedirectUri = normalize(configured);
+    } catch {
+      // Fall back to the first allowed redirect URI.
+    }
+  } else if (allowed.has("https://numbering.pro/login")) {
+    defaultRedirectUri = "https://numbering.pro/login";
+  }
 
   if (!requested) return defaultRedirectUri;
 
@@ -1042,6 +1099,42 @@ function resolveRequestedDemoValue(
   return 1;
 }
 
+const FIXED_QUESTION_IMAGE_OVERRIDES: Array<{
+  keyword: string;
+  imageUrl: string;
+}> = [
+  { keyword: "치아의 방향 중 빈칸을 채우시오", imageUrl: "/demo-assets/tooth-direction.png" },
+  { keyword: "4월 12일 s-league", imageUrl: "/demo-assets/s-league-lineup.png" },
+];
+
+function resolveFixedQuestionImageUrl(questionText: string | null | undefined): string | null {
+  const normalized = (questionText ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  for (const override of FIXED_QUESTION_IMAGE_OVERRIDES) {
+    if (normalized.includes(override.keyword)) {
+      return override.imageUrl;
+    }
+  }
+  return null;
+}
+
+function applyQuestionImageFallbackOverrides<T extends { question?: string | null; imageUrl?: string | null }>(
+  question: T
+): T {
+  const fixedImageUrl = resolveFixedQuestionImageUrl(question.question);
+  if (!fixedImageUrl || question.imageUrl === fixedImageUrl) return question;
+  return {
+    ...question,
+    imageUrl: fixedImageUrl,
+  };
+}
+
+function applyQuestionImageFallbackOverridesList<T extends { question?: string | null; imageUrl?: string | null }>(
+  questions: T[]
+): T[] {
+  return questions.map((question) => applyQuestionImageFallbackOverrides(question));
+}
+
 function makeQuestionSignature(q: {
   displayOrder?: number | null;
   question?: string | null;
@@ -1134,6 +1227,14 @@ function extractWarnZoneLinesFromTests(
     try {
       const highlights = JSON.parse(t.mistakeHighlights as string);
       if (!Array.isArray(highlights)) continue;
+      const hasLegacyEmptyTextLine = highlights.some(
+        (h) =>
+          !h?.cellKey &&
+          !h?.labelIndex &&
+          typeof h?.correctAnswer === "string" &&
+          normalizeLineForTextComparison(h.correctAnswer, true).length === 0
+      );
+      if (hasLegacyEmptyTextLine) continue;
       for (const h of highlights) {
         if (h?.isCorrect !== false) continue;
         const rawIdx = h.lineIndex ?? h.labelIndex ?? 1;
@@ -1154,10 +1255,40 @@ function extractWarnZoneLinesFromTests(
 
 const TOOTH_MORPHOLOGY_SUBJECT_NAME = "치아형태학";
 const PARTIAL_DENTURE_SUBJECT_NAME = "국소의치학";
-const PARTIAL_DENTURE_DEMO_PASSWORD_FALLBACK = "qkrwlsgur85";
+const PASSWORD_PROTECTED_DEMO_SUBJECT_NAMES = [
+  PARTIAL_DENTURE_SUBJECT_NAME,
+  "총의치학(공유)",
+  "총의치학2(공유)",
+  "치주",
+] as const;
 const NUMBERING_SUBJECT_NAME = "넘버링";
 const DRAWING_BBANG_SUBJECT_NAME = "그림빵";
-const TOOTH_MORPHOLOGY_FIXED_EXAM_DATE = new Date("2026-04-08T07:30:00+09:00");
+const GOO_WOO_HWE_TARGET_QUESTION_TEXT = "구우회 선수들의 25/26 시즌 등번호를 작성하시오.";
+
+type SupplementalDemoMirrorConfig = {
+  sourceNames: readonly string[];
+  demoName?: string;
+  anchorQuestionText?: string;
+};
+
+const SUPPLEMENTAL_DEMO_MIRROR_CONFIGS: readonly SupplementalDemoMirrorConfig[] = [
+  {
+    sourceNames: ["구우회", "구우회 문제"],
+    demoName: "구우회",
+    anchorQuestionText: GOO_WOO_HWE_TARGET_QUESTION_TEXT,
+  },
+  {
+    sourceNames: ["총의치학2 (공유)", "총의치학2(공유)"],
+    demoName: "총의치학2(공유)",
+  },
+  {
+    sourceNames: ["치주"],
+    demoName: "치주",
+  },
+] as const;
+const SUPPLEMENTAL_DEMO_LEGACY_REMOVE_NAMES = ["총의치학2"] as const;
+const SUPPLEMENTAL_DEMO_MIRROR_MAX_QUESTION_COUNT = 60;
+const TOOTH_MORPHOLOGY_FIXED_EXAM_DATE = new Date("2026-04-30T07:30:00+09:00");
 const PARTIAL_DENTURE_FIXED_EXAM_DATE = new Date("2026-04-24T13:00:00+09:00");
 const NUMBERING_FIXED_EXAM_DATE = new Date("2026-05-16T13:00:00+09:00");
 const DRAWING_BBANG_FIXED_EXAM_DATE = new Date("2026-05-07T13:00:00+09:00");
@@ -1210,6 +1341,9 @@ function normalizeSubjectNameValue(value: string | null | undefined): string {
 
 const TOOTH_MORPHOLOGY_SUBJECT_KEY = normalizeSubjectNameValue(TOOTH_MORPHOLOGY_SUBJECT_NAME);
 const PARTIAL_DENTURE_SUBJECT_KEY = normalizeSubjectNameValue(PARTIAL_DENTURE_SUBJECT_NAME);
+const PASSWORD_PROTECTED_DEMO_SUBJECT_KEYS = new Set(
+  PASSWORD_PROTECTED_DEMO_SUBJECT_NAMES.map((name) => normalizeSubjectNameValue(name))
+);
 const NUMBERING_SUBJECT_KEY = normalizeSubjectNameValue(NUMBERING_SUBJECT_NAME);
 const DRAWING_BBANG_SUBJECT_KEY = normalizeSubjectNameValue(DRAWING_BBANG_SUBJECT_NAME);
 
@@ -1219,6 +1353,10 @@ function isToothMorphologySubjectName(subjectName: string | null | undefined): b
 
 function isPartialDentureSubjectName(subjectName: string | null | undefined): boolean {
   return normalizeSubjectNameValue(subjectName) === PARTIAL_DENTURE_SUBJECT_KEY;
+}
+
+function isPasswordProtectedDemoSubjectName(subjectName: string | null | undefined): boolean {
+  return PASSWORD_PROTECTED_DEMO_SUBJECT_KEYS.has(normalizeSubjectNameValue(subjectName));
 }
 
 function isNumberingSubjectName(subjectName: string | null | undefined): boolean {
@@ -1349,6 +1487,99 @@ function applyDisplayScoreValue(
 
 function applyDisplayScoreOverride(base: ConfidenceResult, score: number): ConfidenceResult {
   return applyDisplayScoreValue(base, score, { isColdStart: true });
+}
+
+function createZeroScoreBreakdown(): ScoreBreakdown {
+  return {
+    practiceVolumeScore: 0,
+    practiceBonus: 0,
+    testExposureScore: 0,
+    testAccuracyScore: 0,
+    recentSimilarityBoost: 0,
+    timeWeightedStreakScore: 0,
+    speedBonus: 0,
+    forgettingPenalty: 0,
+    wrongPenalty: 0,
+    recentPoorPenalty: 0,
+  };
+}
+
+function buildSubjectPredictionSeedFromConfidences(
+  confidences: ConfidenceResult[],
+  fallbackScore: number
+): ConfidenceResult {
+  const displayScore = clampNumber(Math.round(fallbackScore), 0, 100);
+  const state = resolveStateFromScore(displayScore);
+  if (confidences.length === 0) {
+    return {
+      rawScore: displayScore,
+      displayScore,
+      state,
+      label: TRAFFIC_LIGHT_LABELS[state],
+      isColdStart: true,
+      breakdown: createZeroScoreBreakdown(),
+    };
+  }
+
+  const count = confidences.length;
+  const sumBy = (selector: (breakdown: ScoreBreakdown) => number) =>
+    confidences.reduce((sum, row) => sum + selector(row.breakdown), 0);
+
+  const breakdown: ScoreBreakdown = {
+    practiceVolumeScore: Math.round(sumBy((b) => b.practiceVolumeScore) / count),
+    practiceBonus: Math.round(sumBy((b) => b.practiceBonus) / count),
+    testExposureScore: Math.round(sumBy((b) => b.testExposureScore) / count),
+    testAccuracyScore: Math.round(sumBy((b) => b.testAccuracyScore) / count),
+    recentSimilarityBoost: Math.round(sumBy((b) => b.recentSimilarityBoost) / count),
+    timeWeightedStreakScore: Math.round(sumBy((b) => b.timeWeightedStreakScore) / count),
+    speedBonus: Math.round(sumBy((b) => b.speedBonus) / count),
+    forgettingPenalty: Math.round(sumBy((b) => b.forgettingPenalty) / count),
+    wrongPenalty: Math.round(sumBy((b) => b.wrongPenalty) / count),
+    recentPoorPenalty: Math.round(sumBy((b) => b.recentPoorPenalty) / count),
+  };
+
+  return {
+    rawScore: displayScore,
+    displayScore,
+    state,
+    label: TRAFFIC_LIGHT_LABELS[state],
+    isColdStart: confidences.every((row) => row.isColdStart),
+    breakdown,
+  };
+}
+
+function buildSubjectQuestionLengthContext(
+  questions: Array<{ answer?: string | null; question?: string | null; tableData?: string | null; difficulty?: "easy" | "medium" | "hard" | null }>
+): {
+  questionLength: number;
+  minQuestionLength: number;
+  maxQuestionLength: number;
+  representativeDifficulty: "easy" | "medium" | "hard";
+} | null {
+  if (!Array.isArray(questions) || questions.length === 0) return null;
+  const lengths = questions.map((question) =>
+    Math.max(1, buildInitialConfidenceEstimate(question).answerLength)
+  );
+  const minQuestionLength = Math.min(...lengths);
+  const maxQuestionLength = Math.max(...lengths);
+  const questionLength = Math.round(
+    lengths.reduce((sum, value) => sum + value, 0) / Math.max(1, lengths.length)
+  );
+
+  const hasHard = questions.some((question) => question.difficulty === "hard");
+  const hasMedium = questions.some((question) => question.difficulty === "medium");
+  const representativeDifficulty: "easy" | "medium" | "hard" = hasHard
+    ? "hard"
+    : hasMedium
+      ? "medium"
+      : "easy";
+
+  return {
+    questionLength,
+    minQuestionLength,
+    maxQuestionLength,
+    representativeDifficulty,
+  };
 }
 
 function getStarterBaseScoreOverride(input: {
@@ -2721,7 +2952,6 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     fallbackImageUrl: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_URL,
     fallbackImageLabels: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_LABELS,
     forceQuestionText: true,
-    forceFallbackMedia: true,
     displayOrder: 9,
     difficulty: "medium",
     fallbackAutoNumbering: 0,
@@ -2732,13 +2962,27 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     );
   }
 
-  const latestDemoQuestions = await db.getDemoQuestions(toothDemoSubject.id);
+  const latestDemoQuestions = sortDemoQuestionsByDisplayOrderStable(
+    await db.getDemoQuestions(toothDemoSubject.id)
+  );
   let deletedBox1 = false;
+  let deletedDuplicateShowcaseQuestion = false;
+  const seenSingleShowcaseKeys = new Set<DemoShowcaseKey>();
   for (const demoQuestion of latestDemoQuestions) {
     const showcaseKey = resolveDemoShowcaseKeyByQuestionTitle(demoQuestion.question);
+    if (showcaseKey === "table_i3" || showcaseKey === "direction_blank") {
+      if (seenSingleShowcaseKeys.has(showcaseKey)) {
+        await db.deleteDemoQuestion(demoQuestion.id);
+        deletedDuplicateShowcaseQuestion = true;
+        continue;
+      }
+      seenSingleShowcaseKeys.add(showcaseKey);
+    }
     if (showcaseKey === "box1") {
-      await db.deleteDemoQuestion(demoQuestion.id);
-      deletedBox1 = true;
+      if (!ENV.dataSafetyMode) {
+        await db.deleteDemoQuestion(demoQuestion.id);
+        deletedBox1 = true;
+      }
       continue;
     }
     if (showcaseKey === "box9") {
@@ -2750,7 +2994,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
       }
     }
   }
-  if (deletedBox1) {
+  if (deletedBox1 || deletedDuplicateShowcaseQuestion) {
     await db.normalizeQuestionDisplayOrderForSubject(toothDemoSubject.id);
   }
 }
@@ -2840,6 +3084,289 @@ async function ensurePartialDentureDemoSubjectExists() {
   await db.normalizeQuestionDisplayOrderForSubject(partialDemoSubject.id);
 }
 
+function toEpochMillis(value: Date | string | null | undefined): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+async function findLatestSubjectAcrossNames(
+  sourceNames: readonly string[],
+  options?: { isDemo?: number }
+) {
+  const candidates = await Promise.all(
+    sourceNames.map((name) => db.findLatestSubjectByName(name, options))
+  );
+  const valid = candidates.filter(
+    (subject): subject is NonNullable<(typeof candidates)[number]> => Boolean(subject)
+  );
+  if (valid.length === 0) return undefined;
+  valid.sort((a, b) => {
+    const updatedDiff = toEpochMillis(b.updatedAt) - toEpochMillis(a.updatedAt);
+    if (updatedDiff !== 0) return updatedDiff;
+    return (b.id ?? 0) - (a.id ?? 0);
+  });
+  return valid[0];
+}
+
+async function resolveSupplementalDemoSourceSubject(config: SupplementalDemoMirrorConfig) {
+  if (config.anchorQuestionText) {
+    const matchedNonDemo = await db.findLatestSubjectByQuestionText(config.anchorQuestionText, {
+      isDemo: 0,
+      subjectNames: [...config.sourceNames],
+    });
+    if (matchedNonDemo) return matchedNonDemo;
+
+    const matchedAny = await db.findLatestSubjectByQuestionText(config.anchorQuestionText, {
+      subjectNames: [...config.sourceNames],
+    });
+    if (matchedAny) return matchedAny;
+  }
+
+  return (
+    (await findLatestSubjectAcrossNames(config.sourceNames, { isDemo: 0 })) ??
+    (await findLatestSubjectAcrossNames(config.sourceNames))
+  );
+}
+
+async function ensureSupplementalDemoMirroredSubjectsExist() {
+  const demoSubjects = await db.getDemoSubjects();
+  const ownerUser = ENV.ownerEmail ? await db.getUserByEmail(ENV.ownerEmail) : undefined;
+  let maxDemoDisplayOrder = demoSubjects.reduce(
+    (max, subject) => Math.max(max, subject.displayOrder ?? 0),
+    0
+  );
+
+  const legacyRemovalKeys = new Set(
+    SUPPLEMENTAL_DEMO_LEGACY_REMOVE_NAMES.map((name) => normalizeSubjectNameValue(name))
+  );
+  for (const existingDemoSubject of [...demoSubjects]) {
+    if (!legacyRemovalKeys.has(normalizeSubjectNameValue(existingDemoSubject.name))) continue;
+    if (!ENV.dataSafetyMode) {
+      await db.deleteDemoSubject(existingDemoSubject.id);
+      const index = demoSubjects.findIndex((subject) => subject.id === existingDemoSubject.id);
+      if (index >= 0) demoSubjects.splice(index, 1);
+    }
+  }
+
+  for (const config of SUPPLEMENTAL_DEMO_MIRROR_CONFIGS) {
+    const sourceSubject = await resolveSupplementalDemoSourceSubject(config);
+    if (!sourceSubject) {
+      const sourceSubjectNameLabel = config.sourceNames.join(", ");
+      console.warn(
+        `[StarterData] Missing source subject for demo mirror: ${sourceSubjectNameLabel}`
+      );
+      continue;
+    }
+
+    const canonicalDemoName = (config.demoName ?? sourceSubject.name ?? "").trim() || sourceSubject.name;
+    const candidateNameKeys = new Set(
+      [canonicalDemoName, ...config.sourceNames].map((name) => normalizeSubjectNameValue(name))
+    );
+    const duplicateDemoSubjects = demoSubjects.filter((subject) =>
+      candidateNameKeys.has(normalizeSubjectNameValue(subject.name))
+    );
+    let demoSubject = duplicateDemoSubjects[0] ?? null;
+    const resolvedExamDate = resolveSubjectExamDate(sourceSubject);
+
+    if (duplicateDemoSubjects.length > 1) {
+      const rankedSubjects = await Promise.all(
+        duplicateDemoSubjects.map(async (subject) => ({
+          subject,
+          questionCount: (await db.getDemoQuestions(subject.id)).length,
+        }))
+      );
+      rankedSubjects.sort((a, b) => {
+        if (a.questionCount !== b.questionCount) return b.questionCount - a.questionCount;
+        const updatedDiff = toEpochMillis(b.subject.updatedAt) - toEpochMillis(a.subject.updatedAt);
+        if (updatedDiff !== 0) return updatedDiff;
+        return (b.subject.id ?? 0) - (a.subject.id ?? 0);
+      });
+      demoSubject = rankedSubjects[0]?.subject ?? null;
+
+      for (const duplicate of rankedSubjects.slice(1)) {
+        if (ENV.dataSafetyMode) continue;
+        await db.deleteDemoSubject(duplicate.subject.id);
+        const idx = demoSubjects.findIndex((subject) => subject.id === duplicate.subject.id);
+        if (idx >= 0) demoSubjects.splice(idx, 1);
+      }
+    }
+
+    if (!demoSubject) {
+      const fallbackOwnerId =
+        sourceSubject.userId ??
+        ownerUser?.id ??
+        demoSubjects[0]?.userId ??
+        (await db.getAnyUserId());
+
+      if (!fallbackOwnerId) {
+        console.warn(
+          `[StarterData] Cannot create demo subject "${sourceSubject.name}" (no owner user found).`
+        );
+        continue;
+      }
+
+      maxDemoDisplayOrder += 1;
+      demoSubject = await db.createDemoSubject({
+        userId: fallbackOwnerId,
+        name: canonicalDemoName,
+        description: sourceSubject.description ?? `${canonicalDemoName} 데모 과목`,
+        color: sourceSubject.color ?? "#3B82F6",
+        displayOrder: maxDemoDisplayOrder,
+        examEndDate: resolvedExamDate ?? undefined,
+        isDemo: 1,
+      });
+      demoSubjects.push(demoSubject);
+    } else {
+      await db.updateDemoSubject(demoSubject.id, {
+        name: canonicalDemoName,
+        description: sourceSubject.description ?? null,
+        color: sourceSubject.color ?? "#3B82F6",
+        displayOrder:
+          demoSubject.displayOrder ??
+          sourceSubject.displayOrder ??
+          maxDemoDisplayOrder + 1,
+        examEndDate: resolvedExamDate ?? null,
+        isDemo: 1,
+      });
+      const refreshedDemoSubject = await db.getSubjectById(demoSubject.id);
+      if (refreshedDemoSubject) {
+        demoSubject = refreshedDemoSubject;
+      }
+    }
+
+    if (!demoSubject) continue;
+
+    const sourceQuestions = (await db.getQuestionsBySubjectId(sourceSubject.id))
+      .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
+      .slice(0, SUPPLEMENTAL_DEMO_MIRROR_MAX_QUESTION_COUNT);
+
+    if (sourceQuestions.length === 0) continue;
+
+    const demoQuestions = await db.getDemoQuestions(demoSubject.id);
+    const demoQuestionBySourceId = new Map<number, (typeof demoQuestions)[number]>();
+    const demoQuestionByMergeSignature = new Map<string, (typeof demoQuestions)[number]>();
+    for (const question of demoQuestions) {
+      if (
+        typeof question.demoSourceQuestionId === "number" &&
+        question.demoSourceQuestionId > 0 &&
+        !demoQuestionBySourceId.has(question.demoSourceQuestionId)
+      ) {
+        demoQuestionBySourceId.set(question.demoSourceQuestionId, question);
+      }
+      const mergeSignature = makeQuestionMergeSignature(question);
+      if (mergeSignature && !demoQuestionByMergeSignature.has(mergeSignature)) {
+        demoQuestionByMergeSignature.set(mergeSignature, question);
+      }
+    }
+
+    const activeDemoQuestionIds = new Set<number>();
+    for (const sourceQuestion of sourceQuestions) {
+      const mergeSignature = makeQuestionMergeSignature(sourceQuestion);
+
+      const payload = {
+        question: sourceQuestion.question,
+        answer: sourceQuestion.answer ?? "",
+        difficulty: sourceQuestion.difficulty ?? "medium",
+        imageUrl: sourceQuestion.imageUrl ?? undefined,
+        imageLabels: sourceQuestion.imageLabels ?? undefined,
+        autoNumbering: sourceQuestion.autoNumbering ?? 1,
+        tableData: sourceQuestion.tableData ?? undefined,
+        displayOrder: sourceQuestion.displayOrder ?? 0,
+        isStarred: sourceQuestion.isStarred ?? 0,
+        useAIGrading: sourceQuestion.useAIGrading ?? 0,
+        memo: sourceQuestion.memo ?? undefined,
+        demoSourceQuestionId: sourceQuestion.id,
+      } as const;
+
+      const existingDemoQuestion =
+        demoQuestionBySourceId.get(sourceQuestion.id) ??
+        (mergeSignature ? demoQuestionByMergeSignature.get(mergeSignature) : undefined);
+      if (existingDemoQuestion) {
+        const updated = await db.updateDemoQuestion(existingDemoQuestion.id, payload);
+        const syncedQuestion = updated ?? existingDemoQuestion;
+        activeDemoQuestionIds.add(syncedQuestion.id);
+        if (typeof sourceQuestion.id === "number" && sourceQuestion.id > 0) {
+          demoQuestionBySourceId.set(sourceQuestion.id, syncedQuestion);
+        }
+        if (mergeSignature) {
+          demoQuestionByMergeSignature.set(mergeSignature, syncedQuestion);
+        }
+        continue;
+      }
+
+      const created = await db.createDemoQuestion({
+        subjectId: demoSubject.id,
+        userId: demoSubject.userId,
+        isDemo: 1,
+        ...payload,
+      });
+      activeDemoQuestionIds.add(created.id);
+      if (typeof sourceQuestion.id === "number" && sourceQuestion.id > 0) {
+        demoQuestionBySourceId.set(sourceQuestion.id, created);
+      }
+      if (mergeSignature) {
+        demoQuestionByMergeSignature.set(mergeSignature, created);
+      }
+    }
+
+    // Mirror 과목(예: 구우회)에서 중복 문제가 누적되는 것을 방지한다.
+    const refreshedDemoQuestions = sortDemoQuestionsByDisplayOrderStable(
+      await db.getDemoQuestions(demoSubject.id)
+    );
+    const seenSourceQuestionIds = new Set<number>();
+    const seenMergeSignatures = new Set<string>();
+    const seenNormalizedTitles = new Set<string>();
+    for (const question of refreshedDemoQuestions) {
+      let isDuplicate = false;
+      const sourceId =
+        typeof question.demoSourceQuestionId === "number" && question.demoSourceQuestionId > 0
+          ? question.demoSourceQuestionId
+          : null;
+      if (sourceId) {
+        if (seenSourceQuestionIds.has(sourceId)) {
+          isDuplicate = true;
+        } else {
+          seenSourceQuestionIds.add(sourceId);
+        }
+      }
+
+      const signature = makeQuestionMergeSignature(question);
+      if (!isDuplicate && signature) {
+        if (seenMergeSignatures.has(signature)) {
+          isDuplicate = true;
+        } else {
+          seenMergeSignatures.add(signature);
+        }
+      }
+
+      const normalizedTitle = normalizeQuestionTextValue(question.question);
+      if (!isDuplicate && normalizedTitle) {
+        if (seenNormalizedTitles.has(normalizedTitle)) {
+          isDuplicate = true;
+        } else {
+          seenNormalizedTitles.add(normalizedTitle);
+        }
+      }
+
+      if (isDuplicate) {
+        await db.deleteDemoQuestion(question.id);
+      }
+    }
+
+    for (const question of demoQuestions) {
+      if (activeDemoQuestionIds.has(question.id)) continue;
+      if (ENV.dataSafetyMode) continue;
+      await db.deleteDemoQuestion(question.id);
+    }
+
+    await db.normalizeQuestionDisplayOrderForSubject(demoSubject.id);
+  }
+}
+
 const DEMO_CATALOG_SYNC_MIN_INTERVAL_MS = 60 * 1000;
 let demoCatalogSyncInFlight: Promise<void> | null = null;
 let demoCatalogSyncLastRunAt = 0;
@@ -2858,6 +3385,7 @@ function triggerDemoCatalogSyncInBackground(options?: { force?: boolean }): Prom
     try {
       await ensureHardcodedToothBox7DemoQuestionExists();
       await ensurePartialDentureDemoSubjectExists();
+      await ensureSupplementalDemoMirroredSubjectsExist();
     } catch (error) {
       console.warn("[DemoCatalog] sync skipped due to transient error:", error);
     } finally {
@@ -3039,7 +3567,10 @@ async function syncDemoQuestionsToSubject(
       continue;
     }
 
-    await db.deleteQuestion(question.id);
+    // Data safety first:
+    // Never hard-delete user questions during background sync.
+    // Keep the record and only detach stale demo linkage.
+    await db.updateQuestion(question.id, { demoSourceQuestionId: null });
   }
 
   await cleanupDuplicateDemoLinkedQuestionsForSubject(userSubjectId);
@@ -3063,17 +3594,18 @@ async function upsertSingleDemoQuestionToSubject(
   }
 ) {
   const subjectQuestions = await db.getQuestionsBySubjectId(userSubjectId);
+  const demoMergeSignature = makeQuestionMergeSignature(demoQuestion);
   const linkedQuestion =
     subjectQuestions.find(
       (question) =>
         typeof question.demoSourceQuestionId === "number" &&
         question.demoSourceQuestionId === demoQuestion.id
     ) ??
-    subjectQuestions.find(
-      (question) =>
-        normalizeQuestionTextValue(question.question) ===
-        normalizeQuestionTextValue(demoQuestion.question)
-    ) ??
+    (demoMergeSignature
+      ? subjectQuestions.find(
+          (question) => makeQuestionMergeSignature(question) === demoMergeSignature
+        )
+      : undefined) ??
     null;
 
   const syncedData = {
@@ -3163,6 +3695,7 @@ async function ensureStarterDataForUser(userId: number) {
   await ensureCriticalToothDemoQuestionExists();
   await ensureHardcodedToothBox7DemoQuestionExists();
   await ensurePartialDentureDemoSubjectExists();
+  await ensureSupplementalDemoMirroredSubjectsExist();
   const demoSubjects = await db.getDemoSubjects();
   const toothDemoSubject = demoSubjects.find((subject) => isToothMorphologySubjectName(subject.name));
   if (toothDemoSubject) {
@@ -3463,8 +3996,17 @@ async function awaitStarterSyncCompletion(
 
 async function ensureAuthReadyDataForUser(
   userId: number,
-  sourceGuestUserId?: number | null
+  sourceGuestUserId?: number | null,
+  options?: {
+    fast?: boolean;
+    guestMergeWaitMs?: number;
+    starterSyncWaitMs?: number;
+  }
 ) {
+  const fastMode = Boolean(options?.fast);
+  const guestMergeWaitMs = Math.max(0, options?.guestMergeWaitMs ?? (fastMode ? 550 : 0));
+  const starterSyncWaitMs = Math.max(0, options?.starterSyncWaitMs ?? (fastMode ? 1100 : 0));
+
   if (
     typeof sourceGuestUserId === "number" &&
     Number.isFinite(sourceGuestUserId) &&
@@ -3472,7 +4014,14 @@ async function ensureAuthReadyDataForUser(
     sourceGuestUserId !== userId
   ) {
     try {
-      await runGuestMergeOnce(sourceGuestUserId, userId);
+      if (fastMode) {
+        const merged = await triggerGuestMergeWithBudget(sourceGuestUserId, userId, guestMergeWaitMs);
+        if (!merged) {
+          void runGuestMergeOnce(sourceGuestUserId, userId);
+        }
+      } else {
+        await runGuestMergeOnce(sourceGuestUserId, userId);
+      }
     } catch (error) {
       console.warn("[Auth] Guest merge during auth was delayed:", error);
       void runGuestMergeOnce(sourceGuestUserId, userId);
@@ -3480,7 +4029,14 @@ async function ensureAuthReadyDataForUser(
   }
 
   try {
-    await awaitStarterSyncCompletion(userId, { force: true });
+    if (fastMode) {
+      const synced = await waitForStarterSyncWithBudget(userId, starterSyncWaitMs, { force: true });
+      if (!synced) {
+        triggerStarterSyncInBackground(userId, { force: true });
+      }
+    } else {
+      await awaitStarterSyncCompletion(userId, { force: true });
+    }
   } catch (error) {
     console.warn("[Auth] Starter sync during auth was delayed:", error);
     triggerStarterSyncInBackground(userId, { force: true });
@@ -3665,6 +4221,217 @@ function buildUserAdaptiveProfile(
     testReliability: clampNumber(testReliability, 0.85, 1.15),
     recoveryPower: clampNumber(recoveryPower, 0.85, 1.15),
     pacingDiscipline: clampNumber(pacingDiscipline, 0.85, 1.15),
+  };
+}
+
+type ConfidenceSnapshot = {
+  algorithmVersion: string;
+  displayScore: number;
+  state: ConfidenceResult["state"];
+  label: string;
+  isColdStart: boolean;
+  breakdown: ScoreBreakdown;
+};
+
+type ConfidenceSnapshotPair = {
+  before: ConfidenceSnapshot;
+  after: ConfidenceSnapshot;
+};
+
+type PracticeRowsForConfidence = Array<
+  Pick<PracticeSession, "id" | "questionId" | "duration" | "completedAt">
+>;
+
+type TestRowsForConfidence = Array<
+  Pick<TestSession, "id" | "questionId" | "completedAt" | "recallTime" | "isCorrect" | "similarityScore">
+>;
+
+function toConfidenceSnapshot(result: ConfidenceResult): ConfidenceSnapshot {
+  return {
+    algorithmVersion: CONFIDENCE_ALGORITHM_VERSION,
+    displayScore: result.displayScore,
+    state: result.state,
+    label: result.label,
+    isColdStart: result.isColdStart,
+    breakdown: result.breakdown,
+  };
+}
+
+function computeQuestionConfidenceFromRows(input: {
+  user: Pick<User, "id" | "role">;
+  question: Question;
+  subject: Subject | null;
+  subjectQuestions: Question[];
+  allPractice: PracticeRowsForConfidence;
+  allTests: TestRowsForConfidence;
+  now: Date;
+}): ConfidenceSnapshot {
+  const { user, question, subject, subjectQuestions, allPractice, allTests, now } = input;
+  const userProfile = buildUserAdaptiveProfile(allPractice, allTests);
+  const qPractice = allPractice.filter((practice) => practice.questionId === question.id);
+  const qTests = allTests.filter((test) => test.questionId === question.id);
+  const subjectQuestionIds = new Set<number>(
+    subjectQuestions.length > 0 ? subjectQuestions.map((row) => row.id) : [question.id]
+  );
+  const mockExamSessionIds = classifyMockExamSessionIds(
+    allTests
+      .filter((test) => subjectQuestionIds.has(test.questionId))
+      .map((test) => ({
+        id: test.id,
+        questionId: test.questionId,
+        completedAt: test.completedAt,
+        recallTime: test.recallTime,
+        isCorrect: test.isCorrect,
+        similarityScore: test.similarityScore ?? null,
+      }))
+  );
+
+  const practiceSignal: PracticeSignal = {
+    practiceCount: qPractice.length,
+    totalPracticeDuration: qPractice.reduce((sum, practice) => sum + practice.duration, 0),
+    mostRecentPracticeAt: qPractice.length > 0
+      ? new Date(Math.max(...qPractice.map((practice) => new Date(practice.completedAt).getTime())))
+      : null,
+  };
+  const testSignal = buildWeightedTestSignal(
+    qTests.map((test) => ({
+      id: test.id,
+      questionId: test.questionId,
+      completedAt: test.completedAt,
+      recallTime: test.recallTime,
+      isCorrect: test.isCorrect,
+      similarityScore: test.similarityScore ?? null,
+    })),
+    mockExamSessionIds
+  );
+  const initialEstimate = buildInitialConfidenceEstimate(question);
+  let confidence = computeExamConfidence({
+    practice: practiceSignal,
+    test: testSignal,
+    now,
+    examDate: resolveSubjectExamDate(subject),
+    userProfile,
+    initialEstimate,
+  });
+
+  const starterInitialScoreOverride = getStarterInitialScoreOverride({
+    subjectName: subject?.name,
+    question,
+    practiceCount: qPractice.length,
+    testCount: qTests.length,
+    userRole: user.role,
+  });
+  if (starterInitialScoreOverride !== null) {
+    confidence = applyDisplayScoreOverride(confidence, starterInitialScoreOverride);
+  }
+
+  const starterBaseScore = getStarterBaseScoreOverride({
+    subjectName: subject?.name,
+    question,
+    userRole: user.role,
+  });
+  if (starterBaseScore !== null && qTests.length === 0 && qPractice.length > 0) {
+    confidence = applyStarterPracticeFloor(confidence, starterBaseScore, qPractice.length);
+  }
+
+  return toConfidenceSnapshot(applyUnlearnedLabel(confidence));
+}
+
+async function computeConfidenceSnapshotPairForUser(input: {
+  user: Pick<User, "id" | "role">;
+  question: Question;
+  now?: Date;
+  excludePracticeSessionId?: number | null;
+  excludeTestSessionId?: number | null;
+}): Promise<ConfidenceSnapshotPair | null> {
+  try {
+    const now = input.now ?? new Date();
+    const subject = (await getSubjectForLogging(input.question)) ?? null;
+    const [allPractice, allTests, subjectQuestions] = await Promise.all([
+      db.getPracticeSessionsByUserId(input.user.id),
+      db.getTestSessionsByUserId(input.user.id),
+      subject?.id ? db.getQuestionsBySubjectId(subject.id) : Promise.resolve([input.question]),
+    ]);
+
+    const beforePractice = input.excludePracticeSessionId
+      ? allPractice.filter((practice) => practice.id !== input.excludePracticeSessionId)
+      : allPractice;
+    const beforeTests = input.excludeTestSessionId
+      ? allTests.filter((test) => test.id !== input.excludeTestSessionId)
+      : allTests;
+
+    return {
+      before: computeQuestionConfidenceFromRows({
+        user: input.user,
+        question: input.question,
+        subject,
+        subjectQuestions,
+        allPractice: beforePractice,
+        allTests: beforeTests,
+        now,
+      }),
+      after: computeQuestionConfidenceFromRows({
+        user: input.user,
+        question: input.question,
+        subject,
+        subjectQuestions,
+        allPractice,
+        allTests,
+        now,
+      }),
+    };
+  } catch (error) {
+    console.warn("[ConfidenceAnalytics] snapshot calculation failed:", error);
+    return null;
+  }
+}
+
+function buildConfidenceLogMetrics(pair: ConfidenceSnapshotPair | null) {
+  return {
+    algorithmVersion: CONFIDENCE_ALGORITHM_VERSION,
+    confidenceBefore: pair?.before.displayScore ?? null,
+    confidenceAfter: pair?.after.displayScore ?? null,
+    confidenceDelta: pair ? pair.after.displayScore - pair.before.displayScore : null,
+    confidenceBeforeState: pair?.before.state ?? null,
+    confidenceAfterState: pair?.after.state ?? null,
+    confidenceIsColdStart: pair?.after.isColdStart ?? null,
+    confidenceBreakdownJson: pair
+      ? JSON.stringify({
+          before: pair.before.breakdown,
+          after: pair.after.breakdown,
+        })
+      : null,
+  };
+}
+
+function buildConfidenceLogPayload(pair: ConfidenceSnapshotPair | null) {
+  if (!pair) {
+    return {
+      algorithmVersion: CONFIDENCE_ALGORITHM_VERSION,
+      confidenceSnapshotAvailable: false,
+    };
+  }
+
+  return {
+    algorithmVersion: CONFIDENCE_ALGORITHM_VERSION,
+    confidenceSnapshotAvailable: true,
+    confidence: {
+      before: {
+        score: pair.before.displayScore,
+        state: pair.before.state,
+        label: pair.before.label,
+        isColdStart: pair.before.isColdStart,
+        breakdown: pair.before.breakdown,
+      },
+      after: {
+        score: pair.after.displayScore,
+        state: pair.after.state,
+        label: pair.after.label,
+        isColdStart: pair.after.isColdStart,
+        breakdown: pair.after.breakdown,
+      },
+      delta: pair.after.displayScore - pair.before.displayScore,
+    },
   };
 }
 
@@ -3935,7 +4702,7 @@ async function cleanupDuplicateDemoLinkedQuestionsForSubject(subjectId: number):
     groupedByDemoSourceId.set(question.demoSourceQuestionId, group);
   }
 
-  let didDelete = false;
+  let didMutate = false;
   for (const group of groupedByDemoSourceId.values()) {
     if (group.length <= 1) continue;
 
@@ -3955,12 +4722,15 @@ async function cleanupDuplicateDemoLinkedQuestionsForSubject(subjectId: number):
 
     for (const candidate of evaluations.slice(1)) {
       if (candidate.hasMemo || candidate.hasHistory) continue;
-      await db.deleteQuestion(candidate.question.id);
-      didDelete = true;
+      // Data safety first:
+      // Never hard-delete user questions during background dedupe.
+      // Keep the question and only detach demo linkage.
+      await db.updateQuestion(candidate.question.id, { demoSourceQuestionId: null });
+      didMutate = true;
     }
   }
 
-  if (didDelete) {
+  if (didMutate) {
     await db.normalizeQuestionDisplayOrderForSubject(subjectId);
   }
 }
@@ -4141,6 +4911,36 @@ function cookieResponse(res: unknown): CookieCapableResponse {
   return res as CookieCapableResponse;
 }
 
+function setSessionCookie(req: unknown, res: unknown, sessionToken: string, maxAge: number = ONE_YEAR_MS) {
+  const response = cookieResponse(res);
+  const cookieOptions = getSessionCookieOptions(req as any);
+  response.cookie(COOKIE_NAME, sessionToken, {
+    ...cookieOptions,
+    maxAge,
+  });
+  // Host-only 쿠키도 같이 갱신해 과거 host-only 세션 쿠키(게스트 등)와 충돌하지 않게 한다.
+  if (cookieOptions.domain) {
+    response.cookie(COOKIE_NAME, sessionToken, {
+      ...cookieOptions,
+      domain: undefined,
+      maxAge,
+    });
+  }
+}
+
+function clearSessionCookie(req: unknown, res: unknown) {
+  const response = cookieResponse(res);
+  const cookieOptions = getSessionCookieOptions(req as any);
+  response.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+  if (cookieOptions.domain) {
+    response.clearCookie(COOKIE_NAME, {
+      ...cookieOptions,
+      domain: undefined,
+      maxAge: -1,
+    });
+  }
+}
+
 const GUEST_ID_SCHEMA = z.string().min(6).max(128).regex(/^[0-9a-z_-]+$/i);
 
 async function resolveOrBootstrapGuestUser(
@@ -4180,11 +4980,7 @@ async function resolveOrBootstrapGuestUser(
     name: user.name || "게스트",
     expiresInMs: ONE_YEAR_MS,
   });
-  const cookieOptions = getSessionCookieOptions(ctx.req);
-  cookieResponse(ctx.res).cookie(COOKIE_NAME, sessionToken, {
-    ...cookieOptions,
-    maxAge: ONE_YEAR_MS,
-  });
+  setSessionCookie(ctx.req, ctx.res, sessionToken, ONE_YEAR_MS);
 
   return user;
 }
@@ -4231,8 +5027,7 @@ export const appRouter = router({
         return { success: true };
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      cookieResponse(ctx.res).clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      clearSessionCookie(ctx.req, ctx.res);
       return {
         success: true,
       } as const;
@@ -4248,25 +5043,7 @@ export const appRouter = router({
         const authRateLimitKey = buildAuthRateLimitKey(ctx.req as any, "simple-signup", input.username);
         assertAuthRateLimitAllowed(authRateLimitKey);
 
-        if (ENV.signupAccessPassword) {
-          const provided = input.accessPassword ?? "";
-          const hasVerifiedGate = hasVerifiedSiteGate(ctx.req as any);
-          const siteAndSignupPasswordSame = (() => {
-            const signupValue = normalizeSecretInput(ENV.signupAccessPassword);
-            const siteValue = normalizeSecretInput(ENV.siteGatePassword);
-            return signupValue.length > 0 && signupValue === siteValue;
-          })();
-          const allowedPasswords = [ENV.signupAccessPassword, ENV.siteGatePassword]
-            .map((value) => value.trim())
-            .filter((value) => value.length > 0);
-          if (!siteAndSignupPasswordSame && !hasVerifiedGate && !isSecretMatch(provided, allowedPasswords)) {
-            registerAuthFailure(authRateLimitKey);
-            throw new TRPCError({
-              code: "UNAUTHORIZED",
-              message: "접속 비밀번호가 일치하지 않습니다",
-            });
-          }
-        }
+        // Public mode: 접속 비밀번호 없이 간편 가입 허용
 
         // 아이디 중복 확인
         const existing = await db.getUserByUsername(input.username);
@@ -4308,10 +5085,11 @@ export const appRouter = router({
 
         // 가입 직후 첫 화면에서 데모 과목/문제가 부분 노출되지 않도록
         // 게스트 병합 + 스타터 동기화를 가입 응답 전에 최대한 완료한다.
-        await ensureAuthReadyDataForUser(
-          user.id,
-          ctx.user?.loginMethod === "guest" ? ctx.user.id : null
-        );
+        await ensureAuthReadyDataForUser(user.id, ctx.user?.loginMethod === "guest" ? ctx.user.id : null, {
+          fast: true,
+          guestMergeWaitMs: 1200,
+          starterSyncWaitMs: 1800,
+        });
 
         // 세션 토큰 생성
         const sessionToken = await sdk.createSessionToken(simpleOpenId, {
@@ -4319,11 +5097,7 @@ export const appRouter = router({
           expiresInMs: ONE_YEAR_MS,
         });
 
-        const cookieOptions = getSessionCookieOptions(ctx.req);
-        cookieResponse(ctx.res).cookie(COOKIE_NAME, sessionToken, {
-          ...cookieOptions,
-          maxAge: ONE_YEAR_MS,
-        });
+        setSessionCookie(ctx.req, ctx.res, sessionToken, ONE_YEAR_MS);
 
         clearAuthFailures(authRateLimitKey);
         return { success: true, userId: user.id };
@@ -4392,7 +5166,11 @@ export const appRouter = router({
         }
 
         if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
-          await ensureAuthReadyDataForUser(user.id, ctx.user.id);
+          await ensureAuthReadyDataForUser(user.id, ctx.user.id, {
+            fast: true,
+            guestMergeWaitMs: 450,
+            starterSyncWaitMs: 900,
+          });
         } else {
           triggerStarterSyncInBackground(user.id, { force: true });
         }
@@ -4403,11 +5181,7 @@ export const appRouter = router({
           expiresInMs: ONE_YEAR_MS,
         });
 
-        const cookieOptions = getSessionCookieOptions(ctx.req);
-        cookieResponse(ctx.res).cookie(COOKIE_NAME, sessionToken, {
-          ...cookieOptions,
-          maxAge: ONE_YEAR_MS,
-        });
+        setSessionCookie(ctx.req, ctx.res, sessionToken, ONE_YEAR_MS);
 
         clearAuthFailures(authRateLimitKey);
         return { success: true, userId: user.id };
@@ -4521,7 +5295,11 @@ export const appRouter = router({
         }
 
         if (ctx.user?.loginMethod === "guest" && ctx.user.id !== user.id) {
-          await ensureAuthReadyDataForUser(user.id, ctx.user.id);
+          await ensureAuthReadyDataForUser(user.id, ctx.user.id, {
+            fast: true,
+            guestMergeWaitMs: 450,
+            starterSyncWaitMs: 900,
+          });
         } else {
           triggerStarterSyncInBackground(user.id, { force: true });
         }
@@ -4530,11 +5308,7 @@ export const appRouter = router({
           name: preferredName || user.name || "Google 사용자",
           expiresInMs: ONE_YEAR_MS,
         });
-        const cookieOptions = getSessionCookieOptions(ctx.req);
-        cookieResponse(ctx.res).cookie(COOKIE_NAME, sessionToken, {
-          ...cookieOptions,
-          maxAge: ONE_YEAR_MS,
-        });
+        setSessionCookie(ctx.req, ctx.res, sessionToken, ONE_YEAR_MS);
 
         clearAuthFailures(authRateLimitKey);
         return { success: true, userId: user.id, provider: "google" as const };
@@ -4619,11 +5393,7 @@ export const appRouter = router({
           expiresInMs: ONE_YEAR_MS,
         });
 
-        const cookieOptions = getSessionCookieOptions(ctx.req);
-        cookieResponse(ctx.res).cookie(COOKIE_NAME, sessionToken, {
-          ...cookieOptions,
-          maxAge: ONE_YEAR_MS,
-        });
+        setSessionCookie(ctx.req, ctx.res, sessionToken, ONE_YEAR_MS);
 
         return { success: true, userId: user.id, isNewGuest };
       }),
@@ -4656,14 +5426,13 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "과목을 찾을 수 없습니다." });
         }
 
-        if (!isPartialDentureSubjectName(subject.name)) {
+        if (!isPasswordProtectedDemoSubjectName(subject.name)) {
           return { ok: true, required: false };
         }
 
-        const allowedPasswords = [
-          ENV.partialDentureDemoPassword,
-          PARTIAL_DENTURE_DEMO_PASSWORD_FALLBACK,
-        ].filter((value): value is string => Boolean(value && value.trim()));
+        const allowedPasswords = [ENV.partialDentureDemoPassword].filter(
+          (value): value is string => Boolean(value && value.trim())
+        );
 
         const rateLimitKey = buildAuthRateLimitKey(
           ctx.req,
@@ -4777,13 +5546,15 @@ export const appRouter = router({
               };
             }
 
-            const demoQuestionSignature = normalizeQuestionTextValue(demoQuestion.question);
-            const linkedByText = linkedQuestions.find(
-              (question) => normalizeQuestionTextValue(question.question) === demoQuestionSignature
-            );
-            if (linkedByText) {
+            const demoMergeSignature = makeQuestionMergeSignature(demoQuestion);
+            const linkedBySignature = demoMergeSignature
+              ? linkedQuestions.find(
+                  (question) => makeQuestionMergeSignature(question) === demoMergeSignature
+                )
+              : undefined;
+            if (linkedBySignature) {
               return {
-                mappedQuestionId: linkedByText.id,
+                mappedQuestionId: linkedBySignature.id,
                 mappedDemoSubjectId: demoQuestion.subjectId,
                 pending: false,
               };
@@ -5098,7 +5869,8 @@ export const appRouter = router({
         if (!subject || subject.isDemo !== 1) {
           return [];
         }
-        return getStablePublicDemoShowcaseQuestions(subject);
+        const questions = await getStablePublicDemoShowcaseQuestions(subject);
+        return applyQuestionImageFallbackOverridesList(questions);
       }),
 
     confidenceByQuestion: publicProcedure
@@ -5162,12 +5934,19 @@ export const appRouter = router({
             badges: preview.badges,
           };
         });
+        const aggregate = aggregateDemoPreviewByQuestions(
+          previewRows.map((row) => ({ displayScore: row.displayScore, state: row.state }))
+        );
+        const subjectLengthContext = buildSubjectQuestionLengthContext(sortedQuestions);
+        const examDatePrediction = buildDemoExamPrediction(subject, aggregate.averageScore, {
+          answerLength: subjectLengthContext?.questionLength ?? 48,
+          difficulty: subjectLengthContext?.representativeDifficulty ?? "medium",
+        });
 
         return {
           questions: previewRows,
-          aggregate: aggregateDemoPreviewByQuestions(
-            previewRows.map((row) => ({ displayScore: row.displayScore, state: row.state }))
-          ),
+          aggregate,
+          examDatePrediction,
           isExample: true,
           previewLabel: "예시 화면",
         };
@@ -5265,9 +6044,9 @@ export const appRouter = router({
           }
         }
 
-        // 텍스트 문제: 줄 매칭 후 채점 (영어는 단어 단위)
-        const ignoreAutoNumbering = question.autoNumbering === 1;
-        return evaluateTextAnswerByBestLineMatch(input.userAnswer, correctAnswer, ignoreAutoNumbering);
+        // 텍스트 문제 채점에서는 자동번호 여부와 무관하게 선행 번호(1., 2.)를 무시한다.
+        const ignoreLeadingLineNumber = true;
+        return evaluateTextAnswerByBestLineMatch(input.userAnswer, correctAnswer, ignoreLeadingLineNumber);
       }),
   }),
 
@@ -5603,7 +6382,8 @@ export const appRouter = router({
         // Check if subject is demo - allow without auth
         const subject = await db.getSubjectById(input.subjectId);
         if (subject?.isDemo) {
-          return getStablePublicDemoShowcaseQuestions(subject);
+          const questions = await getStablePublicDemoShowcaseQuestions(subject);
+          return applyQuestionImageFallbackOverridesList(questions);
         }
         if (!ctx.user) throw new TRPCError({ code: 'UNAUTHORIZED' });
         if (!subject || subject.userId !== ctx.user.id) {
@@ -5612,12 +6392,47 @@ export const appRouter = router({
 
         let subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
         if (typeof subject.demoSourceSubjectId === "number" && subject.demoSourceSubjectId > 0) {
-          if (subjectQuestions.length === 0) {
-            const starterSynced = await waitForStarterSyncWithBudget(ctx.user.id, 2500, { force: true });
-            if (!starterSynced) {
-              await awaitStarterSyncCompletion(ctx.user.id, { force: true });
+          const demoSourceSubject = await db.getSubjectById(subject.demoSourceSubjectId);
+          let expectedDemoQuestionCount = 0;
+          if (demoSourceSubject) {
+            if (demoSourceSubject.isDemo === 1) {
+              expectedDemoQuestionCount = (
+                await getStablePublicDemoShowcaseQuestions(demoSourceSubject)
+              ).length;
+            } else {
+              expectedDemoQuestionCount = (
+                await db.getQuestionsBySubjectId(demoSourceSubject.id)
+              ).length;
             }
-            subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
+          }
+
+          const needsStarterCatchup =
+            expectedDemoQuestionCount > 0
+              ? subjectQuestions.length < expectedDemoQuestionCount
+              : subjectQuestions.length === 0;
+
+          if (needsStarterCatchup) {
+            let hydratedByDirectDemoSync = false;
+            if (demoSourceSubject?.isDemo === 1) {
+              const directDemoQuestions = selectPublicDemoShowcaseQuestions(
+                demoSourceSubject,
+                await db.getDemoQuestions(demoSourceSubject.id)
+              );
+              if (directDemoQuestions.length > 0) {
+                await syncDemoQuestionsToSubject(ctx.user.id, input.subjectId, directDemoQuestions);
+                await db.normalizeQuestionDisplayOrderForSubject(input.subjectId);
+                subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
+                hydratedByDirectDemoSync = true;
+              }
+            }
+
+            if (!hydratedByDirectDemoSync) {
+              const starterSynced = await waitForStarterSyncWithBudget(ctx.user.id, 900, { force: true });
+              if (!starterSynced) {
+                triggerStarterSyncInBackground(ctx.user.id, { force: true });
+              }
+              subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
+            }
           } else {
             const starterSynced = await waitForStarterSyncWithBudget(ctx.user.id, 220, { force: true });
             if (!starterSynced) {
@@ -5625,7 +6440,7 @@ export const appRouter = router({
             }
           }
         }
-        return subjectQuestions;
+        return applyQuestionImageFallbackOverridesList(subjectQuestions);
       }),
     
     listAll: protectedProcedure.query(async ({ ctx }) => {
@@ -5643,7 +6458,7 @@ export const appRouter = router({
         const question = await db.getQuestionById(input.id);
         // Allow access to demo questions without auth
         if (question?.isDemo) {
-          return question;
+          return applyQuestionImageFallbackOverrides(question);
         }
         // Require auth for non-demo questions
         if (!ctx.user) {
@@ -5652,7 +6467,7 @@ export const appRouter = router({
         if (!question || question.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제만 조회할 수 있습니다" });
         }
-        return question;
+        return applyQuestionImageFallbackOverrides(question);
       }),
     
     create: protectedProcedure
@@ -5825,6 +6640,12 @@ export const appRouter = router({
           completedAt: new Date(),
         });
         const subject = await getSubjectForLogging(question);
+        const confidencePair = await computeConfidenceSnapshotPairForUser({
+          user: ctx.user,
+          question,
+          excludePracticeSessionId: createdSession.id,
+          now: new Date(createdSession.completedAt),
+        });
         await recordLearningEvent({
           eventCategory: "learning",
           eventType: "practice_session",
@@ -5846,9 +6667,11 @@ export const appRouter = router({
             errorCount: input.errorCount,
             completionRatio: input.analytics?.completionRatio ?? input.accuracy / 100,
             blindMode: input.analytics?.blindMode ?? null,
+            ...buildConfidenceLogMetrics(confidencePair),
           },
           payload: {
             typedLength: input.analytics?.typedLength ?? null,
+            ...buildConfidenceLogPayload(confidencePair),
           },
         });
         return createdSession;
@@ -5940,6 +6763,12 @@ export const appRouter = router({
           completedAt: new Date(),
         });
         const subject = await getSubjectForLogging(question);
+        const confidencePair = await computeConfidenceSnapshotPairForUser({
+          user: ctx.user,
+          question,
+          excludeTestSessionId: createdSession.id,
+          now: new Date(createdSession.completedAt),
+        });
         await recordLearningEvent({
           eventCategory: "evaluation",
           eventType: "test_session",
@@ -5960,11 +6789,13 @@ export const appRouter = router({
             similarityScore: input.similarityScore ?? null,
             accuracy: input.similarityScore ?? null,
             recallTimeSec: input.recallTime,
+            ...buildConfidenceLogMetrics(confidencePair),
           },
           payload: {
             userAnswerLength: input.userAnswer.length,
             hasMistakeHighlights: Boolean(input.mistakeHighlights),
             hasLlmFeedback: Boolean(input.llmFeedback),
+            ...buildConfidenceLogPayload(confidencePair),
           },
         });
         return createdSession;
@@ -5996,6 +6827,13 @@ export const appRouter = router({
           source: string;
           payload?: unknown;
         }) => {
+          const confidencePair = params.createdSessionId
+            ? await computeConfidenceSnapshotPairForUser({
+                user: ctx.user,
+                question,
+                excludeTestSessionId: params.createdSessionId,
+              })
+            : null;
           await recordLearningEvent({
             eventCategory: "evaluation",
             eventType: "test_evaluation",
@@ -6018,12 +6856,15 @@ export const appRouter = router({
               correctCount: params.correctCount ?? null,
               totalCount: params.totalCount ?? null,
               recallTimeSec: input.recallTime,
+              ...buildConfidenceLogMetrics(confidencePair),
             },
             payload: {
               userAnswerLength: input.userAnswer.length,
+              ...buildConfidenceLogPayload(confidencePair),
               ...((params.payload as Record<string, unknown> | undefined) ?? {}),
             },
           });
+          return buildConfidenceLogPayload(confidencePair);
         };
 
         // 이미지 문제인 경우 imageLabels에서 정답 추출
@@ -6042,8 +6883,10 @@ export const appRouter = router({
           }
         }
 
-        // Check if AI grading is enabled for this question
-        if (!question.useAIGrading) {
+        // 시험모드의 정답 비교 UI는 항상 줄별 결과가 필요하다.
+        // 텍스트 문제는 AI 채점 플래그가 켜져 있어도 deterministic 줄별 채점으로 고정한다.
+        const shouldUseLineByLineGrading = !question.useAIGrading || !isImageQuestion;
+        if (shouldUseLineByLineGrading) {
           // 이미지 문제인 경우 라벨별로 채점
           if (isImageQuestion) {
             try {
@@ -6087,7 +6930,7 @@ export const appRouter = router({
                 llmFeedback: null,
                 completedAt: new Date(),
               });
-              await logTestEvaluation({
+              const confidencePayload = await logTestEvaluation({
                 createdSessionId: createdSession.id,
                 isCorrect,
                 similarityScore: accuracyRate,
@@ -6100,22 +6943,24 @@ export const appRouter = router({
                 },
               });
               
-              return {
-                isCorrect,
-                similarityScore: accuracyRate,
-                accuracyRate,
-                mistakes: labelComparisons,
-                feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctCount}/${totalCount} 정답`,
-                missingKeywords: [],
-                createdSessionId: createdSession.id,
-              };
+	              return {
+	                isCorrect,
+	                similarityScore: accuracyRate,
+	                accuracyRate,
+	                mistakes: labelComparisons,
+	                feedback: isCorrect ? "정확하게 작성하셨습니다!" : `${correctCount}/${totalCount} 정답`,
+	                missingKeywords: [],
+	                createdSessionId: createdSession.id,
+                  ...confidencePayload,
+	              };
             } catch (e) {
               console.error("Failed to grade image question:", e);
             }
           }
           
-          const ignoreAutoNumbering = question.autoNumbering === 1;
-          const graded = evaluateTextAnswerByBestLineMatch(input.userAnswer, correctAnswer, ignoreAutoNumbering);
+          // 텍스트 문제 채점에서는 자동번호 여부와 무관하게 선행 번호(1., 2.)를 무시한다.
+          const ignoreLeadingLineNumber = true;
+          const graded = evaluateTextAnswerByBestLineMatch(input.userAnswer, correctAnswer, ignoreLeadingLineNumber);
 
           // Save test session
           const createdSession = await db.createTestSession({
@@ -6129,9 +6974,9 @@ export const appRouter = router({
             llmFeedback: null,
             completedAt: new Date(),
           });
-          await logTestEvaluation({
-            createdSessionId: createdSession.id,
-            isCorrect: graded.isCorrect,
+	          const confidencePayload = await logTestEvaluation({
+	            createdSessionId: createdSession.id,
+	            isCorrect: graded.isCorrect,
             similarityScore: graded.similarityScore,
             accuracy: graded.accuracyRate,
             correctCount: graded.correctLineCount,
@@ -6143,10 +6988,11 @@ export const appRouter = router({
             },
           });
 
-          return {
-            ...graded,
-            createdSessionId: createdSession.id,
-          };
+	          return {
+	            ...graded,
+	            createdSessionId: createdSession.id,
+              ...confidencePayload,
+	          };
         }
 
         // Deduct AI credit
@@ -6248,9 +7094,9 @@ ${input.userAnswer}
             llmFeedback,
             completedAt: new Date(),
           });
-          await logTestEvaluation({
-            createdSessionId: createdSession.id,
-            isCorrect: isCorrect === 1,
+	          const confidencePayload = await logTestEvaluation({
+	            createdSessionId: createdSession.id,
+	            isCorrect: isCorrect === 1,
             similarityScore,
             accuracy: similarityScore,
             source: "llm_evaluate",
@@ -6261,15 +7107,16 @@ ${input.userAnswer}
             },
           });
 
-          return {
-            isCorrect,
-            similarityScore,
-            accuracyRate: similarityScore,
-            mistakeHighlights,
-            llmFeedback,
-            missingKeywords: evaluation.missingKeywords || [],
-            createdSessionId: createdSession.id,
-          };
+	          return {
+	            isCorrect,
+	            similarityScore,
+	            accuracyRate: similarityScore,
+	            mistakeHighlights,
+	            llmFeedback,
+	            missingKeywords: evaluation.missingKeywords || [],
+	            createdSessionId: createdSession.id,
+              ...confidencePayload,
+	          };
         } catch (error) {
           console.error("LLM evaluation error:", error);
           
@@ -6292,9 +7139,9 @@ ${input.userAnswer}
             llmFeedback: null,
             completedAt: new Date(),
           });
-          await logTestEvaluation({
-            createdSessionId: createdSession.id,
-            isCorrect: isCorrect === 1,
+	          const confidencePayload = await logTestEvaluation({
+	            createdSessionId: createdSession.id,
+	            isCorrect: isCorrect === 1,
             similarityScore,
             accuracy: similarityScore,
             source: "fallback_evaluate",
@@ -6303,20 +7150,66 @@ ${input.userAnswer}
             },
           });
 
-          return {
-            isCorrect,
-            similarityScore,
-            accuracyRate: similarityScore,
-            mistakeHighlights: null,
-            llmFeedback: "LLM 평가를 사용할 수 없어 기본 평가를 사용했습니다.",
-            createdSessionId: createdSession.id,
-          };
+	          return {
+	            isCorrect,
+	            similarityScore,
+	            accuracyRate: similarityScore,
+	            mistakeHighlights: null,
+	            llmFeedback: "LLM 평가를 사용할 수 없어 기본 평가를 사용했습니다.",
+	            createdSessionId: createdSession.id,
+              ...confidencePayload,
+	          };
         }
-      }),
+	      }),
 
-    deleteSessions: protectedProcedure
-      .input(
-        z.object({
+	    updateSessionsResult: protectedProcedure
+	      .input(
+	        z.object({
+	          ids: z.array(z.number().int().positive()).min(1),
+	          isCorrect: z.boolean(),
+	          similarityScore: z.number().min(0).max(100),
+	          mistakeHighlights: z.string().nullable().optional(),
+	          llmFeedback: z.string().nullable().optional(),
+	        })
+	      )
+	      .mutation(async ({ ctx, input }) => {
+	        const sessions = await db.getTestSessionsByIdsForUser(input.ids, ctx.user.id);
+	        if (sessions.length === 0) {
+	          throw new TRPCError({ code: "NOT_FOUND", message: "수정할 시험 기록을 찾을 수 없습니다." });
+	        }
+	        const questionId = sessions[0].questionId;
+	        if (sessions.some((session) => session.questionId !== questionId)) {
+	          throw new TRPCError({ code: "BAD_REQUEST", message: "서로 다른 문제의 시험 기록은 한 번에 수정할 수 없습니다." });
+	        }
+	        const question = await db.getQuestionById(questionId);
+	        if (!question || question.userId !== ctx.user.id) {
+	          throw new TRPCError({ code: "FORBIDDEN", message: "본인 문제의 시험 기록만 수정할 수 있습니다." });
+	        }
+
+	        await db.updateTestSessionsByIdsForUser(input.ids, ctx.user.id, {
+	          isCorrect: input.isCorrect ? 1 : 0,
+	          similarityScore: Math.round(input.similarityScore),
+	          mistakeHighlights: input.mistakeHighlights ?? null,
+	          llmFeedback: input.llmFeedback ?? null,
+	        });
+
+	        const confidencePair = await computeConfidenceSnapshotPairForUser({
+	          user: ctx.user,
+	          question,
+	          excludeTestSessionId: sessions[0].id,
+	          now: new Date(),
+	        });
+
+	        return {
+	          updatedCount: sessions.length,
+	          questionId,
+	          ...buildConfidenceLogPayload(confidencePair),
+	        };
+	      }),
+
+	    deleteSessions: protectedProcedure
+	      .input(
+	        z.object({
           ids: z.array(z.number().int().positive()).min(1),
         })
       )
@@ -7160,6 +8053,10 @@ ${input.userAnswer}
         })
       )
       .mutation(async ({ ctx, input }) => {
+        if (isTelemetryExcludedRequest(ctx.req)) {
+          return { success: true, saved: 0, skippedExcludedIp: true };
+        }
+
         const rows = input.events.map((event) => {
           const parsedOccurredAt = event.occurredAt ? new Date(event.occurredAt) : null;
           const occurredAt = parsedOccurredAt && !Number.isNaN(parsedOccurredAt.getTime())
@@ -7188,11 +8085,20 @@ ${input.userAnswer}
       }),
 
     getOverview: adminProcedure
-      .input(z.object({ days: z.number().int().min(1).max(90).default(14) }).optional())
-      .query(async ({ input }) => {
+      .input(
+        z.object({
+          days: z.number().int().min(1).max(90).default(14),
+          excludeOwn: z.boolean().optional(),
+        }).optional()
+      )
+      .query(async ({ input, ctx }) => {
         const days = input?.days ?? 14;
         const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-        const events = await db.getTelemetryEventsSince(since);
+        const excludeOwn = input?.excludeOwn ?? false;
+        const rawEvents = await db.getTelemetryEventsSince(since);
+        const events = excludeOwn
+          ? rawEvents.filter((event) => event.userId !== ctx.user.id)
+          : rawEvents;
 
         const userIds = Array.from(new Set(events.map((e) => e.userId)));
         const userRows = await db.getUsersByIds(userIds);
@@ -7693,6 +8599,17 @@ ${input.userAnswer}
           try {
             const highlights = JSON.parse(lastTest.mistakeHighlights as string);
             if (Array.isArray(highlights)) {
+              const hasLegacyEmptyTextLine = highlights.some(
+                (h: any) =>
+                  !h?.cellKey &&
+                  !h?.labelIndex &&
+                  typeof h?.correctAnswer === "string" &&
+                  normalizeLineForTextComparison(h.correctAnswer, true).length === 0
+              );
+              if (hasLegacyEmptyTextLine) {
+                throw new Error("legacy-empty-text-line-highlights");
+              }
+
               const wrongLineSet = new Set<number>();
               const wrongCellKeySet = new Set<string>();
               const wrongLabelIndexSet = new Set<number>();
@@ -7700,7 +8617,7 @@ ${input.userAnswer}
               highlights
                 .filter((h: any) => h?.isCorrect === false)
                 .forEach((h: any) => {
-                  const rawLineIndex = Number(h?.lineIndex);
+                  const rawLineIndex = Number(h?.targetLineIndex ?? h?.lineIndex);
                   if (Number.isFinite(rawLineIndex) && rawLineIndex >= 1) {
                     wrongLineSet.add(rawLineIndex - 1);
                   }
@@ -7729,6 +8646,8 @@ ${input.userAnswer}
           state: effectiveConfidence.state,
           label: effectiveConfidence.label,
           isColdStart: effectiveConfidence.isColdStart,
+          practiceCount: qPractice.length,
+          testCount: qTests.length,
           breakdown: effectiveConfidence.breakdown,
           badges: { lastTestWrong, frequentlyWrong, hasWarnZone },
           lastTestWrongLines,
@@ -7744,14 +8663,19 @@ ${input.userAnswer}
       .input(z.object({ subjectId: z.number() }))
       .query(async ({ ctx, input }) => {
         await assertSubjectOwnershipOrThrow(input.subjectId, ctx.user.id);
-        const subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
-        const questionIds = subjectQuestions.map(q => q.id);
-        if (questionIds.length === 0) return { questions: [], aggregate: aggregateConfidence([]) };
-        const questionIdSet = new Set(questionIds);
-        const questionById = new Map(subjectQuestions.map((q) => [q.id, q]));
-
         const subject = await db.getSubjectById(input.subjectId);
         const examDate = resolveSubjectExamDate(subject);
+        const subjectQuestions = await db.getQuestionsBySubjectId(input.subjectId);
+        const questionIds = subjectQuestions.map(q => q.id);
+        if (questionIds.length === 0) {
+          return {
+            questions: [],
+            aggregate: aggregateConfidence([]),
+            examDatePrediction: null,
+          };
+        }
+        const questionIdSet = new Set(questionIds);
+        const questionById = new Map(subjectQuestions.map((q) => [q.id, q]));
 
         const allPractice = await db.getPracticeSessionsByUserId(ctx.user.id);
         const allTests = await db.getTestSessionsByUserId(ctx.user.id);
@@ -7844,6 +8768,25 @@ ${input.userAnswer}
         }
 
         const aggregate = aggregateConfidence(results.map(r => r.confidence));
+        const subjectPredictionSeed = buildSubjectPredictionSeedFromConfidences(
+          results.map((row) => row.confidence),
+          aggregate.averageScore
+        );
+        const subjectLengthContext = buildSubjectQuestionLengthContext(subjectQuestions);
+        let examDatePrediction: ReturnType<typeof predictExamDayConfidence> | null = null;
+        if (examDate) {
+          examDatePrediction = predictExamDayConfidence(
+            subjectPredictionSeed,
+            examDate,
+            now,
+            {
+              questionLength: subjectLengthContext?.questionLength ?? 48,
+              minQuestionLength: subjectLengthContext?.minQuestionLength ?? 24,
+              maxQuestionLength: subjectLengthContext?.maxQuestionLength ?? 96,
+              examPeriodHours: 72,
+            }
+          );
+        }
 
         // 배지 계산
         const badgeMap: Record<number, { lastTestWrong: boolean; frequentlyWrong: boolean; hasWarnZone: boolean }> = {};
@@ -7870,6 +8813,7 @@ ${input.userAnswer}
             badges: badgeMap[r.questionId] ?? { lastTestWrong: false, frequentlyWrong: false, hasWarnZone: false },
           })),
           aggregate,
+          examDatePrediction,
         };
       }),
     // 문제 안정도 시간별 변화 이력 조회

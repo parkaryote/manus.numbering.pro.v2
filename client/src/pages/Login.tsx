@@ -19,6 +19,7 @@ const GOOGLE_SOCIAL_BUTTON_META = {
 const GUEST_ID_KEY = "numbering_guest_id";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 const RECENT_AUTH_AT_KEY = "numbering_recent_auth_at";
+const DEMO_SUBJECT_UNLOCK_KEY_PREFIX = "numbering_demo_unlock_subject_v1_";
 
 function isGuestUser(user: { loginMethod?: string | null } | null | undefined): boolean {
   if (!user) return false;
@@ -52,6 +53,20 @@ function markRecentAuthAttempt() {
   }
 }
 
+function clearProtectedSubjectUnlockCache() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith(DEMO_SUBJECT_UNLOCK_KEY_PREFIX)) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export default function Login() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
@@ -72,6 +87,7 @@ export default function Login() {
   const finishAuthAndRedirect = (nextPath: string, successMessage: string) => {
     setBlockingMessage("로그인 완료, 이동 중...");
     markRecentAuthAttempt();
+    clearProtectedSubjectUnlockCache();
     try {
       localStorage.removeItem(GUEST_ID_KEY);
     } catch {
@@ -85,6 +101,7 @@ export default function Login() {
   const finishGuestAndRedirect = (nextPath: string) => {
     setBlockingMessage("게스트 세션 적용 중...");
     markRecentAuthAttempt();
+    clearProtectedSubjectUnlockCache();
     void utils.auth.me.invalidate();
     window.location.replace(sanitizeNextPath(nextPath));
   };

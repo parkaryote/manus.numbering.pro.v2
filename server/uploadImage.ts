@@ -19,6 +19,16 @@ const EXT_BY_IMAGE_MIME: Record<string, string> = {
   "image/gif": "gif",
 };
 
+function toStableUploadsPath(relKey: string): string {
+  const normalized = relKey.replace(/^\/+/, "").replace(/\\/g, "/");
+  const encodedPath = normalized
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `/uploads/${encodedPath}`;
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -50,13 +60,16 @@ router.post("/", async (req, res, next) => {
     const fileExtension = EXT_BY_IMAGE_MIME[normalizedMime] ?? "jpg";
     const fileKey = `questions/${nanoid()}.${fileExtension}`;
 
-    const { url } = await storagePut(
+    const { url: remoteUrl } = await storagePut(
       fileKey,
       req.file.buffer,
       normalizedMime
     );
 
-    res.json({ url, key: fileKey });
+    // Always return an app-internal stable URL so DB records survive
+    // storage CDN/domain changes or signed URL policies.
+    const stableUrl = toStableUploadsPath(fileKey);
+    res.json({ url: stableUrl, key: fileKey, remoteUrl });
   } catch (error) {
     console.error("[Image Upload] Error:", error);
     res.status(500).json({ error: "Failed to upload image" });

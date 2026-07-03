@@ -4,6 +4,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { ENV } from "./_core/env.js";
+import { resolveUploadsDir } from "./_core/uploadsDir.js";
 
 type RemoteStorageConfig = { kind: "remote"; baseUrl: string; apiKey: string };
 type LocalStorageConfig = { kind: "local"; uploadsDir: string };
@@ -18,8 +19,7 @@ function getStorageConfig(): StorageConfig {
   }
 
   const uploadsDir =
-    process.env.LOCAL_UPLOAD_DIR?.trim() ||
-    path.resolve(process.cwd(), "var", "uploads");
+    resolveUploadsDir();
   return {
     kind: "local",
     uploadsDir,

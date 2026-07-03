@@ -466,7 +466,7 @@ function DemoWorkspaceSubjectCard({
           className="w-4 h-4 rounded-full flex-shrink-0 mt-1"
           style={{ backgroundColor: subject.color }}
         />
-        <div className="flex-1 min-w-0" onClick={() => setLocation(`/demo/questions/${subject.id}`)}>
+        <div className="flex-1 min-w-0" onClick={() => setLocation(`/demo/questions/${subject.id}?workspace=1`)}>
           <div className="flex items-center gap-2 mb-0.5">
             <CardTitle className="text-lg">{subject.name}</CardTitle>
             <span className="text-xs text-muted-foreground">{questionCountLabel}</span>

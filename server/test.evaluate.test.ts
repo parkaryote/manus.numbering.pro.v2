@@ -256,6 +256,145 @@ describe("test.evaluate - Line-by-line grading with similarity", () => {
     expect(result.mistakes?.[1]?.isCorrect).toBe(false);
   });
 
+  it("should preserve every correct line and ignore non-semantic symbols in text grading", async () => {
+    const answer = [
+      "1. current or previous treatment with antiresorptive or antiangiogenic medications",
+      "2. Exposed bone or bone that can be probed through an intraoral or extraoral fistula in the maxillofacial region that has persisted for more than eight weeks",
+      "3. No history of radiation therapy to the jaws or obvious metastatic disease to the jaws",
+      "위험군: 치료 불필요, 환자 교육",
+      "1 단계: 항생성분 구강 양치액, 주기적 검진, 환자교육과 BPS 계속적 투약 여부 검토",
+      "2 단계: 광범위 경구 항생제 이용 증상 치료, 항생성분 구강 양치액, 통증조절, 연조직 자극경감을 위한 골괴사 표면 박리",
+      "3 단계: 항생성분 구강 양치액, 항생제 투약 및 통증 조절, 장기간 감염과 통증 경감을 위한 외과적 박리와 제거술",
+    ].join("\n");
+
+    vi.spyOn(db, "getQuestionById").mockResolvedValueOnce({
+      id: testQuestionId,
+      userId: testUserId,
+      subjectId: testSubjectId,
+      question: "MRONJ 기준과 처치",
+      answer,
+      questionType: "text",
+      imageUrl: null,
+      imageLabels: null,
+      tableData: null,
+      useAIGrading: false,
+      displayOrder: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any);
+
+    const result = await caller.test.evaluate({
+      questionId: testQuestionId,
+      userAnswer: [
+        "1. current or previous treatment with antiresorptive or antiangiogenic medications",
+        "2. exposed bone or bone that can be probed through an intraoral or extraoral fistula in the maxillofacial region that has persisted for more than eight weeks",
+        "3. no history of radiation therapy to the jaws or obvious metastatic disease to the jaws",
+        "위험군 치료불필요 환자 교육",
+        "1단계 항생성분 구강 양치액 주기적 검진 환자교육과 ㅠㅔㄴ 계속적 투약여부 검토",
+        "2단계 광범위 경구 항생제 이용 증상 치료 항생성분 구강 양치액 통증조절 연조직 자극 경감을 위한 골괴사 표면 박리",
+        "3단계 항생성분 구강 양치액 항생제 투약 및 통증조절 장기간 감염과 통증경감을 위한 외과적 박리와 제거술",
+      ].join("\n"),
+      recallTime: 30,
+    });
+
+    expect(result.totalLines).toBe(7);
+    expect(result.mistakes).toHaveLength(7);
+    expect(result.correctLineCount).toBe(7);
+    expect(result.similarityScore).toBe(100);
+    expect(result.mistakes.every((m: any) => m.isCorrect)).toBe(true);
+  });
+
+  it("should ignore blank correct-answer lines and keep later line matches aligned", async () => {
+    const answer = [
+      "1. current or previous treatment with antiresorptive or antiangiogenic medications",
+      "2. Exposed bone or bone that can be probed through an intraoral or extraoral fistula in the maxillofacial region that has persisted for more than eight weeks",
+      "3. No history of radiation therapy to the jaws or obvious metastatic disease to the jaws",
+      "",
+      "위험군: 치료 불필요, 환자 교육",
+      "1 단계: 항생성분 구강 양치액, 주기적 검진, 환자교육과 BPS 계속적 투약 여부 검토",
+      "2 단계: 광범위 경구 항생제 이용 증상 치료, 항생성분 구강 양치액, 통증조절, 연조직 자극경감을 위한 골괴사 표면 박리",
+      "3 단계: 항생성분 구강 양치액, 항생제 투약 및 통증 조절, 장기간 감염과 통증 경감을 위한 외과적 박리와 제거술",
+    ].join("\n");
+
+    vi.spyOn(db, "getQuestionById").mockResolvedValueOnce({
+      id: testQuestionId,
+      userId: testUserId,
+      subjectId: testSubjectId,
+      question: "MRONJ 기준과 처치",
+      answer,
+      questionType: "text",
+      imageUrl: null,
+      imageLabels: null,
+      tableData: null,
+      useAIGrading: false,
+      displayOrder: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any);
+
+    const result = await caller.test.evaluate({
+      questionId: testQuestionId,
+      userAnswer: [
+        "1. current or previous treatment of antiresorptive or antiangiogenic medications",
+        "2. exposed bone or bone that can be probed by an intraoral or extraoral fistula of the maxillofacial region that lasted more than eight weeks",
+        "3. no exposure of radiation to the jaw",
+        "",
+        "위험군: 치료 불필요, 환자 교육",
+        "1 단계: 항생 성분 구강 양치액, 환자 교육과 BPS의 계속적 투여 확인",
+        "2 단계: 광범위 경구 투여 항생제 이용 증상 치료, 항생 성분 구강 양치액, 통증 치료, 연조직 통증 경감을 위한 골괴사 표면 박리",
+        "3 단계: 항생 성분 구강 양치액, 통증 치료 및 골괴사 박리",
+      ].join("\n"),
+      recallTime: 30,
+    });
+
+    expect(result.totalLines).toBe(7);
+    expect(result.mistakes).toHaveLength(7);
+    expect(result.mistakes.some((m: any) => !m.correctAnswer)).toBe(false);
+
+    expect(result.mistakes[3].lineIndex).toBe(4);
+    expect(result.mistakes[3].targetLineIndex).toBe(5);
+    expect(result.mistakes[3].correctAnswer).toContain("위험군");
+    expect(result.mistakes[3].userAnswer).toContain("위험군");
+
+    expect(result.mistakes[4].correctAnswer).toMatch(/^1 단계/);
+    expect(result.mistakes[4].userAnswer).toMatch(/^1 단계/);
+    expect(result.mistakes[5].correctAnswer).toMatch(/^2 단계/);
+    expect(result.mistakes[5].userAnswer).toMatch(/^2 단계/);
+    expect(result.mistakes[6].correctAnswer).toMatch(/^3 단계/);
+    expect(result.mistakes[6].userAnswer).toMatch(/^3 단계/);
+  });
+
+  it("should use deterministic line-by-line comparison for text questions even when AI grading is enabled", async () => {
+    const answer = "첫째 줄\n둘째 줄\n셋째 줄\n넷째 줄\n다섯째 줄\n여섯째 줄";
+
+    vi.spyOn(db, "getQuestionById").mockResolvedValueOnce({
+      id: testQuestionId,
+      userId: testUserId,
+      subjectId: testSubjectId,
+      question: "6줄 정답",
+      answer,
+      questionType: "text",
+      imageUrl: null,
+      imageLabels: null,
+      tableData: null,
+      useAIGrading: true,
+      displayOrder: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any);
+
+    const result = await caller.test.evaluate({
+      questionId: testQuestionId,
+      userAnswer: answer,
+      recallTime: 30,
+    });
+
+    expect(result.totalLines).toBe(6);
+    expect(result.mistakes).toHaveLength(6);
+    expect(result.correctLineCount).toBe(6);
+    expect(result.mistakes.every((m: any) => m.isCorrect)).toBe(true);
+  });
+
   it("should save test session with similarityScore (character-level)", async () => {
     await caller.test.evaluate({
       questionId: testQuestionId,

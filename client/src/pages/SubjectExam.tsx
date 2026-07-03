@@ -39,6 +39,7 @@ type EvalResult = {
   totalLines?: number;
   mistakes?: Array<{
     lineIndex?: number;
+    targetLineIndex?: number;
     labelIndex?: number;
     cellKey?: string;
     correctAnswer?: string;

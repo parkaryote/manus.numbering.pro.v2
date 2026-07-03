@@ -29,8 +29,13 @@ import { toast } from "sonner";
 
 const GUEST_ID_KEY = "numbering_guest_id";
 const RECENT_AUTH_AT_KEY = "numbering_recent_auth_at";
-const PARTIAL_DENTURE_SUBJECT_NAME = "국소의치학";
-const PARTIAL_DENTURE_DEMO_UNLOCK_KEY = "numbering_demo_unlock_partial_denture_v3";
+const PASSWORD_PROTECTED_DEMO_SUBJECT_NAMES = [
+  "국소의치학",
+  "총의치학(공유)",
+  "총의치학2(공유)",
+  "치주",
+] as const;
+const DEMO_SUBJECT_UNLOCK_KEY_PREFIX = "numbering_demo_unlock_subject_v1";
 const INIT_MAX_WAIT_MS = 2_500;
 const AUTH_ME_FETCH_TIMEOUT_MS = 2_000;
 const GUEST_BOOTSTRAP_BLOCK_MAX_MS = 900;
@@ -97,26 +102,51 @@ function normalizeClientSubjectName(value: string | null | undefined): string {
   return (value ?? "").toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
 }
 
-function isPartialDentureSubjectNameClient(value: string | null | undefined): boolean {
-  return normalizeClientSubjectName(value) === normalizeClientSubjectName(PARTIAL_DENTURE_SUBJECT_NAME);
+function isPasswordProtectedDemoSubjectNameClient(value: string | null | undefined): boolean {
+  const normalized = normalizeClientSubjectName(value);
+  if (!normalized) return false;
+  return PASSWORD_PROTECTED_DEMO_SUBJECT_NAMES.some(
+    (name) => normalizeClientSubjectName(name) === normalized
+  );
 }
 
-function readPartialDentureDemoUnlockState(): boolean {
+function getDemoSubjectUnlockStorageKey(
+  subjectName: string | null | undefined,
+  subjectId?: number | null
+): string {
+  const normalizedName = normalizeClientSubjectName(subjectName);
+  const normalizedId =
+    typeof subjectId === "number" && Number.isFinite(subjectId) && subjectId > 0
+      ? String(subjectId)
+      : "unknown";
+  return `${DEMO_SUBJECT_UNLOCK_KEY_PREFIX}_${normalizedName}_${normalizedId}`;
+}
+
+function readDemoSubjectUnlockState(
+  subjectName: string | null | undefined,
+  subjectId?: number | null
+): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return window.localStorage.getItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY) === "1";
+    const key = getDemoSubjectUnlockStorageKey(subjectName, subjectId);
+    return window.localStorage.getItem(key) === "1";
   } catch {
     return false;
   }
 }
 
-function writePartialDentureDemoUnlockState(next: boolean) {
+function writeDemoSubjectUnlockState(
+  subjectName: string | null | undefined,
+  next: boolean,
+  subjectId?: number | null
+) {
   if (typeof window === "undefined") return;
   try {
+    const key = getDemoSubjectUnlockStorageKey(subjectName, subjectId);
     if (next) {
-      window.localStorage.setItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY, "1");
+      window.localStorage.setItem(key, "1");
     } else {
-      window.localStorage.removeItem(PARTIAL_DENTURE_DEMO_UNLOCK_KEY);
+      window.localStorage.removeItem(key);
     }
   } catch {
     // ignore storage failures
@@ -215,6 +245,106 @@ function SubjectPracticeRedirect({ subjectId }: { subjectId: number }) {
   );
 }
 
+function DemoSubjectWorkspaceBridge({
+  demoSubjectId,
+  target,
+}: {
+  demoSubjectId: number;
+  target: "questions" | "subject-exam";
+}) {
+  const [, setLocation] = useLocation();
+  const guestId = useMemo(() => getOrCreateGuestId(), []);
+  const resolveWorkspaceQuery = trpc.demo.resolveSubjectWorkspace.useQuery(
+    { demoSubjectId, guestId },
+    {
+      enabled: Number.isFinite(demoSubjectId) && demoSubjectId > 0,
+      refetchOnWindowFocus: false,
+      retry: 2,
+    }
+  );
+
+  useEffect(() => {
+    const mappedSubjectId = resolveWorkspaceQuery.data?.mappedSubjectId;
+    if (!mappedSubjectId) return;
+    const basePath =
+      target === "questions"
+        ? `/questions/${mappedSubjectId}`
+        : `/subject-exam/${mappedSubjectId}`;
+    const params = new URLSearchParams();
+    params.set("demo", "1");
+    params.set("demoSubjectId", String(demoSubjectId));
+    setLocation(`${basePath}?${params.toString()}`);
+  }, [demoSubjectId, resolveWorkspaceQuery.data?.mappedSubjectId, setLocation, target]);
+
+  if (resolveWorkspaceQuery.data?.mappedSubjectId) {
+    return null;
+  }
+
+  const isPending = resolveWorkspaceQuery.isLoading || resolveWorkspaceQuery.data?.pending;
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="text-muted-foreground text-sm">
+        {isPending ? "데모 작업공간 연결 중..." : "개인 데모 과목을 찾지 못했습니다. 다시 시도해주세요."}
+      </div>
+    </div>
+  );
+}
+
+function DemoQuestionWorkspaceBridge({
+  demoQuestionId,
+  target,
+}: {
+  demoQuestionId: number;
+  target: "practice" | "test";
+}) {
+  const [, setLocation] = useLocation();
+  const guestId = useMemo(() => getOrCreateGuestId(), []);
+  const resolveWorkspaceQuery = trpc.demo.resolveQuestionWorkspace.useQuery(
+    { demoQuestionId, guestId },
+    {
+      enabled: Number.isFinite(demoQuestionId) && demoQuestionId > 0,
+      refetchOnWindowFocus: false,
+      retry: 2,
+    }
+  );
+
+  useEffect(() => {
+    const mappedQuestionId = resolveWorkspaceQuery.data?.mappedQuestionId;
+    if (!mappedQuestionId) return;
+
+    const params =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search)
+        : new URLSearchParams();
+    const mappedDemoSubjectId = resolveWorkspaceQuery.data?.mappedDemoSubjectId;
+    if (mappedDemoSubjectId) {
+      params.set("demo", "1");
+      params.set("demoSubjectId", String(mappedDemoSubjectId));
+    }
+    const query = params.toString();
+    const path = `/${target}/${mappedQuestionId}`;
+    setLocation(query ? `${path}?${query}` : path);
+  }, [
+    resolveWorkspaceQuery.data?.mappedQuestionId,
+    resolveWorkspaceQuery.data?.mappedDemoSubjectId,
+    setLocation,
+    target,
+  ]);
+
+  if (resolveWorkspaceQuery.data?.mappedQuestionId) {
+    return null;
+  }
+
+  const isPending = resolveWorkspaceQuery.isLoading || resolveWorkspaceQuery.data?.pending;
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="text-muted-foreground text-sm">
+        {isPending ? "데모 문제 연결 중..." : "개인 데모 문제를 찾지 못했습니다. 다시 시도해주세요."}
+      </div>
+    </div>
+  );
+}
+
 function DemoQuestionPasswordGate({
   questionId,
   children,
@@ -227,7 +357,7 @@ function DemoQuestionPasswordGate({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-muted-foreground text-sm">데모 문제 연결 중...</div>
+        <div className="text-muted-foreground text-sm">문제 접근 권한을 확인하는 중...</div>
       </div>
     );
   }
@@ -235,7 +365,7 @@ function DemoQuestionPasswordGate({
   if (!question || isError || !question.subjectId) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-muted-foreground text-sm">개인 데모 문제를 찾지 못했습니다.</div>
+        <div className="text-muted-foreground text-sm">문제 정보를 확인할 수 없습니다.</div>
       </div>
     );
   }
@@ -268,10 +398,10 @@ function DemoSubjectPasswordGate({
   );
   const verifyPassword = trpc.demo.verifySubjectPassword.useMutation({
     onSuccess: () => {
-      writePartialDentureDemoUnlockState(true);
+      writeDemoSubjectUnlockState(subjectQuery.data?.name, true, Number(subjectId));
       setIsUnlocked(true);
       setPassword("");
-      toast.success("국소의치학 접근이 열렸습니다.");
+      toast.success(`${subjectQuery.data?.name ?? "과목"} 접근이 열렸습니다.`);
     },
     onError: (error) => {
       toast.error(error.message || "비밀번호를 다시 확인해주세요.");
@@ -279,17 +409,19 @@ function DemoSubjectPasswordGate({
   });
 
   useEffect(() => {
-    setIsUnlocked(readPartialDentureDemoUnlockState());
     setStorageReady(true);
   }, []);
 
-  const requiresPassword = isPartialDentureSubjectNameClient(subjectQuery.data?.name);
+  const subjectName = subjectQuery.data?.name;
+  const requiresPassword = isPasswordProtectedDemoSubjectNameClient(subjectName);
 
   useEffect(() => {
     if (!requiresPassword) {
       setIsUnlocked(true);
+      return;
     }
-  }, [requiresPassword]);
+    setIsUnlocked(readDemoSubjectUnlockState(subjectName, Number(subjectId)));
+  }, [requiresPassword, subjectName, subjectId]);
 
   if (!hasValidSubjectId) return <>{children}</>;
 
@@ -337,7 +469,7 @@ function DemoSubjectPasswordGate({
             <LockKeyhole className="h-5 w-5 text-foreground" />
           </div>
           <div className="space-y-1">
-            <CardTitle className="text-xl">국소의치학 데모 접근</CardTitle>
+            <CardTitle className="text-xl">{subjectName ?? "보호 과목"} 접근</CardTitle>
             <CardDescription>
               이 과목은 비밀번호 확인 후 열람할 수 있습니다.
             </CardDescription>
@@ -345,9 +477,9 @@ function DemoSubjectPasswordGate({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="partial-denture-demo-password">비밀번호</Label>
+            <Label htmlFor="protected-demo-subject-password">비밀번호</Label>
             <Input
-              id="partial-denture-demo-password"
+              id="protected-demo-subject-password"
               type="password"
               value={password}
               placeholder="비밀번호 입력"
@@ -376,8 +508,10 @@ function DemoSubjectPasswordGate({
 
 function DemoMappedRoutePasswordGate({
   children,
+  subjectId,
 }: {
   children: React.ReactNode;
+  subjectId?: number;
 }) {
   const [location] = useLocation();
   const demoSubjectId = useMemo(() => {
@@ -388,8 +522,14 @@ function DemoMappedRoutePasswordGate({
     return Number.isFinite(raw) && raw > 0 ? raw : null;
   }, [location]);
 
-  if (!demoSubjectId) return <>{children}</>;
-  return <DemoSubjectPasswordGate subjectId={demoSubjectId}>{children}</DemoSubjectPasswordGate>;
+  const directSubjectId =
+    typeof subjectId === "number" && Number.isFinite(subjectId) && subjectId > 0
+      ? subjectId
+      : null;
+  const protectedSubjectId = demoSubjectId ?? directSubjectId;
+
+  if (!protectedSubjectId) return <>{children}</>;
+  return <DemoSubjectPasswordGate subjectId={protectedSubjectId}>{children}</DemoSubjectPasswordGate>;
 }
 
 function Router({
@@ -432,7 +572,7 @@ function Router({
       <Route path={"/questions/:subjectId"}>
         {(params) => (
           <Layout>
-            <DemoMappedRoutePasswordGate>
+            <DemoMappedRoutePasswordGate subjectId={parseInt(params.subjectId)}>
               <Questions subjectId={parseInt(params.subjectId)} />
             </DemoMappedRoutePasswordGate>
           </Layout>
@@ -441,7 +581,7 @@ function Router({
       <Route path={"/subject-practice/:subjectId"}>
         {(params) => (
           <Layout>
-            <DemoMappedRoutePasswordGate>
+            <DemoMappedRoutePasswordGate subjectId={parseInt(params.subjectId)}>
               <SubjectPracticeRedirect subjectId={parseInt(params.subjectId)} />
             </DemoMappedRoutePasswordGate>
           </Layout>
@@ -450,7 +590,7 @@ function Router({
       <Route path={"/subject-exam/:subjectId"}>
         {(params) => (
           <Layout>
-            <DemoMappedRoutePasswordGate>
+            <DemoMappedRoutePasswordGate subjectId={parseInt(params.subjectId)}>
               <SubjectExam subjectId={parseInt(params.subjectId)} />
             </DemoMappedRoutePasswordGate>
           </Layout>
@@ -459,18 +599,18 @@ function Router({
       <Route path={"/practice/:questionId"}>
         {(params) => (
           <Layout>
-            <DemoMappedRoutePasswordGate>
+            <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
               <Practice questionId={parseInt(params.questionId)} />
-            </DemoMappedRoutePasswordGate>
+            </DemoQuestionPasswordGate>
           </Layout>
         )}
       </Route>
       <Route path={"/test/:questionId"}>
         {(params) => (
           <Layout>
-            <DemoMappedRoutePasswordGate>
+            <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
               <Test questionId={parseInt(params.questionId)} />
-            </DemoMappedRoutePasswordGate>
+            </DemoQuestionPasswordGate>
           </Layout>
         )}
       </Route>
@@ -511,7 +651,10 @@ function Router({
           canAccessDemo ? (
             <Layout>
               <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
-                <Practice questionId={parseInt(params.questionId)} isDemo />
+                <DemoQuestionWorkspaceBridge
+                  demoQuestionId={parseInt(params.questionId)}
+                  target="practice"
+                />
               </DemoQuestionPasswordGate>
             </Layout>
           ) : (
@@ -524,7 +667,10 @@ function Router({
           canAccessDemo ? (
             <Layout>
               <DemoQuestionPasswordGate questionId={parseInt(params.questionId)}>
-                <Test questionId={parseInt(params.questionId)} isDemo />
+                <DemoQuestionWorkspaceBridge
+                  demoQuestionId={parseInt(params.questionId)}
+                  target="test"
+                />
               </DemoQuestionPasswordGate>
             </Layout>
           ) : (
@@ -537,7 +683,10 @@ function Router({
           canAccessDemo ? (
             <Layout>
               <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
-                <SubjectExam subjectId={parseInt(params.subjectId)} isDemo />
+                <DemoSubjectWorkspaceBridge
+                  demoSubjectId={parseInt(params.subjectId)}
+                  target="subject-exam"
+                />
               </DemoSubjectPasswordGate>
             </Layout>
           ) : (
@@ -556,10 +705,15 @@ function Router({
           canAccessDemo ? (
             <Layout>
               <DemoSubjectPasswordGate subjectId={parseInt(params.subjectId)}>
-                {isAdmin ? (
+                {isAdmin &&
+                typeof window !== "undefined" &&
+                new URLSearchParams(window.location.search).get("workspace") === "1" ? (
                   <Questions subjectId={parseInt(params.subjectId)} demoWorkspace />
                 ) : (
-                  <Questions subjectId={parseInt(params.subjectId)} isDemo />
+                  <DemoSubjectWorkspaceBridge
+                    demoSubjectId={parseInt(params.subjectId)}
+                    target="questions"
+                  />
                 )}
               </DemoSubjectPasswordGate>
             </Layout>
@@ -828,8 +982,7 @@ function AppContent() {
 
 function App() {
   // 접속 비밀번호 게이트 활성화 상태
-  const TEMP_DISABLE_SITE_GATE =
-    import.meta.env.DEV || import.meta.env.VITE_DISABLE_SITE_GATE === "true";
+  const TEMP_DISABLE_SITE_GATE = true;
   const { granted, grant } = useSiteAccess();
   const globalFooterNotice = (
     <p className="pointer-events-none fixed bottom-1.5 left-1/2 z-50 -translate-x-1/2 select-none text-[10px] text-muted-foreground/45">

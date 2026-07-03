@@ -238,6 +238,46 @@ export async function findLatestSubjectByName(
   return rows[0];
 }
 
+export async function findLatestSubjectByQuestionText(
+  questionText: string,
+  options?: { isDemo?: number; subjectNames?: string[] }
+) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const normalizedQuestion = (questionText ?? "").trim().toLowerCase();
+  if (!normalizedQuestion) return undefined;
+
+  const normalizedNames = (options?.subjectNames ?? [])
+    .map((name) => (name ?? "").trim().toLowerCase())
+    .filter(Boolean);
+
+  const whereClauses: any[] = [
+    sql`LOWER(TRIM(${questions.question})) = ${normalizedQuestion}`,
+  ];
+
+  if (options?.isDemo !== undefined) {
+    whereClauses.push(eq(subjects.isDemo, options.isDemo === 1 ? 1 : 0));
+  }
+
+  if (normalizedNames.length > 0) {
+    const nameClauses = normalizedNames.map(
+      (name) => sql`LOWER(TRIM(${subjects.name})) = ${name}`
+    );
+    whereClauses.push(or(...nameClauses)!);
+  }
+
+  const rows = await db
+    .select({ subject: subjects })
+    .from(questions)
+    .innerJoin(subjects, eq(questions.subjectId, subjects.id))
+    .where(and(...whereClauses))
+    .orderBy(desc(subjects.updatedAt), desc(subjects.id), desc(questions.updatedAt), desc(questions.id))
+    .limit(1);
+
+  return rows[0]?.subject;
+}
+
 export async function getSubjectById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
@@ -589,6 +629,20 @@ export async function deleteTestSessionsByIdsForUser(ids: number[], userId: numb
   if (ids.length === 0) return { affectedRows: 0 };
   return db
     .delete(testSessions)
+    .where(and(inArray(testSessions.id, ids), eq(testSessions.userId, userId)));
+}
+
+export async function updateTestSessionsByIdsForUser(
+  ids: number[],
+  userId: number,
+  values: Partial<Pick<InsertTestSession, "isCorrect" | "similarityScore" | "mistakeHighlights" | "llmFeedback">>
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (ids.length === 0) return { affectedRows: 0 };
+  return db
+    .update(testSessions)
+    .set(values)
     .where(and(inArray(testSessions.id, ids), eq(testSessions.userId, userId)));
 }
 

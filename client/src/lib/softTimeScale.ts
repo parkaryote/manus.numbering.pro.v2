@@ -99,12 +99,42 @@ export function estimateElapsedMinutesFromSoftX(
 export function formatSoftRelativeTick(
   xValue: number,
   nodes: SoftTimeScaleNode[],
-  firstTs: number
+  firstTs: number,
+  options?: {
+    compact?: boolean;
+    minuteStep?: number;
+    minuteSnapTolerance?: number;
+    hourStep?: number;
+    hourSnapToleranceMinutes?: number;
+    dayStep?: number;
+  }
 ): string {
   const approxElapsed = estimateElapsedMinutesFromSoftX(xValue, nodes);
   let rounded = Math.max(0, roundElapsedForLabel(approxElapsed));
   if (rounded === 0 && approxElapsed > 0.25) {
     rounded = 1;
+  }
+
+  if (options?.compact) {
+    if (rounded < 60) {
+      const minuteStep = Math.max(5, options.minuteStep ?? 10);
+      if (rounded % minuteStep !== 0) return "";
+      const minuteSnapTolerance = Math.max(0.25, options.minuteSnapTolerance ?? 0.8);
+      if (Math.abs(approxElapsed - rounded) > minuteSnapTolerance) return "";
+    } else if (rounded < 24 * 60) {
+      const hourStep = Math.max(1, options.hourStep ?? 1);
+      const hourUnit = hourStep * 60;
+      if (rounded % hourUnit !== 0) return "";
+      const hourSnapToleranceMinutes = Math.max(
+        2,
+        options.hourSnapToleranceMinutes ?? Math.max(6, hourStep * 8)
+      );
+      if (Math.abs(approxElapsed - rounded) > hourSnapToleranceMinutes) return "";
+    } else {
+      const dayStep = Math.max(1, options.dayStep ?? 1);
+      const dayUnit = dayStep * 24 * 60;
+      if (rounded % dayUnit !== 0) return "";
+    }
   }
 
   if (rounded < 60) return `+${rounded}분`;
@@ -113,6 +143,69 @@ export function formatSoftRelativeTick(
   const days = Math.round(rounded / (24 * 60));
   if (days < 30) return `+${days}일`;
   return format(new Date(firstTs + rounded * 60000), "M/d", { locale: ko });
+}
+
+function dedupeSortedTicks(values: number[]): number[] {
+  const sorted = [...values].sort((a, b) => a - b);
+  const output: number[] = [];
+  for (const value of sorted) {
+    if (output.length === 0 || Math.abs(output[output.length - 1] - value) > 0.001) {
+      output.push(value);
+    }
+  }
+  return output;
+}
+
+function downsampleTicks(values: number[], maxTicks: number): number[] {
+  if (values.length <= maxTicks) return values;
+  if (maxTicks <= 2) return [values[0], values[values.length - 1]];
+
+  const output: number[] = [values[0]];
+  const middleCount = maxTicks - 2;
+  const totalMiddle = values.length - 2;
+  for (let i = 1; i <= middleCount; i += 1) {
+    const index = Math.round((i * totalMiddle) / (middleCount + 1));
+    output.push(values[Math.min(values.length - 2, Math.max(1, index))]);
+  }
+  output.push(values[values.length - 1]);
+  return dedupeSortedTicks(output);
+}
+
+export function buildSoftXAxisTicks(
+  nodes: SoftTimeScaleNode[],
+  firstTs: number,
+  options?: {
+    maxTicks?: number;
+    compactLabels?: boolean;
+  }
+): number[] {
+  if (nodes.length === 0) return [];
+
+  const maxTicks = Math.max(4, options?.maxTicks ?? 8);
+  const compactLabels = options?.compactLabels ?? true;
+  const compactOptions = compactLabels ? { compact: true } : undefined;
+
+  const anchors: number[] = [];
+  const seenLabel = new Set<string>();
+
+  for (let i = 0; i < nodes.length; i += 1) {
+    const node = nodes[i];
+    const isEdge = i === 0 || i === nodes.length - 1;
+    const label = formatSoftRelativeTick(node.x, nodes, firstTs, compactOptions);
+
+    if (isEdge) {
+      anchors.push(node.x);
+      if (label) seenLabel.add(label);
+      continue;
+    }
+
+    if (!label) continue;
+    if (seenLabel.has(label)) continue;
+    seenLabel.add(label);
+    anchors.push(node.x);
+  }
+
+  return downsampleTicks(dedupeSortedTicks(anchors), maxTicks);
 }
 
 export function buildTrendScores(

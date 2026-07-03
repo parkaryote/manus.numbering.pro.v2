@@ -115,12 +115,15 @@ function getUrgencyMultiplier(hoursUntilExam: number | null): number {
   return 1.0;
 }
 
-function getPracticeOnlyCap(hoursUntilExam: number | null): number {
-  if (hoursUntilExam === null) return 35;
+export function getPracticeOnlyCap(hoursUntilExam: number | null, practiceCount: number): number {
+  const volumeCapLift = Math.round(30 * (1 - Math.exp(-Math.max(0, practiceCount) * 0.12)));
+  if (hoursUntilExam === null) {
+    return clamp(35 + volumeCapLift, 35, 68);
+  }
   if (hoursUntilExam <= 12) return 68;
   if (hoursUntilExam <= 24) return 62;
   if (hoursUntilExam <= 72) return 50;
-  return 35;
+  return clamp(35 + Math.round(volumeCapLift * 0.75), 35, 58);
 }
 
 function estimateColdStartScore(
@@ -415,6 +418,189 @@ function getSingleTestDisplayCap(input: {
   }
 
   return clamp(cap, 82, 99);
+}
+
+function buildPreviousTestSignal(
+  test: TestSignal,
+  latestTest: NonNullable<TestSignal["recentTestHistory"]>[number],
+  remainingHistory: NonNullable<TestSignal["recentTestHistory"]>
+): TestSignal {
+  const prevTestCount = Math.max(0, test.testCount - 1);
+  const prevCorrectCount = Math.max(0, test.correctCount - (latestTest.isCorrect ? 1 : 0));
+  const prevWrongCount = Math.max(0, test.wrongCount - (latestTest.isCorrect ? 0 : 1));
+  const prevAverageSimilarity = remainingHistory.length > 0
+    ? remainingHistory.reduce((sum, item) => sum + item.similarityScore, 0) / remainingHistory.length
+    : 0;
+  const prevMostRecent = remainingHistory[0]?.completedAt ?? null;
+
+  return {
+    ...test,
+    testCount: prevTestCount,
+    correctCount: prevCorrectCount,
+    wrongCount: prevWrongCount,
+    averageSimilarityScore: prevAverageSimilarity,
+    mostRecentTestAt: prevMostRecent,
+    recentCorrectStreak: computeRecentPassStreak(remainingHistory),
+    mostRecentTestWasPoor: remainingHistory[0]
+      ? (remainingHistory[0].similarityScore ?? 0) < 50
+      : false,
+    recentTestHistory: remainingHistory,
+  };
+}
+
+function getLatestTestSpacingHours(input: {
+  latestTest: NonNullable<TestSignal["recentTestHistory"]>[number];
+  remainingHistory: NonNullable<TestSignal["recentTestHistory"]>;
+  practice: PracticeSignal;
+}): number {
+  const previousTest = input.remainingHistory[0];
+  if (previousTest) {
+    return Math.max(
+      0,
+      (input.latestTest.completedAt.getTime() - previousTest.completedAt.getTime()) /
+        (1000 * 60 * 60)
+    );
+  }
+
+  if (input.practice.mostRecentPracticeAt) {
+    return Math.max(
+      0,
+      (input.latestTest.completedAt.getTime() - input.practice.mostRecentPracticeAt.getTime()) /
+        (1000 * 60 * 60)
+    );
+  }
+
+  return Number.POSITIVE_INFINITY;
+}
+
+function estimateCorrectTestAnchorScore(input: {
+  currentScore: number;
+  similarityScore: number;
+  recallTime: number;
+  hoursUntilExam: number | null;
+  gapHours?: number;
+  testMode?: "single" | "mock";
+}): number {
+  const currentScore = clamp(Math.round(input.currentScore), 0, 100);
+  const similarityScore = clamp(Math.round(input.similarityScore), 0, 100);
+  const recallTime = Math.max(0, input.recallTime);
+  const hoursUntilExam = input.hoursUntilExam ?? null;
+  const gapHours = input.gapHours ?? null;
+
+  let anchor = 56;
+  if (similarityScore >= 100) anchor = 95;
+  else if (similarityScore >= 99) anchor = 93;
+  else if (similarityScore >= 97) anchor = 89;
+  else if (similarityScore >= 95) anchor = 85;
+  else if (similarityScore >= 92) anchor = 79;
+  else if (similarityScore >= 90) anchor = 74;
+  else if (similarityScore >= 85) anchor = 66;
+  else if (similarityScore >= 75) anchor = 58;
+
+  if (recallTime > 0) {
+    if (recallTime <= 10) anchor += 3;
+    else if (recallTime <= 25) anchor += 2;
+    else if (recallTime <= 45) anchor += 1;
+    else if (recallTime >= 90) anchor -= 2;
+  }
+
+  if (hoursUntilExam !== null && hoursUntilExam <= 24 && similarityScore >= 90) {
+    anchor += 1;
+  }
+  if (gapHours !== null && Number.isFinite(gapHours)) {
+    if (gapHours >= 8) anchor += 1;
+    if (gapHours >= 24) anchor += 1;
+  }
+  if (input.testMode === "mock" && similarityScore >= 90) {
+    anchor += 2;
+  }
+
+  // 이미 높은 점수라면 같은 성공을 다시 해도 살짝만 확인 보정한다.
+  if (currentScore >= anchor) {
+    const confirmationGain =
+      similarityScore >= 99
+        ? (currentScore >= 96 ? 1 : 2)
+        : similarityScore >= 95
+          ? 1
+          : 0;
+    return clamp(currentScore + confirmationGain, currentScore, 99);
+  }
+
+  return clamp(anchor, currentScore, similarityScore >= 100 ? 99 : 97);
+}
+
+function getRecallAnchorAgeDecay(
+  ageHours: number,
+  hoursUntilExam: number | null,
+  difficulty?: "easy" | "medium" | "hard" | null
+): number {
+  if (!Number.isFinite(ageHours) || ageHours <= 1) return 0;
+
+  let decay = 0;
+  if (ageHours <= 3) decay = 2;
+  else if (ageHours <= 8) decay = 8;
+  else if (ageHours <= 16) decay = 18;
+  else if (ageHours <= 24) decay = 24;
+  else if (ageHours <= 36) decay = 30;
+  else if (ageHours <= 48) decay = 38;
+  else if (ageHours <= 72) decay = 46;
+  else decay = 54;
+
+  if (difficulty === "hard") decay += 3;
+  else if (difficulty === "easy") decay -= 2;
+  if (hoursUntilExam !== null && hoursUntilExam <= 24 && ageHours >= 8) {
+    decay += 2;
+  }
+
+  return clamp(decay, 0, 65);
+}
+
+function getLatestTestGainCap(input: {
+  previousScore: number;
+  latestSimilarity: number;
+  latestPassed: boolean;
+  recallTime?: number;
+  gapHours: number;
+  hasPriorEvidence: boolean;
+  testMode?: "single" | "mock";
+  hoursUntilExam: number | null;
+  difficulty?: "easy" | "medium" | "hard" | null;
+}): number {
+  const {
+    previousScore,
+    latestSimilarity,
+    latestPassed,
+    recallTime,
+    gapHours,
+    hasPriorEvidence,
+    testMode,
+    hoursUntilExam,
+    difficulty,
+  } = input;
+
+  if (!latestPassed) return 0;
+
+  const anchoredScore = estimateCorrectTestAnchorScore({
+    currentScore: previousScore,
+    similarityScore: latestSimilarity,
+    recallTime: recallTime ?? 0,
+    hoursUntilExam,
+    gapHours,
+    testMode,
+  });
+  let maxGain = Math.max(0, anchoredScore - previousScore);
+
+  // 긴 공백 후에도 맞힌 경우는 "유지"가 증명된 것이므로 조금 더 확신한다.
+  if (gapHours >= 8) maxGain += 2;
+  if (gapHours >= 20) maxGain += 2;
+  if (gapHours >= 48) maxGain += 1;
+  if (testMode === "mock") maxGain += 3;
+  if (difficulty === "hard" && gapHours >= 8) maxGain += 1;
+  if (!hasPriorEvidence && latestSimilarity >= 99) {
+    maxGain = Math.max(maxGain, anchoredScore - previousScore);
+  }
+
+  return clamp(Math.round(maxGain), 0, 100);
 }
 
 // ─── Main Scoring ──────────────────────────────────────────────────
@@ -758,7 +944,7 @@ function computeExamConfidenceInternal(
 
   let displayCap = 100;
   if (test.testCount === 0) {
-    displayCap = getPracticeOnlyCap(hoursUntilExam);
+    displayCap = getPracticeOnlyCap(hoursUntilExam, practice.practiceCount);
   } else {
     const hoursSinceLastTest = hoursSince(test.mostRecentTestAt, now);
     if (hoursUntilExam !== null && hoursUntilExam <= 24 && hoursSinceLastTest > 12) {
@@ -794,9 +980,15 @@ function computeExamConfidenceInternal(
 
   // 연습 완주 직후(최근 3시간) 80점 미만 구간에서는
   // 같은 신호에서 practice 1회 적은 상태와 비교해 증가폭을 안정화한다.
+  const practiceIsLatestSignal =
+    !test.mostRecentTestAt ||
+    (!!practice.mostRecentPracticeAt &&
+      practice.mostRecentPracticeAt.getTime() >= test.mostRecentTestAt.getTime());
+
   if (
     applyPracticeProgressGuard &&
     practice.practiceCount > 0 &&
+    practiceIsLatestSignal &&
     displayScore < CONFIDENCE_THRESHOLDS.green &&
     hoursSince(practice.mostRecentPracticeAt, now) <= 3
   ) {
@@ -846,30 +1038,11 @@ function computeExamConfidenceInternal(
     );
 
     const remainingHistory = sortedHistory.slice(1);
-    const prevTestCount = Math.max(0, test.testCount - 1);
-    const prevCorrectCount = Math.max(0, test.correctCount - (latestTest.isCorrect ? 1 : 0));
-    const prevWrongCount = Math.max(0, test.wrongCount - (latestTest.isCorrect ? 0 : 1));
-    const prevAverageSimilarity = remainingHistory.length > 0
-      ? remainingHistory.reduce((sum, item) => sum + item.similarityScore, 0) / remainingHistory.length
-      : 0;
-    const prevMostRecent = remainingHistory[0]?.completedAt ?? null;
 
     const previousResult = computeExamConfidenceInternal(
       {
         ...input,
-        test: {
-          ...test,
-          testCount: prevTestCount,
-          correctCount: prevCorrectCount,
-          wrongCount: prevWrongCount,
-          averageSimilarityScore: prevAverageSimilarity,
-          mostRecentTestAt: prevMostRecent,
-          recentCorrectStreak: computeRecentPassStreak(remainingHistory),
-          mostRecentTestWasPoor: remainingHistory[0]
-            ? (remainingHistory[0].similarityScore ?? 0) < 50
-            : false,
-          recentTestHistory: remainingHistory,
-        },
+        test: buildPreviousTestSignal(test, latestTest, remainingHistory),
       },
       false
     );
@@ -907,6 +1080,78 @@ function computeExamConfidenceInternal(
     }
   }
 
+  // 최신 시험 1회 상승폭 가드:
+  // 프론트 예상치와 서버 최종값이 크게 갈라지지 않도록,
+  // "최신 시험을 제외한 직전 안정도"에서 합리적인 폭만 상승시킨다.
+  if (
+    applyPracticeProgressGuard &&
+    sortedHistory.length > 0 &&
+    test.testCount > 0
+  ) {
+    const latestTest = sortedHistory[0];
+    const latestSimilarity = clamp(Math.round(latestTest.similarityScore), 0, 100);
+    const latestPassed = !!latestTest.isCorrect || latestSimilarity >= 88;
+    const remainingHistory = sortedHistory.slice(1);
+    const previousTestSignal = buildPreviousTestSignal(test, latestTest, remainingHistory);
+    const previousResult = computeExamConfidenceInternal(
+      {
+        ...input,
+        test: previousTestSignal,
+        now,
+      },
+      true
+    );
+
+    const currentGain = displayScore - previousResult.displayScore;
+    if (currentGain > 0) {
+      const gapHours = getLatestTestSpacingHours({
+        latestTest,
+        remainingHistory,
+        practice,
+      });
+      const hasPriorEvidence =
+        previousResult.isColdStart === false ||
+        practice.practiceCount > 0 ||
+        remainingHistory.length > 0;
+      const maxGain = getLatestTestGainCap({
+        previousScore: previousResult.displayScore,
+        latestSimilarity,
+        latestPassed,
+        recallTime: test.averageRecallTime,
+        gapHours,
+        hasPriorEvidence,
+        testMode: latestTest.testMode,
+        hoursUntilExam,
+        difficulty: questionDifficulty,
+      });
+      const guardedScore = Math.min(displayCap, previousResult.displayScore + maxGain);
+
+      if (displayScore > guardedScore) {
+        displayScore = guardedScore;
+      }
+
+      if (latestTest.isCorrect) {
+        const anchorScore = estimateCorrectTestAnchorScore({
+          currentScore: previousResult.displayScore,
+          similarityScore: latestSimilarity,
+          recallTime: test.averageRecallTime ?? 0,
+          hoursUntilExam,
+          gapHours,
+          testMode: latestTest.testMode,
+        });
+        const ageDecay = getRecallAnchorAgeDecay(
+          hoursSince(latestTest.completedAt, now),
+          hoursUntilExam,
+          questionDifficulty
+        );
+        const anchorFloor = clamp(anchorScore - ageDecay, 0, displayCap);
+        if (displayScore < anchorFloor) {
+          displayScore = anchorFloor;
+        }
+      }
+    }
+  }
+
   // 최신 시험이 "완전 정답(100%)"이면 직전 대비 안정도가 내려가지 않도록 보장한다.
   if (
     applyPracticeProgressGuard &&
@@ -917,32 +1162,13 @@ function computeExamConfidenceInternal(
 
     if (latestPerfect) {
       const remainingHistory = sortedHistory.slice(1);
-      const prevTestCount = Math.max(0, test.testCount - 1);
-      const prevCorrectCount = Math.max(0, test.correctCount - 1);
-      const prevWrongCount = Math.max(0, test.wrongCount);
-      const prevAverageSimilarity = remainingHistory.length > 0
-        ? remainingHistory.reduce((sum, item) => sum + item.similarityScore, 0) / remainingHistory.length
-        : 0;
-      const prevMostRecent = remainingHistory[0]?.completedAt ?? null;
 
       const previousResult = computeExamConfidenceInternal(
         {
           ...input,
-          test: {
-            ...test,
-            testCount: prevTestCount,
-            correctCount: prevCorrectCount,
-            wrongCount: prevWrongCount,
-            averageSimilarityScore: prevAverageSimilarity,
-            mostRecentTestAt: prevMostRecent,
-            recentCorrectStreak: computeRecentPassStreak(remainingHistory),
-            mostRecentTestWasPoor: remainingHistory[0]
-              ? (remainingHistory[0].similarityScore ?? 0) < 50
-              : false,
-            recentTestHistory: remainingHistory,
-          },
+          test: buildPreviousTestSignal(test, latestTest, remainingHistory),
         },
-        false
+        true
       );
 
       if (displayScore < previousResult.displayScore) {
@@ -1183,30 +1409,36 @@ export function estimateTestConfidenceDelta(input: TestDeltaEstimateInput): numb
   const hoursUntilExam = input.hoursUntilExam ?? null;
 
   if (input.isCorrect) {
-    let gain = similarityScore >= 95
-      ? 9
-      : similarityScore >= 85
-        ? 8
-        : similarityScore >= 70
-          ? 7
-          : 6;
+    const anchoredScore = estimateCorrectTestAnchorScore({
+      currentScore,
+      similarityScore,
+      recallTime,
+      hoursUntilExam,
+    });
+    return clamp(anchoredScore - currentScore, 0, 100 - currentScore);
+  }
+
+  // 완전 정답은 아니어도 90%대 백지복습은 "부분 회상 성공"이다.
+  // 오답 경로로 감점만 주면 11/12 정답 같은 결과가 학습 신호와 어긋난다.
+  if (similarityScore >= 88) {
+    let partialAnchor = 58;
+    if (similarityScore >= 99) partialAnchor = 86;
+    else if (similarityScore >= 97) partialAnchor = 80;
+    else if (similarityScore >= 95) partialAnchor = 74;
+    else if (similarityScore >= 92) partialAnchor = 66;
+    else if (similarityScore >= 90) partialAnchor = 62;
 
     if (recallTime > 0) {
-      if (recallTime <= 10) gain += 2;
-      else if (recallTime <= 25) gain += 1;
-      else if (recallTime >= 60) gain -= 1;
+      if (recallTime <= 20) partialAnchor += 2;
+      else if (recallTime >= 90) partialAnchor -= 2;
     }
+    if (hoursUntilExam !== null && hoursUntilExam <= 24) partialAnchor += 1;
 
-    if (hoursUntilExam !== null && hoursUntilExam <= 24) gain += 1;
-    if (currentScore >= 75) gain -= 2;
-    if (currentScore >= 88) gain -= 1;
-
-    // 최신 시험이 100%가 아니면 fallback 추정치도 100점 도달을 만들지 않는다.
-    if (similarityScore < 100) {
-      gain = Math.min(gain, Math.max(0, 99 - currentScore));
+    const targetScore = clamp(partialAnchor, 0, 92);
+    if (targetScore >= currentScore) {
+      return clamp(targetScore - currentScore, 0, 100 - currentScore);
     }
-
-    return clamp(gain, 0, 12);
+    return -clamp(currentScore - targetScore, 0, 3);
   }
 
   let loss = similarityScore >= 85

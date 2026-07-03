@@ -31,8 +31,9 @@ export default function Statistics({ demoPreview = false }: { demoPreview?: bool
   const { data: subjectAnalysis, isLoading: analysisLoading } = trpc.statistics.getSubjectAnalysis.useQuery();
   const isAdmin = me?.role === "admin";
   const [uxDays, setUxDays] = useState(14);
+  const [excludeOwnTraffic, setExcludeOwnTraffic] = useState(true);
   const { data: uxOverview, isLoading: uxLoading } = trpc.telemetry.getOverview.useQuery(
-    { days: uxDays },
+    { days: uxDays, excludeOwn: excludeOwnTraffic },
     { enabled: isAdmin, refetchOnWindowFocus: false }
   );
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -68,6 +69,15 @@ export default function Statistics({ demoPreview = false }: { demoPreview?: bool
     const firstUser = uxOverview.topUsers?.[0];
     if (firstUser?.userId) {
       setSelectedUserId(firstUser.userId);
+    }
+  }, [selectedUserId, uxOverview]);
+
+  useEffect(() => {
+    if (!selectedUserId || !uxOverview) return;
+    const stillVisible = uxOverview.topUsers.some((user) => user.userId === selectedUserId);
+    if (!stillVisible) {
+      const fallbackUserId = uxOverview.topUsers?.[0]?.userId ?? null;
+      setSelectedUserId(fallbackUserId);
     }
   }, [selectedUserId, uxOverview]);
 
@@ -398,6 +408,13 @@ export default function Statistics({ demoPreview = false }: { demoPreview?: bool
                     <CardDescription>체류시간, 상호작용, 경로별 사용성 데이터를 기반으로 개선 포인트를 확인합니다.</CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant={excludeOwnTraffic ? "default" : "outline"}
+                      onClick={() => setExcludeOwnTraffic((prev) => !prev)}
+                    >
+                      {excludeOwnTraffic ? "내 접속 제외" : "내 접속 포함"}
+                    </Button>
                     {[7, 14, 30].map((days) => (
                       <Button
                         key={days}

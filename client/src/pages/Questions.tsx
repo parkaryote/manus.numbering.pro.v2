@@ -555,10 +555,10 @@ function parseBulkTableData(body: string): TableData | null {
 
 function parseBulkImportInput(
   raw: string,
-  options?: { autoNumberingEnabled?: boolean; preferredMode?: "text" | "blank" }
+  options?: { autoNumberingEnabled?: boolean; allowTableParsing?: boolean }
 ): BulkParseResult {
   const autoNumberingEnabled = options?.autoNumberingEnabled !== false;
-  const preferredMode = options?.preferredMode ?? "text";
+  const allowTableParsing = options?.allowTableParsing === true;
   const blocks = splitBulkBlocks(raw);
   const items: ParsedBulkQuestion[] = [];
   const errors: string[] = [];
@@ -566,20 +566,6 @@ function parseBulkImportInput(
   for (let index = 0; index < blocks.length; index++) {
     const block = blocks[index];
     const blockOrder = index + 1;
-
-    if (preferredMode === "blank") {
-      const parsedBlank = parseInlineBlankQuestionBlock(block);
-      if (parsedBlank.error) {
-        errors.push(`${blockOrder}번 블록: ${parsedBlank.error}`);
-        continue;
-      }
-      items.push({
-        question: parsedBlank.question,
-        answer: parsedBlank.answer,
-        autoNumbering: 0,
-      });
-      continue;
-    }
 
     const lines = block.split("\n");
     const firstLineIndex = lines.findIndex((line) => line.trim().length > 0);
@@ -593,13 +579,27 @@ function parseBulkImportInput(
       continue;
     }
     if (!answerBody) {
+      const hasInlineBlankToken = /\[[^\]\n\r]+\]/.test(question);
+      if (hasInlineBlankToken) {
+        const parsedInlineBlank = parseInlineBlankQuestionBlock(question);
+        if (parsedInlineBlank.error) {
+          errors.push(`${blockOrder}번 블록 (${question}): ${parsedInlineBlank.error}`);
+          continue;
+        }
+        items.push({
+          question: parsedInlineBlank.question,
+          answer: parsedInlineBlank.answer,
+          autoNumbering: 0,
+        });
+        continue;
+      }
       errors.push(`${blockOrder}번 블록 (${question}): 답안/표 내용이 없습니다.`);
       continue;
     }
 
     const blankCount = (question.match(/\[\]/g) ?? []).length;
     const blankAnswerLines = normalizeBlankAnswerLines(answerBody);
-    const shouldParseAsBlank = preferredMode === "blank" || blankCount > 0;
+    const shouldParseAsBlank = blankCount > 0;
 
     if (shouldParseAsBlank) {
       if (blankCount <= 0) {
@@ -620,20 +620,22 @@ function parseBulkImportInput(
       continue;
     }
 
-    const parsedTable = parseBulkTableData(answerBody);
-    if (parsedTable) {
-      const blankCount = parsedTable.cells.flat().filter((cell) => cell.isBlank && !cell.isMerged).length;
-      if (blankCount === 0) {
-        errors.push(`${blockOrder}번 블록 (${question}): 표 빈칸이 0개라 생성할 수 없습니다.`);
+    if (allowTableParsing) {
+      const parsedTable = parseBulkTableData(answerBody);
+      if (parsedTable) {
+        const blankCount = parsedTable.cells.flat().filter((cell) => cell.isBlank && !cell.isMerged).length;
+        if (blankCount === 0) {
+          errors.push(`${blockOrder}번 블록 (${question}): 표 빈칸이 0개라 생성할 수 없습니다.`);
+          continue;
+        }
+        items.push({
+          question,
+          answer: "",
+          autoNumbering: 0,
+          tableData: parsedTable,
+        });
         continue;
       }
-      items.push({
-        question,
-        answer: "",
-        autoNumbering: 0,
-        tableData: parsedTable,
-      });
-      continue;
     }
 
     items.push({
@@ -1087,6 +1089,9 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     if (typeof window === "undefined") return new URLSearchParams();
     return new URLSearchParams(window.location.search);
   }, [location]);
+  const shouldOpenCreateFromQuery =
+    queryParams.get("create") === "1" || queryParams.get("create") === "true";
+  const createTabFromQuery = queryParams.get("tab");
   const isDemoLinkedMode =
     !isReadOnlyDemo && !isDemoWorkspace && queryParams.get("demo") === "1";
   const demoLinkedSubjectIdRaw = Number.parseInt(queryParams.get("demoSubjectId") || "", 10);
@@ -1094,6 +1099,24 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
     Number.isFinite(demoLinkedSubjectIdRaw) && demoLinkedSubjectIdRaw > 0
       ? demoLinkedSubjectIdRaw
       : null;
+
+  useEffect(() => {
+    if (!shouldOpenCreateFromQuery || isReadOnlyDemo) return;
+    if (isQuestionEditorTab(createTabFromQuery)) {
+      setActiveTab(createTabFromQuery);
+    }
+    setIsCreateOpen(true);
+
+    if (typeof window !== "undefined") {
+      const nextParams = new URLSearchParams(window.location.search);
+      nextParams.delete("create");
+      nextParams.delete("tab");
+      const nextQuery = nextParams.toString();
+      const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`;
+      window.history.replaceState(window.history.state, "", nextUrl);
+    }
+  }, [createTabFromQuery, isReadOnlyDemo, shouldOpenCreateFromQuery]);
+
   const demoLinkedPreviewQuery = trpc.demo.questions.useQuery(
     { subjectId: demoLinkedSubjectId ?? 0 },
     {
@@ -1668,17 +1691,13 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
   const inlineBulkParseResult = useMemo(
     () => parseBulkImportInput(inlineBulkRaw, {
       autoNumberingEnabled: activeTab === "text" ? formData.autoNumbering : false,
-      preferredMode: activeTab === "blank" ? "blank" : "text",
+      allowTableParsing: false,
     }),
     [activeTab, formData.autoNumbering, inlineBulkRaw]
   );
   const inlineBulkSummary = useMemo(() => {
-    const tableCount = inlineBulkParseResult.items.filter((item) => item.tableData).length;
-    const textCount = inlineBulkParseResult.items.length - tableCount;
     return {
       total: inlineBulkParseResult.items.length,
-      text: textCount,
-      table: tableCount,
     };
   }, [inlineBulkParseResult.items]);
 
@@ -2319,10 +2338,10 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
             답안 줄 끝에 <code>{"{직효}"}</code>처럼 적으면, 연습 화면에서 해당 글자를 밑줄 힌트로 표시합니다.
           </p>
           <p className="text-xs text-muted-foreground">
-            참고: <code>,</code> / <code>:</code> 문장은 텍스트로 유지됩니다. 자동 표 인식은 <code>|</code> 또는 탭 구분 포맷에서만 동작합니다.
+            표 문제는 <b>표 문제</b> 탭에서만 생성됩니다. <code>|</code>, 탭, 쉼표, 콜론이 들어가도 여기서는 텍스트 답안으로 저장됩니다.
           </p>
           <p className="text-xs text-muted-foreground">
-            감지 결과: 총 {inlineBulkSummary.total}개 (텍스트 {inlineBulkSummary.text} / 표 {inlineBulkSummary.table})
+            감지 결과: 총 {inlineBulkSummary.total}개
             {hasInlineBulkDelimiter ? " · 구분자 감지됨" : " · 단일 블록"}
           </p>
           {inlineBulkParseResult.errors.length > 0 && (
@@ -2364,6 +2383,9 @@ export default function Questions({ subjectId, isDemo = false, demoWorkspace = f
           </p>
           <p className="text-xs text-muted-foreground">
             저장 시 자동으로 질문은 `[]`로 치환되고, 괄호 안 텍스트는 답안 줄로 정리됩니다.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            텍스트 문제와 빈칸 문제를 같은 일괄 입력 안에 함께 넣어도 블록별로 자동 인식됩니다.
           </p>
           {inlineBulkParseResult.errors.length > 0 && (
             <p className="text-xs text-red-600 dark:text-red-400">

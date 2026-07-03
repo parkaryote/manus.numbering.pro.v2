@@ -88,6 +88,22 @@ describe("computeExamConfidence - 24h crunch mode", () => {
     expect(result.displayScore).toBeLessThan(CONFIDENCE_THRESHOLDS.green);
   });
 
+  it("시험일이 없어도 반복 연습은 35점에 고정되지 않는다", () => {
+    const result = computeExamConfidence({
+      practice: makePractice({
+        practiceCount: 24,
+        totalPracticeDuration: 60 * 18,
+        mostRecentPracticeAt: new Date(now.getTime() - 20 * 60 * 1000),
+      }),
+      test: makeTest(),
+      now,
+      examDate: null,
+    });
+
+    expect(result.displayScore).toBeGreaterThan(35);
+    expect(result.displayScore).toBeLessThan(CONFIDENCE_THRESHOLDS.green);
+  });
+
   it("40~50점대에서는 연습 1회 상승폭이 최소 2점, 최대 4점으로 안정화된다", () => {
     const previous = computeExamConfidence({
       practice: makePractice({
@@ -148,10 +164,87 @@ describe("computeExamConfidence - 24h crunch mode", () => {
     });
 
     const diff = next.displayScore - previous.displayScore;
-    expect(previous.displayScore).toBeGreaterThanOrEqual(40);
-    expect(previous.displayScore).toBeLessThanOrEqual(50);
+    expect(previous.displayScore).toBeGreaterThanOrEqual(50);
+    expect(previous.displayScore).toBeLessThanOrEqual(60);
     expect(diff).toBeGreaterThanOrEqual(2);
     expect(diff).toBeLessThanOrEqual(4);
+  });
+
+  it("첫 백지시험 100%는 현재 회상 안정도를 90점대로 앵커링한다", () => {
+    const practice = makePractice({
+      practiceCount: 3,
+      totalPracticeDuration: 360,
+      mostRecentPracticeAt: new Date(now.getTime() - 10 * 60 * 1000),
+    });
+    const before = computeExamConfidence({
+      practice,
+      test: makeTest(),
+      now,
+      examDate: examSoon,
+      initialEstimate: { answerLength: 180, lineCount: 4, difficulty: "medium" },
+    });
+    const after = computeExamConfidence({
+      practice,
+      test: makeTest({
+        testCount: 1,
+        correctCount: 1,
+        wrongCount: 0,
+        averageSimilarityScore: 100,
+        mostRecentTestAt: new Date(now.getTime() - 60 * 1000),
+        recentCorrectStreak: 1,
+        averageRecallTime: 12,
+        recentTestHistory: [
+          { completedAt: new Date(now.getTime() - 60 * 1000), isCorrect: true, similarityScore: 100 },
+        ],
+      }),
+      now,
+      examDate: examSoon,
+      initialEstimate: { answerLength: 180, lineCount: 4, difficulty: "medium" },
+    });
+
+    expect(before.displayScore).toBeGreaterThanOrEqual(30);
+    expect(before.displayScore).toBeLessThanOrEqual(39);
+    expect(after.displayScore).toBeGreaterThanOrEqual(90);
+    expect(after.displayScore).toBeGreaterThan(before.displayScore + 40);
+    expect(after.state).toBe("green");
+  });
+
+  it("백지시험 100% 안정도는 시간이 지나면 망각곡선처럼 내려간다", () => {
+    const practice = makePractice({
+      practiceCount: 3,
+      totalPracticeDuration: 360,
+      mostRecentPracticeAt: new Date(now.getTime() - 10 * 60 * 1000),
+    });
+    const test = makeTest({
+      testCount: 1,
+      correctCount: 1,
+      wrongCount: 0,
+      averageSimilarityScore: 100,
+      mostRecentTestAt: new Date(now.getTime() - 60 * 1000),
+      recentCorrectStreak: 1,
+      averageRecallTime: 12,
+      recentTestHistory: [
+        { completedAt: new Date(now.getTime() - 60 * 1000), isCorrect: true, similarityScore: 100 },
+      ],
+    });
+    const immediate = computeExamConfidence({
+      practice,
+      test,
+      now,
+      examDate: examSoon,
+      initialEstimate: { answerLength: 180, lineCount: 4, difficulty: "medium" },
+    });
+    const later = computeExamConfidence({
+      practice,
+      test,
+      now: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+      examDate: examSoon,
+      initialEstimate: { answerLength: 180, lineCount: 4, difficulty: "medium" },
+    });
+
+    expect(immediate.displayScore).toBeGreaterThanOrEqual(90);
+    expect(later.displayScore).toBeLessThan(immediate.displayScore);
+    expect(later.displayScore).toBeGreaterThanOrEqual(CONFIDENCE_THRESHOLDS.yellow);
   });
 
   it("고유사도 오답도 강하게 반영된다 (유사도 중심)", () => {

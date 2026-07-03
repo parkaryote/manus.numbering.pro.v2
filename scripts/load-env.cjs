@@ -11,6 +11,7 @@ function loadDotEnvIntoProcess(options = {}) {
   const applied = {};
 
   for (const [key, value] of Object.entries(parsed)) {
+    if (process.env[key] !== undefined) continue;
     process.env[key] = value;
     applied[key] = value;
   }
@@ -19,4 +20,3 @@ function loadDotEnvIntoProcess(options = {}) {
 }
 
 module.exports = { loadDotEnvIntoProcess };
-

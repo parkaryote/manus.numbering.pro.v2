@@ -2,6 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import type { InsertTelemetryEvent, Question, Subject, User } from "../drizzle/schema.js";
 import * as db from "./db.js";
+import { isTelemetryExcludedRequest } from "./_core/telemetryExclusions.js";
 
 const LOG_DIR = path.resolve(process.cwd(), "data", "internal-analytics");
 const CSV_PATH = path.join(LOG_DIR, "learning-interactions.csv");
@@ -28,6 +29,14 @@ const CSV_COLUMNS = [
   "questionType",
   "isDemo",
   "questionPreview",
+  "algorithmVersion",
+  "confidenceBefore",
+  "confidenceAfter",
+  "confidenceDelta",
+  "confidenceBeforeState",
+  "confidenceAfterState",
+  "confidenceIsColdStart",
+  "confidenceBreakdownJson",
   "testMode",
   "source",
   "practiceSessionId",
@@ -100,6 +109,14 @@ type LearningMetrics = {
   interactionCount?: number | null;
   completionRatio?: number | null;
   blindMode?: boolean | null;
+  algorithmVersion?: string | null;
+  confidenceBefore?: number | null;
+  confidenceAfter?: number | null;
+  confidenceDelta?: number | null;
+  confidenceBeforeState?: string | null;
+  confidenceAfterState?: string | null;
+  confidenceIsColdStart?: boolean | null;
+  confidenceBreakdownJson?: string | null;
 };
 
 type LearningEventInput = {
@@ -194,10 +211,30 @@ function csvEscape(value: string | number | boolean | null): string {
 
 async function ensureCsvFile() {
   await fs.mkdir(LOG_DIR, { recursive: true });
+  const expectedHeader = CSV_COLUMNS.join(",");
   try {
     await fs.access(CSV_PATH);
+    const existingHeader = await readCsvHeader(CSV_PATH);
+    if (existingHeader !== expectedHeader) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const legacyPath = path.join(LOG_DIR, `learning-interactions.legacy-${timestamp}.csv`);
+      await fs.rename(CSV_PATH, legacyPath);
+      await fs.writeFile(CSV_PATH, `${expectedHeader}\n`, "utf8");
+    }
   } catch {
-    await fs.writeFile(CSV_PATH, `${CSV_COLUMNS.join(",")}\n`, "utf8");
+    await fs.writeFile(CSV_PATH, `${expectedHeader}\n`, "utf8");
+  }
+}
+
+async function readCsvHeader(filePath: string): Promise<string> {
+  const handle = await fs.open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(8192);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    if (bytesRead === 0) return "";
+    return buffer.subarray(0, bytesRead).toString("utf8").split(/\r?\n/, 1)[0] ?? "";
+  } finally {
+    await handle.close();
   }
 }
 
@@ -265,6 +302,14 @@ function buildCsvRow(input: LearningEventInput, payloadJson: string | null, occu
     questionType,
     isDemo,
     questionPreview: toQuestionPreview(question?.question),
+    algorithmVersion: input.metrics?.algorithmVersion ?? "",
+    confidenceBefore: input.metrics?.confidenceBefore ?? "",
+    confidenceAfter: input.metrics?.confidenceAfter ?? "",
+    confidenceDelta: input.metrics?.confidenceDelta ?? "",
+    confidenceBeforeState: input.metrics?.confidenceBeforeState ?? "",
+    confidenceAfterState: input.metrics?.confidenceAfterState ?? "",
+    confidenceIsColdStart: input.metrics?.confidenceIsColdStart ?? "",
+    confidenceBreakdownJson: input.metrics?.confidenceBreakdownJson ?? "",
     testMode: input.metrics?.testMode ?? "",
     source: input.metrics?.source ?? "",
     practiceSessionId: input.metrics?.practiceSessionId ?? "",
@@ -295,6 +340,7 @@ function buildCsvRow(input: LearningEventInput, payloadJson: string | null, occu
 
 export async function recordLearningEvent(input: LearningEventInput) {
   if (process.env.NODE_ENV === "test") return;
+  if (isTelemetryExcludedRequest(input.requestMeta?.req)) return;
   const occurredAt = input.occurredAt ?? new Date();
   const payloadJson = safeSerializePayload(input.payload);
   const requestPath = toRequestPath(input.requestMeta?.req, input.requestMeta?.pagePath);
@@ -320,6 +366,7 @@ export async function mirrorTelemetryRowsToCsv(input: {
   req?: RequestLike;
 }) {
   if (process.env.NODE_ENV === "test") return;
+  if (isTelemetryExcludedRequest(input.req)) return;
   for (const row of input.rows) {
     await recordLearningEvent({
       eventCategory: "ux",

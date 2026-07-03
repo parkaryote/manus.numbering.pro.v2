@@ -355,16 +355,31 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
     fallbackImageUrl: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_URL,
     fallbackImageLabels: TOOTH_DIRECTION_BLANK_DEMO_IMAGE_LABELS,
     forceQuestionText: true,
-    forceFallbackMedia: true,
     displayOrder: 9,
     difficulty: "medium",
     fallbackAutoNumbering: 0,
   });
 
-  const latestDemoQuestions = await db.getDemoQuestionsBySubjectId(toothDemoSubject.id);
+  const latestDemoQuestions = [...(await db.getDemoQuestionsBySubjectId(toothDemoSubject.id))].sort(
+    (a, b) => {
+      const orderDiff = (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
+      if (orderDiff !== 0) return orderDiff;
+      return (a.id ?? 0) - (b.id ?? 0);
+    }
+  );
   let deletedBox1 = false;
+  let deletedDuplicateShowcaseQuestion = false;
+  const seenSingleShowcaseKeys = new Set<ToothShowcaseKey>();
   for (const demoQuestion of latestDemoQuestions) {
     const showcaseKey = resolveToothShowcaseKey(demoQuestion.question);
+    if (showcaseKey === "table_i3" || showcaseKey === "direction_blank") {
+      if (seenSingleShowcaseKeys.has(showcaseKey)) {
+        await db.deleteDemoQuestion(demoQuestion.id);
+        deletedDuplicateShowcaseQuestion = true;
+        continue;
+      }
+      seenSingleShowcaseKeys.add(showcaseKey);
+    }
     if (showcaseKey === "box1") {
       await db.deleteDemoQuestion(demoQuestion.id);
       deletedBox1 = true;
@@ -379,7 +394,7 @@ async function ensureHardcodedToothBox7DemoQuestionExists() {
       }
     }
   }
-  if (deletedBox1) {
+  if (deletedBox1 || deletedDuplicateShowcaseQuestion) {
     await db.normalizeQuestionDisplayOrderForSubject(toothDemoSubject.id);
   }
 }

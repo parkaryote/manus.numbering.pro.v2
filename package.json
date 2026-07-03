@@ -4,7 +4,11 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "bash ./scripts/start-local-mysql.sh && node ./scripts/run-dev-server.cjs",
+    "dev": "node ./scripts/run-local-dev.cjs",
+    "local:dev": "node ./scripts/run-local-dev.cjs",
+    "local:db:push": "DATABASE_URL=mysql://app:app_pw@127.0.0.1:3306/typing_quiz_app node ./scripts/run-db-push.cjs",
+    "local:backup": "node ./scripts/backup-local-data.cjs",
+    "local:restore": "node ./scripts/restore-local-data.cjs",
     "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
@@ -17,7 +21,8 @@
     "db:stop": "bash ./scripts/stop-local-mysql.sh",
     "db:backfill-demo": "node ./scripts/backfill-demo-users.mjs",
     "db:sync-demo-prod": "node ./scripts/sync-demo-from-production.mjs",
-    "db:restore-admin": "node ./scripts/restore-admin-from-demo.mjs"
+    "db:restore-admin": "node ./scripts/restore-admin-from-demo.mjs",
+    "learning:summary": "node ./scripts/analyze-learning-data.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

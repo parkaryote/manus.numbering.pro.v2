@@ -16,6 +16,7 @@ import {
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from "date-fns";
 import { ko } from "date-fns/locale";
 import {
+  buildSoftXAxisTicks,
   buildSoftTimeScale,
   formatSoftRelativeTick,
 } from "@/lib/softTimeScale";
@@ -105,6 +106,41 @@ const SUCCESS_ACCURACY_THRESHOLD = 80;
 const BRAND_COLOR = "#8b5cf6";
 const SOFT_DANGER_COLOR = "#d66b78";
 const TOOLTIP_POINT_HOVER_RADIUS_PX = 18;
+const TOOLTIP_GAP_PX = 14;
+const TOOLTIP_ESTIMATED_WIDTH_PX = 210;
+const TOOLTIP_ESTIMATED_HEIGHT_PX = 140;
+
+function getSafeTooltipPosition({
+  chartX,
+  chartY,
+  offset,
+}: {
+  chartX: number;
+  chartY: number;
+  offset?: { left?: number; top?: number; width?: number; height?: number };
+}): { x: number; y: number } {
+  const left = Number(offset?.left ?? 0);
+  const top = Number(offset?.top ?? 0);
+  const width = Number(offset?.width ?? 0);
+  const height = Number(offset?.height ?? 0);
+  const right = width > 0 ? left + width : Number.POSITIVE_INFINITY;
+  const bottom = height > 0 ? top + height : Number.POSITIVE_INFINITY;
+
+  let x = chartX + TOOLTIP_GAP_PX;
+  let y = chartY + TOOLTIP_GAP_PX;
+
+  if (x + TOOLTIP_ESTIMATED_WIDTH_PX > right) {
+    x = chartX - TOOLTIP_ESTIMATED_WIDTH_PX - TOOLTIP_GAP_PX;
+  }
+  if (y + TOOLTIP_ESTIMATED_HEIGHT_PX > bottom) {
+    y = chartY - TOOLTIP_ESTIMATED_HEIGHT_PX - TOOLTIP_GAP_PX;
+  }
+
+  return {
+    x: Math.max(left + 4, x),
+    y: Math.max(top + 4, y),
+  };
+}
 
 function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -505,6 +541,7 @@ export function ConfidenceHistoryModal({
 }: Props) {
   const [isEventLayerFocused, setIsEventLayerFocused] = useState(false);
   const [isTooltipNearPoint, setIsTooltipNearPoint] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | undefined>(undefined);
   const [selectedTestPoint, setSelectedTestPoint] = useState<HistoryPoint | null>(null);
   const utils = trpc.useUtils();
   const deleteTestSessionsMutation = trpc.test.deleteSessions.useMutation({
@@ -734,6 +771,7 @@ export function ConfidenceHistoryModal({
     if (!Number.isFinite(chartX) || !Number.isFinite(chartY) || !Number.isFinite(activeX)) {
       setIsEventLayerFocused(false);
       setIsTooltipNearPoint(false);
+      setTooltipPosition(undefined);
       return;
     }
 
@@ -765,18 +803,21 @@ export function ConfidenceHistoryModal({
     if (!Number.isFinite(activeY)) {
       setIsEventLayerFocused(false);
       setIsTooltipNearPoint(false);
+      setTooltipPosition(undefined);
       return;
     }
 
     const distance = Math.hypot(chartX - activeX, chartY - activeY);
     const isNearPoint = distance <= TOOLTIP_POINT_HOVER_RADIUS_PX;
     setIsTooltipNearPoint(isNearPoint);
+    setTooltipPosition(isNearPoint ? getSafeTooltipPosition({ chartX, chartY, offset: state?.offset }) : undefined);
     setIsEventLayerFocused(hasEventLayerHover && isNearPoint);
   };
 
   const handleChartMouseLeave = () => {
     setIsEventLayerFocused(false);
     setIsTooltipNearPoint(false);
+    setTooltipPosition(undefined);
   };
 
   const handleSelectTestPoint = (point: HistoryPoint) => {
@@ -809,8 +850,13 @@ export function ConfidenceHistoryModal({
       if (distanceToExam > Math.max(4, span * 0.22)) return "";
       return "D-day";
     }
-    return formatSoftRelativeTick(x, timeScale.nodes, timeScale.firstTs);
+    return formatSoftRelativeTick(x, timeScale.nodes, timeScale.firstTs, { compact: true });
   };
+
+  const xAxisTicks = buildSoftXAxisTicks(timeScale.nodes, timeScale.firstTs, {
+    maxTicks: 8,
+    compactLabels: true,
+  });
 
   // 두 데이터셋을 합쳐서 XAxis 공유
   // chartData를 LineChart에 직접 사용 (mergedData 별칭 제거)
@@ -897,9 +943,9 @@ export function ConfidenceHistoryModal({
                     dataKey="xPos"
                     domain={[timeScale.xDomainMin, timeScale.xDomainMax]}
                     scale="linear"
-                    tickCount={8}
+                    ticks={xAxisTicks}
                     interval="preserveStartEnd"
-                    minTickGap={24}
+                    minTickGap={36}
                     padding={{ left: 4, right: 18 }}
                     tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
@@ -931,7 +977,9 @@ export function ConfidenceHistoryModal({
 
                   <Tooltip
                     content={(props) => (isTooltipNearPoint ? <CustomTooltip {...props} /> : null)}
-                    wrapperStyle={{ zIndex: 90 }}
+                    position={tooltipPosition}
+                    isAnimationActive={false}
+                    wrapperStyle={{ zIndex: 90, pointerEvents: "none", transition: "none" }}
                     allowEscapeViewBox={{ x: true, y: true }}
                   />
 

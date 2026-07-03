@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Eye, EyeOff, RotateCcw, Merge, Split } from "lucide-react";
 import { toast } from "sonner";
@@ -101,8 +101,21 @@ const JAMO_TO_KEYSTROKE: Record<string, string> = {
 
 const ALNUM_REGEX = /^[a-z0-9]$/i;
 
+const TABLE_LINE_PREFIX_REGEX = /^\s*(?:\d{1,3}\s*[.)]|[-*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
+
+function isComparableTableChar(char: string): boolean {
+  return ALNUM_REGEX.test(char) || isHangul(char) || isJamo(char);
+}
+
 function normalizeTableCellText(text: string): string {
-  return text.trim().replace(/\s+/g, "");
+  const normalized = text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(TABLE_LINE_PREFIX_REGEX, "").trim())
+    .join("");
+  return splitGraphemes(normalized)
+    .filter((char) => isComparableTableChar(char))
+    .join("");
 }
 
 function toTypingKeyUnit(char: string): string {
@@ -138,13 +151,6 @@ function isEquivalentTableCellAnswer(input: string, target: string): boolean {
   return toTypingKeySequence(normalizedInput) === toTypingKeySequence(normalizedTarget);
 }
 
-interface ContextMenu {
-  x: number;
-  y: number;
-  row: number;
-  col: number;
-}
-
 export function TableEditor({ initialData, onChange }: TableEditorProps) {
   const [tableData, setTableData] = useState<TableData>(
     initialData || createDefaultTable()
@@ -154,9 +160,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   const [selectionStart, setSelectionStart] = useState<{ row: number; col: number } | null>(null);
   const [activeCell, setActiveCell] = useState<{ row: number; col: number } | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
-  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
-  const contextMenuRef = useRef<HTMLDivElement>(null);
   const composingCellKeyRef = useRef<string | null>(null);
   const lastCompositionEndAtRef = useRef(0);
   const lastCellMoveAtRef = useRef(0);
@@ -179,19 +183,6 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
       }
     }
   }, [activeCell]);
-
-  // 컨텍스트 메뉴 외부 클릭 닫기
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
-        setContextMenu(null);
-      }
-    };
-    if (contextMenu) {
-      document.addEventListener("mousedown", handleClick);
-    }
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [contextMenu]);
 
   // 행 추가 (특정 위치)
   const addRow = useCallback(
@@ -353,7 +344,6 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   // 셀 클릭 → 즉시 활성화 + 선택
   const handleCellClick = (row: number, col: number, e: React.MouseEvent) => {
     if (previewMode) return;
-    setContextMenu(null);
 
     if (e.shiftKey && selectedCells.size > 0) {
       const existing = Array.from(selectedCells).map((k) => {
@@ -415,16 +405,6 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
     window.addEventListener("mouseup", handleMouseUp);
     return () => window.removeEventListener("mouseup", handleMouseUp);
   }, []);
-
-  // 우클릭 컨텍스트 메뉴
-  const handleContextMenu = (row: number, col: number, e: React.MouseEvent) => {
-    e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, row, col });
-    if (!selectedCells.has(`${row}-${col}`)) {
-      setSelectedCells(new Set([`${row}-${col}`]));
-    }
-  };
-
   // 키보드 네비게이션
   const handleKeyDown = (row: number, col: number, e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const cell = tableData.cells[row][col];
@@ -547,9 +527,18 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
   };
 
   const blankCount = tableData.cells.flat().filter((c) => c.isBlank && !c.isMerged).length;
+  const selectedAnchorCell = useMemo(() => {
+    if (activeCell) return activeCell;
+    const firstSelected = Array.from(selectedCells)[0];
+    if (firstSelected) {
+      const [row, col] = firstSelected.split("-").map(Number);
+      if (Number.isFinite(row) && Number.isFinite(col)) return { row, col };
+    }
+    return { row: 0, col: 0 };
+  }, [activeCell, selectedCells]);
 
   return (
-    <div className="space-y-3" onClick={() => setContextMenu(null)}>
+    <div className="space-y-3">
       {/* 도구 모음 */}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="flex gap-1 items-center border rounded-md p-1">
@@ -581,7 +570,7 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
 
       {/* 안내 텍스트 */}
       <div className="text-xs text-muted-foreground">
-        클릭: 셀 편집 | Tab: 다음 셀 | Ctrl+Enter: 아래 셀 | 우클릭: 행/열 추가·삭제 | Shift+클릭/드래그: 범위 선택
+        클릭: 셀 편집 | Tab: 다음 셀 | Ctrl+Enter: 아래 셀 | Shift+클릭/드래그: 범위 선택
         {blankCount > 0 && <span className="ml-2 text-amber-600 font-medium">연습 셀: {blankCount}개</span>}
       </div>
 
@@ -621,7 +610,6 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
                       onMouseDown={(e) => handleCellMouseDown(ri, ci, e)}
                       onMouseEnter={() => handleCellMouseEnter(ri, ci)}
                       onClick={(e) => handleCellClick(ri, ci, e)}
-                      onContextMenu={(e) => handleContextMenu(ri, ci, e)}
                     >
                       {previewMode ? (
                         <div className={`px-2 py-1.5 min-h-[36px] ${isHeader ? "font-semibold text-slate-700" : "text-slate-600"} ${cell.isBlank ? "text-yellow-600 italic text-xs" : ""}`}>
@@ -676,49 +664,44 @@ export function TableEditor({ initialData, onChange }: TableEditorProps) {
         </table>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50/60 px-2 py-2">
+        <span className="text-xs text-muted-foreground">
+          기준: {selectedAnchorCell.row + 1}행 {selectedAnchorCell.col + 1}열
+        </span>
+        <Button type="button" variant="outline" size="sm" onClick={() => addRowBefore(selectedAnchorCell.row)}>
+          ↑ 행 추가
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => addRow(selectedAnchorCell.row)}>
+          ↓ 행 추가
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => addColBefore(selectedAnchorCell.col)}>
+          ← 열 추가
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => addCol(selectedAnchorCell.col)}>
+          → 열 추가
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="text-red-600 hover:text-red-700"
+          onClick={() => removeRow(selectedAnchorCell.row)}
+        >
+          행 삭제
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="text-red-600 hover:text-red-700"
+          onClick={() => removeCol(selectedAnchorCell.col)}
+        >
+          열 삭제
+        </Button>
+      </div>
+
       {/* 표 크기 정보 */}
       <div className="text-xs text-muted-foreground text-right">{tableData.rows}행 × {tableData.cols}열</div>
-
-      {/* 우클릭 컨텍스트 메뉴 */}
-      {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="fixed z-50 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[160px]"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="px-3 py-1 text-xs text-muted-foreground font-medium border-b mb-1">
-            행 {contextMenu.row + 1}, 열 {contextMenu.col + 1}
-          </div>
-          <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100" onClick={() => { addRowBefore(contextMenu.row); setContextMenu(null); }}>
-            ↑ 위에 행 추가
-          </button>
-          <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100" onClick={() => { addRow(contextMenu.row); setContextMenu(null); }}>
-            ↓ 아래에 행 추가
-          </button>
-          <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100" onClick={() => { addColBefore(contextMenu.col); setContextMenu(null); }}>
-            ← 왼쪽에 열 추가
-          </button>
-          <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100" onClick={() => { addCol(contextMenu.col); setContextMenu(null); }}>
-            → 오른쪽에 열 추가
-          </button>
-          <div className="border-t my-1" />
-          <button className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50" onClick={() => { removeRow(contextMenu.row); setContextMenu(null); }}>
-            행 삭제
-          </button>
-          <button className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50" onClick={() => { removeCol(contextMenu.col); setContextMenu(null); }}>
-            열 삭제
-          </button>
-          {selectedCells.size > 0 && (
-            <>
-              <div className="border-t my-1" />
-              <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-slate-100" onClick={() => { toggleSelectedBlanks(); setContextMenu(null); }}>
-                연습 셀 토글
-              </button>
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }

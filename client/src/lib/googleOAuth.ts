@@ -121,14 +121,13 @@ export function startGoogleOAuthLogin(input: {
 }
 
 export function getGoogleRedirectUri(): string {
+  if (GOOGLE_REDIRECT_URI_ENV) return GOOGLE_REDIRECT_URI_ENV;
   if (typeof window !== "undefined") {
     const host = window.location.hostname.toLowerCase();
     const isCanonicalHost = host === "numbering.pro" || host === "www.numbering.pro";
-    const isRailwayHost = host.endsWith(".up.railway.app");
-    if (isCanonicalHost || isRailwayHost) {
+    if (isCanonicalHost) {
       return GOOGLE_CANONICAL_REDIRECT_URI;
     }
   }
-  if (GOOGLE_REDIRECT_URI_ENV) return GOOGLE_REDIRECT_URI_ENV;
   return `${window.location.origin}${GOOGLE_REDIRECT_PATH}`;
 }

@@ -28,7 +28,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
     setAnimKey(prev => prev + 1); // 새 key로 애니메이션 재시작
 
     // 1점 미만이면 더 짧게 표시
-    const duration = Math.abs(value) < 1 ? 700 : 850;
+    const duration = Math.abs(value) < 1 ? 520 : 650;
 
     timerRef.current = setTimeout(() => {
       setVisible(false);
@@ -60,7 +60,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
         key={animKey}
         style={{
           position: "fixed",
-          top: "45%",
+          top: "22%",
           left: "50%",
           transform: "translate(-50%, -50%)",
           pointerEvents: "none",
@@ -70,21 +70,21 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
       >
         <div
           style={{
-            fontSize: "2rem",
+            fontSize: "1.35rem",
             fontWeight: "700",
             lineHeight: 1,
             color: isPositive ? "#10b981" : "#ef4444",
             textShadow: isPositive
-              ? "0 0 12px rgba(16, 185, 129, 0.6)"
-              : "0 0 12px rgba(239, 68, 68, 0.6)",
-            opacity: 0.85,
+              ? "0 0 8px rgba(16, 185, 129, 0.35)"
+              : "0 0 8px rgba(239, 68, 68, 0.35)",
+            opacity: 0.78,
           }}
         >
           {isPositive ? "▲" : "▼"}
-          <span style={{ fontSize: "1.5rem", marginLeft: "4px" }}>
+          <span style={{ fontSize: "1.05rem", marginLeft: "4px" }}>
             {isPositive ? "+1" : "-1"}점
           </span>
-          <span style={{ fontSize: "1rem", marginLeft: "6px", opacity: 0.7 }}>
+          <span style={{ fontSize: "0.8rem", marginLeft: "6px", opacity: 0.65 }}>
             미만
           </span>
         </div>
@@ -104,7 +104,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
               opacity: 1;
             }
             100% {
-              transform: translate(-50%, -50%) scale(0.9) translateY(${isPositive ? '-20px' : '20px'});
+              transform: translate(-50%, -50%) scale(0.96) translateY(${isPositive ? '-12px' : '12px'});
               opacity: 0;
             }
           }
@@ -118,25 +118,26 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
       key={animKey}
       style={{
         position: "fixed",
-        top: "45%",
+        top: "22%",
         left: "50%",
         transform: "translate(-50%, -50%)",
         pointerEvents: "none",
         zIndex: 50,
         animation: isPositive
-          ? "dmgFloatUp 0.85s ease-out forwards"
-          : "dmgFloatDown 0.85s ease-out forwards",
+          ? "dmgFloatUp 0.65s ease-out forwards"
+          : "dmgFloatDown 0.65s ease-out forwards",
       }}
     >
       <div
         style={{
-          fontSize: "4rem",
-          fontWeight: "900",
+          fontSize: "2rem",
+          fontWeight: "800",
           lineHeight: 1,
           color: isPositive ? "#10b981" : "#ef4444",
           textShadow: isPositive
-            ? "0 0 20px rgba(16, 185, 129, 0.8), 2px 2px 4px rgba(0,0,0,0.5)"
-            : "0 0 20px rgba(239, 68, 68, 0.8), 2px 2px 4px rgba(0,0,0,0.5)",
+            ? "0 0 10px rgba(16, 185, 129, 0.35), 1px 1px 2px rgba(0,0,0,0.18)"
+            : "0 0 10px rgba(239, 68, 68, 0.35), 1px 1px 2px rgba(0,0,0,0.18)",
+          opacity: 0.86,
         }}
       >
         {isPositive ? "+" : "-"}
@@ -153,7 +154,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
             opacity: 1;
           }
           100% {
-            transform: translate(-50%, -50%) translateY(-50px);
+            transform: translate(-50%, -50%) translateY(-24px);
             opacity: 0;
           }
         }
@@ -167,7 +168,7 @@ export function DamageNumber({ value, show, onComplete }: DamageNumberProps) {
             opacity: 1;
           }
           100% {
-            transform: translate(-50%, -50%) translateY(50px);
+            transform: translate(-50%, -50%) translateY(24px);
             opacity: 0;
           }
         }

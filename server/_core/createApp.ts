@@ -7,8 +7,17 @@ import imageProxyRouter from "../imageProxy.js";
 import { storageGet } from "../storage.js";
 import { createContext } from "./context.js";
 import { registerOAuthRoutes } from "./oauth.js";
+import { resolveUploadsDir } from "./uploadsDir.js";
 import fs from "fs";
 import path from "path";
+
+const UPLOAD_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"] as const;
+const KNOWN_MISSING_UPLOAD_FALLBACKS: Record<string, string> = {
+  "questions/efIYp0Qy4eIhEy8THYf7T.webp": "/demo-assets/tooth-direction.png",
+};
+const KNOWN_MISSING_UPLOAD_FALLBACKS_BY_BASENAME: Record<string, string> = {
+  "efIYp0Qy4eIhEy8THYf7T.webp": "/demo-assets/tooth-direction.png",
+};
 
 function resolveHeaderValue(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? "";
@@ -91,11 +100,58 @@ function isAbsoluteHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
+function buildUploadRelativePathVariants(relPath: string): string[] {
+  const normalized = relPath.replace(/^\/+/, "");
+  if (!normalized) return [];
+
+  const querySplitIndex = normalized.indexOf("?");
+  const pathOnly =
+    querySplitIndex >= 0 ? normalized.slice(0, querySplitIndex) : normalized;
+  const query = querySplitIndex >= 0 ? normalized.slice(querySplitIndex) : "";
+  const match = pathOnly.match(/^(.*?)(\.[a-z0-9]+)$/i);
+  if (!match) return [normalized];
+
+  const base = match[1] ?? pathOnly;
+  const ext = (match[2] ?? "").toLowerCase();
+  if (!UPLOAD_IMAGE_EXTENSIONS.includes(ext as (typeof UPLOAD_IMAGE_EXTENSIONS)[number])) {
+    return [normalized];
+  }
+
+  const variants: string[] = [`${base}${ext}${query}`];
+  for (const candidateExt of UPLOAD_IMAGE_EXTENSIONS) {
+    if (candidateExt === ext) continue;
+    variants.push(`${base}${candidateExt}${query}`);
+  }
+  return variants;
+}
+
+function resolveKnownMissingUploadFallback(relPath: string): string | null {
+  const normalized = relPath.replace(/^\/+/, "").trim();
+  if (!normalized) return null;
+  const directMatch = KNOWN_MISSING_UPLOAD_FALLBACKS[normalized];
+  if (directMatch) return directMatch;
+  const basename = path.posix.basename(normalized);
+  if (!basename) return null;
+  return KNOWN_MISSING_UPLOAD_FALLBACKS_BY_BASENAME[basename] ?? null;
+}
+
+async function verifyRemoteAssetAvailability(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+    });
+    // 일부 스토리지는 HEAD 405/403을 반환하지만 GET은 정상 동작한다.
+    if (response.status === 403 || response.status === 405) return true;
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function createApp() {
   const app = express();
-  const localUploadsDir =
-    process.env.LOCAL_UPLOAD_DIR?.trim() ||
-    path.resolve(process.cwd(), "var", "uploads");
+  const localUploadsDir = resolveUploadsDir();
   if (!fs.existsSync(localUploadsDir)) {
     fs.mkdirSync(localUploadsDir, { recursive: true });
   }
@@ -109,22 +165,47 @@ export function createApp() {
 
     const relPath = decodeUploadRelativePathFromUrl(req.originalUrl || req.url || "");
     if (!relPath) return next();
+    const relPathCandidates = buildUploadRelativePathVariants(relPath);
 
-    // 1) 번들된 public 업로드 자산 폴백 (데모/하드코딩 이미지)
+    // 1) 업로드 디렉터리 확장자 변형 폴백 (.webp -> .png 등)
+    for (const candidateRelPath of relPathCandidates) {
+      const localCandidate = resolveSafeUploadPath(localUploadsDir, candidateRelPath);
+      if (localCandidate && fs.existsSync(localCandidate)) {
+        return res.sendFile(localCandidate);
+      }
+    }
+
+    // 2) 번들된 public 업로드 자산 폴백 (데모/하드코딩 이미지)
     const publicUploadsDir =
       process.env.NODE_ENV === "production"
         ? path.resolve(process.cwd(), "dist", "public", "uploads")
         : path.resolve(process.cwd(), "client", "public", "uploads");
-    const publicCandidate = resolveSafeUploadPath(publicUploadsDir, relPath);
-    if (publicCandidate && fs.existsSync(publicCandidate)) {
-      return res.sendFile(publicCandidate);
+    for (const candidateRelPath of relPathCandidates) {
+      const publicCandidate = resolveSafeUploadPath(publicUploadsDir, candidateRelPath);
+      if (publicCandidate && fs.existsSync(publicCandidate)) {
+        return res.sendFile(publicCandidate);
+      }
     }
 
-    // 2) 원격 스토리지 연동 환경일 때는 서명 URL로 폴백
+    const knownFallbackPath = resolveKnownMissingUploadFallback(relPath);
+    if (knownFallbackPath) {
+      return res.redirect(307, knownFallbackPath);
+    }
+
+    // 3) 원격 스토리지 연동 환경일 때는 서명 URL로 폴백
     try {
-      const remote = await storageGet(relPath);
-      if (remote?.url && isAbsoluteHttpUrl(remote.url)) {
-        return res.redirect(307, remote.url);
+      let firstRemoteUrl: string | null = null;
+      for (const candidateRelPath of relPathCandidates) {
+        const remote = await storageGet(candidateRelPath);
+        if (!remote?.url || !isAbsoluteHttpUrl(remote.url)) continue;
+        if (!firstRemoteUrl) firstRemoteUrl = remote.url;
+        const isAvailable = await verifyRemoteAssetAvailability(remote.url);
+        if (isAvailable) {
+          return res.redirect(307, remote.url);
+        }
+      }
+      if (firstRemoteUrl) {
+        return res.redirect(307, firstRemoteUrl);
       }
     } catch (error) {
       console.warn("[uploads] fallback resolve failed:", error);
@@ -237,18 +318,6 @@ export function createApp() {
 
     if (host === "www.numbering.pro") {
       const targetUrl = `https://numbering.pro${req.originalUrl || req.url || "/"}`;
-      return res.redirect(308, targetUrl);
-    }
-
-    const isRailwayHost = host?.endsWith(".up.railway.app");
-    const pathWithQuery = req.originalUrl || req.url || "/";
-    const pathOnly = String(pathWithQuery).split("?")[0] || "/";
-    const isAuthRelatedPath =
-      pathOnly === "/login" ||
-      pathOnly === "/oauth/callback" ||
-      pathOnly === "/api/oauth/callback";
-    if (isRailwayHost && isAuthRelatedPath) {
-      const targetUrl = `https://numbering.pro${pathWithQuery}`;
       return res.redirect(308, targetUrl);
     }
 

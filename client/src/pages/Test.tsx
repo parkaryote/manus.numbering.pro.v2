@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff, Table2, BarChart3, Check } from "lucide-react";
 import { toast } from "sonner";
@@ -187,6 +187,18 @@ function getMatchedPositions(
     : { ...getMatchedCharPositions(correctText, answerText), mode: "char" as const };
 }
 
+function getAllNonWhitespacePositions(text: string) {
+  const positions = new Set<number>();
+  Array.from(text ?? "").forEach((ch, idx) => {
+    if (!/^\s$/.test(ch)) positions.add(idx);
+  });
+  return positions;
+}
+
+function getDisplayMatchedPositions(text: string, matchedPositions: Set<number>, isCorrect: boolean) {
+  return isCorrect ? getAllNonWhitespacePositions(text) : matchedPositions;
+}
+
 function getConfidenceSignalState(score: number): "green" | "yellow" | "red" {
   if (score >= 80) return "green";
   if (score >= 40) return "yellow";
@@ -224,7 +236,7 @@ function renderComparedText(
         const isWhitespace = /^\s$/.test(ch);
         const isSymbolOrPunctuation = /[\p{P}\p{S}]/u.test(ch);
         const isMatched = !isWhitespace && matchedPositions.has(idx);
-        const isAnswerMismatch = tone === "answer" && !isMatched && !isWhitespace;
+        const isAnswerMismatch = tone === "answer" && !isMatched && !isWhitespace && !isSymbolOrPunctuation;
         const baseClass = isWhitespace
           ? "text-current"
           : isMatched
@@ -350,6 +362,11 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const queuedTestCaretRef = useRef<{
+    value: string;
+    start: number;
+    end: number;
+  } | null>(null);
   const [showConfidencePopup, setShowConfidencePopup] = useState(false);
   const [showConfidenceHistory, setShowConfidenceHistory] = useState(false);
   const [confidenceBefore, setConfidenceBefore] = useState(0);
@@ -359,6 +376,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const [isResultExcluded, setIsResultExcluded] = useState(false);
   const [showPasteDetectedAlert, setShowPasteDetectedAlert] = useState(false);
   const [manualAcceptedLineKeys, setManualAcceptedLineKeys] = useState<Record<string, true>>({});
+  const lastManualAcceptedCountRef = useRef(0);
 
   // 타이핑 속도 보너스 수집 상태
   const typingStartTimeRef = useRef<number | null>(null);
@@ -378,6 +396,32 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   const applyImageFitScale = useCallback(() => {
     setImageScale(100);
   }, [setImageScale]);
+
+  const queueTestCaretRestore = useCallback((value: string, start: number, end = start) => {
+    queuedTestCaretRef.current = {
+      value,
+      start: Math.max(0, start),
+      end: Math.max(0, end),
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const queued = queuedTestCaretRef.current;
+    const textarea = textareaRef.current;
+    if (!queued || !textarea) return;
+    if (textarea.value !== queued.value) return;
+    if (document.activeElement !== textarea) return;
+
+    const nextStart = Math.min(queued.start, textarea.value.length);
+    const nextEnd = Math.min(queued.end, textarea.value.length);
+    if (textarea.selectionStart === nextStart && textarea.selectionEnd === nextEnd) {
+      queuedTestCaretRef.current = null;
+      return;
+    }
+
+    textarea.setSelectionRange(nextStart, nextEnd);
+    queuedTestCaretRef.current = null;
+  }, [userAnswer]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -430,6 +474,119 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       setConfidenceBefore(Math.round(confidenceData.displayScore));
     }
   }, [confidenceData, isSubmitted]);
+
+  const applyOptimisticConfidenceCaches = useCallback(
+    (
+      nextScoreInput: number,
+      options?: {
+        eventType?: "test" | "practice";
+        isCorrect?: boolean;
+        accuracyRate?: number;
+        sessionIds?: number[];
+        testMode?: "single" | "mock";
+      }
+    ) => {
+      if (isDemo || !question) return;
+      const nextScore = Math.max(0, Math.min(100, Math.round(nextScoreInput)));
+      const nextState = getConfidenceSignalState(nextScore);
+      const nextLabel = nextState === "green" ? "안정" : nextState === "yellow" ? "위험" : "취약";
+      const nowIso = new Date().toISOString();
+
+      utils.confidence.getByQuestion.setData({ questionId: question.id }, (prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          displayScore: nextScore,
+          state: nextState,
+          label: nextLabel,
+          isColdStart: false,
+        };
+      });
+
+      utils.confidence.getHistory.setData({ questionId: question.id }, (prev: any) => {
+        const previousPoints = Array.isArray(prev?.points) ? prev.points : [];
+        const eventType = options?.eventType ?? "test";
+        const sessionIdSet = new Set(options?.sessionIds ?? []);
+        const nextPoint = {
+          at: nowIso,
+          score: nextScore,
+          state: nextState,
+          eventType,
+          ...(typeof options?.isCorrect === "boolean" ? { isCorrect: options.isCorrect } : {}),
+          ...(typeof options?.accuracyRate === "number" ? { accuracyRate: options.accuracyRate } : {}),
+          ...(Array.isArray(options?.sessionIds) && options.sessionIds.length > 0
+            ? { sessionIds: options.sessionIds }
+            : {}),
+          ...(options?.testMode ? { testMode: options.testMode } : {}),
+        };
+        const compactedPoints = previousPoints.filter((point: any) => {
+          if (point?.eventType === "now") return false;
+          if (point?.eventType !== eventType) return true;
+          const pointMs = new Date(point?.at).getTime();
+          const nowMs = new Date(nowIso).getTime();
+          const isRecent = Number.isFinite(pointMs) && nowMs - pointMs >= 0 && nowMs - pointMs <= 15_000;
+          if (!isRecent) return true;
+          const pointSessionIds = Array.isArray(point?.sessionIds) ? point.sessionIds : [];
+          const overlapsSession =
+            sessionIdSet.size > 0 && pointSessionIds.some((id: unknown) => sessionIdSet.has(Number(id)));
+          const isUnsavedOptimistic = pointSessionIds.length === 0;
+          return !(overlapsSession || isUnsavedOptimistic);
+        });
+        return {
+          ...(prev ?? {}),
+          points: [...compactedPoints, nextPoint],
+          isExample: false,
+          previewLabel: undefined,
+        };
+      });
+
+      utils.confidence.getBySubject.setData({ subjectId: question.subjectId }, (prev: any) => {
+        if (!prev || !Array.isArray(prev.questions)) return prev;
+        let didUpdate = false;
+        const questions = prev.questions.map((row: any) => {
+          if (row.questionId !== question.id) return row;
+          didUpdate = true;
+          return {
+            ...row,
+            displayScore: nextScore,
+            state: nextState,
+            label: nextLabel,
+            isColdStart: false,
+          };
+        });
+        if (!didUpdate) return prev;
+
+        const totalQuestions = questions.length;
+        const averageScore = Math.round(
+          questions.reduce((sum: number, row: any) => sum + Math.round(Number(row.displayScore ?? 0)), 0) /
+            Math.max(1, totalQuestions)
+        );
+        const greenCount = questions.filter((row: any) => row.state === "green").length;
+        const yellowCount = questions.filter((row: any) => row.state === "yellow").length;
+        const redCount = questions.filter((row: any) => row.state === "red").length;
+        const aggregateState = getConfidenceSignalState(averageScore);
+        const aggregateLabel =
+          aggregateState === "green" ? "안정" : aggregateState === "yellow" ? "위험" : "취약";
+
+        return {
+          ...prev,
+          questions,
+          aggregate: {
+            ...(prev.aggregate ?? {}),
+            totalQuestions,
+            averageScore,
+            greenCount,
+            yellowCount,
+            redCount,
+            state: aggregateState,
+            label: aggregateLabel,
+            isColdStart: false,
+          },
+        };
+      });
+    },
+    [isDemo, question, utils]
+  );
   const imageLabels = question?.imageLabels ? JSON.parse(question.imageLabels) : [];
   const isImageQuestion = !!question?.imageUrl && imageLabels.length > 0;
   const imageSourceCandidates = useMemo(
@@ -469,7 +626,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     },
   });
   const createTestMutation = trpc.test.create.useMutation();
-  const deleteTestSessionsMutation = trpc.test.deleteSessions.useMutation({
+	  const deleteTestSessionsMutation = trpc.test.deleteSessions.useMutation({
     onSuccess: async () => {
       await Promise.all([
         utils.test.getByQuestion.invalidate({ questionId }),
@@ -491,50 +648,134 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       toast.success("이번 시험 결과를 통계/안정도 반영에서 제외했습니다.");
     },
     onError: (error) => {
-      toast.error("시험 기록 삭제 실패: " + error.message);
-    },
-  });
-  
-  const triggerConfidencePopup = useCallback(async (data: any) => {
-    const prevScore = confidenceBefore;
-    let newScore = prevScore;
-    let estimated = false;
-    const estimatedScore = Math.max(0, Math.min(100, prevScore + estimateTestConfidenceDelta({
-      currentScore: prevScore,
-      isCorrect: !!data.isCorrect,
-      similarityScore: data.similarityScore || 0,
-      recallTime,
-      hoursUntilExam: estimatedHoursUntilExam,
-    })));
+	      toast.error("시험 기록 삭제 실패: " + error.message);
+	    },
+	  });
+
+	  const updateTestResultMutation = trpc.test.updateSessionsResult.useMutation({
+	    onSuccess: async (data: any) => {
+	      const nextScore =
+	        typeof data?.confidence?.after?.score === "number"
+	          ? Math.round(data.confidence.after.score)
+	          : null;
+	      if (nextScore !== null && question) {
+	        applyOptimisticConfidenceCaches(nextScore, {
+	          eventType: "test",
+	          isCorrect: true,
+	          sessionIds: submittedSessionIds,
+	          testMode: "single",
+	        });
+	        setConfidenceAfter(nextScore);
+	        setConfidenceImpact((prev) => ({
+	          before: prev?.before ?? confidenceBefore,
+	          after: nextScore,
+	          delta: nextScore - (prev?.before ?? confidenceBefore),
+	          estimated: false,
+	        }));
+	      }
+	      await refreshConfidenceCaches();
+	    },
+	    onError: (error) => {
+	      toast.error("정답 인정 반영 실패: " + error.message);
+	    },
+	  });
+	  
+	  const triggerConfidencePopup = useCallback((data: any) => {
+	    const serverBefore =
+	      typeof data?.confidence?.before?.score === "number"
+	        ? Math.round(data.confidence.before.score)
+	        : null;
+	    const serverAfter =
+	      typeof data?.confidence?.after?.score === "number"
+	        ? Math.round(data.confidence.after.score)
+	        : null;
+	    const prevScore = serverBefore ?? confidenceBefore;
+	    const estimatedScore = Math.max(0, Math.min(100, prevScore + estimateTestConfidenceDelta({
+	      currentScore: prevScore,
+	      isCorrect: !!data.isCorrect,
+	      similarityScore: data.similarityScore || 0,
+	      recallTime,
+	      hoursUntilExam: estimatedHoursUntilExam,
+	    })));
+	    const immediateScore = serverAfter ?? estimatedScore;
+
+    const sessionIds =
+      typeof data?.createdSessionId === "number"
+        ? [data.createdSessionId]
+        : Array.isArray(data?.sessionIds)
+          ? data.sessionIds.filter((id: unknown): id is number => typeof id === "number")
+          : undefined;
 
     if (!isDemo) {
-      try {
-        const result = await refetchConfidence();
-        newScore = Math.round(result.data?.displayScore ?? prevScore);
-      } catch {
-        newScore = estimatedScore;
-        estimated = true;
-      }
-    } else {
-      newScore = estimatedScore;
-      estimated = true;
-    }
+	      applyOptimisticConfidenceCaches(immediateScore, {
+	        eventType: "test",
+	        isCorrect: !!data.isCorrect,
+	        accuracyRate: typeof data.similarityScore === "number" ? data.similarityScore : undefined,
+	        sessionIds,
+	        testMode: "single",
+      });
+	    }
 
-    if (!estimated && newScore === prevScore && estimatedScore !== prevScore) {
-      newScore = estimatedScore;
-      estimated = true;
-    }
+	    setConfidenceBefore(prevScore);
+	    setConfidenceAfter(immediateScore);
+	    setConfidenceImpact({
+	      before: prevScore,
+	      after: immediateScore,
+	      delta: immediateScore - prevScore,
+	      estimated: serverAfter === null,
+	    });
+	    setShowConfidencePopup(true);
 
-    setConfidenceBefore(prevScore);
-    setConfidenceAfter(newScore);
-    setConfidenceImpact({
-      before: prevScore,
-      after: newScore,
-      delta: newScore - prevScore,
-      estimated,
-    });
-    setShowConfidencePopup(true);
-  }, [confidenceBefore, recallTime, isDemo, refetchConfidence, estimatedHoursUntilExam]);
+    if (!isDemo) {
+      void refetchConfidence()
+        .then((result) => {
+          const latestScore = Math.round(result.data?.displayScore ?? estimatedScore);
+          if (!Number.isFinite(latestScore)) return;
+          applyOptimisticConfidenceCaches(latestScore, {
+            eventType: "test",
+            isCorrect: !!data.isCorrect,
+            accuracyRate: typeof data.similarityScore === "number" ? data.similarityScore : undefined,
+            sessionIds,
+            testMode: "single",
+          });
+          setConfidenceAfter(latestScore);
+          setConfidenceImpact({
+            before: prevScore,
+            after: latestScore,
+            delta: latestScore - prevScore,
+            estimated: false,
+          });
+        })
+        .catch(() => {
+          // 이미 낙관적 점수를 보여줬으므로 네트워크 지연은 조용히 흡수한다.
+        });
+    }
+  }, [
+    applyOptimisticConfidenceCaches,
+    confidenceBefore,
+    estimatedHoursUntilExam,
+    isDemo,
+    recallTime,
+    refetchConfidence,
+  ]);
+
+  const refreshConfidenceCaches = useCallback(async () => {
+    if (isDemo || !question) return;
+    await Promise.all([
+      utils.confidence.getByQuestion.invalidate({ questionId: question.id }),
+      utils.confidence.getHistory.invalidate({ questionId: question.id }),
+      utils.confidence.getBySubject.invalidate({ subjectId: question.subjectId }),
+      utils.confidence.getHistoryBySubject.invalidate({ subjectId: question.subjectId }),
+      utils.test.getByQuestion.invalidate({ questionId: question.id }),
+      utils.test.getByUser.invalidate(),
+    ]);
+    await Promise.all([
+      utils.confidence.getByQuestion.fetch({ questionId: question.id }),
+      utils.confidence.getHistory.fetch({ questionId: question.id }),
+      utils.confidence.getBySubject.fetch({ subjectId: question.subjectId }),
+      utils.confidence.getHistoryBySubject.fetch({ subjectId: question.subjectId }),
+    ]);
+  }, [isDemo, question, utils]);
 
   const recordAttemptMutation = trpc.typing.recordAttempt.useMutation({
     onSuccess: (data) => {
@@ -553,6 +794,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
         typeof data?.createdSessionId === "number" ? [data.createdSessionId] : []
       );
       triggerConfidencePopup(data);
+      void refreshConfidenceCaches();
       
       // Update review schedule based on performance
       if (question) {
@@ -560,11 +802,12 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
         const quality = data.isCorrect
           ? (recallTime <= 15 ? 5 : recallTime <= 35 ? 4 : 3)
           : (similarity >= 80 ? 2 : similarity >= 60 ? 1 : 0);
-        await updateReviewMutation.mutateAsync({
+        void updateReviewMutation.mutateAsync({
           questionId: question.id,
           quality,
-        });
-        void utils.confidence.getBySubject.invalidate({ subjectId: question.subjectId });
+        }).then(() => {
+          void refreshConfidenceCaches();
+        }).catch(() => undefined);
       }
     },
     onError: (error: any) => {
@@ -573,7 +816,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
   });
 
   const demoEvaluateMutation = trpc.demo.evaluate.useMutation({
-    onSuccess: (data: any) => {
+    onSuccess: async (data: any) => {
       setResult(data);
       setIsSubmitted(true);
       setIsResultExcluded(false);
@@ -627,6 +870,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     pasteDetectedRef.current = false;
     inputCharsRef.current = 0;
     setManualAcceptedLineKeys({});
+    lastManualAcceptedCountRef.current = 0;
   };
 
   useEffect(() => {
@@ -670,6 +914,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
     pasteDetectedRef.current = false;
     inputCharsRef.current = 0;
     setManualAcceptedLineKeys({});
+    lastManualAcceptedCountRef.current = 0;
   };
 
   const handleSubmit = async () => {
@@ -697,43 +942,68 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       const quality = score === total
         ? (recallTime <= 15 ? 5 : 4)
         : (accuracyRate >= 80 ? 2 : accuracyRate >= 60 ? 1 : 0);
+      const tableScoreData = {
+        isCorrect: score === total,
+        similarityScore: Math.round((score / total) * 100),
+      };
+      const tableOptimisticScore = Math.max(0, Math.min(100, confidenceBefore + estimateTestConfidenceDelta({
+        currentScore: confidenceBefore,
+        isCorrect: tableScoreData.isCorrect,
+        similarityScore: tableScoreData.similarityScore,
+        recallTime,
+        hoursUntilExam: estimatedHoursUntilExam,
+      })));
+      triggerConfidencePopup(tableScoreData);
+
       if (!isDemo) {
         const flattenedAnswer = getBlankCells(tableData)
           .map((key) => tableAnswers[key] ?? "")
           .join("\n");
-        const createdSession = await createTestMutation.mutateAsync({
-          questionId: question.id,
-          userAnswer: flattenedAnswer,
-          isCorrect: score === total ? 1 : 0,
-          recallTime,
-          similarityScore: accuracyRate,
-          mistakeHighlights: JSON.stringify(
-            getBlankCells(tableData).map((key, index) => ({
-              lineIndex: index + 1,
-              cellKey: key,
-              correctAnswer: tableData.cells[Number(key.split("-")[0])]?.[Number(key.split("-")[1])]?.content ?? "",
-              userAnswer: tableAnswers[key] ?? "",
-              isCorrect: !!results[key],
-            }))
-          ),
-          analytics: {
-            ...getAnalyticsRequestMeta(),
-            source: "single_test_table",
-            testMode: "single",
-          },
-        });
-        setSubmittedSessionIds(typeof createdSession?.id === "number" ? [createdSession.id] : []);
-        await updateReviewMutation.mutateAsync({
-          questionId: question.id,
-          quality,
-        });
+        void (async () => {
+          try {
+            const createdSession = await createTestMutation.mutateAsync({
+              questionId: question.id,
+              userAnswer: flattenedAnswer,
+              isCorrect: score === total ? 1 : 0,
+              recallTime,
+              similarityScore: accuracyRate,
+              mistakeHighlights: JSON.stringify(
+                getBlankCells(tableData).map((key, index) => ({
+                  lineIndex: index + 1,
+                  cellKey: key,
+                  correctAnswer: tableData.cells[Number(key.split("-")[0])]?.[Number(key.split("-")[1])]?.content ?? "",
+                  userAnswer: tableAnswers[key] ?? "",
+                  isCorrect: !!results[key],
+                }))
+              ),
+              analytics: {
+                ...getAnalyticsRequestMeta(),
+                source: "single_test_table",
+                testMode: "single",
+              },
+            });
+            const sessionIds = typeof createdSession?.id === "number" ? [createdSession.id] : [];
+            setSubmittedSessionIds(sessionIds);
+            applyOptimisticConfidenceCaches(tableOptimisticScore, {
+              eventType: "test",
+              isCorrect: score === total,
+              accuracyRate,
+              sessionIds,
+              testMode: "single",
+            });
+            await updateReviewMutation.mutateAsync({
+              questionId: question.id,
+              quality,
+            }).catch(() => undefined);
+            void refreshConfidenceCaches();
+          } catch (error) {
+            console.error("표 문제 시험 기록 저장 실패:", error);
+            toast.error("시험 기록 저장이 지연되고 있습니다. 네트워크를 확인해주세요.");
+          }
+        })();
       } else {
         setSubmittedSessionIds([]);
       }
-
-      // 표 문제 안정도 팝업
-      const tableScoreData = { isCorrect: score === total, similarityScore: Math.round((score / total) * 100) };
-      triggerConfidencePopup(tableScoreData);
       return;
     }
 
@@ -986,6 +1256,92 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
       isCorrect: totalLines > 0 ? correctLineCount >= totalLines : !!result.isCorrect,
     };
   }, [manualAcceptedLineKeys, result]);
+
+  useEffect(() => {
+    if (!isSubmitted) return;
+    if (manualAcceptedCount <= 0) return;
+    if (manualAcceptedCount <= lastManualAcceptedCountRef.current) return;
+    lastManualAcceptedCountRef.current = manualAcceptedCount;
+
+    const isTableResult = isTableQuestion && !!tableScore;
+    const effectiveResult: any = displayResult ?? result;
+    const similarityScore = isTableResult
+      ? Math.round(
+          (((displayTableScore?.score ?? tableScore?.score ?? 0) /
+            Math.max(1, displayTableScore?.total ?? tableScore?.total ?? 1)) *
+            100)
+        )
+      : typeof effectiveResult?.similarityScore === "number"
+        ? effectiveResult.similarityScore
+        : 0;
+    const effectiveIsCorrect = isTableResult
+      ? (displayTableScore?.score ?? tableScore?.score ?? 0) >=
+        (displayTableScore?.total ?? tableScore?.total ?? 1)
+      : !!effectiveResult?.isCorrect;
+    const correctedAfter = Math.max(
+      confidenceAfter,
+      Math.max(
+        0,
+        Math.min(
+          100,
+          confidenceBefore +
+            estimateTestConfidenceDelta({
+              currentScore: confidenceBefore,
+              isCorrect: effectiveIsCorrect,
+              similarityScore,
+              recallTime,
+              hoursUntilExam: estimatedHoursUntilExam,
+            })
+        )
+      )
+    );
+    setConfidenceAfter(correctedAfter);
+	    setConfidenceImpact({
+	      before: confidenceBefore,
+	      after: correctedAfter,
+	      delta: correctedAfter - confidenceBefore,
+	      estimated: true,
+	    });
+	    if (!isDemo && !isResultExcluded && submittedSessionIds.length > 0) {
+	      const correctedMistakes = isTableResult
+	        ? tableComparisonRows.map((row) => ({
+	            cellKey: row.key,
+	            row: row.row,
+	            col: row.col,
+	            correctAnswer: row.correctAnswer,
+	            userAnswer: row.userAnswer,
+	            isCorrect: row.isCorrect,
+	            lineScore: row.lineScore,
+	            manuallyAccepted: row.manuallyAccepted,
+	          }))
+	        : Array.isArray(effectiveResult?.mistakes)
+	          ? effectiveResult.mistakes
+	          : [];
+	      updateTestResultMutation.mutate({
+	        ids: submittedSessionIds,
+	        isCorrect: effectiveIsCorrect,
+	        similarityScore,
+	        mistakeHighlights: JSON.stringify(correctedMistakes),
+	      });
+	    }
+	  }, [
+	    confidenceAfter,
+	    confidenceBefore,
+	    displayTableScore,
+	    displayResult,
+	    estimatedHoursUntilExam,
+	    isTableQuestion,
+	    isDemo,
+	    isResultExcluded,
+	    isSubmitted,
+	    manualAcceptedCount,
+	    recallTime,
+	    result,
+	    submittedSessionIds,
+	    tableScore,
+	    tableComparisonRows,
+	    updateTestResultMutation,
+	  ]);
 
   const confidenceStateClasses = useMemo(() => {
     const score = confidenceImpact?.after ?? confidenceAfter;
@@ -1598,6 +1954,8 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                     value={userAnswer}
                     onChange={(e) => {
                       const newValue = e.target.value;
+                      const cursorPos = e.target.selectionStart ?? newValue.length;
+                      const selectionEnd = e.target.selectionEnd ?? cursorPos;
                       const now = Date.now();
                       if (typingStartTimeRef.current === null && newValue.length > 0) {
                         typingStartTimeRef.current = now;
@@ -1606,6 +1964,7 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                         }
                       }
                       inputCharsRef.current = newValue.length;
+                      queueTestCaretRestore(newValue, cursorPos, selectionEnd);
                       setUserAnswer(newValue);
 
                       const newHistory = answerHistory.slice(0, answerHistoryIndex + 1);
@@ -1752,6 +2111,8 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                           row.correctAnswer,
                           row.userAnswer
                         );
+                        const displayCorrectMatched = getDisplayMatchedPositions(row.correctAnswer, correctMatched, row.isCorrect);
+                        const displayAnswerMatched = getDisplayMatchedPositions(row.userAnswer, answerMatched, row.isCorrect);
                         return (
                           <div
                             key={row.key}
@@ -1776,12 +2137,12 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                             <div className="text-xs space-y-1">
                               <div>
                                 <span className="font-semibold">정답:</span>{" "}
-                                {renderComparedText(row.correctAnswer, correctMatched, "correct")}
+                                {renderComparedText(row.correctAnswer, displayCorrectMatched, "correct")}
                               </div>
                               <div className={row.isCorrect ? "text-green-700 dark:text-green-300" : "text-rose-700 dark:text-rose-300"}>
                                 <span className="font-semibold">내 답:</span>{" "}
                                 {row.userAnswer
-                                  ? renderComparedText(row.userAnswer, answerMatched, "answer")
+                                  ? renderComparedText(row.userAnswer, displayAnswerMatched, "answer")
                                   : "(입력 없음)"}
                               </div>
                             </div>
@@ -1936,6 +2297,16 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                           mistake.userAnswer || "",
                           mistake.compareMode
                         );
+                        const displayCorrectMatched = getDisplayMatchedPositions(
+                          mistake.correctAnswer || "",
+                          correctMatched,
+                          !!mistake.isCorrect
+                        );
+                        const displayAnswerMatched = getDisplayMatchedPositions(
+                          mistake.userAnswer || "",
+                          answerMatched,
+                          !!mistake.isCorrect
+                        );
                         return (
                           <div key={mistake.lineIndex} className={`rounded-lg border p-3 ${mistake.isCorrect ? 'border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30' : 'border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20'}`}>
                             <div className="flex items-center justify-between mb-2">
@@ -1952,12 +2323,12 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                             <div className="text-xs space-y-1">
                               <div>
                                 <span className="font-semibold">정답:</span>{" "}
-                                {renderComparedText(mistake.correctAnswer || "", correctMatched, "correct")}
+                                {renderComparedText(mistake.correctAnswer || "", displayCorrectMatched, "correct")}
                               </div>
                               <div className={mistake.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}>
                                 <span className="font-semibold">내 답:</span>{" "}
                                 {mistake.userAnswer
-                                  ? renderComparedText(mistake.userAnswer, answerMatched, "answer")
+                                  ? renderComparedText(mistake.userAnswer, displayAnswerMatched, "answer")
                                   : "(입력 없음)"}
                               </div>
                             </div>
@@ -1992,18 +2363,28 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                             textCorrectAnswer,
                             userAnswer || ""
                           );
+                          const displayCorrectMatched = getDisplayMatchedPositions(
+                            textCorrectAnswer,
+                            correctMatched,
+                            !!resolvedResult?.isCorrect
+                          );
+                          const displayAnswerMatched = getDisplayMatchedPositions(
+                            userAnswer || "",
+                            answerMatched,
+                            !!resolvedResult?.isCorrect
+                          );
                           return (
                             <>
                               <div className="rounded-lg border border-green-300 bg-green-50 p-3 dark:border-green-800/60 dark:bg-green-950/30">
                                 <p className="text-xs font-semibold text-muted-foreground mb-1">정답</p>
                                 <p className="text-sm font-medium whitespace-pre-wrap">
-                                  {renderComparedText(textCorrectAnswer, correctMatched, "correct")}
+                                  {renderComparedText(textCorrectAnswer, displayCorrectMatched, "correct")}
                                 </p>
                               </div>
                               <div className={`rounded-lg border p-3 ${resolvedResult?.isCorrect ? 'border-green-300 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30' : 'border-rose-300 bg-rose-50 dark:border-rose-800/40 dark:bg-rose-950/20'}`}>
                                 <p className="text-xs font-semibold text-muted-foreground mb-1">내 답</p>
                                 <p className={`text-sm font-medium whitespace-pre-wrap ${resolvedResult?.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'}`}>
-                                  {renderComparedText(userAnswer || "", answerMatched, "answer")}
+                                  {renderComparedText(userAnswer || "", displayAnswerMatched, "answer")}
                                 </p>
                               </div>
                             </>

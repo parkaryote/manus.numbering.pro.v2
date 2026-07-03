@@ -45,6 +45,9 @@ pids
 *.seed
 *.pid.lock
 *.bak
+var/uploads/
+data/internal-analytics/*.csv
+exports/
 
 # Coverage directory used by tools like istanbul
 coverage/

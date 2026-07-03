@@ -1,9 +1,9 @@
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from "react";
 import { useLocation } from "wouter";
-import { ArrowLeft, Circle, Image as ImageIcon, Table2, Eye, EyeOff, Zap, StickyNote, Pencil, Repeat, Save, X, Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Circle, Image as ImageIcon, Table2, Eye, EyeOff, Zap, StickyNote, Pencil, Repeat, X, Check, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { splitGraphemes, isPartialMatch, isHangul, isJamo, decomposeHangul } from "@/lib/hangul";
@@ -13,7 +13,7 @@ import { trackQuestionAttempt, trackPracticeComplete } from "@/lib/ga4Events";
 import { DamageNumber } from "@/components/DamageNumber";
 import { ConfidenceHistoryModal } from "@/components/ConfidenceHistoryModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { CONFIDENCE_THRESHOLDS, estimatePracticeConfidenceDelta } from "@shared/examConfidence";
+import { CONFIDENCE_THRESHOLDS, estimatePracticeConfidenceDelta, getPracticeOnlyCap } from "@shared/examConfidence";
 import { buildNextAutoNumberingValue, getForcedPrefixByTemplateProgress, getLinePrefixHint } from "@/lib/autoNumbering";
 import { getImageAttribution } from "@/lib/imageAttribution";
 import { getAnalyticsRequestMeta } from "@/lib/analyticsSession";
@@ -33,6 +33,23 @@ type InputLayoutPreference = "horizontal" | "vertical";
 type PracticeScrollSnapshot = {
   containerTop: number;
   windowTop: number;
+};
+
+type DifficultHighlightRange = {
+  lineIdx: number;
+  start: number;
+  end: number;
+};
+
+type TabHintLevel = 0 | 1 | 2 | 3;
+type LineTabHint = {
+  level: 1 | 2;
+  firstText: string;
+  wordText: string;
+  firstCharIndex: number;
+  wordCharIndexes: number[];
+  firstComparableEnd: number;
+  wordComparableEnd: number;
 };
 
 const JAMO_TO_KEYSTROKE: Record<string, string> = {
@@ -92,9 +109,11 @@ const JAMO_TO_KEYSTROKE: Record<string, string> = {
 const ALNUM_REGEX = /^[a-z0-9]$/i;
 const AUTO_SEED_NUMBER_ONLY_REGEX = /^\s*\d{1,3}[.)]\s*$/;
 const AUTO_SEED_BULLET_ONLY_REGEX = /^\s*(?:[-*•·●○◦▪▫▸▹►▶‣⁃※])\s*$/;
+const AUTO_LIST_PREFIX_LINE_REGEX = /^\s*(?:\d{1,3}[.)]|[-*•·●○◦▪▫▸▹►▶‣⁃※])\s*/;
 const PRACTICE_TEXT_LINE_HEIGHT_PX = 34;
 const PRACTICE_TEXT_CLASS = "text-base lg:text-lg font-semibold leading-[34px] tracking-tight";
 const PRACTICE_NOTEBOOK_PADDING_TOP_PX = 12;
+const SPACE_TAB_SHORTCUT_WINDOW_MS = 700;
 const PRACTICE_NOTEBOOK_LINE_BG =
   "repeating-linear-gradient(to bottom, transparent 0, transparent 33px, rgba(100,116,139,0.14) 33px, rgba(100,116,139,0.14) 34px)";
 const IMAGE_NOTE_LINE_HEIGHT_PX = 28;
@@ -271,6 +290,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const scrollRestoreTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const scrollNavCooldownRef = useRef(0);
   const scrollNavDeltaRef = useRef(0);
+  const scrollNavInFlightRef = useRef(false);
+  const scrollNavInFlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollNavDeltaResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [inputLayoutPreference, setInputLayoutPreference] = useState<InputLayoutPreference>(() => {
     try {
@@ -338,6 +359,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [hasInteracted, setHasInteracted] = useState(false); // 이미지 문제: 클릭 또는 입력 여부
   const [isFadingOut, setIsFadingOut] = useState(false); // fade out 애니메이션 상태
   const isResettingRef = useRef(false); // 초기화 진행 중 플래그 (compositionend 잔류 방지)
+  const autoFinishLockRef = useRef(0);
+  const repeatAutoCompletionLockRef = useRef({ key: "", at: 0 });
   const [practiceCount, setPracticeCount] = useState(0); // 현재 연습 횟수 (세션 동안만 유지)
   const [inputHistory, setInputHistory] = useState<string[]>([""]);
   const [historyIndex, setHistoryIndex] = useState(0);
@@ -345,31 +368,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [showPasteDetectedAlert, setShowPasteDetectedAlert] = useState(false);
   const [currentCursorLineIndex, setCurrentCursorLineIndex] = useState(0); // 현재 커서 위치의 줄 인덱스
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const queuedPracticeCaretRef = useRef<{
+    value: string;
+    start: number;
+    end: number;
+    queuedAt: number;
+  } | null>(null);
   const resetScrollSnapshotRef = useRef<PracticeScrollSnapshot | null>(null);
   const [showDamageNumber, setShowDamageNumber] = useState(false);
   const [damageValue, setDamageValue] = useState(0);
   const confidenceScoreForAnimationRef = useRef<number | null>(null);
   const [optimisticDisplayScore, setOptimisticDisplayScore] = useState<number | null>(null);
-  const exitInteractionMetricsRef = useRef({
-    hideToggleCount: 0,
-    clickCount: 0,
-    dragCount: 0,
-    totalWeight: 0,
-  });
-  const exitInteractionPointerRef = useRef<{
-    tracking: boolean;
-    pointerId: number | null;
-    startX: number;
-    startY: number;
-    dragRecorded: boolean;
-  }>({
-    tracking: false,
-    pointerId: null,
-    startX: 0,
-    startY: 0,
-    dragRecorded: false,
-  });
-  const exitInteractionBonusAppliedRef = useRef(false);
   const goBackInFlightRef = useRef(false);
   const mobileAutoNumberingGuardRef = useRef<{
     expectedValue: string;
@@ -380,6 +389,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // hiddenLines: 개별 줄 가리기/보이기 토글 (hideMode와 독립적으로 동작)
   const [hideMode, setHideMode] = useState<'none' | 'all'>('none');
   const [hiddenLines, setHiddenLines] = useState<Set<number>>(new Set());
+  const [lineTabHints, setLineTabHints] = useState<Record<number, LineTabHint>>({});
+  const lastClearedLineTabHintsRef = useRef<Record<number, LineTabHint>>({});
+  const spaceTabShortcutRef = useRef({
+    lastSpaceAt: 0,
+    lineIdx: -1,
+    stage: 0,
+  });
   const [autoHideWrongLines, setAutoHideWrongLines] = useState<Set<number>>(new Set());
   // 학습 제안 상태
   const [showStudySuggestion, setShowStudySuggestion] = useState(false);
@@ -389,6 +405,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [memoOpen, setMemoOpen] = useState(false);
   const [memoSaving, setMemoSaving] = useState(false);
   const [memoSaved, setMemoSaved] = useState(false);
+  const memoAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedMemoRef = useRef('');
   // 줄 반복 연습 (체크박스 다중 선택 방식)
   const [repeatCheckedLines, setRepeatCheckedLines] = useState<Set<number>>(() => {
     try {
@@ -400,6 +418,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [repeatCurrentIdx, setRepeatCurrentIdx] = useState(0); // 체크된 줄 중 현재 순서 (0-based)
   const [repeatCount, setRepeatCount] = useState(0); // 현재 줄 완료 횟수
   const [repeatTotalCount, setRepeatTotalCount] = useState(0); // 전체 완료 횟수
+  const [repeatCompletedLines, setRepeatCompletedLines] = useState<Set<number>>(new Set());
   const isRepeatMode = repeatCheckedLines.size > 0;
   // 안정도 그래프 모달
   const [showConfidenceHistory, setShowConfidenceHistory] = useState(false);
@@ -408,8 +427,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const [showTestNudge, setShowTestNudge] = useState(false);
   const autoHideCompletedLinesRef = useRef<Set<number>>(new Set());
   const autoHideViewedLinesRef = useRef<Set<number>>(new Set());
+  const autoHideRevealPenaltyRef = useRef(false);
+  const hideToggleDebounceRef = useRef(0);
   const autoHidePreCompletedLinesRef = useRef<Set<number>>(new Set());
   const autoHideCompletionLockRef = useRef(0);
+  const autoHideCycleCompletionLockRef = useRef({ key: "", at: 0 });
   const [showWarnZone, setShowWarnZone] = useState(false);
   const [scrollNavDirection, setScrollNavDirection] = useState<"prev" | "next" | null>(null);
   const [isLeaving, setIsLeaving] = useState(false);
@@ -443,6 +465,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   }, [imageLoaded, imageScale]);
 
   const answerDisplayRef = useRef<HTMLDivElement>(null); // 정답 표시 영역 ref
+  const [difficultHighlights, setDifficultHighlights] = useState<DifficultHighlightRange[]>([]);
+  const [difficultHighlightsReadyKey, setDifficultHighlightsReadyKey] = useState<string | null>(null);
+  const suppressAnswerLineClickUntilRef = useRef(0);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const inactiveAlertTimerRef = useRef<NodeJS.Timeout | null>(null); // 입력 시간 알림 타이머
   const pasteAlertTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -520,6 +545,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const canEditQuestion = Boolean(
     question && (!isPublicDemoQuestionContext || isDemoLinkedMode || isAdminDemoQuestion)
   );
+  const createQuestionPath = useMemo(() => {
+    if (!question?.subjectId) return null;
+    const params = new URLSearchParams();
+    params.set("create", "1");
+    if (isDemoLinkedMode && demoLinkedSubjectId) {
+      params.set("demo", "1");
+      params.set("demoSubjectId", String(demoLinkedSubjectId));
+    }
+    if (isAdminDemoQuestion) {
+      params.set("workspace", "1");
+      return `/demo/questions/${question.subjectId}?${params.toString()}`;
+    }
+    return `/questions/${question.subjectId}?${params.toString()}`;
+  }, [demoLinkedSubjectId, isAdminDemoQuestion, isDemoLinkedMode, question?.subjectId]);
+  const canAddQuestionFromPractice = Boolean(createQuestionPath && !isPublicDemoQuestionContext);
   const { data: practiceCountData } = trpc.practice.countByQuestion.useQuery(
     { questionId },
     { enabled: !!questionId && isWritableQuestionContext }
@@ -560,7 +600,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     [question?.id, question?.imageUrl]
   );
   const utils = trpc.useUtils();
-  const invalidateQuestionWorkspaceCaches = useCallback(async () => {
+  const invalidateQuestionWorkspaceCaches = useCallback(async (options?: { prefetchConfidence?: boolean }) => {
     if (!question) return;
     await Promise.all([
       utils.questions.getById.invalidate({ id: question.id }),
@@ -581,7 +621,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           ]
         : []),
     ]);
-  }, [demoLinkedSubjectId, isDemoLinkedMode, question, utils]);
+    if (options?.prefetchConfidence && !isPublicDemoQuestionContext) {
+      await Promise.all([
+        utils.confidence.getByQuestion.fetch({ questionId: question.id }),
+        utils.confidence.getHistory.fetch({ questionId: question.id }),
+        utils.confidence.getBySubject.fetch({ subjectId: question.subjectId }),
+        utils.confidence.getHistoryBySubject.fetch({ subjectId: question.subjectId }),
+      ]);
+    }
+  }, [demoLinkedSubjectId, isDemoLinkedMode, isPublicDemoQuestionContext, question, utils]);
   const createSession = trpc.practice.create.useMutation({
     onError: (error) => {
       // Silently ignore errors in demo mode
@@ -651,9 +699,25 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const navigateWithMorph = useCallback((targetQuestionId: number, forcedDirection?: "prev" | "next") => {
     if (!orderedSubjectQuestions || totalQuestions <= 0) return;
     if (isLeaving || targetQuestionId === questionId) return;
+    if (scrollNavInFlightRef.current) return;
 
     const targetIndex = orderedSubjectQuestions.findIndex((q) => q.id === targetQuestionId);
     if (targetIndex < 0) return;
+
+    scrollNavInFlightRef.current = true;
+    scrollNavCooldownRef.current = Date.now();
+    scrollNavDeltaRef.current = 0;
+    if (scrollNavDeltaResetTimerRef.current) {
+      clearTimeout(scrollNavDeltaResetTimerRef.current);
+      scrollNavDeltaResetTimerRef.current = null;
+    }
+    if (scrollNavInFlightTimerRef.current) {
+      clearTimeout(scrollNavInFlightTimerRef.current);
+    }
+    scrollNavInFlightTimerRef.current = setTimeout(() => {
+      scrollNavInFlightRef.current = false;
+      scrollNavInFlightTimerRef.current = null;
+    }, 1250);
 
     const direction = forcedDirection ?? (targetIndex > currentIndex ? "next" : "prev");
     setScrollNavDirection(direction);
@@ -742,62 +806,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return "red";
   }, [displayedConfidenceScore]);
 
-  const registerExitInteraction = useCallback(
-    (type: "hide" | "click" | "drag", weight = 1) => {
-      const metrics = exitInteractionMetricsRef.current;
-      if (type === "hide") metrics.hideToggleCount += 1;
-      else if (type === "drag") metrics.dragCount += 1;
-      else metrics.clickCount += 1;
-      metrics.totalWeight += Math.max(0, weight);
-    },
-    []
-  );
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      const container = scrollContainerRef.current;
-      const target = event.target as Node | null;
-      if (!container || !target || !container.contains(target)) return;
-      registerExitInteraction("click", 0.18);
-      exitInteractionPointerRef.current = {
-        tracking: true,
-        pointerId: event.pointerId ?? null,
-        startX: event.clientX,
-        startY: event.clientY,
-        dragRecorded: false,
-      };
-    };
-
-    const onPointerMove = (event: PointerEvent) => {
-      const state = exitInteractionPointerRef.current;
-      if (!state.tracking) return;
-      if (state.pointerId !== null && event.pointerId !== state.pointerId) return;
-      if (state.dragRecorded) return;
-      const dist = Math.hypot(event.clientX - state.startX, event.clientY - state.startY);
-      if (dist < 14) return;
-      state.dragRecorded = true;
-      registerExitInteraction("drag", 0.85);
-    };
-
-    const stopTracking = () => {
-      exitInteractionPointerRef.current.tracking = false;
-      exitInteractionPointerRef.current.pointerId = null;
-      exitInteractionPointerRef.current.dragRecorded = false;
-    };
-
-    window.addEventListener("pointerdown", onPointerDown, true);
-    window.addEventListener("pointermove", onPointerMove, true);
-    window.addEventListener("pointerup", stopTracking, true);
-    window.addEventListener("pointercancel", stopTracking, true);
-
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown, true);
-      window.removeEventListener("pointermove", onPointerMove, true);
-      window.removeEventListener("pointerup", stopTracking, true);
-      window.removeEventListener("pointercancel", stopTracking, true);
-    };
-  }, [registerExitInteraction]);
-
   const capturePracticeScrollSnapshot = useCallback((): PracticeScrollSnapshot | null => {
     if (typeof window === "undefined") return null;
     return {
@@ -869,6 +877,37 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
   }, [focusTextareaWithoutScroll, restorePracticeScrollSnapshot]);
 
+  const queuePracticeCaretRestore = useCallback((value: string, start: number, end = start) => {
+    queuedPracticeCaretRef.current = {
+      value,
+      start: Math.max(0, start),
+      end: Math.max(0, end),
+      queuedAt: Date.now(),
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const queued = queuedPracticeCaretRef.current;
+    const textarea = textareaRef.current;
+    if (!queued || !textarea) return;
+
+    const isExpired = Date.now() - queued.queuedAt > 280;
+    if (isExpired || textarea.value !== queued.value || document.activeElement !== textarea) {
+      queuedPracticeCaretRef.current = null;
+      return;
+    }
+
+    const nextStart = Math.min(queued.start, textarea.value.length);
+    const nextEnd = Math.min(queued.end, textarea.value.length);
+    if (textarea.selectionStart === nextStart && textarea.selectionEnd === nextEnd) {
+      queuedPracticeCaretRef.current = null;
+      return;
+    }
+
+    textarea.setSelectionRange(nextStart, nextEnd);
+    queuedPracticeCaretRef.current = null;
+  }, [userInput]);
+
   const appendOptimisticConfidenceHistoryPoint = useCallback((params: {
     score: number;
     eventType: "practice" | "test";
@@ -902,19 +941,78 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       ...(typeof params.isCorrect === "boolean" ? { isCorrect: params.isCorrect } : {}),
       ...(typeof params.accuracyRate === "number" ? { accuracyRate: params.accuracyRate } : {}),
     };
+    const nextLabel =
+      nextPoint.state === "green" ? "안정" : nextPoint.state === "yellow" ? "위험" : "취약";
+
+    utils.confidence.getByQuestion.setData({ questionId: question.id }, (prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        displayScore: nextPoint.score,
+        state: nextPoint.state,
+        label: nextLabel,
+        isColdStart: false,
+      };
+    });
 
     utils.confidence.getHistory.setData({ questionId: question.id }, (prev) => {
-      if (!prev) return prev;
       const safePoints = (prev?.points ?? []) as HistoryPointCache[];
       const withoutNow = safePoints.filter((point) => point.eventType !== "now");
       const nextPoints = [...withoutNow, nextPoint];
 
       return {
-        ...prev,
+        ...(prev ?? {}),
         points: nextPoints,
+        isExample: false,
+        previewLabel: undefined,
       };
     });
-  }, [isPublicDemoQuestionContext, question?.id, utils]);
+
+    utils.confidence.getBySubject.setData({ subjectId: question.subjectId }, (prev: any) => {
+      if (!prev || !Array.isArray(prev.questions)) return prev;
+      let didUpdate = false;
+      const questions = prev.questions.map((row: any) => {
+        if (row.questionId !== question.id) return row;
+        didUpdate = true;
+        return {
+          ...row,
+          displayScore: nextPoint.score,
+          state: nextPoint.state,
+          label: nextLabel,
+          isColdStart: false,
+        };
+      });
+      if (!didUpdate) return prev;
+
+      const totalQuestions = questions.length;
+      const averageScore = Math.round(
+        questions.reduce((sum: number, row: any) => sum + Math.round(Number(row.displayScore ?? 0)), 0) /
+          Math.max(1, totalQuestions)
+      );
+      const greenCount = questions.filter((row: any) => row.state === "green").length;
+      const yellowCount = questions.filter((row: any) => row.state === "yellow").length;
+      const redCount = questions.filter((row: any) => row.state === "red").length;
+      const aggregateState = scoreToConfidenceState(averageScore);
+      const aggregateLabel =
+        aggregateState === "green" ? "안정" : aggregateState === "yellow" ? "위험" : "취약";
+
+      return {
+        ...prev,
+        questions,
+        aggregate: {
+          ...(prev.aggregate ?? {}),
+          totalQuestions,
+          averageScore,
+          greenCount,
+          yellowCount,
+          redCount,
+          state: aggregateState,
+          label: aggregateLabel,
+          isColdStart: false,
+        },
+      };
+    });
+  }, [isPublicDemoQuestionContext, question?.id, question?.subjectId, utils]);
 
   // 이미지 문제: 상호작용 시 practiceCount를 최소 1로 설정
   useEffect(() => {
@@ -925,18 +1023,31 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   // 문제 이동 모드: 연습 박스에서 좌/우 스크롤(트랙패드 포함)로 이전/다음 문제 이동
   useEffect(() => {
+    scrollNavDeltaRef.current = 0;
+    scrollNavCooldownRef.current = Date.now();
+    if (scrollNavDeltaResetTimerRef.current) {
+      clearTimeout(scrollNavDeltaResetTimerRef.current);
+      scrollNavDeltaResetTimerRef.current = null;
+    }
+  }, [questionId]);
+
+  useEffect(() => {
     if (!isScrollNavMode) return;
     const el = scrollContainerRef.current;
     if (!el) return;
 
-    const NAV_COOLDOWN_MS = 620;
-    const NAV_MIN_DELTA = 10;
-    const NAV_TRIGGER_DELTA = 80;
-    const NAV_DELTA_RESET_MS = 420;
+    const NAV_COOLDOWN_MS = 1250;
+    const NAV_MIN_DELTA = 14;
+    const NAV_TRIGGER_DELTA = 125;
+    const NAV_DELTA_RESET_MS = 260;
 
     const handleWheel = (event: WheelEvent) => {
       if (isLeaving) {
         event.preventDefault();
+        return;
+      }
+      if (scrollNavInFlightRef.current) {
+        if (event.cancelable) event.preventDefault();
         return;
       }
       // 수평 스크롤이 우세할 때만 문제 이동으로 처리
@@ -989,6 +1100,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         clearTimeout(scrollNavDeltaResetTimerRef.current);
         scrollNavDeltaResetTimerRef.current = null;
       }
+      if (scrollNavInFlightTimerRef.current) {
+        clearTimeout(scrollNavInFlightTimerRef.current);
+        scrollNavInFlightTimerRef.current = null;
+      }
+      scrollNavInFlightRef.current = false;
       scrollNavDeltaRef.current = 0;
     };
   }, [isScrollNavMode, prevQuestion, nextQuestion, isLeaving, navigateWithMorph]);
@@ -1040,32 +1156,30 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   // 새로운 문제로 이동할 때 hasBeenSaved 초기화
   useEffect(() => {
     hasBeenSaved.current = false;
+    queuedPracticeCaretRef.current = null;
     autoSeededQuestionRef.current = null;
     tablePartialSavedRatioRef.current = 0;
     autoHideCompletedLinesRef.current = new Set();
     autoHideViewedLinesRef.current = new Set();
     autoHidePreCompletedLinesRef.current = new Set();
     autoHideCompletionLockRef.current = 0;
+    spaceTabShortcutRef.current = { lastSpaceAt: 0, lineIdx: -1, stage: 0 };
     setHideMode("none");
     setHiddenLines(new Set());
+    setLineTabHints({});
+    spaceTabShortcutRef.current = { lastSpaceAt: 0, lineIdx: -1, stage: 0 };
     setAutoHideWrongLines(new Set());
     setStartTime(null);
     setCurrentContinuousStartAt(null);
     setIsLeaving(false);
     setHasInteracted(false);
-    exitInteractionMetricsRef.current = {
-      hideToggleCount: 0,
-      clickCount: 0,
-      dragCount: 0,
-      totalWeight: 0,
-    };
-    exitInteractionBonusAppliedRef.current = false;
     goBackInFlightRef.current = false;
     // 반복 연습 상태도 초기화
     setRepeatCheckedLines(new Set());
     setRepeatCurrentIdx(0);
     setRepeatCount(0);
     setRepeatTotalCount(0);
+    setRepeatCompletedLines(new Set());
 
     // 문제별 입력 드래프트 복원 (스크롤/버튼 이동 시 사용자 입력 유지)
     isRestoringDraftRef.current = true;
@@ -1104,6 +1218,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const mnemonicSummaryHints = parsedMnemonicAnswer.summaryHints;
   const mnemonicLineData = parsedMnemonicAnswer.lines;
   const targetText = parsedMnemonicAnswer.cleanAnswer.replace(/\s+$/g, "");
+  useEffect(() => {
+    lastClearedLineTabHintsRef.current = {};
+  }, [questionId, targetText]);
   const targetVisualLineCount = useMemo(() => {
     const lines = targetText.split("\n");
     while (lines.length > 1 && lines[lines.length - 1]?.trim() === "") {
@@ -1111,6 +1228,189 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
     return Math.max(1, lines.length);
   }, [targetText]);
+  const hasTemplateListPrefix = useMemo(
+    () => targetText.split("\n").some((line) => AUTO_LIST_PREFIX_LINE_REGEX.test(line)),
+    [targetText]
+  );
+  const difficultHighlightStorageKey = useMemo(
+    () => `practice_difficult_highlights_${questionId}`,
+    [questionId]
+  );
+  const normalizeDifficultHighlightRanges = useCallback(
+    (ranges: DifficultHighlightRange[]) => {
+      const targetLines = targetText.split("\n");
+      const normalized: DifficultHighlightRange[] = [];
+
+      for (const range of ranges) {
+        const line = targetLines[range.lineIdx];
+        if (typeof line !== "string") continue;
+
+        const lineLength = splitGraphemes(line).length;
+        const start = Math.max(0, Math.min(lineLength, Math.floor(range.start)));
+        const end = Math.max(start, Math.min(lineLength, Math.floor(range.end)));
+        if (end > start) {
+          normalized.push({ lineIdx: range.lineIdx, start, end });
+        }
+      }
+
+      return normalized.sort((a, b) => a.lineIdx - b.lineIdx || a.start - b.start);
+    },
+    [targetText]
+  );
+
+  useEffect(() => {
+    setDifficultHighlightsReadyKey(null);
+    let nextHighlights: DifficultHighlightRange[] = [];
+    try {
+      const raw = localStorage.getItem(difficultHighlightStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          nextHighlights = normalizeDifficultHighlightRanges(
+            parsed.filter(
+              (item): item is DifficultHighlightRange =>
+                typeof item?.lineIdx === "number" &&
+                typeof item?.start === "number" &&
+                typeof item?.end === "number"
+            )
+          );
+        }
+      }
+    } catch {
+      nextHighlights = [];
+    }
+    setDifficultHighlights(nextHighlights);
+    setDifficultHighlightsReadyKey(difficultHighlightStorageKey);
+  }, [difficultHighlightStorageKey, normalizeDifficultHighlightRanges]);
+
+  useEffect(() => {
+    if (difficultHighlightsReadyKey !== difficultHighlightStorageKey) return;
+    try {
+      const normalized = normalizeDifficultHighlightRanges(difficultHighlights);
+      if (normalized.length === 0) {
+        localStorage.removeItem(difficultHighlightStorageKey);
+      } else {
+        localStorage.setItem(difficultHighlightStorageKey, JSON.stringify(normalized));
+      }
+    } catch {}
+  }, [difficultHighlightStorageKey, difficultHighlights, difficultHighlightsReadyKey, normalizeDifficultHighlightRanges]);
+
+  const isDifficultHighlighted = useCallback(
+    (lineIdx: number, charIndex: number) =>
+      difficultHighlights.some(
+        (range) => range.lineIdx === lineIdx && charIndex >= range.start && charIndex < range.end
+      ),
+    [difficultHighlights]
+  );
+
+  const handleAnswerSelectionMark = useCallback(() => {
+    if (!answerDisplayRef.current || typeof window === "undefined") return;
+
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+    if (!selection.toString().trim()) return;
+
+    const findCharElement = (node: Node | null) => {
+      const startElement = node instanceof Element ? node : node?.parentElement ?? null;
+      return startElement?.closest<HTMLElement>("[data-answer-char='1']") ?? null;
+    };
+
+    const anchorEl = findCharElement(selection.anchorNode);
+    const focusEl = findCharElement(selection.focusNode);
+    if (!anchorEl || !focusEl) return;
+    if (!answerDisplayRef.current.contains(anchorEl) || !answerDisplayRef.current.contains(focusEl)) return;
+
+    let startLineIdx = Number(anchorEl.dataset.lineIndex);
+    let startCharIdx = Number(anchorEl.dataset.charIndex);
+    let endLineIdx = Number(focusEl.dataset.lineIndex);
+    let endCharIdx = Number(focusEl.dataset.charIndex);
+    if (
+      !Number.isFinite(startLineIdx) ||
+      !Number.isFinite(startCharIdx) ||
+      !Number.isFinite(endLineIdx) ||
+      !Number.isFinite(endCharIdx)
+    ) {
+      return;
+    }
+
+    if (startLineIdx > endLineIdx || (startLineIdx === endLineIdx && startCharIdx > endCharIdx)) {
+      [startLineIdx, endLineIdx] = [endLineIdx, startLineIdx];
+      [startCharIdx, endCharIdx] = [endCharIdx, startCharIdx];
+    }
+
+    const targetLines = targetText.split("\n");
+    const nextRanges: DifficultHighlightRange[] = [];
+    for (let lineIdx = startLineIdx; lineIdx <= endLineIdx; lineIdx++) {
+      const line = targetLines[lineIdx];
+      if (typeof line !== "string") continue;
+      const lineLength = splitGraphemes(line).length;
+      const start = lineIdx === startLineIdx ? startCharIdx : 0;
+      const end = lineIdx === endLineIdx ? endCharIdx + 1 : lineLength;
+      if (end > start) nextRanges.push({ lineIdx, start, end });
+    }
+
+    if (nextRanges.length === 0) return;
+
+    suppressAnswerLineClickUntilRef.current = Date.now() + 240;
+    const mergeHighlightRanges = (ranges: DifficultHighlightRange[]) =>
+      normalizeDifficultHighlightRanges(ranges).reduce<DifficultHighlightRange[]>(
+        (merged, range) => {
+          const last = merged[merged.length - 1];
+          if (last && last.lineIdx === range.lineIdx && range.start <= last.end) {
+            last.end = Math.max(last.end, range.end);
+            return merged;
+          }
+          merged.push({ ...range });
+          return merged;
+        },
+        []
+      );
+    const rangesOverlap = (a: DifficultHighlightRange, b: DifficultHighlightRange) =>
+      a.lineIdx === b.lineIdx && a.start < b.end && b.start < a.end;
+
+    setDifficultHighlights((prev) => {
+      const normalizedPrev = mergeHighlightRanges(prev);
+      const normalizedNext = mergeHighlightRanges(nextRanges);
+      const shouldRemove = normalizedPrev.some((range) =>
+        normalizedNext.some((selected) => rangesOverlap(range, selected))
+      );
+
+      if (!shouldRemove) {
+        return mergeHighlightRanges([...normalizedPrev, ...normalizedNext]);
+      }
+
+      const remaining: DifficultHighlightRange[] = [];
+      for (const range of normalizedPrev) {
+        let segments: DifficultHighlightRange[] = [{ ...range }];
+        for (const selected of normalizedNext) {
+          if (selected.lineIdx !== range.lineIdx) continue;
+          segments = segments.flatMap((segment) => {
+            if (!rangesOverlap(segment, selected)) return [segment];
+            const pieces: DifficultHighlightRange[] = [];
+            if (segment.start < selected.start) {
+              pieces.push({ lineIdx: segment.lineIdx, start: segment.start, end: selected.start });
+            }
+            if (selected.end < segment.end) {
+              pieces.push({ lineIdx: segment.lineIdx, start: selected.end, end: segment.end });
+            }
+            return pieces;
+          });
+        }
+        remaining.push(...segments);
+      }
+
+      return mergeHighlightRanges(remaining);
+    });
+
+    selection.removeAllRanges();
+    setTimeout(() => {
+      try {
+        textareaRef.current?.focus({ preventScroll: true });
+      } catch {
+        textareaRef.current?.focus();
+      }
+    }, 0);
+  }, [normalizeDifficultHighlightRanges, targetText]);
   const answerPanelMinHeightPx = useMemo(() => {
     const estimatedAnswerLineHeight = PRACTICE_TEXT_LINE_HEIGHT_PX;
     const verticalPadding = 24;
@@ -1199,19 +1499,45 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   // 메모 초기화: question 로드 시 DB에서 가져오기
   useEffect(() => {
-    if (question?.memo) {
-      setMemo(question.memo);
-    } else {
-      setMemo('');
+    const nextMemo = question?.memo ?? '';
+    setMemo(nextMemo);
+    lastSavedMemoRef.current = nextMemo;
+    setMemoSaving(false);
+    setMemoSaved(false);
+    if (memoAutoSaveTimerRef.current) {
+      clearTimeout(memoAutoSaveTimerRef.current);
+      memoAutoSaveTimerRef.current = null;
     }
   }, [question?.id, question?.memo]);
 
-  // 메모 저장 핸들러
-  const handleSaveMemo = () => {
-    if (!question || isPublicDemoQuestionContext) return;
+  // 메모는 연습 흐름을 끊지 않도록 입력 후 잠깐 쉬면 자동 저장한다.
+  useEffect(() => {
+    if (!question || !canUseMemo) return;
+    if (memo === lastSavedMemoRef.current) return;
+
+    if (memoAutoSaveTimerRef.current) {
+      clearTimeout(memoAutoSaveTimerRef.current);
+    }
     setMemoSaving(true);
-    saveMemoMutation.mutate({ id: question.id, memo: memo || null });
-  };
+    const memoToSave = memo;
+    memoAutoSaveTimerRef.current = setTimeout(() => {
+      saveMemoMutation.mutate(
+        { id: question.id, memo: memoToSave.trim().length > 0 ? memoToSave : null },
+        {
+          onSuccess: () => {
+            lastSavedMemoRef.current = memoToSave;
+          },
+        }
+      );
+    }, 700);
+
+    return () => {
+      if (memoAutoSaveTimerRef.current) {
+        clearTimeout(memoAutoSaveTimerRef.current);
+        memoAutoSaveTimerRef.current = null;
+      }
+    };
+  }, [canUseMemo, memo, question?.id]);
 
   // 집중 연습 선택 상태 localStorage 저장
   useEffect(() => {
@@ -1222,17 +1548,28 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
   // 줄 체크박스 토글
   const toggleRepeatLine = (lineIdx: number) => {
-    setRepeatCheckedLines(prev => {
-      const next = new Set(prev);
-      if (next.has(lineIdx)) {
-        next.delete(lineIdx);
-      } else {
-        next.add(lineIdx);
-      }
-      return next;
-    });
+    const next = new Set(repeatCheckedLines);
+    if (next.has(lineIdx)) {
+      next.delete(lineIdx);
+    } else {
+      next.add(lineIdx);
+    }
+    const nextSelectedLines = Array.from(next).sort((a, b) => a - b);
+    setRepeatCheckedLines(next);
     setRepeatCurrentIdx(0);
     setRepeatCount(0);
+    setRepeatCompletedLines(new Set());
+    setAutoHideWrongLines(new Set());
+    setLineTabHints({});
+    autoHideCompletedLinesRef.current = new Set();
+    autoHideCompletionLockRef.current = 0;
+    const firstSelectedLineIdx = nextSelectedLines[0];
+    if (typeof firstSelectedLineIdx === "number") {
+      const firstTargetLine = targetText.split("\n")[firstSelectedLineIdx] ?? "";
+      seedPracticeInputAtLine(firstSelectedLineIdx, firstTargetLine);
+    } else {
+      seedPracticeInput("");
+    }
   };
 
   // 줄 반복 연습 종료
@@ -1241,6 +1578,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setRepeatCurrentIdx(0);
     setRepeatCount(0);
     setRepeatTotalCount(0);
+    setRepeatCompletedLines(new Set());
+    setAutoHideWrongLines(new Set());
+    setLineTabHints({});
+    autoHideCompletedLinesRef.current = new Set();
+    autoHideCompletionLockRef.current = 0;
+    autoHideRevealPenaltyRef.current = false;
     // 입력창 전체 정답으로 복원
     setUserInput('');
     setTimeout(() => textareaRef.current?.focus(), 50);
@@ -1439,7 +1782,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   };
 
   const toggleHideAll = useCallback(() => {
-    registerExitInteraction("hide", 1.25);
+    const now = Date.now();
+    if (now - hideToggleDebounceRef.current < 120) return;
+    hideToggleDebounceRef.current = now;
+
     if (isImageQuestion && imageLabelsLengthRef.current > 0) {
       const totalLabels = imageLabelsLengthRef.current;
       const allRevealed =
@@ -1455,11 +1801,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         revealedLabelsRef.current = shown;
         setRevealedLabels(shown);
         lastLabelActionRef.current = "hide";
+        autoHideRevealPenaltyRef.current = true;
       }
       return;
     }
     setHideMode((prev) => {
       const next = prev === "all" ? "none" : "all";
+      if (next === "none") {
+        autoHideRevealPenaltyRef.current = true;
+      }
       if (next === "all") {
         const sourceInput = lastInputRef.current ?? userInput;
         autoHidePreCompletedLinesRef.current = collectCompletedTargetLineIndices(
@@ -1472,11 +1822,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return next;
     });
     setHiddenLines(new Set());
+    setLineTabHints({});
     setAutoHideWrongLines(new Set());
     autoHideCompletedLinesRef.current = new Set();
-    autoHideViewedLinesRef.current = new Set();
     autoHideCompletionLockRef.current = 0;
-  }, [isImageQuestion, registerExitInteraction, userInput]);
+  }, [isImageQuestion, userInput]);
 
   const handleImagePracticeNoteChange = useCallback((value: string) => {
     setPracticeNote(value);
@@ -1514,20 +1864,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const shouldAutoSeedPracticeNumbering =
     !isTableQuestion &&
     !isImageQuestion &&
-    question?.autoNumbering === 1;
+    (question?.autoNumbering === 1 || hasTemplateListPrefix);
   const firstTemplateLineForSeed = useMemo(() => {
     const lines = targetText.split("\n");
     return lines.find((line) => line.trim().length > 0) ?? lines[0] ?? "";
   }, [targetText]);
   const getPracticeInputSeed = useCallback((templateLine?: string) => {
     if (!shouldAutoSeedPracticeNumbering) return "";
-    const candidates = [templateLine, firstTemplateLineForSeed];
-    for (const candidate of candidates) {
-      if (!candidate) continue;
-      const hint = getLinePrefixHint(candidate);
-      if (hint?.prefix) return hint.prefix;
+    if (typeof templateLine === "string") {
+      return getLinePrefixHint(templateLine)?.prefix ?? "";
     }
-    return "";
+    return getLinePrefixHint(firstTemplateLineForSeed)?.prefix ?? "";
   }, [firstTemplateLineForSeed, shouldAutoSeedPracticeNumbering]);
   const isListPrefixOnlyDraft = useCallback((value: string) => {
     const normalized = value.replace(/\r\n/g, "\n");
@@ -1550,8 +1897,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     imageLabels.length > 0 &&
     revealedLabels.size < imageLabels.length;
   const mobileDockedContentBottomPaddingClass = isTableQuestion
-    ? "pb-[calc(15rem+env(safe-area-inset-bottom))]"
-    : "pb-[calc(13rem+env(safe-area-inset-bottom))]";
+    ? "pb-[calc(19rem+env(safe-area-inset-bottom))]"
+    : "pb-[calc(17rem+env(safe-area-inset-bottom))]";
   const contentBottomPaddingClass = isImageQuestion
     ? "pb-6"
   : useHorizontalInputLayout
@@ -1560,7 +1907,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       : "pb-28"
     : isMobile
       ? mobileDockedContentBottomPaddingClass
-      : "pb-72";
+      : "pb-96";
   const answerPanelMaxHeight = memoOpen
     ? isMobile
       ? "50vh"
@@ -1608,6 +1955,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   const tableCellInputRef = useRef<HTMLTextAreaElement>(null);
   const tableInputResettingRef = useRef(false);
   const tablePartialSavedRatioRef = useRef(0);
+  const autoStartedQuestionIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!question?.id || !shouldAutoSeedPracticeNumbering) return;
@@ -1678,14 +2026,16 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       .filter((char) => isComparablePracticeChar(char))
       .join("");
   const normalizeLineForComparison = (line: string) => {
+    // 텍스트 계열 문제 채점에서는 "1.", "2." 같은 줄 번호를 항상 무시한다.
+    const shouldIgnoreLeadingLineNumber = !isTableQuestion && !isImageQuestion;
     const lineWithoutNumber =
-      question?.autoNumbering === 1 ? stripLineNumberPrefix(line) : line.trim();
+      shouldIgnoreLeadingLineNumber ? stripLineNumberPrefix(line) : line.trim();
     const lineWithoutListPrefix = stripBulletPrefix(lineWithoutNumber);
     return stripOptionalPracticeSymbols(lineWithoutListPrefix.replace(/\s+/g, ""));
   };
   const normalizeLineForTypingCompare = (line: string) =>
     toTypingKeySequence(normalizeLineForComparison(line));
-  // Normalize text: remove spaces/newlines and (auto-numbering question only) leading line numbers
+  // Normalize text: remove spaces/newlines and (text questions) leading line numbers
   const normalizeText = (text: string) =>
     text
       .split("\n")
@@ -1877,12 +2227,306 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return -1;
   };
 
-  const markLineViewedInAutoHide = (lineIdx: number) => {
+  const markLineViewedInAutoHide = useCallback((lineIdx: number) => {
     if (hideMode !== "all") return;
     const next = new Set(autoHideViewedLinesRef.current);
     next.add(lineIdx);
     autoHideViewedLinesRef.current = next;
-  };
+  }, [hideMode]);
+
+  const getCurrentPracticeLineIndex = useCallback((inputValue?: string, selectionStart?: number | null) => {
+    const repeatState = repeatStateRef.current;
+    if (repeatState.isRepeatMode && repeatState.repeatLinesSorted.length > 0) {
+      return repeatState.repeatLinesSorted[repeatState.repeatCurrentIdx % repeatState.repeatLinesSorted.length] ?? -1;
+    }
+
+    const targetLines = targetText.split("\n");
+    if (targetLines.length === 0) return -1;
+
+    let lineIdx = currentCursorLineIndex;
+    if (typeof inputValue === "string" && typeof selectionStart === "number") {
+      lineIdx = inputValue.slice(0, Math.max(0, selectionStart)).split("\n").length - 1;
+    }
+    lineIdx = Math.min(Math.max(lineIdx, 0), targetLines.length - 1);
+
+    const hasContent = (idx: number) => normalizeLineForComparison(targetLines[idx] ?? "").length > 0;
+    if (hasContent(lineIdx)) return lineIdx;
+
+    for (let idx = lineIdx + 1; idx < targetLines.length; idx++) {
+      if (hasContent(idx)) return idx;
+    }
+    for (let idx = lineIdx - 1; idx >= 0; idx--) {
+      if (hasContent(idx)) return idx;
+    }
+    return -1;
+  }, [currentCursorLineIndex, normalizeLineForComparison, targetText]);
+
+  const getCompletedComparableCountForLine = useCallback((userLineRaw: string, targetLineRaw: string) => {
+    const normalized = normalizeLinePairForComparison(userLineRaw, targetLineRaw);
+    const targetChars = splitGraphemes(normalized.target);
+    const userKeySequence = toTypingKeySequence(normalized.user);
+    let targetKeyCursor = "";
+    let completedCount = 0;
+
+    for (const targetChar of targetChars) {
+      const nextTargetKeyCursor = `${targetKeyCursor}${toTypingKeyUnit(targetChar)}`;
+      if (!userKeySequence.startsWith(nextTargetKeyCursor)) break;
+      completedCount++;
+      targetKeyCursor = nextTargetKeyCursor;
+    }
+
+    return completedCount;
+  }, [normalizeLinePairForComparison]);
+
+  const getHintWordSpanForLine = useCallback((targetLineRaw: string, completedComparableCount: number) => {
+    const chars = splitGraphemes(targetLineRaw);
+    const prefixEnd = getListPrefixInfo(targetLineRaw).prefix.length;
+    let comparableIdx = 0;
+    let idx = 0;
+
+    while (idx < chars.length) {
+      if (idx < prefixEnd || !isComparablePracticeChar(chars[idx])) {
+        idx++;
+        continue;
+      }
+
+      const start = idx;
+      const comparableStart = comparableIdx;
+      while (idx < chars.length && isComparablePracticeChar(chars[idx])) {
+        comparableIdx++;
+        idx++;
+      }
+      const end = idx;
+      const comparableEnd = comparableIdx;
+
+      if (comparableEnd > completedComparableCount) {
+        return {
+          start,
+          end,
+          comparableStart,
+          comparableEnd,
+          revealFrom: Math.max(comparableStart, completedComparableCount),
+        };
+      }
+    }
+
+    return null;
+  }, [getListPrefixInfo, isComparablePracticeChar]);
+
+  const buildLineTabHint = useCallback((
+    targetLineRaw: string,
+    hintSpan: NonNullable<ReturnType<typeof getHintWordSpanForLine>>,
+    level: 1 | 2
+  ): LineTabHint | null => {
+    const chars = splitGraphemes(targetLineRaw);
+    let comparableIdx = hintSpan.comparableStart;
+    let firstText = "";
+    let wordText = "";
+    let firstCharIndex = -1;
+    const wordCharIndexes: number[] = [];
+
+    for (let idx = hintSpan.start; idx < hintSpan.end; idx++) {
+      const char = chars[idx] ?? "";
+      if (!isComparablePracticeChar(char)) continue;
+      if (comparableIdx >= hintSpan.revealFrom) {
+        if (!firstText) {
+          firstText = char;
+          firstCharIndex = idx;
+        }
+        wordText += char;
+        wordCharIndexes.push(idx);
+      }
+      comparableIdx++;
+    }
+
+    if (!firstText || firstCharIndex < 0) return null;
+    return {
+      level,
+      firstText,
+      wordText: wordText || firstText,
+      firstCharIndex,
+      wordCharIndexes,
+      firstComparableEnd: hintSpan.revealFrom + 1,
+      wordComparableEnd: hintSpan.comparableEnd,
+    };
+  }, [getHintWordSpanForLine, isComparablePracticeChar]);
+
+  const handlePracticeTabToggle = useCallback((textarea?: HTMLTextAreaElement | null) => {
+    if (isTableQuestion || isImageQuestion || hideMode !== "all") {
+      toggleHideAll();
+      return;
+    }
+
+    const lineIdx = getCurrentPracticeLineIndex(
+      textarea?.value,
+      typeof textarea?.selectionStart === "number" ? textarea.selectionStart : undefined
+    );
+    if (lineIdx < 0) {
+      toggleHideAll();
+      return;
+    }
+
+    const currentInput = textarea?.value ?? lastInputRef.current ?? userInput;
+    const targetLines = targetText.split("\n");
+    const inputLines = currentInput.split("\n");
+    const targetLine = targetLines[lineIdx] ?? "";
+    const repeatState = repeatStateRef.current;
+    const inputLineIdx = repeatState.isRepeatMode ? 0 : lineIdx;
+    const completedCount = getCompletedComparableCountForLine(inputLines[inputLineIdx] ?? "", targetLine);
+    const hintSpan = getHintWordSpanForLine(targetLine, completedCount);
+    if (!hintSpan) return;
+
+    // Tab: 다음 글자 → 현재 단어의 남은 부분 → 현재 문장 공개.
+    // 입력 중인 단어 한가운데서도 이미 친 글자가 아니라 바로 다음 글자를 힌트로 준다.
+    const clearedHint = lastClearedLineTabHintsRef.current[lineIdx];
+    const canResumeClearedHint =
+      !!clearedHint &&
+      clearedHint.level === 1 &&
+      completedCount >= clearedHint.firstComparableEnd &&
+      completedCount < clearedHint.wordComparableEnd;
+    const rawCurrentHint = lineTabHints[lineIdx] ?? (canResumeClearedHint ? clearedHint : undefined);
+    const currentHintClearAt = rawCurrentHint
+      ? (rawCurrentHint.level === 1 ? rawCurrentHint.firstComparableEnd : rawCurrentHint.wordComparableEnd)
+      : Infinity;
+    const currentHint = rawCurrentHint && completedCount < currentHintClearAt ? rawCurrentHint : undefined;
+    const currentLevel = currentHint?.level ?? 0;
+    const nextLevel = Math.min(currentLevel + 1, 3) as TabHintLevel;
+
+    if (nextLevel === 3) {
+      setHiddenLines((hiddenPrev) => {
+        const hiddenNext = new Set(hiddenPrev);
+        hiddenNext.add(lineIdx);
+        return hiddenNext;
+      });
+      setLineTabHints((prev) => {
+        if (!(lineIdx in prev)) return prev;
+        const next = { ...prev };
+        delete next[lineIdx];
+        return next;
+      });
+      delete lastClearedLineTabHintsRef.current[lineIdx];
+      markLineViewedInAutoHide(lineIdx);
+      autoHideRevealPenaltyRef.current = true;
+      return;
+    }
+
+    const nextHint =
+      currentHint && nextLevel > currentLevel
+        ? { ...currentHint, level: nextLevel as 1 | 2 }
+        : buildLineTabHint(targetLine, hintSpan, nextLevel as 1 | 2);
+    if (!nextHint) return;
+
+    setHiddenLines((hiddenPrev) => {
+      if (!hiddenPrev.has(lineIdx)) return hiddenPrev;
+      const hiddenNext = new Set(hiddenPrev);
+      hiddenNext.delete(lineIdx);
+      return hiddenNext;
+    });
+    setLineTabHints((prev) => {
+      const next = { ...prev };
+      next[lineIdx] = nextHint;
+      return next;
+    });
+    delete lastClearedLineTabHintsRef.current[lineIdx];
+    markLineViewedInAutoHide(lineIdx);
+    autoHideRevealPenaltyRef.current = true;
+  }, [buildLineTabHint, getCompletedComparableCountForLine, getCurrentPracticeLineIndex, getHintWordSpanForLine, hideMode, isImageQuestion, isTableQuestion, lineTabHints, markLineViewedInAutoHide, targetText, toggleHideAll, userInput]);
+
+  const handlePracticeSpaceTabReveal = useCallback((textarea?: HTMLTextAreaElement | null) => {
+    if (isTableQuestion || isImageQuestion || hideMode !== "all") return false;
+
+    const lineIdx = getCurrentPracticeLineIndex(
+      textarea?.value,
+      typeof textarea?.selectionStart === "number" ? textarea.selectionStart : undefined
+    );
+    if (lineIdx >= 0) markLineViewedInAutoHide(lineIdx);
+    setHideMode("none");
+    setHiddenLines(new Set());
+    setLineTabHints({});
+    autoHideRevealPenaltyRef.current = true;
+    spaceTabShortcutRef.current = {
+      lastSpaceAt: 0,
+      lineIdx: lineIdx >= 0 ? lineIdx : -1,
+      stage: 0,
+    };
+    return true;
+  }, [getCurrentPracticeLineIndex, hideMode, isImageQuestion, isTableQuestion, markLineViewedInAutoHide]);
+
+  const hasTextBeforeCursorOnCurrentLine = useCallback((textarea?: HTMLTextAreaElement | null) => {
+    if (!textarea || typeof textarea.selectionStart !== "number") return false;
+    const cursor = Math.max(0, textarea.selectionStart);
+    const lineStart = textarea.value.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
+    const beforeCursor = textarea.value.slice(lineStart, cursor);
+    return beforeCursor.trim().length > 0;
+  }, []);
+
+  const noteSpaceTabCandidate = useCallback((textarea?: HTMLTextAreaElement | null) => {
+    if (isTableQuestion || isImageQuestion || hideMode !== "all") return;
+    if (hasTextBeforeCursorOnCurrentLine(textarea)) {
+      spaceTabShortcutRef.current.lastSpaceAt = 0;
+      return;
+    }
+    spaceTabShortcutRef.current.lastSpaceAt = Date.now();
+  }, [hasTextBeforeCursorOnCurrentLine, hideMode, isImageQuestion, isTableQuestion]);
+
+  const consumeSpaceTabShortcut = useCallback((textarea?: HTMLTextAreaElement | null) => {
+    const now = Date.now();
+    if (now - spaceTabShortcutRef.current.lastSpaceAt > SPACE_TAB_SHORTCUT_WINDOW_MS) {
+      return false;
+    }
+    if (hasTextBeforeCursorOnCurrentLine(textarea)) {
+      spaceTabShortcutRef.current.lastSpaceAt = 0;
+      return false;
+    }
+    spaceTabShortcutRef.current.lastSpaceAt = 0;
+
+    if (textarea && typeof textarea.selectionStart === "number") {
+      const cursor = textarea.selectionStart;
+      if (cursor > 0 && textarea.value[cursor - 1] === " ") {
+        const nextValue = `${textarea.value.slice(0, cursor - 1)}${textarea.value.slice(cursor)}`;
+        textarea.value = nextValue;
+        textarea.setSelectionRange(cursor - 1, cursor - 1);
+        setUserInput(nextValue);
+        lastInputRef.current = nextValue;
+      }
+    }
+
+    return handlePracticeSpaceTabReveal(textarea);
+  }, [handlePracticeSpaceTabReveal, hasTextBeforeCursorOnCurrentLine]);
+
+  useEffect(() => {
+    if (Object.keys(lineTabHints).length === 0) return;
+
+    const targetLines = targetText.split("\n");
+    const inputLines = userInput.split("\n");
+    const repeatState = repeatStateRef.current;
+
+    setLineTabHints((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const key of Object.keys(prev)) {
+        const lineIdx = Number(key);
+        const hint = prev[lineIdx];
+        if (!hint) continue;
+
+        const inputLineIdx = repeatState.isRepeatMode ? 0 : lineIdx;
+        const completedCount = getCompletedComparableCountForLine(
+          inputLines[inputLineIdx] ?? "",
+          targetLines[lineIdx] ?? ""
+        );
+        const clearAt = hint.level === 1 ? hint.firstComparableEnd : hint.wordComparableEnd;
+
+        if (completedCount >= clearAt) {
+          lastClearedLineTabHintsRef.current[lineIdx] = hint;
+          delete next[lineIdx];
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [getCompletedComparableCountForLine, lineTabHints, targetText, userInput]);
 
   const collectCompletedTargetLineIndices = (
     input: string,
@@ -1919,6 +2563,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
   };
 
   const seedPracticeInput = (seeded: string) => {
+    queuedPracticeCaretRef.current = null;
+    autoHideRevealPenaltyRef.current = false;
     const snapshot = capturePracticeScrollSnapshot();
     resetScrollSnapshotRef.current = snapshot;
     isResettingRef.current = true;
@@ -1952,12 +2598,58 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     });
   };
 
+  function seedPracticeInputAtLine(lineIdx: number, targetLineText: string) {
+    const safeLineIdx = Math.max(0, lineIdx);
+    const seeded = getPracticeInputSeed(targetLineText);
+    const lines = Array.from({ length: safeLineIdx + 1 }, () => "");
+    lines[safeLineIdx] = seeded;
+    const nextValue = lines.join("\n");
+    const lineStartOffset = lines
+      .slice(0, safeLineIdx)
+      .reduce((sum, line) => sum + line.length + 1, 0);
+    const nextCursor = lineStartOffset + seeded.length;
+    const snapshot = capturePracticeScrollSnapshot();
+
+    queuedPracticeCaretRef.current = null;
+    autoHideRevealPenaltyRef.current = false;
+    resetScrollSnapshotRef.current = snapshot;
+    isResettingRef.current = true;
+    setIsComposing(false);
+    setUserInput(nextValue);
+    lastInputRef.current = nextValue;
+    setInputHistory([nextValue]);
+    setHistoryIndex(0);
+    setCurrentCursorLineIndex(safeLineIdx);
+    const now = Date.now();
+    setLastInputTime(now);
+    if (!isActive) setIsActive(true);
+    if (!startTime) setStartTime(now);
+    setCurrentContinuousStartAt(now);
+
+    if (textareaRef.current) {
+      textareaRef.current.value = nextValue;
+      focusPracticeTextareaPreservingScroll(nextCursor, snapshot);
+    }
+
+    requestAnimationFrame(() => {
+      isResettingRef.current = false;
+      if (textareaRef.current) {
+        focusPracticeTextareaPreservingScroll(nextCursor, snapshot);
+      }
+      setTimeout(() => {
+        if (resetScrollSnapshotRef.current === snapshot) {
+          resetScrollSnapshotRef.current = null;
+        }
+      }, 340);
+    });
+  }
+
   const moveRepeatCycleCursorToLine = (
     baseInputValue: string,
-    nextRepeatLinePosition: number,
+    nextTargetLineIndex: number,
     nextTargetLineText: string
   ) => {
-    const safeLinePos = Math.max(0, nextRepeatLinePosition);
+    const safeLinePos = Math.max(0, nextTargetLineIndex);
     const lines = baseInputValue.replace(/\r\n/g, "\n").split("\n");
 
     while (lines.length <= safeLinePos) {
@@ -2015,11 +2707,32 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
     const cycleInputLines = newValue.replace(/\r\n/g, "\n").split("\n");
     const activeInputLine =
+      cycleInputLines[activeTargetLineIdx] ??
       cycleInputLines[currentRepeatLinePos] ??
       cycleInputLines[cycleInputLines.length - 1] ??
       "";
     const normalizedActiveInputLine = normalizeTextForTypingCompare(activeInputLine);
-    if (normalizedActiveInputLine !== normalizedRepeatTarget) return true;
+    if (normalizedActiveInputLine !== normalizedRepeatTarget) {
+      if (normalizedActiveInputLine.length > 0) {
+        setAutoHideWrongLines((prev) => {
+          const next = new Set(prev);
+          next.add(activeTargetLineIdx);
+          return next;
+        });
+      }
+      return true;
+    }
+    setAutoHideWrongLines((prev) => {
+      if (!prev.has(activeTargetLineIdx)) return prev;
+      const next = new Set(prev);
+      next.delete(activeTargetLineIdx);
+      return next;
+    });
+    setRepeatCompletedLines((prev) => {
+      const next = new Set(prev);
+      next.add(activeTargetLineIdx);
+      return next;
+    });
 
     const nextRepeatLinePos = currentRepeatLinePos + 1;
     const isCycleComplete = nextRepeatLinePos >= selectedLines.length;
@@ -2030,17 +2743,18 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       applySentencePracticeReward({
         typedLength: Math.max(1, activeInputLine.length),
         completionRatio: 1,
-        wasBlind: hideMode === "all",
+        wasBlind: hideMode === "all" && !autoHideRevealPenaltyRef.current,
+        source: "practice_repeat_cycle_completion",
+        showFeedback: true,
       });
-      toast.success("사이클 완주! 안정도가 반영됐어요.");
 
       const resetRepeatPos = 0;
       setRepeatCurrentIdx(resetRepeatPos);
+      setRepeatCompletedLines(new Set());
       repeatStateRef.current = { ...repeatStateRef.current, repeatCurrentIdx: resetRepeatPos };
       const firstTargetLineIdx = selectedLines[0] ?? activeTargetLineIdx;
       const firstTargetLineText = repeatTargetText.split("\n")[firstTargetLineIdx] || "";
-      const seeded = getPracticeInputSeed(firstTargetLineText);
-      seedPracticeInput(seeded);
+      seedPracticeInputAtLine(firstTargetLineIdx, firstTargetLineText);
       return true;
     }
 
@@ -2048,17 +2762,102 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     repeatStateRef.current = { ...repeatStateRef.current, repeatCurrentIdx: nextRepeatLinePos };
     const nextTargetLineIdx = selectedLines[nextRepeatLinePos] ?? activeTargetLineIdx;
     const nextTargetLineText = repeatTargetText.split("\n")[nextTargetLineIdx] || "";
-    moveRepeatCycleCursorToLine(newValue, nextRepeatLinePos, nextTargetLineText);
+    moveRepeatCycleCursorToLine(newValue, nextTargetLineIdx, nextTargetLineText);
     return true;
+  };
+
+  const getRepeatModeCycleCompletion = (inputValue: string): {
+    key: string;
+    firstTargetLineIdx: number;
+    firstTargetLineText: string;
+  } | null => {
+    if (isTableQuestion || isImageQuestion || isResettingRef.current || isFadingOut) return null;
+    const {
+      isRepeatMode: repeatModeOn,
+      repeatLinesSorted: selectedLines,
+      targetText: repeatTargetText,
+    } = repeatStateRef.current;
+    if (!repeatModeOn || selectedLines.length === 0) return null;
+
+    const targetLines = repeatTargetText.split("\n");
+    const cycleInputLines = inputValue.replace(/\r\n/g, "\n").split("\n");
+    const meaningfulSelectedLines = selectedLines.filter((lineIdx) => {
+      const targetLine = targetLines[lineIdx] ?? "";
+      return normalizeLineForComparison(targetLine).length > 0;
+    });
+    if (meaningfulSelectedLines.length === 0) return null;
+
+    const isEveryRepeatLineComplete = meaningfulSelectedLines.every((lineIdx) =>
+      isLinePairTypingEquivalentComplete(cycleInputLines[lineIdx] ?? "", targetLines[lineIdx] ?? "")
+    );
+    if (!isEveryRepeatLineComplete) return null;
+
+    const firstTargetLineIdx = selectedLines[0] ?? meaningfulSelectedLines[0];
+    const firstTargetLineText = targetLines[firstTargetLineIdx] ?? "";
+    const key = meaningfulSelectedLines
+      .map((lineIdx) => {
+        const targetLine = targetLines[lineIdx] ?? "";
+        const inputLine = cycleInputLines[lineIdx] ?? "";
+        return `${lineIdx}:${normalizeLinePairForTypingCompare(inputLine, targetLine).user}`;
+      })
+      .join("|");
+
+    return { key, firstTargetLineIdx, firstTargetLineText };
+  };
+
+  const tryAutoCompleteRepeatModeCycle = (inputValue: string) => {
+    const completion = getRepeatModeCycleCompletion(inputValue);
+    if (!completion) return;
+
+    const now = Date.now();
+    const lock = repeatAutoCompletionLockRef.current;
+    if (lock.key === completion.key && now - lock.at < 900) return;
+    repeatAutoCompletionLockRef.current = { key: completion.key, at: now };
+
+    setRepeatCount((prev) => prev + 1);
+    setRepeatTotalCount((prev) => prev + 1);
+    applySentencePracticeReward({
+      typedLength: Math.max(1, inputValue.length),
+      completionRatio: 1,
+      wasBlind: hideMode === "all" && !autoHideRevealPenaltyRef.current,
+      source: "practice_repeat_cycle_completion",
+      showFeedback: true,
+    });
+
+    setRepeatCurrentIdx(0);
+    setRepeatCompletedLines(new Set());
+    setAutoHideWrongLines(new Set());
+    repeatStateRef.current = { ...repeatStateRef.current, repeatCurrentIdx: 0 };
+    seedPracticeInputAtLine(completion.firstTargetLineIdx, completion.firstTargetLineText);
   };
 
   const applySentencePracticeReward = (params: {
     typedLength: number;
     completionRatio: number;
     wasBlind: boolean;
+    persistSession?: boolean;
+    countPractice?: boolean;
+    showFeedback?: boolean;
+    source?: string;
+    accuracy?: number;
+    errorCount?: number;
+    skipOptimisticDelta?: boolean;
   }) => {
-    const { typedLength, completionRatio, wasBlind } = params;
-    setPracticeCount((prev) => prev + 1);
+    const {
+      typedLength,
+      completionRatio,
+      wasBlind,
+      persistSession = true,
+      countPractice = true,
+      showFeedback = false,
+      source = "practice_line_completion",
+      accuracy,
+      errorCount,
+      skipOptimisticDelta = false,
+    } = params;
+    if (countPractice) {
+      setPracticeCount((prev) => prev + 1);
+    }
 
     if (!question) return;
 
@@ -2076,40 +2875,57 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           ? daysUntilExam * 24
           : null;
 
-    const baseDelta = estimatePracticeConfidenceDelta({
-      currentScore: baselineScore,
-      sessionPracticeCount: sessionCompleteCount + 1,
-      totalPracticeCount: (practiceCountData?.count || 0) + practiceCount + 1,
-      hoursUntilExam: estimatedHoursUntilExam,
-    });
-    const ratioWeight = Math.max(0.35, Math.min(1.25, 0.45 + completionRatio * 1.05));
-    const visibilityWeight = wasBlind ? 1 : 0.42;
-    const scaledDelta = Math.round(baseDelta * ratioWeight * visibilityWeight);
-    const estimatedDelta = Math.max(wasBlind ? 2 : 1, scaledDelta);
+    let optimisticScore = baselineScore;
+    let estimatedDelta = 0;
+    const shouldApplyOptimisticDelta = !skipOptimisticDelta && (persistSession || countPractice);
+    if (shouldApplyOptimisticDelta) {
+      const baseDelta = estimatePracticeConfidenceDelta({
+        currentScore: baselineScore,
+        sessionPracticeCount: sessionCompleteCount + (countPractice ? 1 : 0),
+        totalPracticeCount: (practiceCountData?.count || 0) + practiceCount + (countPractice ? 1 : 0),
+        hoursUntilExam: estimatedHoursUntilExam,
+      });
+      const ratioWeight = Math.max(0.35, Math.min(1.25, 0.45 + completionRatio * 1.05));
+      const visibilityWeight = wasBlind ? 1 : 0.42;
+      const scaledDelta = Math.round(baseDelta * ratioWeight * visibilityWeight);
+      estimatedDelta = Math.max(wasBlind ? 2 : 1, scaledDelta);
 
-    const optimisticScore = Math.max(0, Math.min(100, baselineScore + estimatedDelta));
-    confidenceScoreForAnimationRef.current = optimisticScore;
-    setOptimisticDisplayScore(optimisticScore);
-    appendOptimisticConfidenceHistoryPoint({
-      eventType: "practice",
-      score: optimisticScore,
-      practiceSessionCount: (practiceCountData?.count || 0) + practiceCount + 1,
-      practiceDelta: estimatedDelta,
-    });
-    setShowDamageNumber(false);
-    requestAnimationFrame(() => {
-      setDamageValue(estimatedDelta);
-      setShowDamageNumber(true);
-    });
+      const nextPracticeCount = (practiceCountData?.count || 0) + practiceCount + (countPractice ? 1 : 0);
+      const hasNoTests = Number((confidenceData as any)?.testCount ?? 0) <= 0;
+      const optimisticCap = hasNoTests
+        ? getPracticeOnlyCap(estimatedHoursUntilExam, nextPracticeCount)
+        : 100;
+      optimisticScore = Math.max(0, Math.min(optimisticCap, baselineScore + estimatedDelta));
+      confidenceScoreForAnimationRef.current = optimisticScore;
+      setOptimisticDisplayScore(optimisticScore);
+      appendOptimisticConfidenceHistoryPoint({
+        eventType: "practice",
+        score: optimisticScore,
+        practiceSessionCount: (practiceCountData?.count || 0) + practiceCount + (countPractice ? 1 : 0),
+        practiceDelta: estimatedDelta,
+      });
+      if (showFeedback) {
+        setShowDamageNumber(false);
+        requestAnimationFrame(() => {
+          setDamageValue(estimatedDelta);
+          setShowDamageNumber(true);
+        });
+      }
+    }
 
     if (isPublicDemoQuestionContext) {
-      const scoreStorageKey = `demo_confidence_score_${question.id}`;
-      localStorage.setItem(scoreStorageKey, String(optimisticScore));
-      const countStorageKey = `demo_practice_count_${question.id}`;
-      const currentCount = parseInt(localStorage.getItem(countStorageKey) || "0", 10);
-      localStorage.setItem(countStorageKey, String(currentCount + 1));
+      if (!skipOptimisticDelta) {
+        const scoreStorageKey = `demo_confidence_score_${question.id}`;
+        localStorage.setItem(scoreStorageKey, String(optimisticScore));
+      }
+      if (countPractice) {
+        const countStorageKey = `demo_practice_count_${question.id}`;
+        const currentCount = parseInt(localStorage.getItem(countStorageKey) || "0", 10);
+        localStorage.setItem(countStorageKey, String(currentCount + 1));
+      }
       return;
     }
+    if (!persistSession) return;
 
     (async () => {
       try {
@@ -2124,21 +2940,18 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           questionId: question.id,
           duration,
           typingSpeed,
-          accuracy: wasBlind ? 100 : 84,
-          errorCount: wasBlind ? 0 : 1,
+          accuracy: typeof accuracy === "number" ? accuracy : wasBlind ? 100 : 84,
+          errorCount: typeof errorCount === "number" ? errorCount : wasBlind ? 0 : 1,
           analytics: {
             ...getAnalyticsRequestMeta(),
-            source: "practice_line_completion",
+            source,
             completionRatio,
             blindMode: wasBlind,
             typedLength,
           },
         });
-        await invalidateQuestionWorkspaceCaches();
-        const [latestConfidence] = await Promise.all([
-          utils.confidence.getByQuestion.fetch({ questionId: question.id }),
-          utils.confidence.getHistory.fetch({ questionId: question.id }),
-        ]);
+        await invalidateQuestionWorkspaceCaches({ prefetchConfidence: true });
+        const latestConfidence = await utils.confidence.getByQuestion.fetch({ questionId: question.id });
         const latestScore = Math.round(latestConfidence?.displayScore ?? optimisticScore);
         confidenceScoreForAnimationRef.current = latestScore;
         setOptimisticDisplayScore(latestScore);
@@ -2146,6 +2959,120 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         console.error("문장 단위 연습 기록 저장 실패:", error);
       }
     })();
+  };
+
+  const getAutoHideCycleCompletionSnapshot = (inputValue: string) => {
+    const targetLines = repeatStateRef.current.targetText.split("\n");
+    const normalizedLengths = targetLines.map((line) => normalizeLineForComparison(line).length);
+    const nonEmptyIndices = normalizedLengths
+      .map((len, idx) => (len > 0 ? idx : -1))
+      .filter((idx) => idx >= 0);
+    if (nonEmptyIndices.length === 0) return null;
+
+    const preCompletedSet = autoHidePreCompletedLinesRef.current;
+    const completedFromCurrentInput = collectCompletedTargetLineIndices(inputValue, repeatStateRef.current.targetText, {
+      excludeTargetLineIndices: preCompletedSet,
+    });
+    const resolvedSet = new Set<number>(preCompletedSet);
+    autoHideCompletedLinesRef.current.forEach((idx) => resolvedSet.add(idx));
+    completedFromCurrentInput.forEach((idx) => resolvedSet.add(idx));
+
+    const wholeAnswerComplete =
+      isTypingEquivalentCompleteByLineFlow(inputValue, repeatStateRef.current.targetText) ||
+      isInitialShortcutComplete(inputValue, repeatStateRef.current.targetText) ||
+      (normalizeTextForTypingCompare(repeatStateRef.current.targetText).length > 0 &&
+        normalizeTextForTypingCompare(inputValue).startsWith(
+          normalizeTextForTypingCompare(repeatStateRef.current.targetText)
+        ));
+
+    if (wholeAnswerComplete) {
+      nonEmptyIndices.forEach((idx) => resolvedSet.add(idx));
+    }
+
+    const isCycleComplete = nonEmptyIndices.every((idx) => resolvedSet.has(idx));
+    if (!isCycleComplete) return null;
+
+    const key = nonEmptyIndices
+      .map((idx) => {
+        const targetLine = targetLines[idx] ?? "";
+        const matchedUserLine = inputValue
+          .replace(/\r\n/g, "\n")
+          .split("\n")
+          .find((line) => isLinePairTypingEquivalentComplete(line, targetLine));
+        return `${idx}:${normalizeLineForTypingCompare(matchedUserLine ?? targetLine)}`;
+      })
+      .join("|");
+
+    return {
+      key,
+      targetLines,
+      nonEmptyIndices,
+    };
+  };
+
+  const completeAutoHideCycleFromInput = (
+    inputValue: string,
+    options?: {
+      skipOptimisticDelta?: boolean;
+      source?: string;
+    }
+  ) => {
+    if (isTableQuestion || isImageQuestion || isResettingRef.current || isFadingOut) return false;
+    if (hideMode !== "all") return false;
+    if (repeatStateRef.current.isRepeatMode && repeatStateRef.current.repeatLinesSorted.length > 0) return false;
+
+    const snapshot = getAutoHideCycleCompletionSnapshot(inputValue);
+    if (!snapshot) return false;
+
+    const now = Date.now();
+    const lock = autoHideCycleCompletionLockRef.current;
+    if (lock.key === snapshot.key && now - lock.at < 1400) return true;
+    autoHideCycleCompletionLockRef.current = { key: snapshot.key, at: now };
+
+    const nextSessionCount = sessionCompleteCount + 1;
+    const cycleWasBlind =
+      !autoHideRevealPenaltyRef.current &&
+      snapshot.nonEmptyIndices.every((idx) => !autoHideViewedLinesRef.current.has(idx));
+
+    setSessionCompleteCount(nextSessionCount);
+    setShowTestNudge(nextSessionCount >= 4);
+    setAutoHideWrongLines(new Set());
+    setLineTabHints({});
+
+    applySentencePracticeReward({
+      typedLength: Math.max(1, inputValue.length),
+      completionRatio: 1,
+      wasBlind: cycleWasBlind,
+      persistSession: true,
+      countPractice: true,
+      showFeedback: true,
+      skipOptimisticDelta: options?.skipOptimisticDelta ?? false,
+      source: options?.source ?? "practice_blind_cycle_completion",
+      accuracy: cycleWasBlind ? 100 : 92,
+      errorCount: cycleWasBlind ? 0 : 1,
+    });
+
+    // 성공 인지를 위해 전체 답을 잠깐 연 뒤, 다음 회독 첫 문장으로 되돌린다.
+    setHiddenLines(new Set(snapshot.nonEmptyIndices));
+
+    const keepAutoHide = nextSessionCount >= 3;
+    window.setTimeout(() => {
+      setHideMode(keepAutoHide ? "all" : "none");
+      setHiddenLines(new Set());
+      setLineTabHints({});
+      setAutoHideWrongLines(new Set());
+      autoHideCompletedLinesRef.current = new Set();
+      autoHideViewedLinesRef.current = new Set();
+      autoHidePreCompletedLinesRef.current = new Set();
+      autoHideCompletionLockRef.current = 0;
+
+      const firstLineIdx = snapshot.nonEmptyIndices[0] ?? 0;
+      const firstLine = snapshot.targetLines[firstLineIdx] ?? "";
+      const seeded = keepAutoHide ? getPracticeInputSeed(firstLine) : getPracticeInputSeed();
+      seedPracticeInput(seeded);
+    }, 900);
+
+    return true;
   };
 
   const movePracticeCursorToLine = (baseInputValue: string, lineIdx: number) => {
@@ -2209,13 +3136,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       .filter((idx) => idx >= 0);
     if (!nonEmptyIndices.includes(completedSentenceIndex)) return;
 
-    const completedSet = new Set(autoHideCompletedLinesRef.current);
-    if (completedSet.has(completedSentenceIndex)) return;
     const preCompletedSet = autoHidePreCompletedLinesRef.current;
     if (preCompletedSet.has(completedSentenceIndex)) return;
-
-    const wasBlind = !autoHideViewedLinesRef.current.has(completedSentenceIndex);
+    const completedSet = new Set(autoHideCompletedLinesRef.current);
+    const completedFromCurrentInput = collectCompletedTargetLineIndices(inputValue, repeatStateRef.current.targetText, {
+      excludeTargetLineIndices: preCompletedSet,
+    });
+    completedFromCurrentInput.forEach((idx) => completedSet.add(idx));
+    if (completedSet.has(completedSentenceIndex) && !completedFromCurrentInput.has(completedSentenceIndex)) {
+      return;
+    }
     completedSet.add(completedSentenceIndex);
+
+    const wasBlind =
+      !autoHideViewedLinesRef.current.has(completedSentenceIndex) &&
+      !autoHideRevealPenaltyRef.current;
     autoHideCompletedLinesRef.current = completedSet;
     setAutoHideWrongLines((prev) => {
       if (!prev.has(completedSentenceIndex)) return prev;
@@ -2231,6 +3166,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       next.add(completedSentenceIndex);
       return next;
     });
+    setLineTabHints((prev) => {
+      if (!(completedSentenceIndex in prev)) return prev;
+      const next = { ...prev };
+      delete next[completedSentenceIndex];
+      return next;
+    });
 
     const totalChars = Math.max(
       1,
@@ -2238,38 +3179,27 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     );
     const lineChars = Math.max(1, normalizedLengths[completedSentenceIndex] || 1);
     const completionRatio = lineChars / totalChars;
+    const countBlindLinesAsOneCycle = hideMode === "all" && sessionCompleteCount >= 3;
 
+    const isCycleComplete = nonEmptyIndices.every((idx) => resolvedSet.has(idx));
     applySentencePracticeReward({
       typedLength: inputValue.length,
       completionRatio,
       wasBlind,
+      persistSession: false,
+      countPractice: false,
+      showFeedback: isCycleComplete,
+      source: countBlindLinesAsOneCycle
+        ? "practice_blind_line_progress"
+        : "practice_line_completion",
     });
 
-    const isCycleComplete = nonEmptyIndices.every((idx) => resolvedSet.has(idx));
     if (isCycleComplete) {
-      const nextSessionCount = sessionCompleteCount + 1;
-      setSessionCompleteCount(nextSessionCount);
-      if (nextSessionCount === 3) {
-        setShowTestNudge(true);
-      }
-
-      // 마지막 줄도 잠깐 보여준 뒤 다음 회독에서 전체 가림으로 복귀
-      setHiddenLines(new Set(nonEmptyIndices));
-
-      const keepAutoHide = nextSessionCount >= 3;
-      window.setTimeout(() => {
-        setHideMode(keepAutoHide ? "all" : "none");
-        setHiddenLines(new Set());
-        setAutoHideWrongLines(new Set());
-        autoHideCompletedLinesRef.current = new Set();
-        autoHideViewedLinesRef.current = new Set();
-        autoHidePreCompletedLinesRef.current = new Set();
-
-        const firstLineIdx = nonEmptyIndices[0] ?? 0;
-        const firstLine = targetLines[firstLineIdx] ?? "";
-        const seeded = keepAutoHide ? getPracticeInputSeed(firstLine) : getPracticeInputSeed();
-        seedPracticeInput(seeded);
-      }, 260);
+      completeAutoHideCycleFromInput(inputValue, {
+        source: countBlindLinesAsOneCycle
+          ? "practice_blind_cycle_completion"
+          : "practice_line_cycle_completion",
+      });
       return;
     }
 
@@ -2299,14 +3229,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     }
 
     const clampedCursor = Math.max(0, cursorLineIndex);
-    const skippedBeforeCursor = unresolved.filter((idx) => idx < clampedCursor);
-    if (skippedBeforeCursor.length > 0) {
-      setAutoHideWrongLines((prev) => {
-        const next = new Set(prev);
-        skippedBeforeCursor.forEach((idx) => next.add(idx));
-        return next;
-      });
-    }
 
     const currentTargetIdx = unresolved.includes(clampedCursor)
       ? clampedCursor
@@ -2316,6 +3238,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const userLines = inputValue.split("\n");
     const userLine = userLines[currentTargetIdx] ?? userLines[clampedCursor] ?? "";
     const targetLine = targetLines[currentTargetIdx] ?? "";
+    const normalizedUserLine = normalizeLineForComparison(userLine);
+    if (normalizedUserLine.length === 0) {
+      const nextUnresolved =
+        unresolved.find((idx) => idx > currentTargetIdx) ?? unresolved[0] ?? currentTargetIdx;
+      movePracticeCursorToLine(inputValue, nextUnresolved);
+      return;
+    }
     const isCompleted = isLinePairTypingEquivalentComplete(userLine, targetLine);
 
     if (isCompleted) {
@@ -2699,7 +3628,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       });
       hasBeenSaved.current = true;
       tablePartialSavedRatioRef.current = ratio;
-      await invalidateQuestionWorkspaceCaches();
+      await invalidateQuestionWorkspaceCaches({ prefetchConfidence: true });
     } catch (error) {
       console.error("표 부분 연습 기록 저장 실패:", error);
     }
@@ -2709,17 +3638,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     savePracticeSessionRef.current = savePracticeSession;
   }, [savePracticeSession]);
 
-  // Auto-start on mount
+  // Auto-start once per question id (avoid cursor jumping to start on background refetch)
   useEffect(() => {
-    if (question && !startTime) {
-      const now = Date.now();
-      setStartTime(now);
-      setCurrentContinuousStartAt(now);
-      if (textareaRef.current) {
-        focusTextareaWithoutScroll(0);
-      }
-    }
-  }, [focusTextareaWithoutScroll, question]);
+    if (!question?.id) return;
+    if (autoStartedQuestionIdRef.current === question.id) return;
+    autoStartedQuestionIdRef.current = question.id;
+
+    const now = Date.now();
+    setStartTime(now);
+    setCurrentContinuousStartAt(now);
+
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const cursor = Math.max(0, textarea.selectionStart ?? textarea.value.length);
+    focusTextareaWithoutScroll(cursor);
+  }, [focusTextareaWithoutScroll, question?.id]);
 
   // Timer effect
   useEffect(() => {
@@ -2770,6 +3703,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       e.key === "Tab" || e.code === "Tab" || (e as KeyboardEvent & { keyCode?: number }).keyCode === 9;
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === " " || e.code === "Space") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const targetEl = e.target as HTMLElement | null;
+        const practiceTextarea = targetEl?.closest(
+          'textarea[data-practice-input="main"], textarea[data-practice-input="table"], textarea[data-practice-input="image"]'
+        ) as HTMLTextAreaElement | null;
+        noteSpaceTabCandidate(practiceTextarea);
+      }
+
       if (isTabKey(e) && !e.ctrlKey && !e.altKey && !e.metaKey) {
         const targetEl = e.target as HTMLElement | null;
         const handledByLocalInput = !!targetEl?.closest(
@@ -2781,7 +3722,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
         e.preventDefault();
         e.stopPropagation();
-        toggleHideAll();
+        if (consumeSpaceTabShortcut()) {
+          return;
+        }
+        handlePracticeTabToggle();
         return;
       }
 
@@ -2804,7 +3748,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown);
     };
-  }, [buildTestPath, imageLabels.length, isImageQuestion, question, setLocation, toggleHideAll]);
+  }, [buildTestPath, consumeSpaceTabShortcut, handlePracticeTabToggle, imageLabels.length, isImageQuestion, noteSpaceTabCandidate, question, setLocation]);
 
   const handleCompositionStart = () => {
     setIsComposing(true);
@@ -2820,6 +3764,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // 조합 완료 후 입력값 처리
     const newValue = e.currentTarget.value;
     const cursorPos = e.currentTarget.selectionStart ?? newValue.length;
+    const selectionEnd = e.currentTarget.selectionEnd ?? cursorPos;
+    queuePracticeCaretRestore(newValue, cursorPos, selectionEnd);
     const lineIndex = newValue.substring(0, cursorPos).split('\n').length - 1;
     setCurrentCursorLineIndex(Math.max(0, lineIndex));
     setUserInput(newValue);
@@ -2854,38 +3800,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       setShowInactiveAlert(false);
     }
 
-    // 반복 연습 모드: 사이클 완료 전까지 입력을 유지하고, 완료 시에만 리셋/보상 처리
-    if (handleRepeatModeAutoCompletion(newValue)) return;
-
-    // 일반 연습 모드: 문장 완성 시 자동 줄바꿈
-    if (tryAutoInsertLineBreakOnSentenceComplete(newValue, cursorPos)) return;
-    
-    // 텍스트 모드: 정답 자동 감지 (isPartialMatch 기반)
-    if (!isTableQuestion && !isImageQuestion) {
-      const currentTargetText = repeatStateRef.current.targetText;
-      const targetLines = currentTargetText.split('\n');
-      const userLines = newValue.split('\n');
-      let allLinesComplete = true;
-      for (let li = 0; li < targetLines.length; li++) {
-        const targetLine = targetLines[li] ?? '';
-        const userLine = userLines[li] ?? '';
-        if (normalizeLineForComparison(targetLine).length === 0) continue;
-        if (!isLinePairNormalizedComplete(userLine, targetLine)) {
-          allLinesComplete = false;
-          break;
-        }
-      }
-      if (allLinesComplete && targetLines.some(l => normalizeLineForComparison(l).length > 0)) {
-        handleCorrectAnswer(newValue.length);
-        return;
-      }
-      // fallback: 줄 경계와 무관하게 공백 무시 완주도 인정
-      if (isTypingEquivalentCompleteByLineFlow(newValue, currentTargetText)) {
-        handleCorrectAnswer(newValue.length);
-        return;
-      }
-    }
-
     // 듷포트 실시간 이동: 사용자 입력의 현재 줄 번호에 따라 스크롤
     if (question?.autoNumbering === 1 && answerDisplayRef.current) {
       const currentLineIndex = newValue.split('\n').length - 1;
@@ -2896,6 +3810,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         behavior: 'smooth'
       });
     }
+
+    tryAutoCompleteRepeatModeCycle(newValue);
+    tryAutoFinishPracticeOnFinalLine(newValue, cursorPos);
   };
 
   const handleKeyUp = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2908,10 +3825,101 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setCurrentCursorLineIndex(lineIndex);
   };
 
+  function isPracticeWholeAnswerComplete(inputValue: string) {
+    if (isTableQuestion || isImageQuestion) return false;
+    const currentTargetText = repeatStateRef.current.targetText;
+    const targetLines = currentTargetText.split('\n');
+    const hasMeaningfulTarget = targetLines.some(line => normalizeLineForComparison(line).length > 0);
+    if (!hasMeaningfulTarget) return false;
+
+    const wholeInputTyping = normalizeTextForTypingCompare(inputValue);
+    const wholeTargetTyping = normalizeTextForTypingCompare(currentTargetText);
+    if (wholeTargetTyping.length > 0 && wholeInputTyping.startsWith(wholeTargetTyping)) {
+      return true;
+    }
+
+    if (isInitialShortcutComplete(inputValue, currentTargetText)) {
+      return true;
+    }
+
+    const userLines = inputValue.split('\n');
+    let allLinesComplete = true;
+    for (let li = 0; li < targetLines.length; li++) {
+      const targetLine = targetLines[li] ?? '';
+      const userLine = userLines[li] ?? '';
+      if (normalizeLineForComparison(targetLine).length === 0) continue;
+      if (!isLinePairTypingEquivalentComplete(userLine, targetLine)) {
+        allLinesComplete = false;
+        break;
+      }
+    }
+    if (allLinesComplete) return true;
+
+    return (
+      isTypingEquivalentCompleteByLineFlow(inputValue, currentTargetText) ||
+      isInitialShortcutComplete(inputValue, currentTargetText)
+    );
+  }
+
+  function isPracticeAnswerCompleteOnEnter(inputValue: string) {
+    return isPracticeWholeAnswerComplete(inputValue);
+  }
+
+  function shouldAutoFinishPracticeOnFinalLine(inputValue: string, cursorPos: number) {
+    if (isTableQuestion || isImageQuestion) return false;
+    if (hideMode === "all") return false;
+
+    // 커서 위치나 Tab 힌트/가림막 상태와 무관하게 전체 답안이 완성되면 즉시 완주 처리한다.
+    return isPracticeWholeAnswerComplete(inputValue);
+  }
+
+  function tryAutoFinishPracticeOnFinalLine(inputValue: string, cursorPos: number) {
+    if (isResettingRef.current || isFadingOut) return;
+    const now = Date.now();
+    if (now - autoFinishLockRef.current < 900) return;
+    if (!shouldAutoFinishPracticeOnFinalLine(inputValue, cursorPos)) return;
+    autoFinishLockRef.current = now;
+    handleCorrectAnswer(inputValue.length);
+  }
+
+  useEffect(() => {
+    if (hideMode === "all") return;
+    if (isTableQuestion || isImageQuestion) return;
+    if (isComposing || isResettingRef.current || isFadingOut) return;
+    if (!userInput.trim()) return;
+
+    const inputValue = userInput;
+    const timeout = window.setTimeout(() => {
+      if (hideMode === "all") return;
+      if (isComposing || isResettingRef.current || isFadingOut) return;
+      tryAutoFinishPracticeOnFinalLine(inputValue, inputValue.length);
+    }, 80);
+
+    return () => window.clearTimeout(timeout);
+  }, [hideMode, isComposing, isFadingOut, isImageQuestion, isTableQuestion, userInput]);
+
+  useEffect(() => {
+    if (hideMode !== "all") return;
+    if (isTableQuestion || isImageQuestion) return;
+    if (isComposing || isResettingRef.current || isFadingOut) return;
+    if (repeatStateRef.current.isRepeatMode && repeatStateRef.current.repeatLinesSorted.length > 0) return;
+
+    const inputValue = userInput;
+    const timeout = window.setTimeout(() => {
+      if (isComposing || isResettingRef.current || isFadingOut) return;
+      completeAutoHideCycleFromInput(inputValue, {
+        source: "practice_blind_cycle_completion_auto",
+      });
+    }, 80);
+
+    return () => window.clearTimeout(timeout);
+  }, [hideMode, isComposing, isFadingOut, isImageQuestion, isTableQuestion, userInput]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
     const cursorPos = e.target.selectionStart ?? newValue.length;
-    const nativeComposing = Boolean((e.nativeEvent as any)?.isComposing);
+    const selectionEnd = e.target.selectionEnd ?? cursorPos;
+    queuePracticeCaretRestore(newValue, cursorPos, selectionEnd);
 
     const mobileGuard = mobileAutoNumberingGuardRef.current;
     if (mobileGuard) {
@@ -2927,7 +3935,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         mobileAutoNumberingGuardRef.current = null;
       }
     }
-    
+
     // 현재 커서 위치의 줄 인덱스 계산
     const lineIndex = newValue.substring(0, cursorPos).split('\n').length - 1;
     setCurrentCursorLineIndex(lineIndex);
@@ -2964,36 +3972,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       setShowInactiveAlert(false);
     }
 
-    // 반복 연습 모드: 사이클 완료 전까지 입력을 유지하고, 완료 시에만 리셋/보상 처리
-    if (handleRepeatModeAutoCompletion(newValue)) return;
-    // 일반 연습 모드: 문장 완성 시 자동 줄바꿈
-    if (!nativeComposing && !isComposing && tryAutoInsertLineBreakOnSentenceComplete(newValue, cursorPos)) return;
-     // 텍스트 모드: 정답 자동 감지 (isPartialMatch 기반)
-    if (!isTableQuestion && !isImageQuestion) {
-      const currentTargetText = repeatStateRef.current.targetText;
-      const targetLines = currentTargetText.split('\n');
-      const userLines = newValue.split('\n');
-      let allLinesComplete = true;
-      for (let li = 0; li < targetLines.length; li++) {
-        const targetLine = targetLines[li] ?? '';
-        const userLine = userLines[li] ?? '';
-        if (normalizeLineForComparison(targetLine).length === 0) continue;
-        if (!isLinePairNormalizedComplete(userLine, targetLine)) {
-          allLinesComplete = false;
-          break;
-        }
-      }
-      if (allLinesComplete && targetLines.some(l => normalizeLineForComparison(l).length > 0)) {
-        handleCorrectAnswer(newValue.length);
-        return;
-      }
-      // fallback: 줄 경계와 무관하게 공백 무시 완주도 인정
-      if (isTypingEquivalentCompleteByLineFlow(newValue, currentTargetText)) {
-        handleCorrectAnswer(newValue.length);
-        return;
-      }
-    }
-
     // 듷포트 실시간 이동: 사용자 입력의 현재 줄 번호에 따라 스크롤
     if (question?.autoNumbering === 1 && answerDisplayRef.current) {
       const currentLineIndex = newValue.split('\n').length - 1;
@@ -3003,6 +3981,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         top: scrollTarget,
         behavior: 'smooth'
       });
+    }
+
+    const isComposingChange = Boolean((e.nativeEvent as any).isComposing) || isComposing;
+    if (!isComposingChange) {
+      tryAutoCompleteRepeatModeCycle(newValue);
+      tryAutoFinishPracticeOnFinalLine(newValue, cursorPos);
     }
   };
 
@@ -3058,6 +4042,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // sessionCompleteCount: 현재 세션에서 완료한 연습 횟수 (페이지 진입 후 새로 연습한 횟수)
     const session = sessionCompleteCount;
     const total = totalPracticeCount;
+    const isBlindPracticePhase = hideMode === "all";
+
+    if (isBlindPracticePhase) {
+      if (showTestNudge) {
+        return { type: 'test_ready' as const, message: '가림 연습 한 바퀴 끝. 이제 백지시험으로 확인해볼까요?' };
+      }
+      return null;
+    }
     
     // 현재 세션에서 3회 미만 연습: 배너 표시 안 함
     if (session < 3) return null;
@@ -3065,30 +4057,24 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // 안정도 80점 이상 + 세션 3회 이상 연습: 완벽 암기
     if (conf >= 80) return { type: 'mastered' as const, message: '완벽하게 암기했어요. 시험으로 확인해볼까요?' };
     
-    // 세션 3회 달성: 안정도 무관하게 백지시험 제안
+    // 세션 3회 달성: 바로 시험이 아니라 먼저 가림 회상 한 바퀴를 유도
     if (session === 3) {
-      return { type: 'test_ready' as const, message: `3번 연습했어요! 이제 백지시험으로 확인해보세요.` };
+      return { type: 'hide_practice' as const, message: '슬슬 안 보고 해볼 차례' };
     }
     
-    // 세션 3회 이상 + 안정도 50점 이상: 시험 추천
-    if (conf >= 50) {
+    // 4회차부터는 안정도가 낮아도 백지시험으로 회상 여부를 확인한다.
+    if (session >= 4) {
       const messages = [
         `${total}번 돌렸어요. 백지복습 한 번 가볼까요?`,
         `지금이 시험 타이밍이에요.`,
         `손에 익었어요. 안 보고 한 번 확인해볼까요?`,
       ];
-      const msg = messages[(session - 3) % messages.length];
+      const msg = messages[(session - 4) % messages.length];
       return { type: 'test_ready' as const, message: msg };
     }
     
-    // 세션 5회 이상 + 안정도 낙음: 답 가리고 연습 추천
-    if (session >= 5 && conf < 50) return { type: 'hide_practice' as const, message: '슬슬 안 보고 해볼 차례' };
-    
-    // 세션 3회 이상: 답 가리기 유도
-    if (session >= 3 && session < 5) return { type: 'hide_practice' as const, message: `${session}번 했으면… 이제 눈 감고 가야지 😏` };
-    
     return null;
-  }, [sessionCompleteCount, totalPracticeCount, confidenceData?.displayScore]);
+  }, [sessionCompleteCount, totalPracticeCount, confidenceData?.displayScore, hideMode, showTestNudge]);
 
   const getCurrentNotepadLineRange = useCallback((value: string, cursor: number) => {
     const safeCursor = Math.max(0, Math.min(cursor, value.length));
@@ -3123,7 +4109,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     if ((e.key === "Tab" || e.code === "Tab") && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
       e.stopPropagation();
-      toggleHideAll();
+      handlePracticeTabToggle(e.currentTarget);
       return;
     }
 
@@ -3167,7 +4153,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     setImageMatchedLabelIndices(nextMatched);
 
     const nextRevealed = new Set(revealedLabelsRef.current);
-    const wasBlind = !nextRevealed.has(matchedLabelIndex);
+    const wasBlind = !nextRevealed.has(matchedLabelIndex) && !autoHideRevealPenaltyRef.current;
     nextRevealed.add(matchedLabelIndex);
     revealedLabelsRef.current = nextRevealed;
     setRevealedLabels(nextRevealed);
@@ -3185,8 +4171,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       revealedLabelsRef.current = shownAll;
       setRevealedLabels(shownAll);
       window.setTimeout(() => {
+        // 그림문제 완주 시 연습장 내용은 전체 초기화
+        setPracticeNote("");
+        if (notepadRef.current) {
+          notepadRef.current.value = "";
+          notepadRef.current.setSelectionRange(0, 0);
+        }
         imageMatchedLabelRef.current = new Set();
         setImageMatchedLabelIndices(new Set());
+        autoHideRevealPenaltyRef.current = false;
         const hidden = new Set<number>();
         revealedLabelsRef.current = hidden;
         setRevealedLabels(hidden);
@@ -3197,6 +4190,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     buildTestPath,
     findMatchingImageLabelIndex,
     getCurrentNotepadLineRange,
+    handlePracticeTabToggle,
     handleImagePracticeNoteChange,
     imageAnswerEntries.length,
     isComposing,
@@ -3204,7 +4198,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     normalizeLineForComparison,
     question,
     setLocation,
-    toggleHideAll,
   ]);
 
   const applyTextAutoNumbering = useCallback(
@@ -3212,28 +4205,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const selectionStart = textarea.selectionStart ?? 0;
       const selectionEnd = textarea.selectionEnd ?? selectionStart;
       const rawValue = textarea.value;
-      const cursorLineIndex = rawValue.slice(0, selectionStart).split('\n').length - 1;
-      const targetLines = targetText.split('\n');
-      const findNextMeaningfulTemplateLine = (startIndex: number) => {
-        for (let i = Math.max(0, startIndex); i < targetLines.length; i++) {
-          if (normalizeLineForComparison(targetLines[i] ?? "").length > 0) {
-            return targetLines[i] ?? "";
-          }
-        }
-        return undefined;
-      };
-      const fallbackTemplateLine =
-        targetLines[Math.min(cursorLineIndex + 1, Math.max(0, targetLines.length - 1))] ?? "";
-      const templateNextLine = findNextMeaningfulTemplateLine(cursorLineIndex + 1) ?? fallbackTemplateLine;
-      const templateCurrentLine =
-        targetLines[Math.min(Math.max(cursorLineIndex, 0), Math.max(0, targetLines.length - 1))] ?? "";
       const templateForcedPrefix =
-        getForcedPrefixByTemplateProgress(rawValue, selectionStart, targetText) ??
-        getLinePrefixHint(templateNextLine)?.prefix ??
-        getLinePrefixHint(templateCurrentLine)?.prefix;
+        getForcedPrefixByTemplateProgress(rawValue, selectionStart, targetText) ?? "";
       const autoNumberingOptions = {
         preserveEmptyListLine: true,
-        ...(typeof templateForcedPrefix === "string" ? { forcedPrefix: templateForcedPrefix } : {}),
+        forcedPrefix: templateForcedPrefix,
       };
 
       const { nextValue, nextCursor } = buildNextAutoNumberingValue(
@@ -3308,10 +4284,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     ]
   );
 
-  const tryAutoInsertLineBreakOnSentenceComplete = useCallback(
-    (inputValue: string, cursorPos: number) => {
+  function tryAutoInsertLineBreakOnSentenceComplete(inputValue: string, cursorPos: number) {
       if (isTableQuestion || isImageQuestion) return false;
       if (hideMode === "all") return false;
+      if (!shouldAutoSeedPracticeNumbering) return false;
 
       const repeatState = repeatStateRef.current;
       if (repeatState.isRepeatMode && repeatState.repeatLinesSorted.length > 0) return false;
@@ -3331,24 +4307,42 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       // 이미 줄바꿈이 있으면 중복 삽입하지 않음
       if (lineEnd < inputValue.length && inputValue[lineEnd] === "\n") return false;
 
-      const targetLine = targetLines[cursorLineIndex] ?? "";
-      if (normalizeLineForComparison(targetLine).length === 0) return false;
       const userLine = inputValue.slice(lineStart, lineEnd);
-      if (!isLinePairTypingEquivalentComplete(userLine, targetLine)) return false;
+      if (normalizeLineForComparison(userLine).length === 0) return false;
 
-      let nextMeaningfulLineIndex = -1;
-      for (let i = cursorLineIndex + 1; i < targetLines.length; i++) {
-        if (normalizeLineForComparison(targetLines[i] ?? "").length > 0) {
-          nextMeaningfulLineIndex = i;
+      const targetCandidates = targetLines
+        .map((line, originalIndex) => ({
+          line,
+          originalIndex,
+          normalized: normalizeLineForComparison(line),
+        }))
+        .filter((entry) => entry.normalized.length > 0);
+      if (targetCandidates.length === 0) return false;
+
+      const typedProgress = beforeCursor
+        .split("\n")
+        .map((line) => normalizeLineForComparison(line))
+        .filter((line) => line.length > 0)
+        .join("");
+      if (!typedProgress) return false;
+
+      let completedTargetCount = 0;
+      let expectedProgress = "";
+      for (let i = 0; i < targetCandidates.length; i++) {
+        expectedProgress += targetCandidates[i].normalized;
+        if (typedProgress === expectedProgress) {
+          completedTargetCount = i + 1;
+          break;
+        }
+        if (!typedProgress.startsWith(expectedProgress) && !expectedProgress.startsWith(typedProgress)) {
           break;
         }
       }
-      if (nextMeaningfulLineIndex < 0) return false;
+      if (completedTargetCount <= 0 || completedTargetCount >= targetCandidates.length) return false;
 
-      const nextLinePrefix =
-        question?.autoNumbering === 1
-          ? getLinePrefixHint(targetLines[nextMeaningfulLineIndex] ?? "")?.prefix ?? ""
-          : "";
+      const nextCandidate = targetCandidates[completedTargetCount];
+      const nextMeaningfulLineIndex = nextCandidate.originalIndex;
+      const nextLinePrefix = getLinePrefixHint(nextCandidate.line)?.prefix ?? "";
       const insertion = `\n${nextLinePrefix}`;
       const nextValue = `${inputValue.slice(0, safeCursor)}${insertion}${inputValue.slice(safeCursor)}`;
       const nextCursor = safeCursor + insertion.length;
@@ -3397,27 +4391,14 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       });
 
       return true;
-    },
-    [
-      focusTextareaWithoutScroll,
-      hideMode,
-      historyIndex,
-      isActive,
-      isImageQuestion,
-      isLinePairTypingEquivalentComplete,
-      isTableQuestion,
-      normalizeLineForComparison,
-      question?.autoNumbering,
-      showInactiveAlert,
-      startTime,
-    ]
-  );
+  }
 
   const handlePracticeBeforeInput = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
     if (!isMobile) return;
     if (isTableQuestion || isImageQuestion) return;
     if (hideMode === "all") return;
-    if (question?.autoNumbering !== 1) return;
+    if (repeatStateRef.current.isRepeatMode && repeatStateRef.current.repeatLinesSorted.length > 0) return;
+    if (!shouldAutoSeedPracticeNumbering) return;
 
     const nativeEvent = e.nativeEvent as InputEvent & { isComposing?: boolean };
     if (nativeEvent.inputType !== "insertLineBreak") return;
@@ -3426,7 +4407,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     e.preventDefault();
     e.stopPropagation();
     applyTextAutoNumbering(e.currentTarget);
-  }, [applyTextAutoNumbering, hideMode, isComposing, isImageQuestion, isMobile, isTableQuestion, question?.autoNumbering]);
+  }, [applyTextAutoNumbering, hideMode, isComposing, isImageQuestion, isMobile, isTableQuestion, shouldAutoSeedPracticeNumbering]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const keyLower = e.key.toLowerCase();
@@ -3445,10 +4426,17 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       setHistoryIndex(Math.max(0, newHistory.length - 1));
     };
 
+    if ((e.key === " " || e.code === "Space") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      noteSpaceTabCandidate(e.currentTarget);
+    }
+
     if ((e.key === "Tab" || e.code === "Tab") && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
       e.stopPropagation();
-      toggleHideAll();
+      if (consumeSpaceTabShortcut(e.currentTarget)) {
+        return;
+      }
+      handlePracticeTabToggle(e.currentTarget);
       return;
     }
 
@@ -3503,8 +4491,20 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       return;
     }
 
-    // Enter: autoNumbering 문제에서는 다음 번호 자동 삽입
+    // Enter: 템플릿에 번호/불릿이 있는 텍스트 문제는 다음 prefix 자동 삽입
     if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+      if (
+        repeatStateRef.current.isRepeatMode &&
+        repeatStateRef.current.repeatLinesSorted.length > 0 &&
+        !(e.nativeEvent as any).isComposing &&
+        !isComposing
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleRepeatModeAutoCompletion(e.currentTarget.value);
+        return;
+      }
+
       if (
         !isTableQuestion &&
         !isImageQuestion &&
@@ -3521,10 +4521,24 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         return;
       }
 
-      const isTextAutoNumbering =
+      const isInRepeatMode =
+        repeatStateRef.current.isRepeatMode && repeatStateRef.current.repeatLinesSorted.length > 0;
+      if (
         !isTableQuestion &&
         !isImageQuestion &&
-        question?.autoNumbering === 1;
+        !isInRepeatMode &&
+        hideMode !== "all" &&
+        !(e.nativeEvent as any).isComposing &&
+        !isComposing &&
+        isPracticeAnswerCompleteOnEnter(e.currentTarget.value)
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleCorrectAnswer(e.currentTarget.value.length);
+        return;
+      }
+
+      const isTextAutoNumbering = shouldAutoSeedPracticeNumbering;
 
       if (
         isTextAutoNumbering &&
@@ -3627,115 +4641,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // handleCorrectAnswer를 호출하여 채점 + 입력 초기화 + 애니메이션 처리
     handleCorrectAnswer(userInput.length);
 
-    // 세션 완료 카운트 증가, 3회 이후 백지시험 유도
+    // 수동 완료는 세션 카운트만 올리고, 시험 권유는 가림 사이클 완주 이후에만 띄운다.
     setSessionCompleteCount(prev => {
-      const next = prev + 1;
-      if (next >= 3) {
-        setShowTestNudge(true);
-      }
-      return next;
+      return prev + 1;
     });
-  };
-
-  const applyExitInteractionBonus = async (): Promise<{ applied: boolean; delayMs: number }> => {
-    if (isPublicDemoQuestionContext || !question || exitInteractionBonusAppliedRef.current) {
-      return { applied: false, delayMs: 180 };
-    }
-
-    const metrics = exitInteractionMetricsRef.current;
-    const weightedInteraction =
-      metrics.totalWeight +
-      metrics.hideToggleCount * 0.65 +
-      metrics.dragCount * 0.4 +
-      (hasInteracted ? 0.6 : 0);
-    if (weightedInteraction < 1.2) {
-      return { applied: false, delayMs: 180 };
-    }
-
-    exitInteractionBonusAppliedRef.current = true;
-    const normalizedInteraction = Math.min(1, weightedInteraction / 18);
-    const completionRatio = Math.max(
-      0.06,
-      Math.min(0.24, Number((0.06 + normalizedInteraction * 0.18).toFixed(2)))
-    );
-    const duration = Math.max(
-      6,
-      Math.min(
-        65,
-        Math.round(6 + normalizedInteraction * 28 + metrics.hideToggleCount * 2 + metrics.dragCount * 3)
-      )
-    );
-    const typedChars = Math.max(
-      1,
-      Math.round(Math.max(userInput.length, 12) * (0.18 + normalizedInteraction * 0.22))
-    );
-    const typingSpeed = Math.max(1, Math.round(typedChars / (duration / 60)));
-    const accuracy = Math.max(26, Math.min(72, Math.round(28 + normalizedInteraction * 42)));
-    const errorCount = Math.max(0, Math.round((1 - accuracy / 100) * Math.max(typedChars, 20)));
-
-    const baselineScore =
-      confidenceScoreForAnimationRef.current ??
-      Math.round(confidenceData?.displayScore ?? 0);
-    const minutesUntilExam = (confidenceData as any)?.examDatePrediction?.minutesUntilExam;
-    const daysUntilExam = (confidenceData as any)?.examDatePrediction?.daysUntilExam;
-    const estimatedHoursUntilExam =
-      typeof minutesUntilExam === "number"
-        ? minutesUntilExam / 60
-        : typeof daysUntilExam === "number"
-          ? daysUntilExam * 24
-          : null;
-
-    const baseDelta = estimatePracticeConfidenceDelta({
-      currentScore: baselineScore,
-      sessionPracticeCount: sessionCompleteCount + 1,
-      totalPracticeCount: (practiceCountData?.count || 0) + practiceCount + 1,
-      hoursUntilExam: estimatedHoursUntilExam,
-    });
-    const estimatedDelta = Math.max(
-      1,
-      Math.min(3, Math.round(baseDelta * (0.12 + normalizedInteraction * 0.22)))
-    );
-    const optimisticScore = Math.max(0, Math.min(100, baselineScore + estimatedDelta));
-    confidenceScoreForAnimationRef.current = optimisticScore;
-    setOptimisticDisplayScore(optimisticScore);
-    appendOptimisticConfidenceHistoryPoint({
-      eventType: "practice",
-      score: optimisticScore,
-      practiceSessionCount: (practiceCountData?.count || 0) + practiceCount + 1,
-      practiceDelta: estimatedDelta,
-    });
-    setShowDamageNumber(false);
-    requestAnimationFrame(() => {
-      setDamageValue(estimatedDelta);
-      setShowDamageNumber(true);
-    });
-    toast.success(`연습 상호작용 보너스 +${estimatedDelta}점`);
-
-    try {
-      await createSession.mutateAsync({
-        questionId: question.id,
-        duration,
-        typingSpeed,
-        accuracy,
-        errorCount,
-        analytics: {
-          ...getAnalyticsRequestMeta(),
-          source: "practice_exit_interaction_bonus",
-          completionRatio,
-          blindMode: hideMode === "all",
-          typedLength: userInput.length,
-        },
-      });
-      await invalidateQuestionWorkspaceCaches();
-      const latestConfidence = await utils.confidence.getByQuestion.fetch({ questionId: question.id });
-      const latestScore = Math.round(latestConfidence?.displayScore ?? optimisticScore);
-      confidenceScoreForAnimationRef.current = latestScore;
-      setOptimisticDisplayScore(latestScore);
-    } catch (error) {
-      console.error("상호작용 종료 보너스 저장 실패:", error);
-    }
-
-    return { applied: true, delayMs: 540 };
   };
 
   // 돌아가기 버튼 클릭 핸들러
@@ -3762,17 +4671,18 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         console.error('연습 기록 저장 실패:', error);
       }
     }
-    const { delayMs } = await applyExitInteractionBonus();
     setIsLeaving(true);
-    setTimeout(() => setLocation(targetPath), delayMs);
+    setTimeout(() => setLocation(targetPath), 180);
   };
 
   // 정답 일치 시 글자 색상 fade out 및 입력 천천히 초기화
   const handleCorrectAnswer = (currentInputLength?: number) => {
     if (isResettingRef.current || isFadingOut) return;
+    queuedPracticeCaretRef.current = null;
     const scrollSnapshot = capturePracticeScrollSnapshot();
     resetScrollSnapshotRef.current = scrollSnapshot;
     setPracticeCount(prev => prev + 1);
+    const wasBlindSession = hideMode === "all" && !autoHideRevealPenaltyRef.current;
     const nextSessionCount = sessionCompleteCount + 1;
     const shouldKeepAutoHide = nextSessionCount >= 3;
     autoHideCompletedLinesRef.current = new Set();
@@ -3780,10 +4690,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     autoHidePreCompletedLinesRef.current = new Set();
     autoHideCompletionLockRef.current = 0;
     setAutoHideWrongLines(new Set());
+    setLineTabHints({});
     setSessionCompleteCount(nextSessionCount);
-    if (nextSessionCount === 3) {
-      setShowTestNudge(true);
-    }
+    setShowTestNudge(nextSessionCount >= 4);
     if (shouldKeepAutoHide) {
       setHideMode("all");
       setHiddenLines(new Set());
@@ -3800,6 +4709,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       const wasComposing = isComposing;
       setIsComposing(false); // 한글 조합 강제 종료
       const seeded = getPracticeInputSeed();
+      autoHideRevealPenaltyRef.current = false;
       setUserInput(seeded);
       lastInputRef.current = seeded;
       setInputHistory([seeded]);
@@ -3844,14 +4754,24 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
             ? daysUntilExam * 24
             : null;
 
-      const estimatedDelta = estimatePracticeConfidenceDelta({
+      const baseDelta = estimatePracticeConfidenceDelta({
         currentScore: baselineScore,
         sessionPracticeCount: sessionCompleteCount + 1,
         totalPracticeCount: (practiceCountData?.count || 0) + practiceCount + 1,
         hoursUntilExam: estimatedHoursUntilExam,
       });
+      const visibilityWeight = wasBlindSession ? 1 : 0.45;
+      const estimatedDelta = Math.max(
+        wasBlindSession ? 2 : 1,
+        Math.round(baseDelta * visibilityWeight)
+      );
 
-      const optimisticScore = Math.max(0, Math.min(100, baselineScore + estimatedDelta));
+      const nextPracticeCount = (practiceCountData?.count || 0) + practiceCount + 1;
+      const hasNoTests = Number((confidenceData as any)?.testCount ?? 0) <= 0;
+      const optimisticCap = hasNoTests
+        ? getPracticeOnlyCap(estimatedHoursUntilExam, nextPracticeCount)
+        : 100;
+      const optimisticScore = Math.max(0, Math.min(optimisticCap, baselineScore + estimatedDelta));
       confidenceScoreForAnimationRef.current = optimisticScore;
       setOptimisticDisplayScore(optimisticScore);
       appendOptimisticConfidenceHistoryPoint({
@@ -3873,7 +4793,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         (async () => {
           try {
             const timeInMinutes = elapsedTime / 60;
-            const speed = timeInMinutes > 0 ? Math.round(userInput.length / timeInMinutes) : 0;
+      const typedLengthForCompletion = currentInputLength ?? userInput.length;
+      const speed = timeInMinutes > 0 ? Math.round(typedLengthForCompletion / timeInMinutes) : 0;
             await createSession.mutateAsync({
               questionId: question.id,
               duration: Math.max(elapsedTime, 1),
@@ -3884,17 +4805,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 ...getAnalyticsRequestMeta(),
                 source: "practice_cycle_completion",
                 completionRatio: 1,
-                blindMode: hideMode === "all",
-                typedLength: userInput.length,
+                blindMode: wasBlindSession,
+                typedLength: typedLengthForCompletion,
               },
             });
-            await invalidateQuestionWorkspaceCaches();
-
-            // 실제 반영값을 직접 fetch해서 최신 점수/그래프 동기화
-            const [latestConfidence] = await Promise.all([
-              utils.confidence.getByQuestion.fetch({ questionId: question.id }),
-              utils.confidence.getHistory.fetch({ questionId: question.id }),
-            ]);
+            await invalidateQuestionWorkspaceCaches({ prefetchConfidence: true });
+            const latestConfidence = await utils.confidence.getByQuestion.fetch({ questionId: question.id });
             const latestScore = Math.round(latestConfidence?.displayScore ?? optimisticScore);
             confidenceScoreForAnimationRef.current = latestScore;
             setOptimisticDisplayScore(latestScore);
@@ -3957,6 +4873,13 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     const currentRepeatLineIdx = isInRepeatMode
       ? repeatState.repeatLinesSorted[repeatState.repeatCurrentIdx % repeatState.repeatLinesSorted.length]
       : -1;
+    const currentRepeatInputLineIdx = isInRepeatMode
+      ? Math.max(0, currentRepeatLineIdx)
+      : -1;
+    const fallbackRepeatInputLineIdx = isInRepeatMode
+      ? Math.max(0, repeatState.repeatCurrentIdx)
+      : -1;
+    const comparedUserLines = isInRepeatMode ? Array(targetLines.length).fill("") : userLines;
     
     // 각 줄별 채점 정보
     const lineResults: Array<{
@@ -3973,7 +4896,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       let userLine = '';
       if (isInRepeatMode) {
         if (lineIdx === currentRepeatLineIdx) {
-          userLine = userLines[0] || ''; // 입력창의 첫 줄을 현재 체크된 줄에 매핑
+          userLine =
+            userLines[currentRepeatInputLineIdx] ||
+            userLines[fallbackRepeatInputLineIdx] ||
+            '';
+          comparedUserLines[lineIdx] = userLine;
         }
         // 다른 줄은 빈 문자열 (채점 안 함)
       } else {
@@ -3983,8 +4910,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
       const targetPrefixInfo = getListPrefixInfo(targetLine);
       const userPrefixInfo = getListPrefixInfo(userLine);
-      const shouldSkipTargetPrefixForCompare =
-        targetPrefixInfo.kind !== null && userPrefixInfo.kind === null;
       const normalizedPair = normalizeLinePairForComparison(userLine, targetLine);
 
       const targetChars = splitGraphemes(normalizedPair.target);
@@ -4034,17 +4959,24 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         carryOverKeys = userKeySequence.slice(targetKeyLength);
       }
 
-      const skippedPrefixCharCount = shouldSkipTargetPrefixForCompare
-        ? splitGraphemes(targetPrefixInfo.prefix)
-            .filter((char) => isComparablePracticeChar(char))
-            .length
-        : 0;
+      const targetPrefixComparableChars = splitGraphemes(targetPrefixInfo.prefix).filter((char) =>
+        isComparablePracticeChar(char)
+      );
+      const userPrefixComparableChars = splitGraphemes(userPrefixInfo.prefix).filter((char) =>
+        isComparablePracticeChar(char)
+      );
+      const targetPrefixComparableText = targetPrefixComparableChars.join("").toLowerCase();
+      const userPrefixComparableText = userPrefixComparableChars.join("").toLowerCase();
+      const isPrefixCorrect =
+        targetPrefixComparableText.length > 0 &&
+        userPrefixComparableText === targetPrefixComparableText;
+      const prefixDisplayStates: Array<"complete" | "partial" | "wrong" | "pending"> =
+        targetPrefixComparableChars.length > 0
+          ? targetPrefixComparableChars.map(() => (isPrefixCorrect ? "complete" : "pending"))
+          : [];
       const displayCharStates: Array<'complete' | 'partial' | 'wrong' | 'pending'> =
-        skippedPrefixCharCount > 0
-          ? [
-              ...Array.from({ length: skippedPrefixCharCount }, () => 'pending' as const),
-              ...charStates,
-            ]
+        prefixDisplayStates.length > 0
+          ? [...prefixDisplayStates, ...charStates]
           : charStates;
 
       lineResults.push({
@@ -4108,7 +5040,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       }
     }
 
-    return { lineResults, currentLineIndex, userLines, targetLines, lineHasContentFlags, meaningfulLineCount };
+    return { lineResults, currentLineIndex, userLines: comparedUserLines, targetLines, lineHasContentFlags, meaningfulLineCount };
   }, [userInput, targetText, renderTrigger, currentCursorLineIndex, repeatCheckedLines, repeatCurrentIdx, hideMode, normalizeLineForComparison, normalizeLinePairForComparison]);
   // 실시간 단어 뷰: 줄 단위 opacity 계산
   const calculateLineOpacity = useMemo(() => {
@@ -4125,8 +5057,8 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
     // 각 줄의 opacity 계산
     return lines.map((_, lineIndex) => {
       if (inRepeat) {
-        // 반복 모드: 현재 체크된 줄만 진하게
-        return lineIndex === repeatLineIdx ? 1 : 0.4;
+        // 반복 모드: 현재 줄과 이미 완주한 줄은 계속 진하게 유지
+        return lineIndex === repeatLineIdx || repeatCompletedLines.has(lineIndex) ? 1 : 0.4;
       }
       // 현재 활성 줄만 opacity 1 (진한 회색)
       if (lineIndex === activeIdx) {
@@ -4135,23 +5067,31 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         return 0.4;
       }
     });
-  }, [completionInfo, targetText, repeatCheckedLines, repeatCurrentIdx]);
+  }, [completionInfo, targetText, repeatCheckedLines, repeatCurrentIdx, repeatCompletedLines]);
 
   // 한컴타자연습 스타일 렌더링 (줄 단위 비교)
   const renderTextWithFeedback = useMemo(() => {
-    const { lineResults, currentLineIndex: activeLineIdx, lineHasContentFlags, meaningfulLineCount } = completionInfo;
+    const {
+      lineResults,
+      currentLineIndex: activeLineIdx,
+      userLines: comparedUserLines,
+      lineHasContentFlags,
+      meaningfulLineCount,
+    } = completionInfo;
     // 전체 정답을 항상 표시 (반복 모드에서도 동일)
     const targetLines = targetText.split('\n');
     
     return targetLines.map((line, lineIdx) => {
       const actualLineIdx = lineIdx;
       const lineResult = lineResults[lineIdx];
+      const userRawLineChars = splitGraphemes(comparedUserLines[lineIdx] ?? "");
       const lineOpacity = calculateLineOpacity[lineIdx] || 1;
       const isActiveLine = lineIdx === activeLineIdx;
       const lineHasContent =
         lineHasContentFlags[lineIdx] ?? normalizeLineForComparison(line).length > 0;
       const lineMnemonic = mnemonicLineData[lineIdx]?.hintDisplay ?? null;
       const lineMnemonicIndexes = new Set<number>(mnemonicLineData[lineIdx]?.highlightedIndexes ?? []);
+      const isRepeatCompletedLine = isRepeatMode && repeatCompletedLines.has(actualLineIdx);
       const visibleLineNumber = targetLines
         .slice(0, lineIdx + 1)
         .filter((_, idx) => lineHasContentFlags[idx])
@@ -4166,9 +5106,11 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       
       // 이미 올바르게 완주한 문장은 Tab 전체 가리기/해제와 무관하게 계속 보이도록 유지
       const isLineCompleted =
+        isRepeatCompletedLine ||
         !!lineResult &&
         lineResult.targetChars.length > 0 &&
         lineResult.completedCount >= lineResult.targetChars.length;
+      const tabHint = lineTabHints[lineIdx] ?? null;
       // 답 가리기 체크: 전체 가리기 모드이면서 개별 보이기(hiddenLines에 없음)가 아닌 경우
       // 또는 개별 가리기(hiddenLines에 있음)인 경우
       const isLineHidden =
@@ -4181,6 +5123,12 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           const revealLine = (e: React.MouseEvent) => {
             e.preventDefault();
             e.stopPropagation();
+            setLineTabHints(prev => {
+              if (!(lineIdx in prev)) return prev;
+              const next = { ...prev };
+              delete next[lineIdx];
+              return next;
+            });
             setHiddenLines(prev => {
               const next = new Set(prev);
               const isCurrentlyRevealed = next.has(lineIdx);
@@ -4193,7 +5141,19 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               return next;
             });
           };
-        const isPracticeWrongLine = autoHideWrongLines.has(lineIdx);
+        const hasCurrentWrongChar =
+          !!lineResult?.charStates?.some((state) => state === "wrong");
+        const hasCurrentCorrectProgress =
+          !!lineResult &&
+          (lineResult.completedCount > 0 ||
+            lineResult.charStates.some((state) => state === "complete" || state === "partial"));
+        const isPracticeWrongLine =
+          !isLineCompleted &&
+          (hasCurrentWrongChar || (autoHideWrongLines.has(lineIdx) && !hasCurrentCorrectProgress));
+        const hintText = tabHint
+          ? (tabHint.level === 1 ? tabHint.firstText : tabHint.wordText)
+          : "";
+
         return (
           <div
             key={`line-${lineIdx}`}
@@ -4215,19 +5175,57 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 : isActiveLine
                   ? `${visibleLineNumber}번째 줄${lineMnemonic ? ` · ${lineMnemonic}` : ""} (현재 연습 중)`
                   : `${visibleLineNumber}번째 줄${lineMnemonic ? ` · ${lineMnemonic}` : ""} (클릭하여 보기)`}
+              {hintText && (
+                <span className="ml-1 rounded bg-amber-100/80 px-1.5 py-0.5 text-[0.8em] font-semibold text-amber-700 dark:bg-amber-400/10 dark:text-amber-200">
+                  힌트 {hintText}
+                </span>
+              )}
             </span>
           </div>
         );
       }
       
       const chars = splitGraphemes(line);
+      const shouldMaskPendingForHint = isLineHidden && !!tabHint;
+      const hintCharIndexes =
+        shouldMaskPendingForHint && tabHint
+          ? new Set(tabHint.level === 1 ? [tabHint.firstCharIndex] : tabHint.wordCharIndexes)
+          : null;
       let charIdx = 0; // 띄어쓰기 제외한 글자 인덱스
+      const answerCharProps = (charIndex: number) =>
+        ({
+          "data-answer-char": "1",
+          "data-line-index": lineIdx,
+          "data-char-index": charIndex,
+        } as const);
+      const difficultHighlightClass = (charIndex: number) => {
+        if (!isDifficultHighlighted(lineIdx, charIndex)) return "";
+        const isStart = charIndex === 0 || !isDifficultHighlighted(lineIdx, charIndex - 1);
+        const isEnd = charIndex >= chars.length - 1 || !isDifficultHighlighted(lineIdx, charIndex + 1);
+        return [
+          "bg-amber-200/75 dark:bg-amber-500/25",
+          "shadow-[inset_0_-0.16em_0_rgba(245,158,11,0.16)]",
+          isStart ? "rounded-l-[4px]" : "",
+          isEnd ? "rounded-r-[4px]" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+      };
+      const maskedPendingClass = (charIndex: number) =>
+        hintCharIndexes?.has(charIndex)
+          ? "rounded-md bg-amber-100/75 px-0.5 text-amber-700 shadow-[inset_0_-0.16em_0_rgba(245,158,11,0.22)] dark:bg-amber-400/10 dark:text-amber-200"
+          : "text-transparent";
       
       const renderedChars = chars.map((char, charIndex) => {
         // 띄어쓰기는 그대로 표시
         if (/\s/.test(char)) {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className="text-muted-foreground" style={{ opacity: lineOpacity }}>
+            <span
+              key={`${lineIdx}-${charIndex}`}
+              {...answerCharProps(charIndex)}
+              className={`text-muted-foreground ${difficultHighlightClass(charIndex)}`}
+              style={{ opacity: shouldMaskPendingForHint ? 0.18 : lineOpacity }}
+            >
               {char}
             </span>
           );
@@ -4238,8 +5236,29 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           : "";
 
         if (!isComparablePracticeChar(char)) {
+          const typedRawChar = userRawLineChars[charIndex] ?? "";
+          const isTypedSymbol = typedRawChar === char;
+          if (shouldMaskPendingForHint && !isRepeatCompletedLine && !isTypedSymbol) {
+            return (
+              <span
+                key={`${lineIdx}-${charIndex}`}
+                {...answerCharProps(charIndex)}
+                className={`relative font-semibold text-base lg:text-lg leading-[34px] text-transparent ${mnemonicClass} ${difficultHighlightClass(charIndex)}`}
+                aria-hidden="true"
+              >
+                {char}
+              </span>
+            );
+          }
           return (
-            <span key={`${lineIdx}-${charIndex}`} className={`text-muted-foreground relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass}`} style={{ opacity: lineOpacity }}>
+            <span
+              key={`${lineIdx}-${charIndex}`}
+              {...answerCharProps(charIndex)}
+              className={`relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass} ${difficultHighlightClass(charIndex)} ${
+                isRepeatCompletedLine || isTypedSymbol ? "text-foreground" : "text-muted-foreground"
+              }`}
+              style={{ opacity: isRepeatCompletedLine || isTypedSymbol ? 1 : lineOpacity }}
+            >
               {char}
             </span>
           );
@@ -4248,10 +5267,28 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         const currentCharIdx = charIdx;
         charIdx++;
 
+        if (isRepeatCompletedLine) {
+          return (
+            <span
+              key={`${lineIdx}-${charIndex}`}
+              {...answerCharProps(charIndex)}
+              className={`text-foreground relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass} ${difficultHighlightClass(charIndex)}`}
+              style={{ opacity: 1 }}
+            >
+              {char}
+            </span>
+          );
+        }
+
         if (!lineResult) {
           // 이 줄에 대한 입력이 없음
           return (
-            <span key={`${lineIdx}-${charIndex}`} className={`text-gray-400 relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass}`} style={{ opacity: lineOpacity }}>
+            <span
+              key={`${lineIdx}-${charIndex}`}
+              {...answerCharProps(charIndex)}
+              className={`text-gray-400 relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass} ${difficultHighlightClass(charIndex)}`}
+              style={{ opacity: lineOpacity }}
+            >
               {char}
             </span>
           );
@@ -4261,13 +5298,23 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
         if (charState === 'complete') {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className={`text-foreground relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass}`} style={{ opacity: 1 }}>
+            <span
+              key={`${lineIdx}-${charIndex}`}
+              {...answerCharProps(charIndex)}
+              className={`text-foreground relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass} ${difficultHighlightClass(charIndex)}`}
+              style={{ opacity: 1 }}
+            >
               {char}
             </span>
           );
         } else if (charState === 'partial') {
           return (
-            <span key={`${lineIdx}-${charIndex}`} className={`text-gray-600 relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass}`} style={{ opacity: 1 }}>
+            <span
+              key={`${lineIdx}-${charIndex}`}
+              {...answerCharProps(charIndex)}
+              className={`text-gray-600 relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass} ${difficultHighlightClass(charIndex)}`}
+              style={{ opacity: 1 }}
+            >
               {char}
             </span>
           );
@@ -4275,15 +5322,33 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
           return (
             <span
               key={`${lineIdx}-${charIndex}`}
-              className={`relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass}`}
-              style={{ opacity: 1, color: "var(--status-danger)" }}
+              {...answerCharProps(charIndex)}
+              className={`text-rose-600 dark:text-rose-300 relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass} ${difficultHighlightClass(charIndex)}`}
+              style={{ opacity: 1 }}
             >
               {char}
             </span>
           );
         } else {
+          if (shouldMaskPendingForHint) {
+            return (
+              <span
+                key={`${lineIdx}-${charIndex}`}
+                {...answerCharProps(charIndex)}
+                className={`relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass} ${difficultHighlightClass(charIndex)} ${maskedPendingClass(charIndex)}`}
+                style={{ opacity: hintCharIndexes?.has(charIndex) ? 1 : 0.32 }}
+              >
+                {char}
+              </span>
+            );
+          }
           return (
-            <span key={`${lineIdx}-${charIndex}`} className={`text-gray-400 relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass}`} style={{ opacity: lineOpacity }}>
+            <span
+              key={`${lineIdx}-${charIndex}`}
+              {...answerCharProps(charIndex)}
+              className={`text-gray-400 relative font-semibold text-base lg:text-lg leading-[34px] ${mnemonicClass} ${difficultHighlightClass(charIndex)}`}
+              style={{ opacity: lineOpacity }}
+            >
               {char}
             </span>
           );
@@ -4297,18 +5362,35 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
       // 체크된 줄 상태
       const isChecked = repeatCheckedLines.has(actualLineIdx);
       const isCurrentRepeat = isRepeatMode && currentRepeatTarget?.lineIdx === actualLineIdx;
+      const hasDifficultHighlightInLine = difficultHighlights.some((range) => range.lineIdx === actualLineIdx);
+      const repeatAccentColor = hasDifficultHighlightInLine
+        ? "oklch(0.38 0.02 80 / 0.55)"
+        : "oklch(0.34 0.03 255 / 0.52)";
+      const repeatBgColor = hasDifficultHighlightInLine
+        ? "oklch(0.90 0.05 84 / 0.14)"
+        : "oklch(0.42 0.02 255 / 0.07)";
       // 집중 연습 선택 가능 여부: 내용 줄 2개 이상
       const canSelectLine = meaningfulLineCount > 1;
       // 문장 클릭: 항상 해당 줄 개별 가리기/보이기 토글 가능 (hideMode 무관)
       // - 가려진 줄 클릭 → 보이기
       // - 보이는 줄 클릭 → 가리기 (답 가리기 모드일 때) 또는 집중 연습 선택 (일반 모드)
 
-      // 클릭 핸들러
-      const handleLineClick = (e: React.MouseEvent) => {
-        if (window.getSelection()?.toString()) return;
-        e.preventDefault();
+	      // 클릭 핸들러
+	      const handleLineClick = (e: React.MouseEvent) => {
+	        if (Date.now() < suppressAnswerLineClickUntilRef.current) {
+	          e.preventDefault();
+	          return;
+	        }
+	        if (window.getSelection()?.toString()) return;
+	        e.preventDefault();
         if (hideMode === 'all' || hiddenLines.has(lineIdx)) {
           // 답 가리기 모드이거나 이미 가려진 줄: 개별 토글
+          setLineTabHints(prev => {
+            if (!(lineIdx in prev)) return prev;
+            const next = { ...prev };
+            delete next[lineIdx];
+            return next;
+          });
           setHiddenLines(prev => {
             const next = new Set(prev);
             const isCurrentlyRevealed = next.has(lineIdx);
@@ -4329,8 +5411,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
       // 마지막 시험 오답 줄 여부
       const isWrongLine =
-        ((confidenceData as any)?.lastTestWrongLines?.includes(lineIdx) ?? false) ||
-        autoHideWrongLines.has(lineIdx);
+        (confidenceData as any)?.lastTestWrongLines?.includes(lineIdx) ?? false;
 
       const lineStyle: React.CSSProperties = {
         display: 'block',
@@ -4339,18 +5420,18 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         cursor: canSelectLine ? 'pointer' : 'default',
         userSelect: 'text',
         boxShadow: isChecked
-          ? 'inset 3px 0 0 oklch(0.55 0.2 290)'
+          ? `inset 3px 0 0 ${repeatAccentColor}`
           : isCurrentRepeat
-          ? 'inset 3px 0 0 oklch(0.55 0.2 290)'
+          ? `inset 3px 0 0 ${repeatAccentColor}`
           : isWrongLine
           ? 'inset 3px 0 0 var(--status-danger-soft-border)'
           : canSelectLine
           ? 'inset 3px 0 0 transparent'
           : 'none',
         backgroundColor: isCurrentRepeat
-          ? 'oklch(0.55 0.2 290 / 0.12)'
+          ? repeatBgColor
           : isChecked
-          ? 'oklch(0.55 0.2 290 / 0.07)'
+          ? repeatBgColor
           : isWrongLine
           ? 'var(--status-danger-soft-bg)'
           : 'transparent',
@@ -4390,7 +5471,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </span>
       );
     });
-  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines, repeatCheckedLines, currentRepeatTarget, isRepeatMode, toggleRepeatLine, confidenceData, autoHideWrongLines, mnemonicLineData, normalizeLineForComparison]);
+  }, [userInput, targetText, completionInfo, isFadingOut, calculateLineOpacity, hideMode, hiddenLines, lineTabHints, repeatCheckedLines, repeatCompletedLines, currentRepeatTarget, isRepeatMode, toggleRepeatLine, confidenceData, autoHideWrongLines, mnemonicLineData, normalizeLineForComparison, isDifficultHighlighted, difficultHighlights, getHintWordSpanForLine, getListPrefixInfo, isComparablePracticeChar, markLineViewedInAutoHide]);
 
   if (isLoading) {
     return (
@@ -4658,37 +5739,25 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 </Button>
               </div>
             )}
-            {studySuggestion.type === 'hide_practice' && (
-              <div className="flex items-center gap-2">
-                <div className="flex flex-col items-center gap-0.5">
-                  <Button
+	            {studySuggestion.type === 'hide_practice' && hideMode !== 'all' && (
+	              <div className="flex items-center gap-2">
+	                <div className="flex flex-col items-center gap-0.5">
+	                  <Button
                     size="sm"
                     variant="outline"
                     className="h-7 text-xs gap-1"
-                    onClick={() => setHideMode('all')}
+                    onClick={() => {
+                      setHideMode('all');
+                      setHiddenLines(new Set());
+                      setLineTabHints({});
+                    }}
                   >
                     <EyeOff className="h-3 w-3" />
-                    답 가리기
-                  </Button>
-                </div>
-                {question && (
-                  <div className="flex flex-col items-center gap-0.5">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs gap-1 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
-                      onClick={() => {
-                        const testPath = buildTestPath();
-                        if (testPath) setLocation(testPath);
-                      }}
-                    >
-                      <Zap className="h-3 w-3" />
-                      시험 시작
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
+	                    답 가리기
+	                  </Button>
+	                </div>
+	              </div>
+	            )}
           </div>
         </div>
       )}
@@ -4702,7 +5771,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         </div>
       )}
 
-      {orderedSubjectQuestions && orderedSubjectQuestions.length > 1 && (
+      {orderedSubjectQuestions && totalQuestions > 0 && (
         <div className="mb-2 flex items-center justify-center">
           <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-2 py-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85">
             {prevQuestion ? (
@@ -4738,6 +5807,21 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               aria-label="문제 번호 이동"
             />
             <span className="text-[10px] text-muted-foreground">/ {totalQuestions}</span>
+            {canAddQuestionFromPractice && createQuestionPath && (
+              <>
+                <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 rounded-full px-2 text-xs"
+                  onClick={() => setLocation(createQuestionPath)}
+                  aria-label="문제 추가"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">추가</span>
+                </Button>
+              </>
+            )}
             {nextQuestion ? (
               <Button
                 variant="ghost"
@@ -4865,7 +5949,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     {hideMode === 'all' || isImageMaskActive ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                     {hideMode === 'all' || isImageMaskActive ? '답 보기' : '답 가리기'}
                   </Button>
-                  <span className="hidden sm:block text-[10px] text-muted-foreground/70 leading-none">Tab</span>
+                  <span className="hidden sm:block text-[10px] text-muted-foreground/70 leading-none">Tab 힌트</span>
                 </div>
                 {question && (
                   <div className="flex shrink-0 flex-col items-center gap-0">
@@ -5446,23 +6530,15 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
               </div>
               {memoOpen && canUseMemo && (
                 <div className="rounded-lg border-2 border-blue-300 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-700 p-4 flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <StickyNote className="h-4 w-4 text-blue-600" />
-                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">암기법 / 설명 메모</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {memoSaved && <span className="text-xs text-emerald-600">✓ 저장됨</span>}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs gap-1 border-blue-300 text-blue-700 hover:bg-blue-100"
-                        onClick={handleSaveMemo}
-                        disabled={memoSaving}
-                      >
-                        <Save className="h-3 w-3" />
-                        {memoSaving ? '저장 중...' : '저장'}
-                      </Button>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <StickyNote className="h-4 w-4 text-blue-600" />
+                        <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">암기법 / 설명 메모</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                      <span className="text-xs text-blue-600/70 dark:text-blue-300/70">
+                        {memoSaving ? '자동 저장 중...' : memoSaved ? '✓ 저장됨' : '자동 저장'}
+                      </span>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -5475,7 +6551,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                   </div>
                   <textarea
                     value={memo}
-                    onChange={(e) => setMemo(e.target.value)}
+                    onChange={(e) => {
+                      setMemoSaved(false);
+                      setMemo(e.target.value);
+                    }}
                     placeholder="이미지 문제 암기법, 설명 포인트를 적어두세요."
                     className="w-full p-3 rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-950/30 resize-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                     style={{ minHeight: '180px' }}
@@ -5499,9 +6578,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 }
               >
                 <div className={memoOpen || useHorizontalInputLayout ? "flex-1 min-w-0" : ""}>
-                  <div
-                    ref={answerDisplayRef}
-                    className={`px-3 py-4 sm:px-5 sm:py-5 bg-muted/25 rounded-xl border-2 border-border ${
+	                  <div
+	                    ref={answerDisplayRef}
+	                    onMouseUp={handleAnswerSelectionMark}
+	                    className={`px-3 sm:px-5 py-0 bg-muted/25 rounded-xl border-2 border-border ${
                       memoOpen || useHorizontalInputLayout
                         ? "overflow-y-auto overscroll-y-contain [touch-action:pan-y]"
                         : "overflow-visible"
@@ -5509,11 +6589,45 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     style={{
                       minHeight: `${useHorizontalInputLayout ? horizontalSharedPanelMinHeightPx : answerPanelMinHeightPx}px`,
                       ...(answerPanelMaxHeight ? { maxHeight: answerPanelMaxHeight } : {}),
+                      ...(useHorizontalInputLayout
+                        ? {
+                            paddingTop: `${PRACTICE_NOTEBOOK_PADDING_TOP_PX}px`,
+                            paddingBottom: `${PRACTICE_NOTEBOOK_PADDING_TOP_PX}px`,
+                            backgroundImage: PRACTICE_NOTEBOOK_LINE_BG,
+                            backgroundSize: `100% ${PRACTICE_TEXT_LINE_HEIGHT_PX}px`,
+                            backgroundPositionY: `${PRACTICE_NOTEBOOK_PADDING_TOP_PX}px`,
+                          }
+                        : {}),
                     }}
                   >
                     <div className={`${PRACTICE_TEXT_CLASS} whitespace-pre-wrap`}>
                       {renderTextWithFeedback}
                     </div>
+                    {useHorizontalInputLayout && canUseMemo && (
+                      <div className="mt-4 border-t border-border/70 pt-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 text-xs font-semibold text-blue-700 dark:text-blue-300">
+                            <StickyNote className="h-3.5 w-3.5" />
+                            메모장
+                          </div>
+                          <span className="text-[11px] text-muted-foreground">
+                            {memoSaving ? '자동 저장 중...' : memoSaved ? '✓ 저장됨' : '자동 저장'}
+                          </span>
+                        </div>
+                        <textarea
+                          value={memo}
+                          onChange={(e) => {
+                            setMemoSaved(false);
+                            setMemo(e.target.value);
+                          }}
+                          placeholder="외우는 포인트나 헷갈리는 부분을 적어두세요."
+                          className="w-full rounded-lg border border-blue-200/70 bg-background/80 p-3 text-sm leading-6 text-foreground/90 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300 dark:border-blue-800/70 dark:bg-blue-950/20"
+                          style={{
+                            minHeight: isShortViewport ? '120px' : '160px',
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
                   {showToothMorphologySource && (
                     <p className="mt-1.5 text-[10px] text-muted-foreground/45 text-right select-none">
@@ -5524,7 +6638,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
                 {/* 가로 모드 입력 패널: 답안 우측 빈 공간 활용 */}
                 {useHorizontalInputLayout && (
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 flex">
                     <textarea
                       data-practice-input="main"
                       ref={textareaRef}
@@ -5535,7 +6649,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                       onBeforeInput={handlePracticeBeforeInput}
                       onKeyDown={handleKeyDown}
                       onKeyUp={handleKeyUp}
-                      className={`w-full rounded-xl border-2 border-border bg-background resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-ring caret-foreground ${PRACTICE_TEXT_CLASS} px-3 sm:px-5 py-0 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal`}
+                      className={`h-full w-full rounded-xl border-2 border-border bg-background resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-ring caret-foreground ${PRACTICE_TEXT_CLASS} px-3 sm:px-5 py-0 placeholder:text-sm placeholder:font-normal placeholder:tracking-normal`}
                       style={{
                         minHeight: `${horizontalSharedPanelMinHeightPx}px`,
                         ...(answerPanelMaxHeight
@@ -5553,7 +6667,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                 )}
 
                 {/* 메모 패널 - 정답과 나란히 */}
-                {memoOpen && (
+                {memoOpen && !useHorizontalInputLayout && (
                   <div className="flex-1 rounded-lg border-2 border-blue-300 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-700 p-4 flex flex-col gap-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -5562,17 +6676,9 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
                       </div>
                       <div className="flex items-center gap-2">
-                        {memoSaved && <span className="text-xs text-emerald-600">✓ 저장됨</span>}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs gap-1 border-blue-300 text-blue-700 hover:bg-blue-100"
-                          onClick={handleSaveMemo}
-                          disabled={memoSaving}
-                        >
-                          <Save className="h-3 w-3" />
-                          {memoSaving ? '저장 중...' : '저장'}
-                        </Button>
+                        <span className="text-xs text-blue-600/70 dark:text-blue-300/70">
+                          {memoSaving ? '자동 저장 중...' : memoSaved ? '✓ 저장됨' : '자동 저장'}
+                        </span>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -5585,7 +6691,10 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
                     </div>
                   <textarea
                     value={memo}
-                    onChange={(e) => setMemo(e.target.value)}
+                    onChange={(e) => {
+                      setMemoSaved(false);
+                      setMemo(e.target.value);
+                    }}
                     placeholder="암기법, 연상 기억법, 설명 등을 적어두세요."
                     className="flex-1 w-full p-3 rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-950/30 resize-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                     style={{ minHeight: isMobile ? '140px' : '200px' }}

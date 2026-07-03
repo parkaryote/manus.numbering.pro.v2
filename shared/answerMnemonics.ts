@@ -14,7 +14,9 @@ export type ParsedMnemonicAnswer = {
 
 const TRAILING_MNEMONIC_BRACE_REGEX = /\s*\{\s*([^{}\n\r]+?)\s*\}\s*$/;
 const TRAILING_MNEMONIC_LEGACY_REGEX = /\s*[（(]\s*(?:암기|힌트)\s*[:：]\s*([^()（）\n\r]+?)\s*[)）]\s*$/;
+const INLINE_MNEMONIC_BRACE_REGEX = /\{\s*([^{}\n\r]+?)\s*\}/g;
 const LINE_PREFIX_REGEX = /^(\s*(?:\d+[.)]\s*|[-*•·●○◦▪▫▸▹►▶‣⁃※]\s*))/;
+const MNEMONIC_TOKEN_REGEX = /[0-9A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ]+/g;
 
 function normalizeComparableChar(value: string): string {
   return value.toLocaleLowerCase();
@@ -52,17 +54,39 @@ function getHighlightedIndexes(cleanLine: string, hint: string | null): number[]
   return highlighted;
 }
 
+function extractLeadMnemonic(cleanLine: string): string | null {
+  const withoutPrefix = cleanLine.replace(LINE_PREFIX_REGEX, "").trim();
+  if (!withoutPrefix) return null;
+
+  const tokens = withoutPrefix.match(MNEMONIC_TOKEN_REGEX) ?? [];
+  if (tokens.length === 0) return null;
+
+  const initials = tokens
+    .map((token) => Array.from(token)[0] ?? "")
+    .filter((char) => char.length > 0)
+    .join("");
+
+  return initials || null;
+}
+
 export function parseMnemonicAnswerLine(rawLine: string): ParsedMnemonicAnswerLine {
   const normalizedLine = typeof rawLine === "string" ? rawLine : "";
   const braceMatch = normalizedLine.match(TRAILING_MNEMONIC_BRACE_REGEX);
   const legacyMatch = braceMatch ? null : normalizedLine.match(TRAILING_MNEMONIC_LEGACY_REGEX);
-  const hint = braceMatch?.[1]?.trim() || legacyMatch?.[1]?.trim() || null;
-  const cleanLine = hint
+  const explicitHint = braceMatch?.[1]?.trim() || legacyMatch?.[1]?.trim() || null;
+  const lineWithoutTrailingHint = explicitHint
     ? normalizedLine
         .replace(TRAILING_MNEMONIC_BRACE_REGEX, "")
         .replace(TRAILING_MNEMONIC_LEGACY_REGEX, "")
         .trimEnd()
     : normalizedLine;
+  let hasInlineBrace = false;
+  const cleanLine = lineWithoutTrailingHint.replace(INLINE_MNEMONIC_BRACE_REGEX, (_, inner: string) => {
+    hasInlineBrace = true;
+    return String(inner ?? "").trim();
+  }).trimEnd();
+  const generatedHint = explicitHint ? null : hasInlineBrace ? extractLeadMnemonic(cleanLine) : null;
+  const hint = explicitHint || generatedHint;
 
   return {
     rawLine: normalizedLine,

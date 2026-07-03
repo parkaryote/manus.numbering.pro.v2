@@ -16,6 +16,7 @@ import {
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import {
+  buildSoftXAxisTicks,
   buildSoftTimeScale,
   formatSoftRelativeTick,
 } from "@/lib/softTimeScale";
@@ -29,6 +30,19 @@ interface Props {
   isDemo?: boolean;
   previewLabel?: string;
   currentScoreOverride?: number | null;
+}
+
+interface ExamDatePrediction {
+  predictedScore: number;
+  predictedState: "green" | "yellow" | "red";
+  predictedLabel: string;
+  daysUntilExam: number;
+  hoursUntilExam: number;
+  minutesUntilExam: number;
+  examAtISO: string;
+  currentScore: number;
+  scoreDelta: number;
+  canReachGreen: boolean;
 }
 
 type SubjectHistoryPoint = {
@@ -46,6 +60,75 @@ const SOFT_DANGER_COLOR = "#d66b78";
 // 성공 기준
 const SUCCESS_THRESHOLD = 80;
 const TOOLTIP_POINT_HOVER_RADIUS_PX = 18;
+const TOOLTIP_GAP_PX = 14;
+const TOOLTIP_ESTIMATED_WIDTH_PX = 210;
+const TOOLTIP_ESTIMATED_HEIGHT_PX = 140;
+
+function getSafeTooltipPosition({
+  chartX,
+  chartY,
+  offset,
+}: {
+  chartX: number;
+  chartY: number;
+  offset?: { left?: number; top?: number; width?: number; height?: number };
+}): { x: number; y: number } {
+  const left = Number(offset?.left ?? 0);
+  const top = Number(offset?.top ?? 0);
+  const width = Number(offset?.width ?? 0);
+  const height = Number(offset?.height ?? 0);
+  const right = width > 0 ? left + width : Number.POSITIVE_INFINITY;
+  const bottom = height > 0 ? top + height : Number.POSITIVE_INFINITY;
+
+  let x = chartX + TOOLTIP_GAP_PX;
+  let y = chartY + TOOLTIP_GAP_PX;
+
+  if (x + TOOLTIP_ESTIMATED_WIDTH_PX > right) {
+    x = chartX - TOOLTIP_ESTIMATED_WIDTH_PX - TOOLTIP_GAP_PX;
+  }
+  if (y + TOOLTIP_ESTIMATED_HEIGHT_PX > bottom) {
+    y = chartY - TOOLTIP_ESTIMATED_HEIGHT_PX - TOOLTIP_GAP_PX;
+  }
+
+  return {
+    x: Math.max(left + 4, x),
+    y: Math.max(top + 4, y),
+  };
+}
+
+function formatExamCountdown(minutesUntilExam: number): string {
+  if (minutesUntilExam <= 0) return "D-Day";
+  const days = Math.floor(minutesUntilExam / (60 * 24));
+  const hours = Math.floor((minutesUntilExam % (60 * 24)) / 60);
+  const minutes = minutesUntilExam % 60;
+  if (days > 0) return `D-${days} · ${hours}시간 ${minutes}분 후`;
+  if (hours > 0) return `D-Day · ${hours}시간 ${minutes}분 후`;
+  return `D-Day · ${minutes}분 후`;
+}
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function isProjectionEventType(eventType?: string): boolean {
+  return eventType === "exam_predict" || eventType === "exam_predict_mid";
+}
+
+function getSegmentLineScore(row: {
+  eventType?: string;
+  score?: number | null;
+  mainScore?: number | null;
+}): number | null {
+  if (typeof row.mainScore === "number") return row.mainScore;
+  if (isProjectionEventType(row.eventType)) return null;
+  return typeof row.score === "number" ? row.score : null;
+}
+
+function getCurveAnchorScore(row: {
+  score?: number | null;
+}): number | null {
+  return typeof row.score === "number" ? row.score : null;
+}
 
 function normalizePointTimestamp(at: string, nowMs: number): string {
   const parsed = new Date(at);
@@ -131,6 +214,7 @@ function addSegmentLineScores<
     xPos: number;
     eventType?: string;
     score?: number | null;
+    mainScore?: number | null;
     retentionScore?: number | null;
     forgettingScore?: number | null;
     isLatest?: boolean;
@@ -150,8 +234,8 @@ function addSegmentLineScores<
   for (let index = 1; index < prepared.length; index += 1) {
     const previous = output[output.length - 1];
     const current = prepared[index];
-    const previousScore = typeof previous.score === "number" ? previous.score : null;
-    const currentScore = typeof current.score === "number" ? current.score : null;
+    const previousScore = getCurveAnchorScore(previous);
+    const currentScore = getCurveAnchorScore(current);
 
     if (previousScore !== null && currentScore !== null) {
       if (shouldRenderForgettingSegment(previousScore, currentScore)) {
@@ -178,8 +262,10 @@ function addSegmentLineScores<
         }
         current.forgettingScore = currentScore;
       } else {
-        previous.retentionScore = previousScore;
-        current.retentionScore = currentScore;
+        const previousRetentionScore = getSegmentLineScore(previous);
+        const currentRetentionScore = getSegmentLineScore(current);
+        if (previousRetentionScore !== null) previous.retentionScore = previousRetentionScore;
+        if (currentRetentionScore !== null) current.retentionScore = currentRetentionScore;
       }
     }
 
@@ -253,6 +339,20 @@ const CustomDot = (props: any) => {
       </g>
     );
   }
+  if (payload.eventType === "exam_predict") {
+    const stateColor =
+      payload.predictedState === "green"
+        ? "#22c55e"
+        : payload.predictedState === "yellow"
+          ? "#d4a72c"
+          : SOFT_DANGER_COLOR;
+    return (
+      <g key={`dot-${cx}-${cy}`}>
+        <circle cx={cx} cy={cy} r={8} fill={stateColor} fillOpacity={0.12} />
+        <circle cx={cx} cy={cy} r={4.5} fill={stateColor} stroke="white" strokeWidth={1.5} />
+      </g>
+    );
+  }
   // 연습 - 기본 상태에서는 숨김
   return null;
 };
@@ -305,6 +405,16 @@ const CustomActiveDot = (props: any) => {
     );
   }
   if (payload.eventType === "forgetting") return null;
+  if (payload.eventType === "exam_predict") {
+    const stateColor =
+      payload.predictedState === "green"
+        ? "#22c55e"
+        : payload.predictedState === "yellow"
+          ? "#d4a72c"
+          : SOFT_DANGER_COLOR;
+    return <circle cx={cx} cy={cy} r={7} fill={stateColor} stroke="white" strokeWidth={2} />;
+  }
+  if (payload.eventType === "exam_predict_mid") return null;
   return <circle cx={cx} cy={cy} r={7} fill={BRAND_COLOR} stroke="white" strokeWidth={2} />;
 };
 
@@ -358,6 +468,29 @@ const CustomTooltip = ({ active, payload }: any) => {
     );
   }
 
+  if (d.eventType === "exam_predict") {
+    const stateColor =
+      d.predictedState === "green"
+        ? "#22c55e"
+        : d.predictedState === "yellow"
+          ? "#d4a72c"
+          : SOFT_DANGER_COLOR;
+    return (
+      <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[170px]">
+        <div className="text-muted-foreground text-xs mb-1">{format(date, "yyyy.MM.dd HH:mm", { locale: ko })}</div>
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: stateColor }} />
+          <span className="font-semibold text-sm" style={{ color: stateColor }}>
+            시험일 예측 {Math.round(Number(d.score ?? 0))}점
+          </span>
+        </div>
+        <div className="text-xs text-muted-foreground mt-1">
+          {formatExamCountdown(Number(d.minutesUntilExam ?? 0))}
+        </div>
+      </div>
+    );
+  }
+
   if (d.eventType === "forgetting") {
     return (
       <div className="bg-background border border-border rounded-lg p-3 shadow-lg text-sm min-w-[150px]">
@@ -399,6 +532,7 @@ export function SubjectConfidenceHistoryModal({
 }: Props) {
   const [isEventLayerFocused, setIsEventLayerFocused] = useState(false);
   const [isTooltipNearPoint, setIsTooltipNearPoint] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | undefined>(undefined);
   const [selectedTestPoint, setSelectedTestPoint] = useState<SubjectHistoryPoint | null>(null);
   const utils = trpc.useUtils();
   const deleteTestSessionsMutation = trpc.test.deleteSessions.useMutation({
@@ -426,47 +560,172 @@ export function SubjectConfidenceHistoryModal({
     { subjectId: subjectId! },
     { enabled: open && subjectId !== null && isDemo }
   );
-  const data = isDemo ? demoHistoryQuery.data : liveHistoryQuery.data;
-  const isExamplePreview = Boolean(isDemo || (data as any)?.isExample);
-  const previewText = previewLabel || (data as any)?.previewLabel || "예시 화면";
-  const isLoading = isDemo ? demoHistoryQuery.isLoading : liveHistoryQuery.isLoading;
+  const liveSubjectConfidenceQuery = trpc.confidence.getBySubject.useQuery(
+    { subjectId: subjectId! },
+    {
+      enabled: open && subjectId !== null && !isDemo,
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    }
+  );
+  const demoSubjectConfidenceQuery = trpc.demo.confidenceBySubject.useQuery(
+    { subjectId: subjectId! },
+    {
+      enabled: open && subjectId !== null && isDemo,
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    }
+  );
+
+  const historyData = isDemo ? demoHistoryQuery.data : liveHistoryQuery.data;
+  const subjectConfidenceData = isDemo ? demoSubjectConfidenceQuery.data : liveSubjectConfidenceQuery.data;
+  const isExamplePreview = Boolean(isDemo || (historyData as any)?.isExample);
+  const previewText = previewLabel || (historyData as any)?.previewLabel || "예시 화면";
+  const isLoading = isDemo
+    ? demoHistoryQuery.isLoading || demoSubjectConfidenceQuery.isLoading
+    : liveHistoryQuery.isLoading || liveSubjectConfidenceQuery.isLoading;
+  const effectiveExamDatePrediction =
+    ((subjectConfidenceData as any)?.examDatePrediction ?? null) as ExamDatePrediction | null;
 
   const normalizedNowMs = Date.now();
-  const points = ((data?.points ?? []) as SubjectHistoryPoint[]).map((point) => ({
+  const points = ((historyData?.points ?? []) as SubjectHistoryPoint[]).map((point) => ({
     ...point,
     at: normalizePointTimestamp(point.at, normalizedNowMs),
   }));
+  const pointsWithFallback: SubjectHistoryPoint[] = [...points];
+  if (pointsWithFallback.length === 0 && effectiveExamDatePrediction) {
+    pointsWithFallback.push({
+      at: new Date(normalizedNowMs).toISOString(),
+      score: effectiveExamDatePrediction.currentScore,
+      eventType: "now",
+    });
+  }
 
-  const testPoints = points.filter(p => p.eventType === "test");
+  const solidData: SubjectHistoryPoint[] = [...pointsWithFallback];
+  const testPoints = solidData.filter((p) => p.eventType === "test");
   const latestTestAt = testPoints.length > 0 ? testPoints[testPoints.length - 1].at : null;
+
+  const allPoints: SubjectHistoryPoint[] = [...solidData];
+  let projectionMidAtISO: string | null = null;
+  let projectionExamAtISO: string | null = null;
+  if (effectiveExamDatePrediction) {
+    let examDate = new Date(effectiveExamDatePrediction.examAtISO);
+    if (Number.isNaN(examDate.getTime())) {
+      examDate = new Date(
+        Date.now() + (effectiveExamDatePrediction.minutesUntilExam ?? 0) * 60_000
+      );
+    }
+    const lastAt =
+      allPoints.length > 0 ? new Date(allPoints[allPoints.length - 1].at).getTime() : Date.now();
+    if (examDate.getTime() <= lastAt) {
+      examDate = new Date(lastAt + 60_000);
+    }
+    const lastScore = clampScore(
+      Number(
+        allPoints.length > 0
+          ? allPoints[allPoints.length - 1].score
+          : effectiveExamDatePrediction.currentScore
+      )
+    );
+    const predictedScore = clampScore(effectiveExamDatePrediction.predictedScore);
+    const curveGapMs = Math.max(60_000, examDate.getTime() - lastAt);
+    const midAt = new Date(lastAt + Math.max(60_000, Math.floor(curveGapMs * 0.55)));
+    const delta = predictedScore - lastScore;
+    const curvedMidScore = clampScore(
+      lastScore + delta * 0.72 + (delta < 0 ? -2 : delta > 0 ? 2 : 0)
+    );
+    projectionMidAtISO = midAt.toISOString();
+    projectionExamAtISO = examDate.toISOString();
+    allPoints.push({
+      at: projectionMidAtISO,
+      score: curvedMidScore,
+      eventType: "exam_predict_mid",
+    } as SubjectHistoryPoint);
+    allPoints.push({
+      at: projectionExamAtISO,
+      score: predictedScore,
+      eventType: "exam_predict",
+    } as SubjectHistoryPoint);
+  }
+
+  const timeScaleInputPoints = allPoints.filter((p) => p.eventType !== "exam_predict_mid");
   const timeScale = buildSoftTimeScale(
-    points.map((p) => ({ at: p.at, eventType: p.eventType }))
+    timeScaleInputPoints.map((p) => ({ at: p.at, eventType: p.eventType }))
   );
+  const timeScaleNodeByAt = new Map(
+    timeScaleInputPoints.map((point, index) => [point.at, timeScale.nodes[index]])
+  );
+  const projectionStartAtISO = solidData.length > 0 ? solidData[solidData.length - 1].at : null;
+  const projectionStartX =
+    projectionStartAtISO ? (timeScaleNodeByAt.get(projectionStartAtISO)?.x ?? null) : null;
+  const projectionExamX =
+    projectionExamAtISO ? (timeScaleNodeByAt.get(projectionExamAtISO)?.x ?? null) : null;
+
+  const xAxisTicks = buildSoftXAxisTicks(timeScale.nodes, timeScale.firstTs, {
+    maxTicks: 8,
+    compactLabels: true,
+  });
 
   const chartData = splitForgettingSeriesByNow(
     addSegmentLineScores(
-      points.map((p, i) => {
+      allPoints.map((p, i) => {
+        const isPredict = p.eventType === "exam_predict";
+        const isPredictMid = p.eventType === "exam_predict_mid";
+        const isProjectionPoint = isPredict || isPredictMid;
+        let xPos = timeScaleNodeByAt.get(p.at)?.x ?? i * 24;
+        if (
+          isPredictMid &&
+          projectionStartX !== null &&
+          projectionExamX !== null &&
+          projectionExamX > projectionStartX
+        ) {
+          xPos = projectionStartX + (projectionExamX - projectionStartX) * 0.55;
+        }
         return {
           ...p,
           score: p.score,
+          mainScore: isProjectionPoint ? null : p.score,
           idx: i,
-          xPos: timeScale.nodes[i]?.x ?? i * 24,
+          xPos,
           isLatest: p.at === latestTestAt && p.eventType === "test",
+          ...(isPredict && effectiveExamDatePrediction
+            ? {
+                predictedState: effectiveExamDatePrediction.predictedState,
+                scoreDelta: effectiveExamDatePrediction.scoreDelta,
+                daysUntilExam: effectiveExamDatePrediction.daysUntilExam,
+                hoursUntilExam: effectiveExamDatePrediction.hoursUntilExam,
+                minutesUntilExam: effectiveExamDatePrediction.minutesUntilExam,
+              }
+            : {}),
         };
       })
     ),
     normalizedNowMs
-  );
+  ).map((row) => {
+    const atMs = new Date(row.at).getTime();
+    const isFuture = Number.isFinite(atMs) && atMs > normalizedNowMs;
+    if (!isFuture) return row;
+    return {
+      ...row,
+      retentionScore: null,
+    };
+  });
 
-  const hasData = chartData.length > 0;
+  const hasData = solidData.length > 0;
   const latestCurrentChartPoint = chartData
     .filter((p) => {
+      if (p.eventType === "exam_predict" || p.eventType === "exam_predict_mid") return false;
       const atMs = new Date(p.at).getTime();
       return !Number.isFinite(atMs) || atMs <= normalizedNowMs;
     })
     .at(-1);
-  const latestAnyChartPoint = chartData.at(-1);
-  const resolvedCurrentScore = latestCurrentChartPoint?.score ?? latestAnyChartPoint?.score ?? null;
+  const latestNonProjectionPoint = chartData
+    .filter((p) => p.eventType !== "exam_predict" && p.eventType !== "exam_predict_mid")
+    .at(-1);
+  const resolvedCurrentScore =
+    latestCurrentChartPoint?.score ??
+    latestNonProjectionPoint?.score ??
+    (solidData.length > 0 ? solidData[solidData.length - 1].score : null);
   const graphCurrentScore =
     hasData && typeof resolvedCurrentScore === "number"
       ? Math.round(Number(resolvedCurrentScore))
@@ -476,6 +735,24 @@ export function SubjectConfidenceHistoryModal({
       ? Math.round(currentScoreOverride)
       : graphCurrentScore;
   const currentStateColor = currentScore !== null ? getStateColor(currentScore) : "#6b7280";
+  const formatConfidenceXAxisTick = (value: number) => {
+    const x = Number(value);
+    if (
+      projectionStartX !== null &&
+      projectionExamX !== null &&
+      projectionExamX > projectionStartX &&
+      x > projectionStartX &&
+      x < projectionExamX
+    ) {
+      const span = projectionExamX - projectionStartX;
+      const distanceToExam = projectionExamX - x;
+      if (distanceToExam > Math.max(4, span * 0.22)) return "";
+      return "D-day";
+    }
+    return formatSoftRelativeTick(x, timeScale.nodes, timeScale.firstTs, {
+      compact: true,
+    });
+  };
   const handleChartMouseMove = (state: any) => {
     const activePayload = state?.activePayload ?? [];
     const chartX = Number(state?.chartX);
@@ -484,18 +761,19 @@ export function SubjectConfidenceHistoryModal({
     if (!Number.isFinite(chartX) || !Number.isFinite(chartY) || !Number.isFinite(activeX)) {
       setIsEventLayerFocused(false);
       setIsTooltipNearPoint(false);
+      setTooltipPosition(undefined);
       return;
     }
 
     const hasEventLayerHover = activePayload.some((entry: any) => {
       const eventType = entry?.payload?.eventType;
       const dataKey = entry?.dataKey;
-      return dataKey === "score" && (eventType === "practice" || eventType === "test" || eventType === "forgetting");
+      return dataKey === "mainScore" && (eventType === "practice" || eventType === "test" || eventType === "forgetting");
     });
 
     const eventEntry = activePayload.find(
       (entry: any) =>
-        entry?.dataKey === "score" &&
+        entry?.dataKey === "mainScore" &&
         typeof entry?.value === "number"
     );
 
@@ -515,18 +793,21 @@ export function SubjectConfidenceHistoryModal({
     if (!Number.isFinite(activeY)) {
       setIsEventLayerFocused(false);
       setIsTooltipNearPoint(false);
+      setTooltipPosition(undefined);
       return;
     }
 
     const distance = Math.hypot(chartX - activeX, chartY - activeY);
     const isNearPoint = distance <= TOOLTIP_POINT_HOVER_RADIUS_PX;
     setIsTooltipNearPoint(isNearPoint);
+    setTooltipPosition(isNearPoint ? getSafeTooltipPosition({ chartX, chartY, offset: state?.offset }) : undefined);
     setIsEventLayerFocused(hasEventLayerHover && isNearPoint);
   };
 
   const handleChartMouseLeave = () => {
     setIsEventLayerFocused(false);
     setIsTooltipNearPoint(false);
+    setTooltipPosition(undefined);
   };
 
   const handleSelectTestPoint = (point: SubjectHistoryPoint) => {
@@ -628,15 +909,13 @@ export function SubjectConfidenceHistoryModal({
                     dataKey="xPos"
                     domain={[timeScale.xDomainMin, timeScale.xDomainMax]}
                     scale="linear"
-                    tickCount={8}
+                    ticks={xAxisTicks}
                     interval="preserveStartEnd"
-                    minTickGap={24}
+                    minTickGap={36}
                     tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(value) =>
-                      formatSoftRelativeTick(Number(value), timeScale.nodes, timeScale.firstTs)
-                    }
+                    tickFormatter={(value) => formatConfidenceXAxisTick(Number(value))}
                   />
                   <YAxis
                     domain={[0, 100]}
@@ -662,7 +941,9 @@ export function SubjectConfidenceHistoryModal({
 
                   <Tooltip
                     content={(props) => (isTooltipNearPoint ? <CustomTooltip {...props} /> : null)}
-                    wrapperStyle={{ zIndex: 90 }}
+                    position={tooltipPosition}
+                    isAnimationActive={false}
+                    wrapperStyle={{ zIndex: 90, pointerEvents: "none", transition: "none" }}
                     allowEscapeViewBox={{ x: true, y: true }}
                   />
 
@@ -697,15 +978,23 @@ export function SubjectConfidenceHistoryModal({
                     strokeOpacity={0.82}
                     strokeWidth={3}
                     strokeDasharray="6 4"
-                    dot={false}
-                    activeDot={false}
+                    dot={(props: any) =>
+                      props?.payload?.eventType === "exam_predict"
+                        ? <CustomDot {...props} onSelectPoint={handleSelectTestPoint} />
+                        : <g />
+                    }
+                    activeDot={(props: any) =>
+                      props?.payload?.eventType === "exam_predict"
+                        ? <CustomActiveDot {...props} onSelectPoint={handleSelectTestPoint} />
+                        : <g />
+                    }
                     isAnimationActive={true}
                     animationDuration={600}
                     connectNulls={false}
                   />
                   <Line
                     type="monotone"
-                    dataKey="score"
+                    dataKey="mainScore"
                     stroke={BRAND_COLOR}
                     strokeOpacity={0}
                     strokeWidth={8}
@@ -737,6 +1026,37 @@ export function SubjectConfidenceHistoryModal({
                 </Button>
               </div>
             ) : null}
+
+            {effectiveExamDatePrediction && (
+              <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-muted/40 border border-border text-xs sm:text-sm">
+                <span className="text-muted-foreground text-[11px] sm:text-xs">
+                  {formatExamCountdown(effectiveExamDatePrediction.minutesUntilExam)} 예측
+                </span>
+                <span
+                  className="font-bold text-sm sm:text-base tabular-nums"
+                  style={{
+                    color:
+                      effectiveExamDatePrediction.predictedState === "green"
+                        ? "#22c55e"
+                        : effectiveExamDatePrediction.predictedState === "yellow"
+                          ? "#d4a72c"
+                          : SOFT_DANGER_COLOR,
+                  }}
+                >
+                  {effectiveExamDatePrediction.predictedScore}점
+                </span>
+                {effectiveExamDatePrediction.scoreDelta < 0 && (
+                  <span className="text-rose-400 text-xs font-medium">
+                    ({effectiveExamDatePrediction.scoreDelta})
+                  </span>
+                )}
+                {effectiveExamDatePrediction.scoreDelta > 0 && (
+                  <span className="text-emerald-500 text-xs font-medium">
+                    (+{effectiveExamDatePrediction.scoreDelta})
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* 요약 통계 */}
             <div className="grid grid-cols-3 gap-2">

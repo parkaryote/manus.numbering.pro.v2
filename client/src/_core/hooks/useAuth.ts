@@ -4,6 +4,21 @@ import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
 
 const GUEST_ID_KEY = "numbering_guest_id";
+const DEMO_SUBJECT_UNLOCK_KEY_PREFIX = "numbering_demo_unlock_subject_v1_";
+
+function clearProtectedSubjectUnlockCache() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith(DEMO_SUBJECT_UNLOCK_KEY_PREFIX)) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -40,6 +55,7 @@ export function useAuth(options?: UseAuthOptions) {
       try {
         localStorage.removeItem(GUEST_ID_KEY);
       } catch {}
+      clearProtectedSubjectUnlockCache();
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }

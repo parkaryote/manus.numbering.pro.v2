@@ -6,6 +6,14 @@ function parseBooleanEnv(value: string | undefined, defaultValue = false): boole
   return defaultValue;
 }
 
+function parseCsvEnv(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export const ENV = {
   appId: process.env.VITE_APP_ID ?? "",
   cookieSecret: process.env.JWT_SECRET ?? "",
@@ -20,8 +28,12 @@ export const ENV = {
   sessionCookieSameSite: (process.env.SESSION_COOKIE_SAMESITE ?? "lax").trim().toLowerCase(),
   siteGatePassword: process.env.SITE_GATE_PASSWORD ?? "",
   signupAccessPassword: process.env.SIGNUP_ACCESS_PASSWORD ?? "",
+  telemetryExcludedIps: parseCsvEnv(process.env.TELEMETRY_EXCLUDED_IPS),
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   allowDemoPublishing: parseBooleanEnv(process.env.ALLOW_DEMO_PUBLISHING, false),
+  // Safety-first default:
+  // keep user/demo content unless an explicit delete action is requested.
+  dataSafetyMode: parseBooleanEnv(process.env.DATA_SAFETY_MODE, true),
 };
