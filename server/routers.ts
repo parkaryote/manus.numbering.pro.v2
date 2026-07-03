@@ -1104,7 +1104,7 @@ const FIXED_QUESTION_IMAGE_OVERRIDES: Array<{
   imageUrl: string;
 }> = [
   { keyword: "치아의 방향 중 빈칸을 채우시오", imageUrl: "/demo-assets/tooth-direction.png" },
-  { keyword: "4월 12일 s-league", imageUrl: "/demo-assets/s-league-lineup.png" },
+  { keyword: "4월 12일 s-league", imageUrl: "/demo-assets/s-league-lineup.svg" },
 ];
 
 function resolveFixedQuestionImageUrl(questionText: string | null | undefined): string | null {

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" role="img" aria-label="S-league lineup">
+  <defs>
+    <linearGradient id="grass" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#7fc46a"/>
+      <stop offset="1" stop-color="#4e9a48"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#163a1b" flood-opacity=".25"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="900" fill="#eeeae4"/>
+  <g transform="translate(70 70)">
+    <path d="M70 50h920l90 690H0z" fill="url(#grass)"/>
+    <path d="M80 95h890M60 270h945M35 455h995M10 640h1060" stroke="#e8f5e7" stroke-width="6" opacity=".45"/>
+    <path d="M245 690h580v-150H245z" fill="none" stroke="#e8f5e7" stroke-width="8" opacity=".55"/>
+    <path d="M430 690h210v-95H430z" fill="none" stroke="#e8f5e7" stroke-width="8" opacity=".55"/>
+    <path d="M430 85h210v80H430z" fill="none" stroke="#e8f5e7" stroke-width="8" opacity=".45"/>
+  </g>
+  <g font-family="Arial, 'Noto Sans KR', sans-serif" font-weight="800" text-anchor="middle" filter="url(#shadow)">
+    <g fill="#171717">
+      <rect x="555" y="82" width="88" height="120" rx="12"/>
+      <rect x="222" y="183" width="88" height="120" rx="12"/>
+      <rect x="858" y="183" width="88" height="120" rx="12"/>
+      <rect x="481" y="288" width="88" height="120" rx="12"/>
+      <rect x="332" y="377" width="88" height="120" rx="12"/>
+      <rect x="579" y="463" width="88" height="120" rx="12"/>
+      <rect x="87" y="539" width="88" height="120" rx="12"/>
+      <rect x="873" y="539" width="88" height="120" rx="12"/>
+      <rect x="323" y="635" width="88" height="120" rx="12"/>
+      <rect x="636" y="635" width="88" height="120" rx="12"/>
+    </g>
+    <rect x="504" y="685" width="96" height="120" rx="12" fill="#f2b64d"/>
+    <g fill="#fff" font-size="38">
+      <text x="600" y="245">한종현</text>
+      <text x="266" y="346">박진혁</text>
+      <text x="902" y="346">조준형</text>
+      <text x="525" y="450">김준영</text>
+      <text x="376" y="540">김병후</text>
+      <text x="623" y="624">이준</text>
+      <text x="131" y="700">박정우</text>
+      <text x="917" y="700">박혁</text>
+      <text x="367" y="796">정진우</text>
+      <text x="680" y="796">안영찬</text>
+      <text x="552" y="850">이태민</text>
+    </g>
+    <text x="1040" y="820" fill="#fff" font-size="42" font-weight="900">LINEUP11</text>
+    <text x="1000" y="90" fill="#fff" font-size="36" font-weight="900">SPORTS STUDIO</text>
+  </g>
+</svg>
