@@ -737,11 +737,12 @@ function SortableQuestionCard({
               <Table2 className="h-3 w-3 text-purple-500 flex-shrink-0" />
             )}
             {!hasImage && !hasTable && !isBlankQuestion && (
-              <ScrollText
-                className="h-3 w-3 text-slate-500 dark:text-slate-400 flex-shrink-0"
-                aria-label="텍스트 문제"
-                title="텍스트 문제"
-              />
+              <span className="inline-flex flex-shrink-0" title="텍스트 문제">
+                <ScrollText
+                  className="h-3 w-3 text-slate-500 dark:text-slate-400"
+                  aria-label="텍스트 문제"
+                />
+              </span>
             )}
             {!hasImage && !hasTable && isBlankQuestion && (
               <span

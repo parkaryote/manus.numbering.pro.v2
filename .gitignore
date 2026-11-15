@@ -112,3 +112,7 @@ temp/
 *.traineddata
 backups/
 .env.bak.*
+
+# Manus 에이전트 작업 로그 (DB 쿼리 덤프 등) - 커밋 금지
+.manus/
+.manus-logs/
