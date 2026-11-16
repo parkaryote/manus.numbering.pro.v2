@@ -58,7 +58,7 @@ function extractLeadMnemonic(cleanLine: string): string | null {
   const withoutPrefix = cleanLine.replace(LINE_PREFIX_REGEX, "").trim();
   if (!withoutPrefix) return null;
 
-  const tokens = withoutPrefix.match(MNEMONIC_TOKEN_REGEX) ?? [];
+  const tokens: string[] = withoutPrefix.match(MNEMONIC_TOKEN_REGEX) ?? [];
   if (tokens.length === 0) return null;
 
   const initials = tokens

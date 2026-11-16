@@ -4,11 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect, lazy, Suspense } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Play, Send, RotateCcw, Mic, MicOff, Table2, BarChart3, Check } from "lucide-react";
 import { toast } from "sonner";
-import { Streamdown } from "streamdown";
 import { TableView, TableData, getBlankCells, gradeTable } from "@/components/TableEditor";
 import { trackTestSubmit } from "@/lib/ga4Events";
 import { ConfidencePopup } from "@/components/ConfidencePopup";
@@ -20,6 +19,11 @@ import { useIsMobile } from "@/hooks/useMobile";
 import { stripMnemonicHintsFromAnswer } from "@shared/answerMnemonics";
 import { getRenderableImageCandidates } from "@/lib/renderableImageUrl";
 import { formatQuestionTextForDisplay } from "@/lib/questionDisplay";
+
+// 마크다운 렌더러(streamdown)는 용량이 커서 AI 피드백이 실제로 표시될 때만 불러온다.
+const Streamdown = lazy(() =>
+  import("streamdown").then((module) => ({ default: module.Streamdown }))
+);
 
 interface TestProps {
   questionId: number;
@@ -2233,7 +2237,9 @@ export default function Test({ questionId, isDemo = false }: TestProps) {
                 <div className="space-y-2">
                   <h3 className="font-semibold">AI 피드백</h3>
                   <div className="p-4 bg-muted/30 rounded-lg">
-                    <Streamdown>{result.llmFeedback}</Streamdown>
+                    <Suspense fallback={<p className="whitespace-pre-wrap text-sm">{result.llmFeedback}</p>}>
+                      <Streamdown>{result.llmFeedback}</Streamdown>
+                    </Suspense>
                   </div>
                 </div>
               )}

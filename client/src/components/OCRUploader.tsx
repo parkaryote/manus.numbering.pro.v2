@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { PDFDocument } from "pdf-lib";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -328,6 +327,8 @@ function serializePageSelection(pages: number[]): string {
 
 async function readPdfPageCount(file: File): Promise<number> {
   const arrayBuffer = await file.arrayBuffer();
+  // pdf-lib 은 PDF 를 올릴 때만 필요하므로 그때 불러온다.
+  const { PDFDocument } = await import("pdf-lib");
   const pdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   return pdf.getPageCount();
 }

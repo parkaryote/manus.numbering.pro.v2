@@ -708,7 +708,7 @@ export default function Subjects({ demoWorkspace = false }: { demoWorkspace?: bo
   const createDemoMutation = trpc.admin.demo.createSubject.useMutation({
     onSuccess: (created) => {
       utils.admin.demo.subjects.setData(undefined, (prev) => {
-        const next = [...(prev ?? []), created];
+        const next = [...(prev ?? []), created.data];
         return next.sort((a, b) => {
           const orderDiff = (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
           if (orderDiff !== 0) return orderDiff;

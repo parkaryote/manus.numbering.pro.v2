@@ -134,7 +134,7 @@ function createExamBatchId() {
 }
 
 function buildMistakeManualKey(
-  mistake: EvalResult["mistakes"] extends Array<infer T> ? T : never,
+  mistake: NonNullable<EvalResult["mistakes"]>[number],
   index: number
 ): string {
   if (typeof mistake?.cellKey === "string" && mistake.cellKey.length > 0) {
@@ -1132,7 +1132,7 @@ export default function SubjectExam({ subjectId, isDemo = false }: SubjectExamPr
               size="sm"
               variant="destructive"
               className="gap-1.5"
-              onClick={handleFinishExam}
+              onClick={() => void handleFinishExam()}
               disabled={isSubmitting}
             >
               {isSubmitting ? "채점 중..." : "시험 종료"}

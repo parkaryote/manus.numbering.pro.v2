@@ -965,7 +965,7 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
         points: nextPoints,
         isExample: false,
         previewLabel: undefined,
-      };
+      } as unknown as NonNullable<typeof prev>;
     });
 
     utils.confidence.getBySubject.setData({ subjectId: question.subjectId }, (prev: any) => {
@@ -3890,7 +3890,6 @@ export default function Practice({ questionId, isDemo = false }: PracticeProps) 
 
     const inputValue = userInput;
     const timeout = window.setTimeout(() => {
-      if (hideMode === "all") return;
       if (isComposing || isResettingRef.current || isFadingOut) return;
       tryAutoFinishPracticeOnFinalLine(inputValue, inputValue.length);
     }, 80);
